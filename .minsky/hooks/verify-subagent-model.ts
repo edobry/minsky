@@ -56,16 +56,26 @@
 // @see .minsky/hooks/warn-bare-prohibition-dispatch.ts — PreToolUse sibling on the same tool
 // @see .minsky/rules/hook-observers.mdc "Subagent model verification"
 
-import { readInput, findRepoRoot } from "./types";
+import { readInput } from "./types";
 import type { ToolHookInput, HookOutput } from "./types";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, join } from "node:path";
+import { homedir } from "node:os";
 
 /** Override env var: set to "1"/"true"/"yes" to suppress the check and its log entirely. */
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_SUBAGENT_MODEL_CHECK";
 
-/** Mismatch/trace log path, relative to the repo root. */
-export const MISMATCH_LOG = ".minsky/subagent-model-mismatch.jsonl";
+/**
+ * Mismatch/trace log FILE NAME — bare, with no `.minsky/` prefix and no directory.
+ *
+ * mt#4816: this was `.minsky/subagent-model-mismatch.jsonl`, relative to the repo root, which
+ * made it the last telemetry writer depositing a file into whatever Minsky-managed project the
+ * agent happened to be working in — the condition mt#4748's SC2 forbids. The value is now the
+ * bare name so it is BYTE-IDENTICAL to the `relativePath` its row declares in
+ * `packages/domain/src/guard-events/stream-sources.ts`; the two are asserted equal in this
+ * hook's test, so they cannot drift apart the way `ask-form-lint`'s did (mt#4811).
+ */
+export const MISMATCH_LOG = "subagent-model-mismatch.jsonl";
 
 /**
  * Tool names this hook reacts to. The settings matcher is `Agent`; `Task` is the same tool's
@@ -226,12 +236,49 @@ export function decideModelCheck(
   };
 }
 
-/** Append one log record; never throws (a logging failure must not affect the turn). */
-export function appendMismatchRecord(cwd: string, record: Record<string, unknown>): void {
+/**
+ * State dir this stream's log lives under — FLAT, not project-keyed.
+ *
+ * mt#4816 decided flat over project-keyed for the `special` family, and the reason is that
+ * project attribution never depended on the path: `attachProjectIds`
+ * (`packages/domain/src/guard-events/ingest-service.ts`) resolves each row's `project_id` from
+ * the record's own `session_id`, and uses the file path only for the `source_path` column. So a
+ * flat file loses nothing, and it matches how `fire-log` and `guard-health-log` — the two
+ * siblings in this family — are already treated.
+ *
+ * **Keyed on `MINSKY_STATE_DIR`, deliberately NOT `getMinskyStateDir()`.** Those two resolve
+ * differently: `getMinskyStateDir()` (`@minsky/shared/paths`) keys on `XDG_STATE_HOME` ONLY, and
+ * mt#3965 records that as an intentional choice. The READER here is the guard-events ingest,
+ * whose `resolveStateDir` (`packages/domain/src/guard-events/ingest-runtime.ts`) keys on
+ * `MINSKY_STATE_DIR` — as do `fire-log.ts` and `guard-health.ts`, the two flat siblings. Using
+ * the shared helper would therefore reproduce exactly the writer/reader split mt#4811 found live
+ * in `ask-form-lint`, where the sweep read an empty corpus and reported "this guard never fired."
+ * The agreement is asserted in this hook's test rather than left to these two derivations
+ * staying in sync by hand.
+ */
+export function getSubagentModelStateDir(env: NodeJS.ProcessEnv = process.env): string {
+  const envDir = env["MINSKY_STATE_DIR"];
+  if (envDir) return envDir;
+  return join(homedir(), ".local", "state", "minsky");
+}
+
+/** Absolute path of this stream's log. Must equal `resolveStreamPath`'s answer for its row. */
+export function getMismatchLogPath(env: NodeJS.ProcessEnv = process.env): string {
+  return join(getSubagentModelStateDir(env), MISMATCH_LOG);
+}
+
+/**
+ * Append one log record; never throws (a logging failure must not affect the turn).
+ *
+ * `env` is injected rather than read from the module so a test can point the write at a temp
+ * directory without mutating `process.env` — the same shape `fire-log.ts` uses.
+ */
+export function appendMismatchRecord(
+  record: Record<string, unknown>,
+  env: NodeJS.ProcessEnv = process.env
+): void {
   try {
-    // Resolve the actual repo ROOT, not the raw shell cwd — cwd is routinely a subdirectory,
-    // and a bare resolve() would scatter the log into a stray nested `.minsky/` (mt#2710).
-    const logPath = resolve(findRepoRoot(cwd), MISMATCH_LOG);
+    const logPath = getMismatchLogPath(env);
     const dir = dirname(logPath);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
@@ -262,7 +309,7 @@ async function main(): Promise<void> {
   }
 
   if (decision.kind === "log-only" || decision.kind === "warn") {
-    appendMismatchRecord(input.cwd, decision.record);
+    appendMismatchRecord(decision.record);
   }
 
   if (decision.kind === "warn") {

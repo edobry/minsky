@@ -186,9 +186,16 @@ stray logs across 6 session workspaces by rooting on a raw cwd.
 
 ## C. Non-guard special stream
 
-| Stream                  | Path                                    | Writer                                                                                          | Record shape (one line)                                                                                                       | Registry status                                                                           | Ingest disposition |
-| ----------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------ |
-| subagent-model-mismatch | `.minsky/subagent-model-mismatch.jsonl` | `.minsky/hooks/verify-subagent-model.ts` (mt#3151, the Agent-tool PostToolUse model-tier check) | `{timestamp, session_id, dispatching_agent_id, tool_name, requested, kind, resolved, subagent_id, response_status, is_async}` | unregistered (its own ad hoc log; predates and is outside the calibration-log convention) | ingest             |
+As of **mt#4816** this stream is state-dir and **flat** — not project-keyed like §A/§B. It was the
+last `location: "repo"` row in `stream-sources.ts`, and that location kind is now retired from the
+`GuardEventStreamLocation` union entirely, so a repo-rooted stream is a type error rather than
+something a later sweep has to find. Flat rather than project-keyed because `project_id` is
+resolved from each record's `session_id` by `attachProjectIds` (`ingest-service.ts`), never from
+the path — the same reason §D's streams are flat.
+
+| Stream                  | Path                                                                                               | Writer                                                                                          | Record shape (one line)                                                                                                       | Registry status                                                                           | Ingest disposition |
+| ----------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------ |
+| subagent-model-mismatch | `<state dir>/subagent-model-mismatch.jsonl` (mt#4816; was `.minsky/subagent-model-mismatch.jsonl`) | `.minsky/hooks/verify-subagent-model.ts` (mt#3151, the Agent-tool PostToolUse model-tier check) | `{timestamp, session_id, dispatching_agent_id, tool_name, requested, kind, resolved, subagent_id, response_status, is_async}` | unregistered (its own ad hoc log; predates and is outside the calibration-log convention) | ingest             |
 
 ## D. State-dir guard/calibration streams
 
@@ -196,8 +203,10 @@ These streams predate mt#4748 and were ALREADY state-dir rather than
 repo-rooted — the distinction this section originally drew against §A/§B/§C's
 then-repo-rooted `.minsky/` paths. As of mt#4748, §A/§B joined this location
 too (project-keyed under `projects/<key>/`, unlike the flat paths below,
-which are deliberately cross-project); only §C's `subagent-model-mismatch`
-remains repo-rooted. All live under the runtime state dir
+which are deliberately cross-project). As of **mt#4816** §C's
+`subagent-model-mismatch` joined the flat group here as well, so **no stream is
+repo-rooted any more** and the `"repo"` location kind is retired. All live under
+the runtime state dir
 (`~/.local/state/minsky/`, overridable via `MINSKY_STATE_DIR`).
 
 | Stream                   | Path                             | Size (2026-08-12)                    | Writer                                                                                                                           | Record shape (one line)                                                                         | Registry status                                                                                                                                                                                                  | Ingest disposition                                                                                                                                                                                                                                                                                             |

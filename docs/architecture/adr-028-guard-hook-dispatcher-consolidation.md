@@ -483,6 +483,24 @@ family anymore, so there is no path left for a pattern to cover. See
 `packages/domain/src/guard-events/stream-sources.ts` (the `"repo" | "state-dir"` enum every stream
 declares) for the mechanism.
 
+**Second amendment (mt#4816, 2026-08-31) — the amendment above was scoped to one FAMILY, and one
+stream outlived it.** The paragraph above says "nothing writes into any working tree for this
+family anymore," which was true and narrower than it read: `subagent-model-mismatch`
+(`family: "special"`, written by `.minsky/hooks/verify-subagent-model.ts`) was not in the
+calibration/evaluation family and stayed `location: "repo"` — the last such row. The rationale
+above is not family-specific (a working-tree landmine is a landmine for any stream), so mt#4816
+carries it to that stream: it is now state-dir and **flat**, alongside `fire-log` and
+`guard-health-log`, rather than project-keyed. Flat because `project_id` is resolved from each
+record's `session_id` by `attachProjectIds`
+(`packages/domain/src/guard-events/ingest-service.ts`) and never from the file path, so
+project-keying buys no attribution the row does not already carry.
+
+**The `"repo"` member of `GuardEventStreamLocation` is retired in the same change**, and the
+branch that consumed it in `resolveStreamPath` is deleted. Declaring a repo-rooted stream is now
+a TYPE ERROR — this ADR's invariant is enforced by the compiler rather than by a periodic sweep,
+which matters because the four preceding tasks in this family (mt#4752, mt#4778, mt#4811,
+mt#4816) each found "one more writer" that a directory-scoped sweep had missed.
+
 The **schema** and **registration** decisions this section made are unaffected — only the
 filesystem LOCATION changes. What reads these records (the file-based `CALIBRATION_LOG_REGISTRY`
 sweep vs. a future `guard_events` DB read) is explicitly out of mt#4748's scope; see mt#4771 for
