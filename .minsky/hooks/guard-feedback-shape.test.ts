@@ -302,6 +302,8 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         // mt#4215 — also a `renderProbe` producer, per the note above.
         "nonexistent-search-path",
         "operator-deferral-ask-surface",
+        "operator-deferral-artifact-surface-pr",
+        "operator-deferral-artifact-surface-spec",
         "operator-deferral-detector",
         "pre-narration-detector",
         "require-duplicate-check-record",
@@ -413,6 +415,8 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   "knowledge-acquisition-detector": RENDER_PROBE_SAMPLE, // researchTools joined, uncapped
   "operator-deferral-detector": "capped", // <=3 matches x 240-char contexts
   "operator-deferral-ask-surface": "capped", // same module, same renderer
+  "operator-deferral-artifact-surface-pr": "capped", // same module, same renderer
+  "operator-deferral-artifact-surface-spec": "capped", // same module, same renderer
   "calibration-review-cadence-detector": "capped", // ADVISORY_BUDGET_CHARS byte-budget fit (mt#3824)
   // Capped on BOTH axes — MAX_RENDERED_CLAIMS with an `...and N more` line, and
   // each phrase bounded by the matcher's own 120-char cap — and the ceiling is

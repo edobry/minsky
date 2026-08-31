@@ -736,6 +736,26 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "operator-deferral-artifact-surface-pr",
+    {
+      description:
+        "The PR-body half of the operator-deferral evaluation: records a deferral written into a PR body at create or edit time — the surface `user-preferences.mdc §Probe before deferring` names FIRST, and the one the detector's chat-prose and AskUserQuestion surfaces structurally could not read.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("operator-deferral-detector")],
+      stratum: "registry",
+    },
+  ],
+  [
+    "operator-deferral-artifact-surface-spec",
+    {
+      description:
+        "The task-spec half of the same evaluation: records a deferral written into a spec via `tasks_spec_patch`. Split from its PR-body twin only because a guard's matcher tokens must be filed under the registry family that owns them.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("operator-deferral-detector")],
+      stratum: "registry",
+    },
+  ],
+  [
     "guard-health-escalation-detector",
     {
       description:
