@@ -2752,7 +2752,7 @@
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path",
+              "description": "Local checkout to clone FROM (a fetch source, not the repository this session is for). The session's identity — its repo URL, name and project — comes from the TASK's project, not from this argument. For a GitHub-backed project the clone's `origin` is always the forge URL, so passing a local path here only speeds the clone up. Naming a DIFFERENT repository than the task's project is refused rather than silently honored.",
               "takesValue": true
             },
             {
