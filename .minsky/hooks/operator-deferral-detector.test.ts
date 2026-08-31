@@ -1910,3 +1910,40 @@ describe("mt#4111 — the negative control: neighbouring real positives still fi
     ).toHaveLength(1);
   });
 });
+
+describe("mt#4702 — deferralOverlap makes this pair's overlap measurable", () => {
+  // The matches are incidental here — `buildCalibrationRecord` only maps them,
+  // and the field under test is derived from the TURN TEXT beside them.
+  const matches = [
+    { surface: ASK_OPTION_LABEL, matchedPhrase: R5_LABEL, context: R5_LABEL },
+  ] as Parameters<typeof buildCalibrationRecord>[1];
+
+  test("the field is ABSENT when no turn text was supplied", () => {
+    // Absent means "not measured", never "no overlap". A `false` written on a
+    // caller that never had the text would be a claim rather than a
+    // measurement — and every record written before this shipped is in exactly
+    // that position.
+    expect(buildCalibrationRecord("s1", matches)).not.toHaveProperty("deferralOverlap");
+  });
+
+  test("true when ask-routing-deferral fires on the same prose", () => {
+    const record = buildCalibrationRecord("s1", matches, "Want me to take mt#4621, or leave it?");
+    expect(record.deferralOverlap).toBe(true);
+  });
+
+  test("false when it does not — the field discriminates, it is not a constant", () => {
+    const record = buildCalibrationRecord("s1", matches, "Rebased and pushed; checks are green.");
+    expect(record.deferralOverlap).toBe(false);
+  });
+
+  test("mt#4702's own suppression is reflected here: an override is not an overlap", () => {
+    // The end-to-end tie between the two halves of this task — the same
+    // sentence that stopped being an offer also stops counting as an overlap.
+    const record = buildCalibrationRecord(
+      "s1",
+      matches,
+      "I'll take mt#4465 next unless you'd rather I clear mt#4716 first."
+    );
+    expect(record.deferralOverlap).toBe(false);
+  });
+});

@@ -88,7 +88,7 @@ import type { KillInvocation } from "./block-bulk-process-kill";
 // one definition serving both surfaces rather than a second copy that drifts.
 // Same one-way hook-to-hook edge `turn-end-untaken-action-scan` already has on
 // that module, and the same one this file already has on the kill parse above.
-import { findOfferShape } from "./ask-routing-deferral-detector";
+import { findOfferShape, detectDeferralPhrases } from "./ask-routing-deferral-detector";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { logCalibrationRecord, logEvaluationRecord } from "./dispatcher";
 import { elideQuotedContexts, elideDoubleQuotedSpans } from "./elision";
@@ -1447,13 +1447,34 @@ export function appendEvaluationRecord(
  */
 export function buildCalibrationRecord(
   sessionId: string | undefined,
-  matches: DeferralMatch[]
+  matches: DeferralMatch[],
+  /**
+   * The turn's assistant prose, for the overlap measurement (mt#4702).
+   *
+   * OPTIONAL, and absent means "not measured" rather than "no overlap" — the
+   * distinction matters because a `false` written on a caller that never had
+   * the text would be a claim, not a measurement. Optional also keeps every
+   * existing caller valid: making it required is the contract-tightening class
+   * `/plan-task` gate (h) names, where callers break by OMISSION and a
+   * read-grep cannot see them.
+   */
+  turnText?: string
 ): Record<string, unknown> {
   return {
     timestamp: new Date().toISOString(),
     session_id: sessionId,
     injection_enabled: INJECTION_ENABLED,
     source: "live",
+    // mt#4702: does `ask-routing-deferral` fire on the same prose? Measured at
+    // 10 of 11 distinct fire-minutes in the 2026-08-31 window, and the field
+    // was ABSENT on all 12 records — so the pair's overlap was invisible to the
+    // instrumentation mt#4407 uses for the sibling pair, and the 60% figure it
+    // reports was never the whole overlap surface. Same boolean shape and same
+    // derivation as `turn-end-untaken-action-scan.ts`'s field, deliberately, so
+    // the two are comparable.
+    ...(turnText !== undefined
+      ? { deferralOverlap: detectDeferralPhrases(turnText).length > 0 }
+      : {}),
     // mt#3781: `phrase` is the sweep's diversity axis, so it carries the PATTERN
     // hit; `context` carries the surrounding prose that used to occupy `phrase`.
     // Both, because the axis needs the first to be meaningful and a human
@@ -1569,9 +1590,16 @@ export function renderWorstCase(): string {
 // Dispatcher-compatible entry points (ADR-028 D1/D2)
 // ---------------------------------------------------------------------------
 
-function toOutcome(matches: DeferralMatch[], sessionId: string | undefined): GuardOutcome | null {
+function toOutcome(
+  matches: DeferralMatch[],
+  sessionId: string | undefined,
+  /** The turn's prose, threaded through for mt#4702's `deferralOverlap`. */
+  turnText?: string
+): GuardOutcome | null {
   if (matches.length === 0) return null;
-  const outcome: GuardOutcome = { calibration: buildCalibrationRecord(sessionId, matches) };
+  const outcome: GuardOutcome = {
+    calibration: buildCalibrationRecord(sessionId, matches, turnText),
+  };
   if (INJECTION_ENABLED) outcome.additionalContext = buildReminder(matches);
   return outcome;
 }
@@ -1598,17 +1626,21 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     ];
     // Recorded for EVERY evaluated turn, including the no-match case — that is
     // the half the calibration log cannot provide (see buildEvaluationRecord).
+    // mt#4702: hoisted so the calibration record measures the overlap against
+    // the SAME prose the evaluation record already carries, rather than a
+    // second derivation that could drift from it.
+    const turnText = extractAssistantText(turnLines) ?? "";
     appendEvaluationRecord(
       input.cwd,
       buildEvaluationRecord(
         input.session_id,
         matches,
-        extractAssistantText(turnLines) ?? "",
+        turnText,
         "prose-turn",
         summarizeAskJustificationEvaluation(turnLines)
       )
     );
-    return toOutcome(matches, input.session_id);
+    return toOutcome(matches, input.session_id, turnText);
   } catch (err) {
     process.stderr.write(
       `[operator-deferral-detector] Detection error: ${err instanceof Error ? err.message : String(err)}\n`

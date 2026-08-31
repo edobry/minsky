@@ -62,6 +62,14 @@ const DEFERRAL_MENU = "deferral-menu" as const;
  */
 const UNSETTLED_TURN = "**Next.** Say the word and I'll plan any of the three.";
 
+/**
+ * mt#3801's shipped halting offer, and the case mt#4702's predicate had to
+ * reconcile rather than overturn. Shared because both tasks' tests assert on
+ * it, and a drift between the two copies would hide exactly the conflict the
+ * reconciliation exists to resolve.
+ */
+const HALTING_OFFER = "I'll stop here unless you want more";
+
 /** The degraded reason `resolveNominationDeps` produces when nothing is configured. */
 const PROVIDER_UNCONFIGURED = "provider-unconfigured";
 
@@ -941,7 +949,7 @@ describe("mt#4311 — a bare first-person clause needs a leg that offers on its 
   test("mt#3801's own cases are untouched", () => {
     // A bare clause plus an EXPLICIT-OFFER leg is still an offer — this is the
     // shape mt#3801 shipped the trigger for, and narrowing must not reach it.
-    expect(findOfferShape("I'll stop here unless you want more")).not.toBeNull();
+    expect(findOfferShape(HALTING_OFFER)).not.toBeNull();
     expect(findOfferShape("Next step is X unless you'd rather I do Y")).not.toBeNull();
   });
 
@@ -2014,5 +2022,71 @@ describe("mt#4807 — the evaluation stream carries the denominator (PR #3519 R1
       }
     );
     expect(outcome).toBeNull();
+  });
+});
+
+describe("mt#4702 — an escape hatch on a stated commitment is an override, not a deferral", () => {
+  /**
+   * AT2, first half. The dominant false-positive shape measured across three
+   * calibration windows: the agent states what it is doing and appends a veto.
+   * Silence costs the principal nothing — the work proceeds either way.
+   */
+  test("AT2: a commitment governing an `unless` is not an offer", () => {
+    expect(findOfferShape("I'll do X unless you'd rather Y")).toBeNull();
+  });
+
+  /** AT2, second half — a bare interrogative offer still fires. */
+  test("AT2: a bare interrogative menu is still an offer", () => {
+    expect(findOfferShape("Want me to do X or Y?")).not.toBeNull();
+  });
+
+  test("the verbatim false fires from the measured windows are suppressed", () => {
+    // Every one of these was classified FALSE by a calibration pass, and the
+    // first two were still firing on 2026-08-31 after two Rung-2 climbs.
+    for (const line of [
+      "I'll take that next unless you'd rather I clear mt#4716 or mt#4640 first.",
+      "Defaults I'll assume unless you say otherwise: a 4-week alias window.",
+      "I'll start mt#4662 unless you'd rather I take mt#4640",
+      "I'll pick it up next unless you want something else first.",
+    ]) {
+      expect(findOfferShape(line)).toBeNull();
+    }
+  });
+
+  test("NEGATIVE CONTROL: the real positives still fire", () => {
+    // SC4 — "a tune that silences them is a regression, not a fix." These are
+    // genuine handovers: a menu of agent-doable options with no default taken.
+    expect(
+      findOfferShape("Want me to pick up mt#4621, or correct the stale note in its spec first?")
+    ).not.toBeNull();
+    expect(
+      findOfferShape("Everything else is clear if you want me to pick something up.")
+    ).not.toBeNull();
+  });
+
+  test("NEGATIVE CONTROL: a commitment AFTER the leg does not govern it", () => {
+    // "Say the word, or I'll start on mt#4637" — offers first, commits second.
+    // A real offer, and position is what keeps it firing.
+    expect(findOfferShape("Want me to take it, or I'll start on mt#4637?")).not.toBeNull();
+  });
+
+  test("NEGATIVE CONTROL: a sentence break ends the governing relation", () => {
+    // Two sentences on one line: a commitment and then a genuine offer.
+    expect(findOfferShape("I'll hold off. Want me to take X or Y?")).not.toBeNull();
+  });
+
+  test("NEGATIVE CONTROL: a negated commitment is a precondition, not an override", () => {
+    expect(findOfferShape("I will not touch it unless you'd rather I go ahead")).not.toBeNull();
+  });
+
+  test("mt#3801's halting case is reconciled, not overturned", () => {
+    // The conflict this predicate had to resolve: both are
+    // `I'll <verb> unless you <alternative>`, and only the DIRECTION of the
+    // committed action separates them. Silence stops the work here, so the
+    // decision genuinely is handed over.
+    expect(findOfferShape(HALTING_OFFER)).not.toBeNull();
+    expect(findOfferShape("I'll wait unless you'd rather I proceed")).not.toBeNull();
+    // ...while the continuing form is the override.
+    expect(findOfferShape("I'll proceed unless you'd rather I wait")).toBeNull();
   });
 });
