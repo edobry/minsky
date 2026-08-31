@@ -347,7 +347,7 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `types.ts`                                | library             | product-baseline closure — SPEC.md's observability-baseline rule: transitive imports must stay node-stdlib + same-directory, because the baseline runs from an arbitrary install path.                                                                                                             | side-effecting (derived: writes fs / spawns)  | product |
 | `unrendered-result-fields.ts`             | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 
-## Divergence: matched by the pinned grep, no import (33)
+## Divergence: matched by the pinned grep, no import (34)
 
 Every module below is inside mt#4368's `60` and reaches no domain code. Listed per mt#4372 SC3, which
 requires the grep figure to be carried as a cross-check with its divergences named.
@@ -394,6 +394,7 @@ a change to the generator's naming cannot silently add or drop rows here.
 | `require-execution-evidence-before-merge.ts`   | movable   |
 | `require-growth-justification-before-merge.ts` | movable   |
 | `unrendered-result-fields.ts`                  | immovable |
+| `verify-subagent-model.ts`                     | movable   |
 
 ## Real domain importers (35)
 
