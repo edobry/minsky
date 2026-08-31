@@ -34,6 +34,7 @@ import type {
 // Single-source-of-truth banner constant; the same import is used by
 // `.claude/hooks/check-generated-file-edit.ts`'s detection patterns.
 import { GENERATED_BANNER } from "../../rules/compile/banner-constants";
+import { createSkipRecorder } from "./skip-recorder";
 
 /** Injectable dynamic import — overridden in tests. */
 export type DynamicImportFn = (path: string) => Promise<unknown>;
@@ -186,6 +187,8 @@ function makeCursorRulesTsTarget(
       const filesWritten: string[] = [];
       const definitionsIncluded: string[] = [];
       const definitionsSkipped: string[] = [];
+      // mt#3119: tee every skip message into the result; `onSkip` still fires unchanged.
+      const { record: recordSkip, reasons: skipReasons } = createSkipRecorder(onSkip);
       const contentsByPath = new Map<string, string>();
       const dryRunParts: string[] = [];
 
@@ -208,7 +211,7 @@ function makeCursorRulesTsTarget(
         // for the same name): skip + warn rather than silently preferring one
         // format (the mt#2279-consistent policy).
         if (source.kind === "both") {
-          onSkip(
+          recordSkip(
             `[compile:cursor-rules-ts] skipping "${source.name}": both ${source.tsPath} and ${source.mdcPath} exist — ambiguous canonical source; keep exactly one format`
           );
           definitionsSkipped.push(source.name);
@@ -221,7 +224,7 @@ function makeCursorRulesTsTarget(
             raw = await fs.readFile(source.path, "utf-8");
           } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
-            onSkip(
+            recordSkip(
               `[compile:cursor-rules-ts] skipping "${source.name}": failed to read ${source.path}: ${reason}`
             );
             definitionsSkipped.push(source.name);
@@ -229,7 +232,7 @@ function makeCursorRulesTsTarget(
           }
           const extracted = extractRuleDefinitionFromMdc(raw, source.path);
           if ("error" in extracted) {
-            onSkip(`[compile:cursor-rules-ts] skipping "${source.name}": ${extracted.error}`);
+            recordSkip(`[compile:cursor-rules-ts] skipping "${source.name}": ${extracted.error}`);
             definitionsSkipped.push(source.name);
             continue;
           }
@@ -249,7 +252,7 @@ function makeCursorRulesTsTarget(
         } catch (error) {
           // Do NOT swallow silently (mt#2182): a broken import is surfaced.
           const reason = error instanceof Error ? error.message : String(error);
-          onSkip(
+          recordSkip(
             `[compile:cursor-rules-ts] skipping "${dirName}": failed to import ${sourcePath}: ${reason}`
           );
           definitionsSkipped.push(dirName);
@@ -258,7 +261,7 @@ function makeCursorRulesTsTarget(
 
         const extracted = extractRuleDefinition(mod, sourcePath);
         if ("error" in extracted) {
-          onSkip(`[compile:cursor-rules-ts] skipping "${dirName}": ${extracted.error}`);
+          recordSkip(`[compile:cursor-rules-ts] skipping "${dirName}": ${extracted.error}`);
           definitionsSkipped.push(dirName);
           continue;
         }
@@ -269,7 +272,7 @@ function makeCursorRulesTsTarget(
         // the one `compile` writes stay in lockstep — otherwise `--check` would
         // always flag the target stale.
         if (rule.name === undefined || dirName !== rule.name) {
-          onSkip(
+          recordSkip(
             `[compile:cursor-rules-ts] skipping "${dirName}": rule name ${
               rule.name === undefined ? "is undefined" : `"${rule.name}"`
             } does not match its directory name`
@@ -286,6 +289,7 @@ function makeCursorRulesTsTarget(
         filesWritten,
         definitionsIncluded,
         definitionsSkipped,
+        skipReasons,
         content: options.dryRun ? dryRunParts.join("\n\n") : undefined,
         contentsByPath: options.dryRun ? contentsByPath : undefined,
       };
