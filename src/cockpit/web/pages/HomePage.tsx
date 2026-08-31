@@ -34,6 +34,50 @@ import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { useProject } from "../lib/project-context";
+import { useOpenAskCount, useUnscopedOpenAskCount } from "../hooks/useOpenAskCount";
+import { elsewhereCount } from "../lib/attention-leak";
+
+// ---------------------------------------------------------------------------
+// Needs-you cross-project leak line (mt#4794) — see Rail.tsx's AttentionDigest
+// for the sibling instance and the full rationale (mt#4757 audit).
+// ---------------------------------------------------------------------------
+
+/**
+ * Muted one-line secondary under the "Needs you" band: when a project filter
+ * is active and other projects carry pending asks the scoped view doesn't
+ * show, name what's outside the current scope instead of letting TriageBand's
+ * own "Nothing needs you" / "N pending" read as the whole picture.
+ *
+ * Reuses the SAME attention-widget hooks the rail's Attention digest reads
+ * (`useOpenAskCount` / `useUnscopedOpenAskCount`) rather than TriageBand's
+ * `/api/asks` list — one additional unscoped query shared across both
+ * surfaces, not a second data source (spec: "no new endpoint").
+ */
+function NeedsYouElsewhere() {
+  const { selectedSlug, setSelectedSlug } = useProject();
+  const filterActive = selectedSlug !== null;
+  const { data: scoped } = useOpenAskCount();
+  const { data: unscoped } = useUnscopedOpenAskCount({ enabled: filterActive });
+  const elsewhere = elsewhereCount(filterActive, scoped, unscoped);
+
+  if (elsewhere == null) return null;
+
+  const label =
+    scoped === 0
+      ? `clear here — ${elsewhere} pending in other projects`
+      : `${elsewhere} more pending in other projects`;
+
+  return (
+    <Link
+      to="/asks"
+      data-testid="needs-you-elsewhere"
+      onClick={() => setSelectedSlug(null)}
+      className="mt-1 block text-xs text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+    >
+      {label} →
+    </Link>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Fleet strip — liveness counts over the unified run list.
@@ -331,6 +375,9 @@ export function HomePage() {
         <BandEyebrow>Needs you</BandEyebrow>
         <ErrorBoundary id="triage-band">
           <TriageBand />
+        </ErrorBoundary>
+        <ErrorBoundary id="needs-you-elsewhere">
+          <NeedsYouElsewhere />
         </ErrorBoundary>
       </section>
 
