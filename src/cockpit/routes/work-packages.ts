@@ -10,7 +10,9 @@
  * existing task-detail page renders its spec.
  */
 import type express from "express";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { isAllProjects } from "@minsky/domain/project/scope";
+import { resolveCockpitProjectScope } from "../project-scope";
 import { log } from "@minsky/shared/logger";
 import { getLoggableErrorSummary } from "@minsky/domain/schemas/error";
 import { tasksTable } from "@minsky/domain/storage/schemas/task-embeddings";
@@ -57,6 +59,11 @@ export function mountWorkPackageRoutes(
         return;
       }
       const includeAll = req.query.all === "true";
+      // Project scope (mt#4727 pattern, same as the tasks routes): ?project=
+      // narrows the pool; absent/"all" resolves to ALL_PROJECTS, and a
+      // resolution failure falls open rather than taking the route down.
+      const projectParam = typeof req.query.project === "string" ? req.query.project : undefined;
+      const projectScope = await resolveCockpitProjectScope(projectParam);
       const rows = await db
         .select({
           id: tasksTable.id,
@@ -67,7 +74,11 @@ export function mountWorkPackageRoutes(
           updatedAt: tasksTable.updatedAt,
         })
         .from(tasksTable)
-        .where(eq(tasksTable.kind, WORK_PACKAGE_KIND));
+        .where(
+          isAllProjects(projectScope)
+            ? eq(tasksTable.kind, WORK_PACKAGE_KIND)
+            : and(eq(tasksTable.kind, WORK_PACKAGE_KIND), eq(tasksTable.projectId, projectScope))
+        );
 
       const visible = includeAll
         ? rows

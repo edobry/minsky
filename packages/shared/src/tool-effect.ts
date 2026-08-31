@@ -345,6 +345,11 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   "tasks.supervise": "mutates",
   "tasks.supervise-stop": "mutates",
   "tasks.claims.release": "mutates",
+  // Work-package claim/release (ADR-046, mt#2911): both are conditional
+  // writes on the tasks row (claim also sets identity; release also appends
+  // a transfer-log row).
+  "tasks.claim": "mutates",
+  "tasks.release": "mutates",
   "tasks.available": "reads",
   "tasks.children": "reads",
   "tasks.claims.list": "reads",
