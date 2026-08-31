@@ -46,7 +46,10 @@ first few pages were raw model scratch:
 > This time for sure.
 
 … followed by hundreds of blank lines, and only then the actual `## Findings`
-section. This is distinct from the empty-output class: the model produced
+section. (The `src/domain/ai/types.ts` path inside that quote is the model's own
+words from 2026-04-24 and is deliberately NOT repointed to its current location at
+`packages/domain/src/ai/types.ts` — mt#4716 swept the rest of this directory; a
+quotation is evidence, and correcting it would falsify the record.) This is distinct from the empty-output class: the model produced
 content, but part of it was internal reasoning that was supposed to stay
 inside the scratchpad and leaked into the visible output. Observed once on
 PR #743, then again in a different form on PR #753 (tool-loop fallback

@@ -10,7 +10,7 @@ Minsky implements an interface-agnostic command architecture that separates core
 
 The domain layer contains the core business logic, independent of any interface concerns:
 
-- **Location**: `src/domain/`
+- **Location**: `packages/domain/src/`
 - **Key Files**:
   - `tasks.ts`: Core task management functionality
   - `session.ts`: Session management logic
@@ -61,7 +61,7 @@ addTaskCommand<T extends z.ZodTypeAny>(
 #### 1. Domain Function (Pure Logic)
 
 ```typescript
-// src/domain/tasks.ts
+// packages/domain/src/tasks.ts
 export async function listTasks(options?: {
   filter?: string;
   limit?: number;
