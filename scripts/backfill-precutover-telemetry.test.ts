@@ -64,6 +64,18 @@ describe("parseArgs — a value-less flag must not widen the scope (PR #3526 R1)
   test("--limit rejects a non-positive value", () => {
     expect(() => parseArgs(["--limit", "0"])).toThrow(/positive integer/);
   });
+
+  test("--limit rejects a partial numeral parseInt would silently truncate (R2)", () => {
+    // `Number.parseInt` stops at the first non-digit, so each of these yields a clean 5 that no
+    // post-parse check can tell from a real 5. The validation has to precede the parse.
+    for (const bad of ["5abc", "5.9", "5,000", " 5", "1e3", "-1", "abc"]) {
+      expect(() => parseArgs(["--limit", bad])).toThrow(/positive integer/);
+    }
+  });
+
+  test("--limit still accepts a plain positive integer", () => {
+    expect(parseArgs(["--limit", "20000"]).limit).toBe(20000);
+  });
 });
 
 describe("legacyPathFor", () => {

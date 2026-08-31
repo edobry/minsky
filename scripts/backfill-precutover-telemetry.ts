@@ -93,8 +93,15 @@ export function parseArgs(argv: string[]): Options {
   const execute = argv.includes("--execute");
   const only = flagValue(argv, "--only");
   const rawLimit = flagValue(argv, "--limit");
+  // Validated BEFORE parsing, not after: `Number.parseInt` is lenient by design and stops at the
+  // first non-digit, so "5abc" and "5.9" both yield a clean 5 that no post-hoc `isFinite`/`> 0`
+  // check can distinguish from a real 5 (PR #3526 R2). Same principle as `--only` above — this
+  // script refuses ambiguous input rather than guessing at it.
+  if (rawLimit !== null && !/^\d+$/.test(rawLimit)) {
+    throw new Error(`--limit expects a positive integer, got: ${rawLimit}`);
+  }
   const limit = rawLimit === null ? null : Number.parseInt(rawLimit, 10);
-  if (limit !== null && (!Number.isFinite(limit) || limit <= 0)) {
+  if (limit !== null && limit <= 0) {
     throw new Error(`--limit expects a positive integer, got: ${String(rawLimit)}`);
   }
   return { execute, only, limit };
