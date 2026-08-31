@@ -307,8 +307,14 @@ export class MinskyTaskBackend implements TaskBackend {
           kind: options?.kind || "implementation",
           createdAt: now,
           updatedAt: now,
-          // Project scoping (ADR-021, mt#2416): stamp project uuid when available
-          projectId: this.currentProjectId ?? null,
+          // Project scoping (ADR-021, mt#2416): stamp project uuid when available.
+          // mt#4808: a PER-CALL `options.projectId` wins over the
+          // construction-time value. The constructed one comes from whatever
+          // context the service was built in — correct for the ordinary
+          // same-project case, and uncorrectable on the MCP path, which injects
+          // a boot singleton. Without this seam a task whose subject belongs to
+          // another project could only ever be stamped with the server's.
+          projectId: options?.projectId ?? this.currentProjectId ?? null,
         })
         .onConflictDoNothing()
         .returning({ id: tasksTable.id });
@@ -366,8 +372,14 @@ export class MinskyTaskBackend implements TaskBackend {
           kind: options?.kind || "implementation",
           createdAt: now,
           updatedAt: now,
-          // Project scoping (ADR-021, mt#2416): stamp project uuid when available
-          projectId: this.currentProjectId ?? null,
+          // Project scoping (ADR-021, mt#2416): stamp project uuid when available.
+          // mt#4808: a PER-CALL `options.projectId` wins over the
+          // construction-time value. The constructed one comes from whatever
+          // context the service was built in — correct for the ordinary
+          // same-project case, and uncorrectable on the MCP path, which injects
+          // a boot singleton. Without this seam a task whose subject belongs to
+          // another project could only ever be stamped with the server's.
+          projectId: options?.projectId ?? this.currentProjectId ?? null,
         })
         .onConflictDoNothing()
         .returning({ id: tasksTable.id });

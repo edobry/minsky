@@ -211,6 +211,16 @@ export const taskCreateFromTitleAndSpecParamsSchema = z
       .describe(
         "Workflow kind (e.g., 'implementation', 'umbrella'). Defaults to 'implementation'."
       ),
+    // mt#4808: resolved by the ADAPTER (explicit workspace/repo → parent task's
+    // project → filing context) and threaded through so the backend can stamp
+    // per call. Not a caller-facing parameter — `tasks.create`'s own params map
+    // does not expose it, so an MCP caller cannot set it directly; it exists
+    // because the boot-singleton service the MCP path injects cannot carry a
+    // per-call project.
+    projectId: z
+      .string()
+      .optional()
+      .describe("Internal: project uuid resolved for this create (mt#4808)"),
   })
   .extend(commonCommandOptionsSchema.shape)
   .refine((data) => data.spec, {

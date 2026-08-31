@@ -692,10 +692,44 @@ export class TasksCreateCommand extends BaseTaskCommand<typeof tasksCreateParams
         }
       }
 
+      // mt#4808: resolve which project this task belongs to BEFORE creating it.
+      // `workspace` was a dead parameter — declared, accepted, forwarded twice,
+      // and read by nothing — so a task whose subject belonged to another
+      // project was silently filed under the server's. Precedence: explicit
+      // workspace/repo → the parent task's project → the filing context
+      // (unchanged fallback). Best-effort throughout: a create must not fail
+      // because a project lookup did.
+      let resolvedProjectId: string | undefined;
+      try {
+        const provider = this.getPersistenceProvider?.() as
+          | { getDatabaseConnection?: () => Promise<unknown> }
+          | undefined;
+        const projectDb = provider?.getDatabaseConnection
+          ? await provider.getDatabaseConnection()
+          : null;
+        if (projectDb) {
+          const { resolveNewTaskProjectId } = await import(
+            "@minsky/domain/project/new-task-project"
+          );
+          const decision = await resolveNewTaskProjectId(
+            {
+              workspace: params.workspace,
+              repo: params.repo,
+              parentTaskId: params.parent,
+            },
+            projectDb
+          );
+          resolvedProjectId = decision.projectId;
+        }
+      } catch (projectErr) {
+        this.debug(`Project resolution for new task failed; using filing context: ${projectErr}`);
+      }
+
       // Create the task using the same function as main branch
       const { createTaskFromTitleAndSpec } = await import("@minsky/domain/tasks");
       const result = await createTaskFromTitleAndSpec(
         {
+          projectId: resolvedProjectId,
           title: params.title,
           spec: specContent, // spec content (or deprecated description alias)
           force: params.force ?? false,
