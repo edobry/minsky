@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  applyUpdateAssociationsSemantics,
+  buildAssociationsUpdate,
   classifyRecord,
   correctedRefs,
   planToken,
@@ -84,6 +86,47 @@ describe("correctedRefs", () => {
     });
     expect(c.refs.map((r) => r.verdict)).toEqual(["quoted-only", "not-derivable"]);
     expect(correctedRefs(c)).toEqual(["mt#9998"]);
+  });
+});
+
+/**
+ * mt#4796. The first live corrective run reported "Applied: 9" and changed 4 records: every
+ * correction that emptied `tracksTask` was a silent no-op, because the script DELETED the key and
+ * `MemoryService.update` merges rather than replaces.
+ *
+ * These run the payload through the service's REAL semantics. A fake that just assigned the
+ * payload would pass with the bug present, which is the whole reason
+ * `applyUpdateAssociationsSemantics` mirrors `memory-service.ts:935-944` instead of stubbing it.
+ */
+describe("buildAssociationsUpdate — removal against update()'s merge semantics", () => {
+  test("emptying the ref list REMOVES the key from the stored map", () => {
+    const stored = { tracksTask: ["mt#1541"] };
+    const result = applyUpdateAssociationsSemantics(stored, buildAssociationsUpdate(stored, []));
+    expect(result.tracksTask).toBeUndefined();
+  });
+
+  test("deleting the key instead would be a silent no-op — the shipped bug", () => {
+    // The pre-fix payload: key absent entirely. Reaches neither the merge nor the removal branch.
+    const stored = { tracksTask: ["mt#1541"] };
+    const buggyPayload: Record<string, string[]> = {};
+    const result = applyUpdateAssociationsSemantics(stored, buggyPayload);
+    expect(result.tracksTask).toEqual(["mt#1541"]);
+  });
+
+  test("dropping one ref while keeping another writes the remaining list", () => {
+    const stored = { tracksTask: ["mt#2056", "mt#4454"] };
+    const result = applyUpdateAssociationsSemantics(
+      stored,
+      buildAssociationsUpdate(stored, ["mt#4454"])
+    );
+    expect(result.tracksTask).toEqual(["mt#4454"]);
+  });
+
+  test("association types this task does not touch survive the correction", () => {
+    const stored = { tracksTask: ["mt#2056"], relatedTask: ["mt#1709", "mt#4386"] };
+    const result = applyUpdateAssociationsSemantics(stored, buildAssociationsUpdate(stored, []));
+    expect(result.tracksTask).toBeUndefined();
+    expect(result.relatedTask).toEqual(["mt#1709", "mt#4386"]);
   });
 });
 

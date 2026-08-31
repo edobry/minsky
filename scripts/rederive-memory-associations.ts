@@ -103,6 +103,43 @@ export function classifyRecord(input: {
   };
 }
 
+/**
+ * Build the `associations` payload for a correction.
+ *
+ * `MemoryService.update` MERGES this map rather than replacing it, and reads REMOVAL intent from
+ * keys whose value is an empty array (`memory-service.ts`: `associations || toMerge::jsonb`, then
+ * `- key` for every entry with `v.length === 0`). So the corrected ref list is always SET — even
+ * when it is empty. Deleting the key instead makes it absent from `Object.entries`, which reaches
+ * neither branch and leaves the stored value untouched (mt#4796).
+ *
+ * Every other key is carried through unchanged: a record can hold association types this task
+ * does not touch, and the merge would preserve them anyway — but passing them explicitly keeps
+ * the payload a faithful statement of the intended end state rather than a diff.
+ */
+export function buildAssociationsUpdate(
+  current: Record<string, string[]>,
+  afterRefs: string[]
+): Record<string, string[]> {
+  return { ...current, [TRACKS_TASK_ASSOCIATION]: afterRefs };
+}
+
+/**
+ * `MemoryService.update`'s associations semantics, reproduced for tests.
+ *
+ * Not a convenience stub: a fake that simply assigned the payload would accept the deleted-key
+ * bug this function exists to catch. Mirrors `memory-service.ts:935-944` exactly.
+ */
+export function applyUpdateAssociationsSemantics(
+  stored: Record<string, string[]>,
+  payload: Record<string, string[]>
+): Record<string, string[]> {
+  const entries = Object.entries(payload);
+  const merged: Record<string, string[]> = { ...stored };
+  for (const [k, v] of entries) if (v.length > 0) merged[k] = v;
+  for (const [k, v] of entries) if (v.length === 0) delete merged[k];
+  return merged;
+}
+
 /** The corrected ref list for a record: every `quoted-only` ref dropped, order preserved. */
 export function correctedRefs(c: RecordClassification): string[] {
   return c.refs.filter((r) => r.verdict !== "quoted-only").map((r) => r.ref);
@@ -359,16 +396,37 @@ async function main(): Promise<void> {
       // Preserve every other association key — a record can hold one true ref and one false one
       // (mem#1208 carries mt#4454 legitimately alongside a quoted mt#2056), and other association
       // types are out of scope entirely.
-      if (entry.after.length > 0) {
-        live[TRACKS_TASK_ASSOCIATION] = entry.after;
-      } else {
-        delete live[TRACKS_TASK_ASSOCIATION];
+      //
+      // Removal is requested with an EMPTY ARRAY, never by deleting the key (mt#4796).
+      // `MemoryService.update` MERGES associations — `associations || toMerge::jsonb` — and reads
+      // removal intent from keys whose value is `[]`, which it turns into a `- 'key'` operator.
+      // A deleted key is absent from `Object.entries`, so it reaches neither branch: the merge
+      // leaves the stored value untouched and `update` still returns the record. That is how the
+      // first live run reported "Applied: 9" while applying 4 — every correction that emptied
+      // `tracksTask` was a silent no-op.
+      await memoryService.update(entry.id, {
+        associations: buildAssociationsUpdate(live, entry.after),
+      });
+
+      // Verify the OUTCOME, not the invocation. `update` returning a record is not evidence the
+      // column changed — see above. Re-read and compare; a mismatch is a failure, not an apply.
+      const after = await memoryService.get(entry.id);
+      const observed = ((after?.associations ?? {}) as Record<string, string[]>)[
+        TRACKS_TASK_ASSOCIATION
+      ];
+      const observedRefs = Array.isArray(observed) ? observed : [];
+      if (JSON.stringify(observedRefs) !== JSON.stringify(entry.after)) {
+        console.error(
+          `  FAILED ${entry.shortId ?? entry.id}: wrote ${JSON.stringify(entry.after)} but read ` +
+            `back ${JSON.stringify(observedRefs)}. The write did not take effect.`
+        );
+        errors++;
+        continue;
       }
 
-      await memoryService.update(entry.id, { associations: live });
       console.log(
         `  ${entry.shortId ?? entry.id}: ${JSON.stringify(entry.before)} -> ` +
-          `${JSON.stringify(entry.after)}`
+          `${JSON.stringify(entry.after)} (verified)`
       );
       applied++;
     } catch (err) {
