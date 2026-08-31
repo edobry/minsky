@@ -217,8 +217,15 @@ export const taskCreateFromTitleAndSpecParamsSchema = z
     // does not expose it, so an MCP caller cannot set it directly; it exists
     // because the boot-singleton service the MCP path injects cannot carry a
     // per-call project.
+    // Validated as a uuid (PR #3525 R1): this value is written straight into
+    // `tasks.project_id`, and a domain-API caller bypassing the adapter could
+    // otherwise hand a malformed string to persistence. Failing here is not a
+    // fail-open violation — the fail-open posture covers a project that could
+    // not be RESOLVED (which yields `undefined`, and is legal), not a caller
+    // supplying a value that is not a project id.
     projectId: z
       .string()
+      .uuid()
       .optional()
       .describe("Internal: project uuid resolved for this create (mt#4808)"),
   })
