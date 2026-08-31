@@ -154,7 +154,31 @@ describe("tasks.similar / tasks.search default status behaviour (mt#3305)", () =
   });
 });
 
-describe("threshold applies only to distance-scored backends (mt#3305, PR #2434 R1)", () => {
+/**
+ * REPLACES the mt#3305 / PR #2434 R1 contract, deliberately (mt#4805).
+ *
+ * The two cases here previously asserted the opposite of what they assert now,
+ * and the change is the point of mt#4805 rather than a fixture adjustment:
+ *
+ * - `score` was the vector store's raw L2 DISTANCE on the embeddings path and a
+ *   Jaccard SIMILARITY on the lexical path. PR #2434 R1 handled that split by
+ *   applying `score <= threshold` on the embeddings backend and SKIPPING the
+ *   filter entirely on every other one — correct given the disagreement, and the
+ *   reason the skip existed was DIRECTION.
+ * - mt#4805 removes the disagreement at its source: `EmbeddingsSimilarityBackend`
+ *   converts to a cosine similarity, so `SimilarityItem.score` is higher-is-better
+ *   for every backend. The predicate is therefore `score >= threshold` and applies
+ *   uniformly; a threshold that silently does nothing on the fallback path is the
+ *   defect mt#3305 was filed for in the first place.
+ *
+ * What SCALE differences remain are documented on
+ * `TaskSimilarityService.applyThreshold`: the lexical backend's Jaccard
+ * coefficient is smaller than the same pair's cosine similarity, so a
+ * cosine-calibrated threshold over-filters there — in the right direction, and
+ * visibly, via the `degraded` flag this suite still asserts.
+ */
+describe("threshold is a minimum SIMILARITY, applied on every backend (mt#4805)", () => {
+  // Scores as the SERVICE now receives them: similarities, higher is better.
   const ITEMS = [
     { id: "mt#a", score: 0.1 },
     { id: "mt#b", score: 0.5 },
@@ -182,20 +206,24 @@ describe("threshold applies only to distance-scored backends (mt#3305, PR #2434 
     return svc;
   }
 
-  test("embeddings backend: threshold filters, because its score is a cosine DISTANCE", async () => {
+  test("embeddings backend: keeps results AT OR ABOVE the threshold", async () => {
     const svc = serviceReporting("embeddings");
     const res = await svc.searchByText("q", 10, 0.5, undefined, ALL_PROJECTS);
-    expect(res.results.map((r) => r.id)).toEqual(["mt#a", "mt#b"]);
+    expect(res.results.map((r) => r.id)).toEqual(["mt#b", "mt#c"]);
+    // The pre-mt#4805 predicate (`score <= threshold`) would have selected the
+    // complement. Asserting the absence pins the DIRECTION, not just the count —
+    // a two-element expectation alone is satisfied by either set.
+    expect(res.results.map((r) => r.id)).not.toContain("mt#a");
   });
 
-  test("lexical backend: threshold is NOT applied — its score is a similarity, so `<=` would invert", async () => {
-    // lexical-backend.ts computes Jaccard SIMILARITY and sorts descending, so
-    // higher is better and on a different scale. Applying a cosine-distance
-    // threshold there would keep the WORST matches and drop the best, silently,
-    // on the degraded path where a caller is least likely to notice.
+  test("lexical backend: the SAME filter applies — it is no longer skipped", async () => {
+    // PR #2434 R1 skipped it here because the two backends disagreed about
+    // direction. They no longer do (mt#4805), so a caller's threshold takes
+    // effect on the fallback path too. `degraded` still tells them they are on
+    // it, which is how a caller learns the score is on a different SCALE.
     const svc = serviceReporting("lexical");
     const res = await svc.searchByText("q", 10, 0.5, undefined, ALL_PROJECTS);
-    expect(res.results.map((r) => r.id)).toEqual(["mt#a", "mt#b", "mt#c"]);
+    expect(res.results.map((r) => r.id)).toEqual(["mt#b", "mt#c"]);
     expect(res.degraded).toBe(true);
   });
 

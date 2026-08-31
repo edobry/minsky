@@ -199,6 +199,19 @@ export interface CreateTaskOptions {
    * not registered, the call fails with a clear error (mt#2572 Bug 4).
    */
   backend?: string;
+  /**
+   * Project to stamp on the new row, resolved PER CALL (mt#4808).
+   *
+   * Overrides the backend's construction-time `currentProjectId`, which comes
+   * from whatever context the service was built in. That value is right for the
+   * ordinary same-project case and wrong whenever the task's subject belongs
+   * elsewhere — and it cannot be corrected after construction, because the MCP
+   * path injects a boot singleton. Omit to keep the constructed value.
+   *
+   * Resolved by `project/new-task-project.ts`: explicit location → parent
+   * task's project → filing context.
+   */
+  projectId?: string;
 }
 
 /**
