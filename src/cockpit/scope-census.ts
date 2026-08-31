@@ -215,6 +215,18 @@ export const ROUTE_ALLOWLIST: AllowlistEntry[] = [
       "OTHER widget; it is the mechanism, not a consumer of it.",
   },
   {
+    id: "memories",
+    reason:
+      "not project-attributable: every route mutates memories addressed by an " +
+      "already-identified id (PATCH/POST/DELETE /api/memories/:id), and the two bulk " +
+      "routes take an explicit id list the operator selected in the UI. There is no " +
+      "list-shaped read here to scope — the scoped reads live in the memories-* WIDGETS " +
+      "(mt#4727), which is where ?project= is consumed. Note this is a deliberate " +
+      "allowlist rather than an oversight: a mutation targeting a record the operator " +
+      "picked by id should act on THAT record, not silently no-op because the record " +
+      "belongs to a project other than the one currently selected.",
+  },
+  {
     id: "projects",
     reason:
       "not project-attributable: GET /api/projects IS the project selector's own " +

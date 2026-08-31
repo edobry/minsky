@@ -82,6 +82,7 @@ import { mountProjectRoutes, type ProjectRoutesOptions } from "./routes/projects
 import { mountEventsRoutes } from "./routes/events";
 import { mountActivityRoutes } from "./routes/activity";
 import { mountAskRoutes } from "./routes/asks";
+import { mountMemoryRoutes } from "./routes/memories";
 import { mountEngprodProposalRoutes } from "./routes/engprod-proposals";
 import { mountCredentialRoutes } from "./routes/credentials";
 import { mountContextInspectorRoutes } from "./routes/context-inspector";
@@ -634,6 +635,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountEmbeddingsRoutes(app);
   mountSweepRoutes(app); // mt#2894 — GET /api/sweeps (per-sweep liveness registry)
   mountFollowUpRoutes(app); // mt#2322 — GET/POST /api/follow-ups (scheduled-follow-up primitive)
+  mountMemoryRoutes(app); // mt#4766 — PATCH/POST/DELETE /api/memories/* (curation write path)
 
   // Rung 2A driven-session routes (mt#2750) — LOCAL DAEMON ONLY. Spawning a
   // genuine `claude` binary with the operator's own credentials has no
