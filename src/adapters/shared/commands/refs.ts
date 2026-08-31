@@ -366,7 +366,7 @@ async function getDb(
   }
 }
 
-function buildProductionResolvers(
+export function buildProductionResolvers(
   container: AppContainerInterface | undefined,
   repo: string | undefined
 ): RefResolvers {

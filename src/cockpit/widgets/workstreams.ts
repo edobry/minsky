@@ -259,8 +259,14 @@ export function createWorkstreamsWidget(getDeps: () => Promise<WorkstreamsDeps>)
         const { resolveCockpitProjectScope } = await import("../project-scope");
         const projectScope = await resolveCockpitProjectScope(ctx.query?.["project"], { getDb });
 
-        // Fetch all tasks in scope (no limit — we want the full picture)
-        const tasks = await taskService.listTasks({ projectScope });
+        // Fetch all tasks in scope (no limit — we want the full picture).
+        // ADR-046 (mt#2911): work packages are excluded by kind — a package is
+        // a claimable bundle, not a workstream node, and its members are
+        // reference rows rather than graph edges, so one must never render as
+        // a card or a child here.
+        const tasks = (await taskService.listTasks({ projectScope })).filter(
+          (t) => t.kind !== "work-package"
+        );
 
         // Build a map from task ID → task for quick lookup and orphan filtering
         const taskMap = new Map(tasks.map((t) => [t.id, t]));

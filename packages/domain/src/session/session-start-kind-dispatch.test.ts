@@ -106,6 +106,12 @@ describe("startSessionImpl kind-aware status gate (mt#1870)", () => {
     await expect(startSessionImpl(params, deps)).rejects.toThrow(/without a session/);
   });
 
+  it("refuses work-package-kind tasks — claim the bundle, session per member task (ADR-046)", async () => {
+    const deps = createDeps({ kind: "work-package", initialStatus: "READY" });
+    const params = { task: "mt#9999" } as unknown as SessionStartParameters;
+    await expect(startSessionImpl(params, deps)).rejects.toThrow(/claimable bundle/);
+  });
+
   it("defaults to implementation behavior when task has no kind field (back-compat)", async () => {
     // Task object returned without a kind property
     const sessionDB = new FakeSessionProvider();

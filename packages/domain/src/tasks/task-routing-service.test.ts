@@ -137,3 +137,48 @@ describe("TaskRoutingService dependency-completeness treats CLOSED as terminal (
     expect(route.readyTasks).toBe(2);
   });
 });
+
+/**
+ * ADR-046 (mt#2911): tasks_available excludes kind "work-package" by default —
+ * a package is claimed deliberately, never auto-served (consumer-side
+ * default-deny). An explicit kind filter includes it (AT6).
+ */
+describe("TaskRoutingService.findAvailableTasks work-package default-deny (ADR-046)", () => {
+  const fixture: Task[] = [
+    { id: "mt#900", title: "Cockpit polish bundle", status: "READY", kind: "work-package" },
+    { id: "mt#901", title: "Ordinary task", status: "TODO", kind: "implementation" },
+  ];
+
+  function makeService(tasks: Task[]) {
+    const taskService = {
+      listTasks: mock((opts: { kind?: string }) =>
+        Promise.resolve(opts?.kind ? tasks.filter((t) => t.kind === opts.kind) : tasks)
+      ),
+      getTask: async (id: string) => tasks.find((t) => t.id === id) ?? null,
+    } as unknown as TaskServiceInterface;
+    return new TaskRoutingService(makeStubTaskGraphService(), taskService);
+  }
+
+  test("no kind filter: zero work-packages in the result (AT6 first half)", async () => {
+    const result = await makeService(fixture).findAvailableTasks({
+      statusFilter: ["TODO", "READY"],
+    });
+    expect(result.map((t) => t.taskId)).toEqual(["mt#901"]);
+  });
+
+  test('explicit kind "work-package" returns the package (AT6 second half)', async () => {
+    const result = await makeService(fixture).findAvailableTasks({
+      statusFilter: ["TODO", "READY"],
+      kind: "work-package",
+    });
+    expect(result.map((t) => t.taskId)).toEqual(["mt#900"]);
+  });
+
+  test("another explicit kind is untouched by the exclusion branch", async () => {
+    const result = await makeService(fixture).findAvailableTasks({
+      statusFilter: ["TODO", "READY"],
+      kind: "implementation",
+    });
+    expect(result.map((t) => t.taskId)).toEqual(["mt#901"]);
+  });
+});
