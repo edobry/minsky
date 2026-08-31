@@ -255,8 +255,8 @@ Each phase is separately shippable; earlier phases produce value without waiting
 - Position paper: [Notion — Position: Agent identity is an authority question](https://www.notion.so/34a937f03cb48143bfbedd8710972daf)
 - Research: `docs/research/mt953-mcp-signals.md`, `docs/research/mt953-ecosystem-survey.md`
 - Fixtures: `docs/research/fixtures/mt953-claude-code-2.1.117-capture.jsonl`, `docs/research/fixtures/mt953-claude-code-subagent-capture.jsonl`
-- Session schema: `src/domain/storage/schemas/session-schema.ts` (`agent_id` column, migration 0022)
-- SessionRecord type: `src/domain/session/types.ts:35`
+- Session schema: `packages/domain/src/storage/schemas/session-schema.ts` (`agent_id` column, migration 0022)
+- SessionRecord type: `packages/domain/src/session/types.ts:35`
 - Gating tasks: mt#1000 (mesh signal channel), mt#441 (subagent system)
 - Implementation follow-up: mt#1078 (Layer 1 + Layer 2 readers, format parser, MCP server integration)
 - Upstream: [MCP Authorization draft](https://modelcontextprotocol.io/specification/draft/basic/authorization), [SEP-1289](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1289), [Claude Code #32514](https://github.com/anthropics/claude-code/issues/32514), [Claude Code #25642](https://github.com/anthropics/claude-code/issues/25642), [Claude Code hooks reference](https://code.claude.com/docs/en/hooks)

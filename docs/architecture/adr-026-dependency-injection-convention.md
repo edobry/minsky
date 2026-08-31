@@ -174,7 +174,7 @@ fallback anti-pattern that grew in the absence of an explicit rule.**
   and lint-time check (see Enforcement).
 - **Existing fallback-shape violations** (~26–29 sites) are cleaned up by the two tasks the
   mt#2623 spec named as coordination targets, plus one new follow-up for uncovered sites:
-  - **mt#1024** (TODO) — eliminates the fallback in `src/domain/tasks.ts` facade + the
+  - **mt#1024** (TODO) — eliminates the fallback in `packages/domain/src/tasks.ts` facade + the
     `query-commands.ts`/`mutation-commands.ts` command layer (8 + 4 + 5 functions). Scoped
     correctly per this ADR's rule 3; no change needed to that task's spec.
   - **mt#1804** (TODO) — audits `registerXxxTools` MCP-registration-time DI lookups for a

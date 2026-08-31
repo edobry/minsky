@@ -397,6 +397,18 @@ export const tasksCreateParams = {
   ...taskCreationParams,
   ...taskContextParams,
   ...outputFormatParams,
+  callerActorId: {
+    schema: z.string(),
+    description:
+      "The caller's resolved agentId (ADR-006), recorded as by_conversation on a " +
+      "work-package's opening transfer entry (ADR-046). Server-injected from the resolved " +
+      "MCP identity (src/mcp/server.ts) — not supplied by hand, and any hand-supplied " +
+      "value is overwritten there. Absent on the CLI path, which resolves identity from " +
+      "the harness environment instead. Unused for every other kind.",
+    required: false,
+    cliHidden: true,
+    mcpHidden: true,
+  },
 } satisfies CommandParameterMap;
 
 /**

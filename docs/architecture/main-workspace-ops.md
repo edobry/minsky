@@ -375,12 +375,12 @@ Minsky-internal race.
 - mt#1503 — originating incident context
 - mt#1549 — implementation task for all eight tools
 - mt#1103 — main-workspace edit hook (the structural enforcement that blocks raw edits)
-- `src/domain/git/pull-operations.ts` — `pullImpl` domain function
-- `src/domain/git/stash-operations.ts` — `stashImpl`, `stashPopImpl`, `stashListImpl`, `stashDropImpl`
-- `src/domain/git/restore-operations.ts` — `restoreImpl`
-- `src/domain/git/reset-operations.ts` — `resetImpl`
-- `src/domain/git/status-operations.ts` — `statusImpl`
-- `src/domain/git/mt1509-deadlock.test.ts` — integration test reproducing the scenario
+- `packages/domain/src/git/pull-operations.ts` — `pullImpl` domain function
+- `packages/domain/src/git/stash-operations.ts` — `stashImpl`, `stashPopImpl`, `stashListImpl`, `stashDropImpl`
+- `packages/domain/src/git/restore-operations.ts` — `restoreImpl`
+- `packages/domain/src/git/reset-operations.ts` — `resetImpl`
+- `packages/domain/src/git/status-operations.ts` — `statusImpl`
+- `packages/domain/src/git/mt1509-deadlock.test.ts` — integration test reproducing the scenario
 - `.claude/hooks/block-git-gh-cli.ts` — denial messages point at the new tools
 - mt#2820 — git-state repair affordances (index.lock detection/repair, remote-ref
   repair, git-exec timeout hardening); evidence trail: conversations 4b019e33,

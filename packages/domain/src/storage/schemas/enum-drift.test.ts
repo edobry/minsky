@@ -277,11 +277,14 @@ describe("Enum drift-check — system_event_type", () => {
 
 describe("Enum drift-check — task_status", () => {
   test("TASK_STATUS_VALUES matches the values registered in the pgEnum", () => {
-    // As with the other enums, the runtime pgEnum is itself derived from
-    // TASK_STATUS_VALUES (task-embeddings.ts), so this only catches someone
-    // editing the pgEnum call directly without touching the TS const.
+    // The pgEnum is TASK_STATUS_VALUES plus the orphaned "COMPLETED" — the
+    // DDL declaration deliberately carries the orphan (PR #3503 R1: deriving
+    // it purely from TaskStatus made snapshot regeneration silently drop a
+    // value every migrated DB still has). Same asymmetry the migration-SQL
+    // test below documents; asserting it here catches BOTH someone editing
+    // the pgEnum call directly AND someone "cleaning up" the orphan.
     const enumValues = [...taskStatusEnum.enumValues].sort();
-    const tsValues = [...TASK_STATUS_VALUES].sort();
+    const tsValues = [...TASK_STATUS_VALUES, "COMPLETED"].sort();
     expect(enumValues).toEqual(tsValues);
   });
 
