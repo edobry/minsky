@@ -101,6 +101,24 @@ export function selectionNeedsTerminal(statusFilter: string): boolean {
   return false;
 }
 
+/**
+ * Read the current URL's status filter and decide whether the widened payload
+ * is needed (mt#4774). Non-reactive by design — callers pair it with mount
+ * state and a `popstate` listener; `readListControlsState` exists for exactly
+ * this "need the filter before the hook that owns it" ordering (mt#4762).
+ */
+function readIncludeTerminalFromUrl(): boolean {
+  return selectionNeedsTerminal(
+    readListControlsState<TaskSortKey, TaskFilters>({
+      defaultPageSize: 25,
+      defaultSortKey: "status",
+      defaultSortDir: "asc",
+      defaultFilters: DEFAULT_FILTERS,
+      prefix: "tl",
+    }).filters.status
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Sort / filter config
 // ---------------------------------------------------------------------------
@@ -669,6 +687,15 @@ function TaskListInner({
     onIncludeTerminalChange(needsTerminal);
   }, [needsTerminal, onIncludeTerminalChange]);
 
+  // True while the selection needs terminal rows the CURRENT payload cannot
+  // contain (PR #3530 R1). The payload is the source of truth rather than a
+  // fetch flag: `payloadHasTerminal` is false exactly when the rows in hand
+  // came from an active-only fetch, which is the window where the empty-filter
+  // banner would lie. It clears the moment the widened rows arrive, with no
+  // dependence on request timing.
+  const payloadHasTerminal = tasks.some((t) => TERMINAL_STATUSES.has(t.status));
+  const awaitingTerminalPayload = needsTerminal && !payloadHasTerminal;
+
   return (
     <>
       {totalCount > 0 && (
@@ -691,6 +718,13 @@ function TaskListInner({
 
       {totalCount === 0 ? (
         <p className="text-body text-muted-foreground">No tasks</p>
+      ) : filteredCount === 0 && awaitingTerminalPayload ? (
+        // The widened fetch is still in flight, so the current payload
+        // genuinely has no terminal rows YET (mt#4774, PR #3530 R1). Showing
+        // the empty-filter banner here would flash the exact misleading
+        // message this task exists to remove — "No tasks match these filters"
+        // for a filter that is about to match.
+        <p className="text-body text-muted-foreground">Loading…</p>
       ) : filteredCount === 0 ? (
         <div className="py-6 text-center">
           <p className="text-body text-muted-foreground">No tasks match these filters</p>
@@ -799,17 +833,18 @@ export function TaskList({ variant = "card", title = "Tasks" }: TaskListProps = 
   // correcting itself a round-trip later. `readListControlsState` exists for
   // exactly this ordering (mt#4762): a non-reactive read for callers that must
   // build a query before the hook's own state exists.
-  const [includeTerminal, setIncludeTerminal] = useState(() =>
-    selectionNeedsTerminal(
-      readListControlsState<TaskSortKey, TaskFilters>({
-        defaultPageSize: 25,
-        defaultSortKey: "status",
-        defaultSortDir: "asc",
-        defaultFilters: DEFAULT_FILTERS,
-        prefix: "tl",
-      }).filters.status
-    )
-  );
+  const [includeTerminal, setIncludeTerminal] = useState(readIncludeTerminalFromUrl);
+
+  // Browser back/forward changes the filter without re-mounting, and the
+  // child's report-up runs a render later — so without this the first fetch
+  // after a history navigation goes out with the previous flag and is then
+  // re-issued (PR #3530 R1). `useListControls` subscribes to `popstate` for
+  // the same reason; this mirrors it for the one bit the fetch depends on.
+  useEffect(() => {
+    const onPopState = () => setIncludeTerminal(readIncludeTerminalFromUrl());
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
   const query = useQuery<WidgetData, Error>({
     // mt#2418: selectedSlug in the key so switching projects invalidates
     // the cache and refetches immediately rather than waiting out staleTime.
