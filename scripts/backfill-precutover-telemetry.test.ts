@@ -9,7 +9,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { legacyPathFor, selectLegacyStreams } from "./backfill-precutover-telemetry";
+import { legacyPathFor, parseArgs, selectLegacyStreams } from "./backfill-precutover-telemetry";
 import type { GuardEventStreamSource } from "@minsky/domain/guard-events/stream-sources";
 
 const ROOT = "/repo";
@@ -31,6 +31,40 @@ const calibSource = (stream: string): GuardEventStreamSource =>
 
 const always = () => true;
 const never = () => false;
+
+describe("parseArgs — a value-less flag must not widen the scope (PR #3526 R1)", () => {
+  test("--only as the last argument throws instead of selecting every stream", () => {
+    // The dangerous shape: `undefined ?? null` read as "no --only given", which defaults to ALL
+    // 60 streams. Paired with --execute that is a full 185k-record run the caller did not ask for.
+    expect(() => parseArgs(["--execute", "--only"])).toThrow(/--only requires a value/);
+  });
+
+  test("--only immediately followed by another flag throws", () => {
+    expect(() => parseArgs(["--only", "--execute"])).toThrow(/--only requires a value/);
+  });
+
+  test("--limit with no value throws — same shape, same refusal", () => {
+    // Class-not-instance: the reviewer flagged --only, and --limit was parsed identically.
+    expect(() => parseArgs(["--limit"])).toThrow(/--limit requires a value/);
+    expect(() => parseArgs(["--limit", "--execute"])).toThrow(/--limit requires a value/);
+  });
+
+  test("a well-formed scoped invocation still parses", () => {
+    expect(parseArgs(["--only", "coverage-claim-path", "--limit", "5", "--execute"])).toEqual({
+      execute: true,
+      only: "coverage-claim-path",
+      limit: 5,
+    });
+  });
+
+  test("no flags is a dry run over every stream", () => {
+    expect(parseArgs([])).toEqual({ execute: false, only: null, limit: null });
+  });
+
+  test("--limit rejects a non-positive value", () => {
+    expect(() => parseArgs(["--limit", "0"])).toThrow(/positive integer/);
+  });
+});
 
 describe("legacyPathFor", () => {
   test("builds the repo-rooted .minsky path from the manifest's relativePath", () => {

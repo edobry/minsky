@@ -70,12 +70,29 @@ interface Options {
   limit: number | null;
 }
 
-function parseArgs(argv: string[]): Options {
+/**
+ * The value following `--<flag>`, or `null` when the flag is absent.
+ *
+ * THROWS when the flag is present with no value — `--only` as the last argument, or immediately
+ * followed by another flag. Reading that as "no value given, so default" is what makes this
+ * dangerous rather than merely sloppy (PR #3526 R1): `--only` defaults to ALL streams, so
+ * `... --execute --only` would silently run the full 185k-record backfill when the caller asked
+ * for a scoped one. A bulk-mutation script must refuse an ambiguous scope, not widen it.
+ */
+function flagValue(argv: string[], flag: string): string | null {
+  const idx = argv.indexOf(flag);
+  if (idx < 0) return null;
+  const value = argv[idx + 1];
+  if (value === undefined || value.startsWith("--")) {
+    throw new Error(`${flag} requires a value (got ${value === undefined ? "nothing" : value}).`);
+  }
+  return value;
+}
+
+export function parseArgs(argv: string[]): Options {
   const execute = argv.includes("--execute");
-  const onlyIdx = argv.indexOf("--only");
-  const limitIdx = argv.indexOf("--limit");
-  const only = onlyIdx >= 0 ? (argv[onlyIdx + 1] ?? null) : null;
-  const rawLimit = limitIdx >= 0 ? (argv[limitIdx + 1] ?? null) : null;
+  const only = flagValue(argv, "--only");
+  const rawLimit = flagValue(argv, "--limit");
   const limit = rawLimit === null ? null : Number.parseInt(rawLimit, 10);
   if (limit !== null && (!Number.isFinite(limit) || limit <= 0)) {
     throw new Error(`--limit expects a positive integer, got: ${String(rawLimit)}`);
