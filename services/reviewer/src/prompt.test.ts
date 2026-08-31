@@ -1414,6 +1414,24 @@ describe("buildCriticConstitution — verify-before-block (mt#2655 SC1)", () => 
     expect(prompt).toContain("it does not license a BLOCKING finding");
   });
 
+  // Originating incident: PR #3414 (mt#4691) — the reviewer BLOCKED twice on
+  // "gen_random_uuid() requires pgcrypto", a claim that is false for every
+  // Postgres version this project supports (Postgres-core since PG13). The
+  // claim is an external-system version/capability assertion, a class
+  // Principle 13's original two triggers (function/API signature, file
+  // content) did not cover. This adds trigger class (c), requiring the claim
+  // be grounded in a repo-declared version before it can BLOCK, in both tool
+  // variants (consolidated into one test to stay under max-lines).
+  test("Principle 13 covers external-system version/capability claims as trigger class (c)", () => {
+    const withTools = buildCriticConstitution(true);
+    const withoutTools = buildCriticConstitution(false);
+    expect(withTools).toContain("external-system version or capability claim");
+    expect(withTools).toContain("requires extension/flag/version");
+    expect(withTools).toContain("naming the repo-declared version the claim depends on");
+    expect(withTools).toContain("capped at NON-BLOCKING");
+    expect(withoutTools).toContain("external-system version or capability claim");
+  });
+
   test("verify-before-block guidance appears across all scope calibrations (normal, trivial-or-docs, test-only)", () => {
     for (const scope of ["normal", "trivial-or-docs", "test-only"] as const) {
       const prompt = buildCriticConstitution(true, scope);
