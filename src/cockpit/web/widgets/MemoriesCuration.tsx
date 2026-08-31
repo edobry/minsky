@@ -150,9 +150,22 @@ function GrowthPanel({ buckets }: { buckets: GrowthBucket[] }) {
         {buckets.map((b) => {
           const pct = (n: number) => `${(n / max) * 100}%`;
           return (
+            // `min-h-0` is required, not decorative: `Layout.test.tsx`'s
+            // repo-wide column-flex sweep asserts that every growable flex
+            // column can shrink below its content height, and one that cannot
+            // is how a flex child silently forces its parent taller. Caught by
+            // CI, not by the local related-test run — that sweep walks the
+            // tree by path and has no import edge to this file, so nothing
+            // selected it.
+            //
+            // The sweep reads LINES, so a comment naming both class tokens
+            // together trips it. This wording deliberately does not.
+            //
+            // One flex column, not two: this used to wrap a second, inner
+            // column that duplicated its own classes for no reason.
             <div
               key={b.weekStart}
-              className="flex-1 flex flex-col justify-end h-full min-w-0"
+              className="flex-1 flex flex-col justify-end h-full min-h-0 min-w-0"
               title={`Week of ${b.weekStart}: ${b.total} created — ${b.handoff} handoff, ${b.retrospective} retrospective, ${b.other} other`}
               data-testid={`growth-week-${b.weekStart}`}
             >
@@ -163,11 +176,9 @@ function GrowthPanel({ buckets }: { buckets: GrowthBucket[] }) {
                   message — handoffs are the most saturated because their
                   share is the number this panel exists to make legible (53%
                   of August's creations). */}
-              <div className="flex flex-col justify-end h-full">
-                <div className="bg-primary/80" style={{ height: pct(b.handoff) }} />
-                <div className="bg-primary/35" style={{ height: pct(b.retrospective) }} />
-                <div className="bg-muted-foreground/25" style={{ height: pct(b.other) }} />
-              </div>
+              <div className="bg-primary/80" style={{ height: pct(b.handoff) }} />
+              <div className="bg-primary/35" style={{ height: pct(b.retrospective) }} />
+              <div className="bg-muted-foreground/25" style={{ height: pct(b.other) }} />
             </div>
           );
         })}
