@@ -18,6 +18,8 @@ import { claudeSkillsTarget } from "./targets/claude-skills";
 import { claudeAgentsTarget } from "./targets/claude-agents";
 import { cursorRulesTsTarget } from "./targets/cursor-rules-ts";
 import { claudeHooksTarget } from "./targets/claude-hooks";
+import { codexHooksTarget } from "./targets/codex-hooks";
+import { codexAgentsTarget } from "./targets/codex-agents";
 import { claudeMdTarget } from "./targets/claude-md";
 import { agentsMdTarget } from "./targets/agents-md";
 import { claudeRulesTarget } from "./targets/claude-rules";
@@ -159,6 +161,13 @@ export function createMinskyCompileService(): MinskyCompileService {
   service.registerTarget(claudeAgentsTarget);
   service.registerTarget(cursorRulesTsTarget);
   service.registerTarget(claudeHooksTarget);
+  // Codex harness targets (mt#3854). Registered unconditionally so
+  // `--target codex-hooks` works anywhere — including the first run in a
+  // workspace that has no `.codex/` yet, which is how the directory gets
+  // created. Whether a BARE invocation regenerates them is the separate,
+  // presence-gated question `minskyCompileTargetsFromPresence` answers.
+  service.registerTarget(codexHooksTarget);
+  service.registerTarget(codexAgentsTarget);
   service.registerTarget(claudeMdTarget);
   service.registerTarget(agentsMdTarget);
   service.registerTarget(claudeRulesTarget);

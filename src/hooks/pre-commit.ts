@@ -2403,6 +2403,10 @@ export class PreCommitHook {
       // review). For a hooks-source commit Step 3f already regenerated the
       // output, so this check then passes on the fresh output.
       hooks: await dirExists(`${this.projectRoot}/.minsky/hooks`),
+      // mt#3854: the OUTPUT tree, not a source dir — this asks whether the
+      // workspace has opted in to the Codex harness, so a clone that never
+      // adopted it is never asked to keep a `.codex/` fresh.
+      codex: await dirExists(`${this.projectRoot}/.codex`),
     });
 
     if (targetsToCheck.length === 0) {
@@ -2589,6 +2593,13 @@ export function compileCheckTargets(present: {
   rules: boolean;
   agents: boolean;
   hooks: boolean;
+  /**
+   * Whether `.codex/` exists (mt#3854). Gated on the OUTPUT tree rather than a
+   * `.minsky/` source dir, because it asks whether this workspace has opted in
+   * to the Codex harness — see the matching field on
+   * `minskyCompileTargetsFromPresence`, which carries the full rationale.
+   */
+  codex: boolean;
 }): string[] {
   const targets: string[] = [];
   if (present.skills) targets.push("claude-skills");
@@ -2600,6 +2611,10 @@ export function compileCheckTargets(present: {
   }
   if (present.agents) targets.push("claude-agents");
   if (present.hooks) targets.push("claude-hooks");
+  if (present.codex) {
+    if (present.hooks) targets.push("codex-hooks");
+    if (present.agents) targets.push("codex-agents");
+  }
   return targets;
 }
 

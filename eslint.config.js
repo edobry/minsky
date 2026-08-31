@@ -958,8 +958,18 @@ export default [
       // Claude Code hooks emit to stdout to inject additionalContext / audit lines.
       // The console-output pattern IS the public interface of a hook, not a debug
       // smell. .minsky/hooks/ is the canonical source (mt#2304); .claude/hooks/
-      // is the compiled output. Both share the same console-usage pattern.
+      // and .codex/hooks/ are compiled outputs. All three share the same
+      // console-usage pattern — the exemption follows the CONTENT, so any
+      // harness copy of the same sources inherits it (mt#3854).
+      //
+      // .codex/hooks/ was the measured cost of NOT being listed here: while it
+      // was an untracked hand-made copy, a main-workspace lint reported 27
+      // `no-raw-console` errors across 16 of its files and zero from tracked
+      // source. In a repo with a zero-tolerance lint gate that reads as "main
+      // is red", and it cost one agent a diagnostic detour before the paths
+      // were read.
       ".claude/hooks/**",
+      ".codex/hooks/**",
       ".minsky/hooks/**",
       // ESLint rule files themselves use `console.warn` for diagnostic-time messages
       // that the rule emits to the developer (e.g., misconfiguration warnings). The
