@@ -244,6 +244,7 @@ import { sanitizeForPostgresDeep } from "../storage/postgres-text-safety";
 import { log } from "@minsky/shared/logger";
 import { isAllProjects } from "../project/scope";
 import { MEMORY_SCOPES, DEFAULT_COLD_DAYS } from "./types";
+import { l2DistanceToSimilarity, similarityToL2Distance } from "./similarity-score";
 import { nextShortId, formatShortId, parseShortId } from "../utils/short-id";
 import type {
   MemoryRecord,
@@ -739,9 +740,16 @@ export class MemoryService implements MemoryServiceSurface {
     const record = await this.get(id);
     if (!record) return null;
 
-    // `score: 0` is a placeholder for a shape that requires one — a fetch-by-id has no
-    // query to be relevant to, and nothing downstream of `annotateStaleness` reads it.
-    const results: MemorySearchResult[] = [{ record, score: 0 }];
+    // A placeholder for a shape that requires one — a fetch-by-id has no query to be
+    // relevant to, and nothing downstream of `annotateStaleness` reads it (re-verified
+    // at mt#4787: `annotateStaleness` reads `.record` only, and the local `results`
+    // never escapes this method — only `results[0].staleness` is returned).
+    //
+    // The VALUE changed with the field's meaning (mt#4787): `score` is now a cosine
+    // similarity where 1 is a perfect match, so the old `0` would read as "completely
+    // dissimilar" rather than as the neutral filler it was. A record is trivially
+    // identical to itself, so 1 is the honest filler if anything ever does read it.
+    const results: MemorySearchResult[] = [{ record, score: 1 }];
     await this.annotateStaleness(results);
 
     const staleness = results[0]?.staleness;
@@ -1058,7 +1066,11 @@ export class MemoryService implements MemoryServiceSurface {
 
     const searchResults = await this.deps.vectorStorage.search(queryVector, {
       limit: opts?.limit ?? 10,
-      threshold: opts?.threshold,
+      // mt#4787: `opts.threshold` is a MINIMUM SIMILARITY; the store applies
+      // its `threshold` as `score <= threshold` against an L2 DISTANCE. The
+      // two are opposite directions, so the value must be converted, not
+      // forwarded.
+      threshold: opts?.threshold === undefined ? undefined : similarityToL2Distance(opts.threshold),
     });
 
     if (searchResults.length === 0) {
@@ -1101,7 +1113,12 @@ export class MemoryService implements MemoryServiceSurface {
     for (const sr of searchResults) {
       const row = rowById.get(sr.id);
       if (row) {
-        results.push({ record: rowToRecord(row), score: sr.score });
+        // mt#4787: `sr.score` is the store's L2 DISTANCE. Converting here —
+        // once, at the boundary where the metric is known — is what lets every
+        // display site render it directly. Do not convert per render site, and
+        // do not convert in the shared vector layer: three other consumers
+        // read that layer's score as a distance (mt#4805).
+        results.push({ record: rowToRecord(row), score: l2DistanceToSimilarity(sr.score) });
       }
     }
 
@@ -1295,7 +1312,10 @@ export class MemoryService implements MemoryServiceSurface {
 
     const searchResults = await this.deps.vectorStorage.search(vector, {
       limit: (opts?.limit ?? 10) + 1, // +1 to account for self
-      threshold: opts?.threshold,
+      // mt#4787: minimum-similarity in, maximum-distance out. Same conversion
+      // as `search()` — the two methods must agree, since both feed surfaces
+      // that render the result as one number.
+      threshold: opts?.threshold === undefined ? undefined : similarityToL2Distance(opts.threshold),
     });
 
     // Exclude self from results.
@@ -1327,7 +1347,8 @@ export class MemoryService implements MemoryServiceSurface {
     const similarResults = filtered
       .map((sr) => {
         const row = rowById.get(sr.id);
-        return row ? { record: rowToRecord(row), score: sr.score } : null;
+        // mt#4787: L2 distance -> cosine similarity, same boundary as search().
+        return row ? { record: rowToRecord(row), score: l2DistanceToSimilarity(sr.score) } : null;
       })
       .filter((r): r is MemorySearchResult => r !== null);
 

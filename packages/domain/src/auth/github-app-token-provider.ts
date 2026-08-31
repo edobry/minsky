@@ -17,6 +17,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { TokenProvider, TokenRole } from "./token-provider";
 import { createTimeoutFetch } from "../github/octokit-timeout";
+import { trustedGitHubUrl } from "../github/trusted-url";
 
 /** Per-App credentials used by SingleAppClient. */
 export interface AppCredentials {
@@ -328,6 +329,49 @@ class SingleAppClient {
     return { repositories, selection };
   }
 
+  /**
+   * The installation's own settings-page URL, as GitHub reports it (mt#4764).
+   *
+   * GitHub publishes `html_url` on the installation object, and it is correct for
+   * a personal-account AND an organization installation — the two live on
+   * DIFFERENT settings pages, and constructing the path can only ever be right
+   * about one of them. Reading it here means neither case has to be verified
+   * separately, which matters because this project has no org installation to
+   * verify against.
+   *
+   * Returns `null` rather than throwing on every failure path: the caller's
+   * fallback is a constructed URL, and a link is advisory — a coverage probe
+   * must not fail because the prettier link could not be fetched.
+   */
+  async getInstallationHtmlUrl(): Promise<string | null> {
+    try {
+      const jwt = this.generateJwt();
+      const response = await this.boundedFetch(
+        `${GITHUB_API_BASE}/app/installations/${this.installationId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${jwt}`,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+        }
+      );
+      if (!response.ok) return null;
+
+      const data = (await response.json()) as { html_url?: unknown };
+      // Origin-checked, not merely type-checked (PR #3511 R1). This value
+      // crosses a trust boundary and is rendered to an operator as something to
+      // CLICK, so "is it a non-empty string" is the wrong question — "does it
+      // point at github.com" is the right one. Anything else returns null and
+      // the caller falls back to the constructed, known-safe form.
+      return trustedGitHubUrl(data.html_url);
+    } catch {
+      // intentional-swallow: advisory link only; the caller falls back to the
+      // constructed form, and a failure here must not fail the coverage probe.
+      return null;
+    }
+  }
+
   private async fetchInstallationToken(repo?: string): Promise<{ token: string; expiresAt: Date }> {
     const jwt = this.generateJwt();
 
@@ -477,6 +521,15 @@ export class GitHubAppTokenProvider implements TokenProvider {
    */
   async getInstallationCoverage(role?: TokenRole): Promise<InstallationCoverage> {
     return this.clientForRole(role).getInstallationCoverage();
+  }
+
+  /**
+   * GitHub's own settings-page URL for `role`'s installation (mt#4764), or
+   * `null` when it cannot be read. Defaults to the implementer App, matching
+   * `getInstallationCoverage`'s behavior above.
+   */
+  async getInstallationHtmlUrl(role?: TokenRole): Promise<string | null> {
+    return this.clientForRole(role).getInstallationHtmlUrl();
   }
 
   /**
