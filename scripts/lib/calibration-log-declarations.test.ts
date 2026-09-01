@@ -315,3 +315,26 @@ describe("mt#4755 — the ladder's five path constants are DERIVED from their st
     expect(source).not.toContain("export function appendCalibrationRecord(");
   });
 });
+
+describe("mt#4755 PR #3541 R1 — the ladder's READER resolves where the writer writes", () => {
+  // The reviewer's blocking finding. Routing the writes to the state dir silently stranded the
+  // one script that reads them back: it joined the repo-relative constant onto the repo root,
+  // found nothing, and took its own `records.length === 0` branch — printing "No calibration
+  // records found" and exiting 0. A silent zero is indistinguishable from a detector that never
+  // fired, which is the shape mt#4811 found in `ask-form-lint` and mt#4784 tracks elsewhere.
+  const reclassifier = readFileSync(
+    join(import.meta.dir, "..", "at-coverage-reclassify.ts"),
+    "utf8"
+  );
+
+  test("it resolves through `calibrationLogPath`, the writer's own resolver", () => {
+    expect(reclassifier).toContain("calibrationLogPath(AT_COVERAGE_STREAM");
+  });
+
+  test("it does NOT reconstruct the path by joining the constant onto a repo root", () => {
+    // Asserting the ABSENCE of the old shape, not merely the presence of the new one: both can
+    // coexist, and it is the old one that produces the silent zero.
+    expect(reclassifier).not.toContain("${repoRoot}/${AT_COVERAGE_CALIBRATION_LOG}");
+    expect(reclassifier).not.toMatch(/join\(\s*repoRoot\s*,\s*AT_COVERAGE_CALIBRATION_LOG/);
+  });
+});
