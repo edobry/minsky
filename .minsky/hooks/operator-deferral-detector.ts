@@ -1451,12 +1451,12 @@ export function buildCalibrationRecord(
   /**
    * The turn's assistant prose, for the overlap measurement (mt#4702).
    *
-   * OPTIONAL, and absent means "not measured" rather than "no overlap" — the
-   * distinction matters because a `false` written on a caller that never had
-   * the text would be a claim, not a measurement. Optional also keeps every
-   * existing caller valid: making it required is the contract-tightening class
-   * `/plan-task` gate (h) names, where callers break by OMISSION and a
-   * read-grep cannot see them.
+   * OPTIONAL, and absent — or EMPTY — means "not measured" rather than "no
+   * overlap" (PR #3531 R2). The distinction matters because a `false` written
+   * on a caller that never had the text would be a claim, not a measurement.
+   * Optional also keeps every existing caller valid: making it required is the
+   * contract-tightening class `/plan-task` gate (h) names, where callers break
+   * by OMISSION and a read-grep cannot see them.
    */
   turnText?: string
 ): Record<string, unknown> {
@@ -1472,9 +1472,16 @@ export function buildCalibrationRecord(
     // reports was never the whole overlap surface. Same boolean shape and same
     // derivation as `turn-end-untaken-action-scan.ts`'s field, deliberately, so
     // the two are comparable.
-    ...(turnText !== undefined
-      ? { deferralOverlap: detectDeferralPhrases(turnText).length > 0 }
-      : {}),
+    //
+    // EMPTY counts as not-measured too (PR #3531 R2): over an empty string
+    // `detectDeferralPhrases` can only ever return `[]`, so the `false` it
+    // yields is a CONSTANT rather than a measurement — the same fabricated
+    // negative the optional parameter exists to prevent. Guarded here, at the
+    // derivation, rather than at each call site: a turn that fires on a TOOL
+    // CALL alone (surface E) carries no prose, and `extractAssistantText`
+    // returns `""` for it, never `undefined`, so every call site that threads
+    // real extraction output has to make this same choice.
+    ...(turnText ? { deferralOverlap: detectDeferralPhrases(turnText).length > 0 } : {}),
     // mt#3781: `phrase` is the sweep's diversity axis, so it carries the PATTERN
     // hit; `context` carries the surrounding prose that used to occupy `phrase`.
     // Both, because the axis needs the first to be meaningful and a human
@@ -1629,7 +1636,14 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     // mt#4702: hoisted so the calibration record measures the overlap against
     // the SAME prose the evaluation record already carries, rather than a
     // second derivation that could drift from it.
-    const turnText = extractAssistantText(turnLines) ?? "";
+    // No `?? ""`: `extractAssistantText` returns `string`, so the coalesce was
+    // dead and the empty case reached `buildCalibrationRecord` as a defined
+    // value — which is how `deferralOverlap` came to be emitted on every
+    // prose-turn record (PR #3531 R2). The two consumers want different things
+    // from an empty extraction and now get them: `text_tail` takes `""` as the
+    // honest tail of a turn with no prose, and the calibration record omits the
+    // overlap field rather than fabricating a negative.
+    const turnText = extractAssistantText(turnLines);
     appendEvaluationRecord(
       input.cwd,
       buildEvaluationRecord(

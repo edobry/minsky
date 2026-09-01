@@ -63,3 +63,45 @@ describe("mt#4702 — deferralOverlap projection", () => {
     expect(parsed).not.toHaveProperty("deferralOverlap");
   });
 });
+
+/**
+ * PR #3531 R3 — a lifted field must appear ONCE.
+ *
+ * `parseDetectorFields` derives consumed-ness from the keys of the record it is
+ * handed, so a cross-kind lift performed AFTER that call leaves the key
+ * unconsumed and it rides through the passthrough as well. The record then
+ * carries both `deferralOverlap` and `detectorFields.deferralOverlap`, and
+ * `assessClassifiability` counts each as evidence — inflating the classifiable
+ * tally for every record that carries one. The fix is call ORDERING, which is
+ * what these pin.
+ */
+describe("PR #3531 R3 — cross-kind lifts do not duplicate into detectorFields", () => {
+  test("deferralOverlap does not ride through the passthrough", () => {
+    const parsed = parseCalibrationRecord(
+      JSON.stringify({ ...base, deferralOverlap: true }),
+      OPERATOR_DEFERRAL
+    );
+    expect(parsed?.deferralOverlap).toBe(true);
+    expect(parsed?.detectorFields?.["deferralOverlap"]).toBeUndefined();
+  });
+
+  test("supersedes — the same shape, and it was duplicating too", () => {
+    const parsed = parseCalibrationRecord(
+      JSON.stringify({ ...base, supersedes: "2026-08-30T00:00:00.000Z" }),
+      OPERATOR_DEFERRAL
+    );
+    expect(parsed?.supersedes).toBe("2026-08-30T00:00:00.000Z");
+    expect(parsed?.detectorFields?.["supersedes"]).toBeUndefined();
+  });
+
+  test("a genuinely detector-specific key still rides through", () => {
+    // The negative control: the ordering fix must not swallow the passthrough
+    // it shares a function with (mt#3289's whole point).
+    const parsed = parseCalibrationRecord(
+      JSON.stringify({ ...base, deferralOverlap: true, textHash: "abc123" }),
+      OPERATOR_DEFERRAL
+    );
+    expect(parsed?.detectorFields?.["textHash"]).toBe("abc123");
+    expect(parsed?.detectorFields?.["deferralOverlap"]).toBeUndefined();
+  });
+});

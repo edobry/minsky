@@ -1946,4 +1946,55 @@ describe("mt#4702 — deferralOverlap makes this pair's overlap measurable", () 
     );
     expect(record.deferralOverlap).toBe(false);
   });
+
+  test("EMPTY text is not-measured either — the field is absent, not false", () => {
+    // PR #3531 R2. Over an empty string `detectDeferralPhrases` can only ever
+    // return `[]`, so the `false` this used to write was a CONSTANT, not a
+    // measurement — the fabricated negative the optional parameter exists to
+    // prevent, arriving through the one caller shape that has no prose at all.
+    expect(buildCalibrationRecord("s1", matches, "")).not.toHaveProperty("deferralOverlap");
+  });
+});
+
+describe("PR #3531 R2 — the PRODUCTION path, not just the builder", () => {
+  // The three tests above call `buildCalibrationRecord` directly and omit the
+  // argument, so they stayed green while `run()` supplied `?? ""` on every
+  // prose-turn record. That is the gap the reviewer found: the only caller
+  // that decides what "no prose" means was untested. These call `run()`.
+
+  test("a turn that fires on a TOOL CALL alone records no overlap field", () => {
+    // Surface E fires off the `asks_create` input, not off assistant prose, so
+    // `extractAssistantText` returns "" for this turn. Before the fix every
+    // such record carried `deferralOverlap: false`.
+    const outcome = run(
+      { session_id: "s-empty", transcript_path: FIXTURE_PATH } as ClaudeHookInput,
+      ctxWith([userPrompt("open the ask"), ...askTurn({}), userPrompt("next")])
+    );
+    expect(outcome?.calibration?.["matches"]).toBeDefined();
+    expect(outcome?.calibration).not.toHaveProperty("deferralOverlap");
+  });
+
+  // Negative controls. A guard that dropped the field unconditionally would
+  // pass the test above and quietly destroy the measurement mt#4702 shipped —
+  // so both VALUES have to survive on a turn that actually carries prose.
+  test("a prose turn with no overlap records a real false, not an absence", () => {
+    const outcome = run(
+      { session_id: "s-prose-false", transcript_path: FIXTURE_PATH } as ClaudeHookInput,
+      ctxWith([userPrompt("go"), assistantText(DEFERRAL_PROSE), userPrompt("next")])
+    );
+    expect(outcome?.calibration).toHaveProperty("deferralOverlap");
+    expect(outcome?.calibration?.["deferralOverlap"]).toBe(false);
+  });
+
+  test("a prose turn the sibling also fires on records true", () => {
+    const outcome = run(
+      { session_id: "s-prose-true", transcript_path: FIXTURE_PATH } as ClaudeHookInput,
+      ctxWith([
+        userPrompt("go"),
+        assistantText(`${DEFERRAL_PROSE} Want me to file it, or leave it?`),
+        userPrompt("next"),
+      ])
+    );
+    expect(outcome?.calibration?.["deferralOverlap"]).toBe(true);
+  });
 });
