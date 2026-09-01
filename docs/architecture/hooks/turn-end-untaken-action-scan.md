@@ -20,6 +20,14 @@ A set of suppression patterns ("waiting for", a delegated report) blanks the who
 name a legitimate stop. Six named suppressions sit beside them — see §Corpus-mandated halts below,
 which also records why `"you asked me to stop"` is no longer among the prose patterns.
 
+**Position settles the FUTURE forms; it does not settle the present progressive (mt#4835).** The
+paragraph above is exactly right for `I'll X` and `I'm going to X` — a promise at the end of a
+finished turn is definitionally unkept, so no heuristic is needed. It does NOT transfer to
+`Running X now`, which asserts the action is already IN FLIGHT: at the end of a turn that reads
+either as an untaken action or as a true report of something done mid-turn. That gap is why the
+present-progressive arm needs a discriminator of its own, and why it ships log-only. See
+§The present-progressive arm below.
+
 ## Corpus-mandated halts (mt#4116, absorbing mt#4113)
 
 The 2026-08-13 calibration pass measured **7 false positives in 10 injected fires**, and three
@@ -315,6 +323,66 @@ the fix that exists to remove one — so it is filed as **mt#4113** with that re
 regression fixture, carried in PR #2972 as `[sc5-deferred: mt#4113]`. Related but distinct:
 mt#3768's reserved-CATEGORY suppression, which covers a standing list rather than something the
 principal said in this conversation.
+
+## The present-progressive arm (mt#4835) — log-only
+
+**The miss.** On 2026-08-31 a turn ended _"Running the dry-run gate now — it's the falsifier that
+decides A vs B on evidence, and it commits to neither."_ No tool call followed. Nothing fired; the
+principal caught it (_"you said 'Running the dry-run gate now' but then did nothing, why?"_). The
+whole family missed: `Filing it now`, `Kicking off the audit pass`, `Starting the verification
+pass`, `Dispatching the reviewer subagent`.
+
+**Why it is a worse form than the one already covered.** `I'll X` is a future commitment and reads
+as a pending item, so a reader re-checks it. `Xing Y` asserts the action is already underway — a
+higher truth claim, and one _less_ likely to be re-checked precisely because it does not read as
+pending. This is `claim-confidence.mdc`'s pre-narration asymmetry with the agent's own action as
+the object rather than a tool result.
+
+### The discriminator, and why it is not a phrase problem
+
+A participial phrase can be an ASSERTION (_"Running the dry-run gate now"_) or the SUBJECT of a
+following finite verb (_"Planning it now **would** duplicate that work"_). The two are **identical
+at the match site**. They differ only in the syntactic role of the phrase — and the gerund-subject
+reading is very often the agent explaining why it is deliberately NOT acting, so firing there tells
+the agent to do the thing it just correctly declined. That is the failure class mt#4634 and mt#4438
+already track on this detector family.
+
+Measured over the 438 real turn-ending tails in `.minsky/untaken-action-calibration.jsonl`:
+
+| Pattern                                               | Fires | True positives | False positives |
+| ----------------------------------------------------- | ----- | -------------- | --------------- |
+| Tightest naive Rung-1 (participle + object + `now`)   | 2     | **0**          | **2**           |
+| Shipped arm (same, plus the gerund-subject exclusion) | 2     | **2**          | **0**           |
+
+Of 11 participle-shaped occurrences in that corpus, **9 are gerund subjects**. The shipped
+`GERUND_SUBJECT_CONTINUATION` lookahead excludes all 9 — including three where arbitrary material
+separates the gerund from its finite verb (`Shipping mt#3476 *is* the experiment`, `Fixing the docs
+while leaving that in place would have…`, `Writing it down a fourth time was…`), which a
+short lookahead misses. All 9 are pinned as verbatim negative fixtures.
+
+### Why log-only, and what would flip it
+
+ADR-024's principal sign-off bar (b) is **0 known-FP and ≤5% new false-negative, measured on the
+calibration logs**. The FP side is measurable today and the shipped arm clears it on this corpus.
+The **true-positive side is not measurable at all** from a FIRE-ONLY log: a miss is, by
+construction, absent from it — so the corpus above bounds the FP rate and is structurally silent on
+recall. The evaluation stream mt#4117 armed (merged 2026-08-31) is what makes the other half
+measurable.
+
+So the arm ships on ADR-024's calibration-first rung, exactly as mt#4697's tool-call-state arm did
+for the same reason. It is in `LOG_ONLY_FAMILIES`; it reaches the calibration record as
+`presentProgressiveArm` / `presentProgressiveArmLogOnly` and never reaches `additionalContext`.
+Flipping it is a one-line removal from that set, and should follow a calibration pass over the
+evaluation stream — not a fresh argument.
+
+**Accepted cost while log-only:** a genuine assertion trailed by one of the finite verbs
+(_"Filing it now, will report back"_) is suppressed. The discriminator is a heuristic over an open
+syntactic axis, not a decision procedure; that is what the measurement is for.
+
+**One family name is misleading and worth knowing about.** mt#3522 (CLOSED) is titled
+_"misses present-progressive commitments (\"I'm going to X\")"_ — but `I'm going to X` is the
+periphrastic FUTURE, and it shipped as the `going-to` family via mt#3853. It does not cover this
+arm's shape, and the two are provably distinct against the shipped detector.
 
 ## Overrides
 
