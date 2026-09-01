@@ -10,41 +10,7 @@ import express from "express";
 import type { AddressInfo } from "net";
 import { setupTestMocks } from "../utils/test-utils/mocking";
 import { log } from "@minsky/shared/logger";
-
-/**
- * Retrieve the registered `tools/call` handler and wrap it with the minimal v2-shaped
- * context the SDK now requires (mt#4854).
- *
- * This centralizes two things that were repeated at all eight call sites below:
- *
- * 1. **The reach into the SDK's PRIVATE `_requestHandlers` map.** That coupling is what
- *    mt#4844 tracks and migrates to the supported `connectTransport` +
- *    `InMemoryTransport` seam; collapsing eight copies into one shrinks that job to a
- *    single edit, and keeps this file under the 1500-line `max-lines` ceiling it was
- *    already sitting exactly on.
- * 2. **The handler context.** SDK v2 routes every input-required-capable handler —
- *    `tools/call` among them — through `Server._invokeInputRequiredCapableHandler`,
- *    which reads `ctx.mcpReq.requestState()` BEFORE delegating. The bare `{}` these
- *    tests passed as `extra` under v1 therefore throws inside the SDK now, before any
- *    Minsky code runs. `tools/list` is NOT input-required-capable, which is why its
- *    invocation further down still passes `{}` unchanged and needs nothing from here.
- *
- * `requestState: () => undefined` is the "this round carries no request state" case,
- * which is what every test here means; the SDK skips the rest of its own wrapper once
- * the handler returns an ordinary result.
- */
-function getToolsCallHandler(
-  sdkServer: unknown
-): (request: unknown, ctx?: unknown) => Promise<unknown> {
-  const handlers = (sdkServer as { _requestHandlers: Map<string, Function> })._requestHandlers;
-  const handler = handlers.get("tools/call");
-  if (!handler) throw new Error("Expected tools/call handler to be registered");
-  return (request: unknown, ctx: unknown = {}) =>
-    handler(request, {
-      ...(ctx as Record<string, unknown>),
-      mcpReq: { requestState: () => undefined },
-    }) as Promise<unknown>;
-}
+import { getToolsCallHandler } from "./test-support/tools-call-handler";
 
 // Shared HTTP content-type constants used across integration tests
 const CONTENT_TYPE_JSON = "application/json";
