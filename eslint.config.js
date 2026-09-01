@@ -744,6 +744,18 @@ export default [
           ],
           patterns: [
             {
+              // mt#4854: the v1 MCP SDK is gone as a DIRECT dependency, but
+              // `@modelcontextprotocol/inspector` (devDependency) hard-depends on
+              // `@modelcontextprotocol/sdk@^1.17.0`, so bun still hoists v1 to
+              // `node_modules/@modelcontextprotocol/sdk`. A stray v1 import would therefore
+              // RESOLVE and typecheck cleanly — nothing else in the toolchain would catch the
+              // regression. This rule is what actually enforces the migration; removing the
+              // inspector devDependency would be the alternative, and is out of scope.
+              group: ["@modelcontextprotocol/sdk", "@modelcontextprotocol/sdk/*"],
+              message:
+                "The v1 MCP SDK was retired (mt#4854). Import from the v2 packages: @modelcontextprotocol/server (Server, spec types, ProtocolError/ProtocolErrorCode), /server/stdio (StdioServerTransport), /client (Client, InMemoryTransport), /node (NodeStreamableHTTPServerTransport), /core (spec Zod schemas). v1 survives in node_modules only as a transitive dep of @modelcontextprotocol/inspector.",
+            },
+            {
               group: [
                 "*/*.js",
                 "./*.js",

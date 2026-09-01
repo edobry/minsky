@@ -59,6 +59,19 @@ export function getToolsCallHandler(
   return (request: unknown, ctx: unknown = {}) =>
     handler(request, {
       ...(ctx as Record<string, unknown>),
-      mcpReq: { requestState: () => undefined },
+      mcpReq: {
+        requestState: () => undefined,
+        // `notify` is the second `ctx.mcpReq` member our own dispatch path reaches:
+        // `server.ts:1471` passes it to `buildProgressReporter` whenever the request
+        // carries a `progressToken` (mt#2677). No test here sets one today, so this
+        // default is never exercised — but without it, the first test that does would
+        // fail on an undefined callee rather than on its own assertion.
+        //
+        // A no-op is the right default because the spec makes progress delivery
+        // optional ("the receiver is not obligated to provide these notifications").
+        // A test that ASSERTS on progress must pass its own `mcpReq` — the spread above
+        // is caller-first for exactly that, so overriding it needs no change here.
+        notify: async () => {},
+      },
     });
 }
