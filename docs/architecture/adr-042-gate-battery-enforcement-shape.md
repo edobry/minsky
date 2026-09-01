@@ -397,8 +397,9 @@ preference.
 
 - Related ADRs: ADR-024 (mechanism ladder — scopes the prose-parsing family this avoids), ADR-031
   (lifecycle event — its flush-time reasoning, correctly scoped), ADR-032 (threshold tuning +
-  `tuningOwnership`, extending ADR-028 §D2/§D4), ADR-008 §Router (policy-coverage semantics; Open
-  Question 9 is live)
+  `tuningOwnership`, extending ADR-028 §D2/§D4), ADR-008 §Router (policy-coverage semantics —
+  still the record for the policy-first close path; its research question 9 is answered
+  RESOLVED-BY-RETIREMENT, mt#4197)
 - Related tasks: mt#4170 (this ADR), mt#4293 (the gate-(h) seam amendment + mt#4172 re-pricing),
   mt#2755 (parent), mt#4171, mt#4172, mt#4173, mt#1880,
   mt#4168, mt#4169, mt#1698, mt#4044 (the evidence-provenance table the join rows build on),
@@ -408,11 +409,15 @@ preference.
   `.minsky/hooks/registry-pr-create-guards.ts` (its registration),
   `scripts/replay-enumeration-scope.ts --seam-compare` (the seam measurement, re-run 2026-08-19),
   `docs/architecture/hooks/enumeration-scope-check.md`
-- Asks: ask#8752 (policy-coverage mechanism decision — open)
-- Memory entries: mem#416 (the battery is bypassable — four paths), mem#1045 (the detector is live
-  and dormant; read tool-call state, not prose), mem#776 (search the ADR corpus before proposing a
-  mechanism)
-- Source read for this ADR: `packages/domain/src/detectors/policy-coverage/corpus-loader.ts`,
+- Asks: ask#8752 (policy-coverage mechanism decision — CLOSED 2026-08-16, answered **retire**;
+  see §Consequences)
+- Memory entries: mem#416 (the battery is bypassable — four paths), mem#1045 (measured the detector
+  live and dormant — accurate when written, and the measurement that led to its retirement by
+  mt#4197; its "read tool-call state, not prose" lesson still holds), mem#776 (search the ADR corpus
+  before proposing a mechanism)
+- Source read for this ADR: `packages/domain/src/detectors/policy-coverage/corpus-loader.ts`
+  (**deleted by mt#4197**; retained here because it is the provenance for this ADR's SC3 finding —
+  read at authoring time, no longer openable),
   `.minsky/hooks/validate-task-spec.ts`, `.minsky/hooks/registry.ts` + its seven family modules,
   `.minsky/hooks/evidence-provenance-table.ts`, `.claude/settings.json`,
   `tests/domain/plan-task-gate-letters.test.ts`
