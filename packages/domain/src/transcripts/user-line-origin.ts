@@ -30,7 +30,16 @@
  * | skill body / re-invocation | `isMeta: true`                                    |
  * | task notification          | `origin: {kind: "task-notification"}`             |
  * | peer message               | `origin: {kind: "peer"}`                          |
+ * | coordinator message        | `origin: {kind: "coordinator"}`                   |
+ * | usage-limit auto-continue  | `origin: {kind: "auto-continuation"}`             |
+ * | local-command caveat       | `origin: {kind: "human"}` AND `isMeta: true`      |
  * | SDK-driven prompt          | `promptSource: "sdk"`                             |
+ *
+ * The last four rows are OVERLAPPING, not alternative: the harness stamps
+ * `isMeta: true` on peer, coordinator, task-notification and auto-continuation
+ * lines as well as naming their kind. Which marker wins is the whole subject of
+ * {@link classifyUserLineOrigin}'s precedence list — and the `local-command
+ * caveat` row is the one place the answer is `isMeta` (mt#4875).
  *
  * ## Fail-open to operator
  *
@@ -237,10 +246,31 @@ const OPERATOR_PROMPT_SOURCES: ReadonlySet<string> = new Set(["typed", "queued"]
  *    sessionId, session_id, slug, timestamp, type, userType, uuid, version`),
  *    so no later check would catch it — this is the one kind with a dedicated
  *    flag and it is checked where it cannot be shadowed.
- * 2. `isMeta` next: the harness's own "this is not the human" bit.
- * 3. `origin.kind`, which names the writer directly. A kind of `human` is
- *    conclusive and returns operator EVEN IF `promptSource` says otherwise —
- *    the writer is a stronger statement than the delivery channel.
+ * 2. `origin.kind`, which names the writer directly — with ONE carve-out, for
+ *    `human`. A kind of `human` is conclusive and returns operator EVEN IF
+ *    `promptSource` says otherwise: the writer is a stronger statement than the
+ *    delivery channel.
+ *
+ *    **Why the carve-out, and why it is exactly one kind (mt#4875).** This
+ *    function asks who WROTE a line's text; `origin.kind` answers a subtly
+ *    different question — who CAUSED the line to exist. For `peer`,
+ *    `coordinator`, `task-notification` and `auto-continuation` those are the
+ *    same party, so the kind is strictly more specific than `isMeta` and wins.
+ *    For `human` they diverge: the operator runs a `!` command (so the harness
+ *    records `origin.kind: "human"`) and the harness then writes the
+ *    `<local-command-caveat>` wrapper itself, stamping `isMeta: true` on its own
+ *    prose. Measured over the full stored corpus, that is the ONLY shape where
+ *    both markers co-occur with disagreeing answers — 2 lines out of 372, and
+ *    calling them operator would file harness boilerplate as the human's words.
+ *    So `isMeta` wins over `origin.kind` when, and only when, the kind is
+ *    `human`.
+ *
+ *    Until mt#4875 `isMeta` was checked FIRST and unconditionally, which made
+ *    this step unreachable for every line carrying both — 370 lines across four
+ *    kinds stored as `harness_meta`, and the `peer` row in the header table
+ *    above reachable by nothing.
+ * 3. `isMeta` next: the harness's own "this is not the human" bit, for a line
+ *    that named no kind of its own.
  * 4. `promptSource` last, as a fallback for lines carrying no `origin`.
  * 5. A Minsky dispatch marker in the TEXT **and** structural corroboration that
  *    the record is a subagent transcript's. The marker is the only signal a
@@ -261,10 +291,18 @@ const OPERATOR_PROMPT_SOURCES: ReadonlySet<string> = new Set(["typed", "queued"]
  */
 export function classifyUserLineOrigin(line: unknown): UserTextOrigin {
   if (readField(line, "isCompactSummary") === true) return COMPACT_SUMMARY_ORIGIN;
-  if (readField(line, "isMeta") === true) return HARNESS_META_ORIGIN;
 
+  const isMeta = readField(line, "isMeta") === true;
   const originKind = readOriginKind(line);
-  if (originKind !== undefined) return normalizeKind(originKind);
+
+  // `origin.kind` outranks `isMeta` for every kind BUT `human` — see the
+  // precedence list above for why the two questions come apart only there.
+  if (originKind !== undefined) {
+    const kind = normalizeKind(originKind);
+    if (!(isMeta && kind === OPERATOR_ORIGIN)) return kind;
+  }
+
+  if (isMeta) return HARNESS_META_ORIGIN;
 
   const promptSource = readPromptSource(line);
   if (promptSource !== undefined && !OPERATOR_PROMPT_SOURCES.has(promptSource)) {
