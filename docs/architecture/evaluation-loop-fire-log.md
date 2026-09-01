@@ -397,7 +397,9 @@ future re-run of the same query, once mt#3084's instrumented hooks have accumula
 protocol, retained for historical context).** Grepping all ~10 merge-gate hook source files for
 their own calibration/audit writes found exactly ONE purpose-built log:
 `require-execution-evidence-before-merge.ts`'s mt#3033 AT-cross-reference sub-check writes
-`.minsky/execution-evidence-at-coverage-calibration.jsonl`. For the remaining ~9 gates, no
+the `execution-evidence-at-coverage` stream (repo-rooted at the time of writing; moved to
+`<state dir>/projects/<key>/` by mt#4748 and routed through the shared helper by mt#4755).
+For the remaining ~9 gates, no
 purpose-built log existed at all pre-mt#3084 — the only trace of a fire was the PreToolUse
 call's `permissionDecisionReason` / `additionalContext` string, surfacing solely in the calling
 agent's own conversation transcript. These were the two concrete alternative sources named for a
@@ -453,7 +455,7 @@ while never actually firing on REAL input (the mt#2057 dead-hook shape — 9 day
 real fires while `status:DONE`). The coverage-receipt gate is the LIVE half of the same
 broken-vs-dormant story (RFC mt#2263 Phase 1, SC#5):
 
-- **Provenance field.** Every `.minsky/*-calibration.jsonl` entry a detector writes at
+- **Provenance field.** Every `*-calibration.jsonl` entry a detector writes at
   runtime now carries `source: "live"` (`retrospective-trigger-scanner.ts` as of mt#2554;
   other detectors follow as they migrate). Fixture / replay / backfill entries are
   `source: "synthetic"`. A MISSING `source` (pre-mt#2554 records) counts as live for
@@ -528,16 +530,27 @@ broken-vs-dormant story (RFC mt#2263 Phase 1, SC#5):
   `.minsky/hooks/`.
 - **Invocation path.** `scripts/check-coverage-receipts.ts` checks the UNION of every
   DECLARED detector (`calibrationLog` on `GUARD_REGISTRY` plus `STANDALONE_GUARD_CANARIES`)
-  and every `.minsky/*-calibration.jsonl` on disk, prints an `[OK]`/`[DORMANT]`/`[FLAGGED]`
-  report, and exits non-zero when any detector is flagged. **The declared half is load-bearing
+  and every `<state dir>/projects/<key>/*-calibration.jsonl` on disk, prints an
+  `[OK]`/`[DORMANT]`/`[FLAGGED]` report, and exits non-zero when any detector is flagged.
+  **The declared half is load-bearing
   (mt#3742):** a detector that has never fired writes no file, so a disk-only scan cannot see
   it — and "no records at all" is the dead-entry-point symptom this gate exists to catch, so
   enumerating by presence-of-output made the check structurally blind to its own subject.
   The "nothing to check" early exit therefore gates on whether ANY calibration log exists on
   disk, not on the detector set: the union is never empty while any guard declares a log, and
-  calibration logs are gitignored, so gating on the set would flag everything in a fresh clone. It runs at calibration-review cadence
+  a machine that has never run a guard has no logs, so gating on the set would flag everything
+  in a fresh clone. It runs at calibration-review cadence
   (`/calibration-review` Step 1b), NOT as a merge gate — a flagged detector is a review
   signal, not a commit blocker.
+
+  **The disk half is rooted in the state dir, not the repo (mt#4748, corrected mt#4784).**
+  Both the roster and the records resolve through `resolveCalibrationLogDir`
+  (`.minsky/hooks/coverage-receipt.ts`), which derives `<state dir>/projects/<key>` once so the
+  two cannot be derived separately. They WERE, for the length of a migration: mt#4748 moved the
+  writers while this script kept listing the repo's `.minsky/` for its roster, and the split was
+  silent in both directions — a full plausible report where stale pre-migration files happened to
+  remain in the tree, and `exit 0` "nothing to check" where they did not. The prose above said
+  `.minsky/*-calibration.jsonl` until mt#4784 and was false for that whole window.
 
 This reads the per-detector calibration logs, NOT the corpus-wide `fire-log.jsonl` this
 document otherwise describes; the two are complementary (fire-log = every guard's
