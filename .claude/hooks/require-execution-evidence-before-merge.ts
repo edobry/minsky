@@ -39,8 +39,6 @@
 // @see mt#3033 — this addition; mt#2542 (root incident); mt#2263 (calibration ladder)
 // @see mt#3059 / mt#3316 / mt#3339 — graduation lineage (WARN -> deny)
 
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import { execWithPath, findRepoRoot, readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
 import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
@@ -48,13 +46,14 @@ import type { MergeGateFireLogContext } from "./merge-gate-fire-log";
 import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
 import { computeFenceInternalLines, collectHeadingSections } from "./markdown-sections";
 import { elideQuotedContexts } from "./elision";
-import { runScCoverageCalibration, SC_COVERAGE_CALIBRATION_LOG } from "./success-criteria-coverage";
-import { runTestFirstCalibration, TEST_FIRST_CALIBRATION_LOG } from "./test-first-evidence";
-import { runRenderPathCalibration, RENDER_PATH_CALIBRATION_LOG } from "./render-path-evidence";
+import { logCalibrationRecord } from "./dispatcher";
+import { runScCoverageCalibration, SC_COVERAGE_STREAM } from "./success-criteria-coverage";
+import { runTestFirstCalibration, TEST_FIRST_STREAM } from "./test-first-evidence";
+import { runRenderPathCalibration, RENDER_PATH_STREAM } from "./render-path-evidence";
 import {
   runConsumerAccountCalibration,
   hasInScopeFiles,
-  CONSUMER_ACCOUNT_CALIBRATION_LOG,
+  CONSUMER_ACCOUNT_STREAM,
 } from "./consumer-account-evidence";
 import { isTestFile } from "./pr-file-predicates";
 import {
@@ -958,9 +957,11 @@ export function checkAcceptanceTestCoverage(
 /** Override env var (mt#1788 `HOOK_ONLY_ENV_VARS`) — skips the AT-coverage check entirely. */
 export const AT_COVERAGE_SKIP_ENV_VAR = "MINSKY_SKIP_AT_COVERAGE";
 
-/** Calibration log path (mt#2263 ladder) — repo-root relative. */
-export const AT_COVERAGE_CALIBRATION_LOG =
-  ".minsky/execution-evidence-at-coverage-calibration.jsonl";
+/** Stream name — the SINGLE source of truth (mt#4755); the path below is DERIVED from it. */
+export const AT_COVERAGE_STREAM = "execution-evidence-at-coverage";
+
+/** Calibration log path (mt#2263 ladder) — repo-root relative, derived from the stream name. */
+export const AT_COVERAGE_CALIBRATION_LOG = `.minsky/${AT_COVERAGE_STREAM}-calibration.jsonl`;
 
 /** True when the AT-coverage check is skipped via env var. */
 export function isAtCoverageSkipped(): boolean {
@@ -969,40 +970,30 @@ export function isAtCoverageSkipped(): boolean {
 }
 
 /**
- * Appends one calibration record to `logRelPath` under `repoRootDir`. Fail-safe: never throws —
- * a calibration-log write failure must never affect the (log-only) merge decision.
+ * Appends an acceptance-test calibration record. Thin wrapper naming its own STREAM.
  *
- * The log path is REQUIRED, deliberately (PR #2432 R1). An earlier shape gave it a default of
- * `AT_COVERAGE_CALIBRATION_LOG`, which meant any caller that forgot the argument silently wrote
- * its records into the acceptance-test log — corrupting BOTH corpora at once, and in a way no
- * test would notice because the write still succeeds. For a mechanism whose entire deliverable
- * is a trustworthy measurement, that default is not a convenience worth its failure mode.
+ * mt#4755: the local `appendCalibrationRecord(record, repoRootDir, logRelPath)` that used to sit
+ * here is GONE, and with it the `logRelPath` parameter. It resolved against the repo root, which
+ * made this ladder the last group still depositing telemetry into whatever Minsky-managed project
+ * the agent was in — the condition mt#4748's SC2 forbids — and four of its five streams were
+ * observed still writing there a day after that merge.
+ *
+ * Dropping the path PARAMETER rather than merely re-pointing it is the other half, and it is
+ * `gate-walk-provenance`'s reasoning applied five modules over (mt#4752): a path-taking parameter
+ * is the degree of freedom that let a sibling's filename be misspelled (mt#2492). PR #2432 R1 had
+ * already removed this parameter's DEFAULT for a related reason — a caller who forgot the argument
+ * silently wrote into the acceptance-test log, corrupting both corpora with no failing test. The
+ * parameter itself is now gone, so neither failure has anywhere left to occur: every call site
+ * names a stream constant, and `logCalibrationRecord` derives the filename from it.
+ *
+ * `repoRootDir` is authoritative here — the caller resolved it, it is not a raw shell cwd — so it
+ * goes in the `projectDir` tier, which outranks `CLAUDE_PROJECT_DIR`.
  */
-export function appendCalibrationRecord(
-  record: Record<string, unknown>,
-  repoRootDir: string,
-  logRelPath: string
-): void {
-  try {
-    const logPath = resolve(repoRootDir, logRelPath);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    process.stderr.write(
-      `[execution-evidence-calibration] Failed to write ${logRelPath}: ${
-        err instanceof Error ? err.message : String(err)
-      }\n`
-    );
-  }
-}
-
-/** Appends an acceptance-test calibration record. Thin wrapper naming its own log. */
 export function appendAtCoverageCalibration(
   record: Record<string, unknown>,
   repoRootDir: string
 ): void {
-  appendCalibrationRecord(record, repoRootDir, AT_COVERAGE_CALIBRATION_LOG);
+  logCalibrationRecord(AT_COVERAGE_STREAM, record, { projectDir: repoRootDir });
 }
 
 /** Result of fetching a task's spec for the AT-coverage check. */
@@ -1292,11 +1283,9 @@ if (import.meta.main) {
       extractExecutionEvidenceText(prBody)
     );
     if (scCoverage.calibrationRecord) {
-      appendCalibrationRecord(
-        scCoverage.calibrationRecord,
-        repoRootDir,
-        SC_COVERAGE_CALIBRATION_LOG
-      );
+      logCalibrationRecord(SC_COVERAGE_STREAM, scCoverage.calibrationRecord, {
+        projectDir: repoRootDir,
+      });
     }
     if (scCoverage.warning) {
       allWarnings.push(scCoverage.warning);
@@ -1319,7 +1308,9 @@ if (import.meta.main) {
     specFetch.ok && typeof specFetch.content === "string" ? specFetch.content : null
   );
   if (testFirst.calibrationRecord) {
-    appendCalibrationRecord(testFirst.calibrationRecord, repoRootDir, TEST_FIRST_CALIBRATION_LOG);
+    logCalibrationRecord(TEST_FIRST_STREAM, testFirst.calibrationRecord, {
+      projectDir: repoRootDir,
+    });
   }
   if (testFirst.warning) {
     allWarnings.push(testFirst.warning);
@@ -1332,7 +1323,9 @@ if (import.meta.main) {
   // `result.blocked`.
   const renderPath = runRenderPathCalibration(task, context.prNumber, prFiles, prBody);
   if (renderPath.calibrationRecord) {
-    appendCalibrationRecord(renderPath.calibrationRecord, repoRootDir, RENDER_PATH_CALIBRATION_LOG);
+    logCalibrationRecord(RENDER_PATH_STREAM, renderPath.calibrationRecord, {
+      projectDir: repoRootDir,
+    });
   }
   if (renderPath.warning) {
     allWarnings.push(renderPath.warning);
@@ -1359,11 +1352,9 @@ if (import.meta.main) {
       prBody
     );
     if (consumerAccount.calibrationRecord) {
-      appendCalibrationRecord(
-        consumerAccount.calibrationRecord,
-        repoRootDir,
-        CONSUMER_ACCOUNT_CALIBRATION_LOG
-      );
+      logCalibrationRecord(CONSUMER_ACCOUNT_STREAM, consumerAccount.calibrationRecord, {
+        projectDir: repoRootDir,
+      });
     }
     if (consumerAccount.warning) {
       allWarnings.push(consumerAccount.warning);

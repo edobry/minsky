@@ -1,4 +1,9 @@
+/* eslint-disable custom/no-real-fs-in-tests -- mt#4755's last two cases read the gate's REAL
+   source to assert which constant each `logCalibrationRecord` call names. A fixture would assert
+   what I put in it; the claim is about the shipped file. */
 import { describe, test, expect } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   NON_GUARD_CALIBRATION_PRODUCERS,
   RETIRED_CALIBRATION_PRODUCERS,
@@ -7,10 +12,26 @@ import {
 } from "./calibration-log-declarations";
 import { GUARD_REGISTRY } from "../../.minsky/hooks/registry";
 import { STANDALONE_GUARD_CANARIES } from "./standalone-guard-canaries";
-import { AT_COVERAGE_CALIBRATION_LOG } from "../../.minsky/hooks/require-execution-evidence-before-merge";
-import { TEST_FIRST_CALIBRATION_LOG } from "../../.minsky/hooks/test-first-evidence";
-import { RENDER_PATH_CALIBRATION_LOG } from "../../.minsky/hooks/render-path-evidence";
-import { SC_COVERAGE_CALIBRATION_LOG } from "../../.minsky/hooks/success-criteria-coverage";
+import {
+  AT_COVERAGE_CALIBRATION_LOG,
+  AT_COVERAGE_STREAM,
+} from "../../.minsky/hooks/require-execution-evidence-before-merge";
+import {
+  TEST_FIRST_CALIBRATION_LOG,
+  TEST_FIRST_STREAM,
+} from "../../.minsky/hooks/test-first-evidence";
+import {
+  RENDER_PATH_CALIBRATION_LOG,
+  RENDER_PATH_STREAM,
+} from "../../.minsky/hooks/render-path-evidence";
+import {
+  SC_COVERAGE_CALIBRATION_LOG,
+  SC_COVERAGE_STREAM,
+} from "../../.minsky/hooks/success-criteria-coverage";
+import {
+  CONSUMER_ACCOUNT_CALIBRATION_LOG,
+  CONSUMER_ACCOUNT_STREAM,
+} from "../../.minsky/hooks/consumer-account-evidence";
 import {
   CALIBRATION_LOG as GATE_WALK_CALIBRATION_LOG,
   GUARD_NAME as GATE_WALK_GUARD_NAME,
@@ -218,3 +239,79 @@ describe("the execution-evidence merge gate's four calibration logs (mt#4064)", 
 // pure-logic equivalent — `findUnsweptCalibrationLogs` against synthetic
 // on-disk stems — is tested in
 // `src/domain/calibration/calibration-sweep-registry-derivation.test.ts`).
+
+describe("mt#4755 — the ladder's five path constants are DERIVED from their stream names", () => {
+  // SC2's whole point: the declaration and the write cannot disagree, because both come from one
+  // string. Binding the pairs here is what makes that structural rather than a convention — a
+  // future edit that re-spells a path literal instead of the stream name fails on the first row.
+  const PAIRS: readonly (readonly [string, string, string])[] = [
+    ["AT_COVERAGE", AT_COVERAGE_STREAM, AT_COVERAGE_CALIBRATION_LOG],
+    ["SC_COVERAGE", SC_COVERAGE_STREAM, SC_COVERAGE_CALIBRATION_LOG],
+    ["TEST_FIRST", TEST_FIRST_STREAM, TEST_FIRST_CALIBRATION_LOG],
+    ["RENDER_PATH", RENDER_PATH_STREAM, RENDER_PATH_CALIBRATION_LOG],
+    ["CONSUMER_ACCOUNT", CONSUMER_ACCOUNT_STREAM, CONSUMER_ACCOUNT_CALIBRATION_LOG],
+  ];
+
+  test("AT3: each path is exactly `.minsky/${STREAM}-calibration.jsonl`", () => {
+    for (const [name, stream, logPath] of PAIRS) {
+      expect(logPath, name).toBe(`.minsky/${stream}-calibration.jsonl`);
+    }
+  });
+
+  test("SC4: every path is byte-identical to the literal it replaced", () => {
+    // Pinned as literals ON PURPOSE — a derivation compared against another derivation proves
+    // only that two expressions agree, not that the value did not MOVE. These five strings are
+    // where records have accumulated since mt#2263, so a change here silently orphans a corpus.
+    expect(PAIRS.map(([, , logPath]) => logPath)).toEqual([
+      ".minsky/execution-evidence-at-coverage-calibration.jsonl",
+      ".minsky/execution-evidence-sc-coverage-calibration.jsonl",
+      ".minsky/execution-evidence-test-first-calibration.jsonl",
+      ".minsky/execution-evidence-render-path-calibration.jsonl",
+      ".minsky/execution-evidence-consumer-account-calibration.jsonl",
+    ]);
+  });
+
+  test("the stream name is what `logCalibrationRecord` is actually called with", () => {
+    // The pairing above would still hold if the writer passed a DIFFERENT string. This reads the
+    // gate's source and requires every `logCalibrationRecord(` call to name one of the five
+    // constants — the same writer/declaration agreement mt#4811 found broken in `ask-form-lint`.
+    const source = readFileSync(
+      join(
+        import.meta.dir,
+        "..",
+        "..",
+        ".minsky",
+        "hooks",
+        "require-execution-evidence-before-merge.ts"
+      ),
+      "utf8"
+    );
+    const calls = [...source.matchAll(/logCalibrationRecord\(\s*([A-Z_]+)\s*,/g)].map((m) => m[1]);
+    expect(calls.length).toBe(5);
+    expect([...calls].sort()).toEqual(
+      [
+        "AT_COVERAGE_STREAM",
+        "CONSUMER_ACCOUNT_STREAM",
+        "RENDER_PATH_STREAM",
+        "SC_COVERAGE_STREAM",
+        "TEST_FIRST_STREAM",
+      ].sort()
+    );
+  });
+
+  test("SC1: the local repo-rooted writer is gone from the gate", () => {
+    const source = readFileSync(
+      join(
+        import.meta.dir,
+        "..",
+        "..",
+        ".minsky",
+        "hooks",
+        "require-execution-evidence-before-merge.ts"
+      ),
+      "utf8"
+    );
+    // Its DEFINITION, not its name — the docblock still explains why it was removed.
+    expect(source).not.toContain("export function appendCalibrationRecord(");
+  });
+});

@@ -103,10 +103,6 @@ function isTelemetryTarget(text: string): boolean {
  * task that retires it. An entry without a reason is not an exemption, it is a silent hole.
  */
 export const ALLOWLIST: Record<string, string> = {
-  ".minsky/hooks/require-execution-evidence-before-merge.ts":
-    "TRACKED, NOT ACCEPTED — mt#4755 owns re-rooting the execution-evidence five-tier ladder's " +
-    "writers. Four of its five streams were observed still writing into the repo tree on " +
-    "2026-08-31. Remove this entry when mt#4755 lands.",
   ".minsky/hooks/calibration-review-cadence-detector.ts":
     "DELIBERATE, AND UNDECIDED — the watermark / last-warned stores are a different producer " +
     "from the calibration logs themselves and were explicitly out of mt#4748's scope (see that " +
