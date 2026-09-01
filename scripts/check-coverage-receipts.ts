@@ -9,10 +9,15 @@
  * with zero live fires in the window is FLAGGED — "shipped is not firing"
  * (memory fc8c66e7 / the mt#2057 9-day dead-hook incident).
  *
- * Read-only: reads `.minsky/*-calibration.jsonl` plus the guard registries'
- * DECLARED detector names (mt#3742 — a never-fired detector has no file, so
- * the disk scan alone cannot see it) and reports. It writes no state, so
- * (unlike the canary runner) it needs no temp-dir isolation.
+ * Read-only: reads `<state dir>/projects/<key>/*-calibration.jsonl` plus the
+ * guard registries' DECLARED detector names (mt#3742 — a never-fired detector
+ * has no file, so the disk scan alone cannot see it) and reports. It writes no
+ * state, so (unlike the canary runner) it needs no temp-dir isolation.
+ *
+ * mt#4784: that first path used to read `.minsky/` in the REPO tree, which is
+ * where these streams lived before mt#4748 moved them. Both the roster and the
+ * records now resolve through `resolveCalibrationLogDir`; see its docblock in
+ * `.minsky/hooks/coverage-receipt.ts` for why they must not be derived twice.
  *
  * Usage:
  *   bun scripts/check-coverage-receipts.ts                       # all detectors, 7d window

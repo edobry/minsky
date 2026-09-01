@@ -524,7 +524,22 @@ describe("resolveDetectorsToCheck (mt#3742)", () => {
    how the mt#4784 split survived a full migration with a green suite. Isolation is
    the documented XDG_STATE_HOME override (`packages/shared/src/paths.ts`), scoped to
    a mkdtemp dir and restored in `finally`, so nothing is written outside the temp
-   directory and no state leaks between tests. */
+   directory and no state leaks between tests.
+
+   Flake surface and why it is bounded (PR #3555 R1):
+   - **No shared path between tests.** Each test that writes gets its OWN `mkdtempSync`
+     directory, so two of these running concurrently cannot collide — which is the race
+     `custom/no-real-fs-in-tests` exists to prevent, and the reason a fixed `/mock/tmp`
+     would be worse here rather than better.
+   - **The env override is restored in `finally`**, including on assertion failure, so a
+     failing test cannot leave `XDG_STATE_HOME` pointing at a deleted directory for the
+     rest of the file.
+   - **CI cannot reach the operator's real state dir even if all of the above failed**:
+     `tests/setup.ts` sets `XDG_STATE_HOME` and `MINSKY_STATE_DIR` for every run
+     (mt#3965), so the harness floor is a temp dir, and these tests narrow it further.
+   - **The detector name is unique to this file** (`mt4784-writer-reader-agreement`), so
+     nothing else in the suite can write or read the same stream.
+   - Residual risk is a full temp filesystem, which fails loudly rather than silently. */
 describe("discovery agrees with the production writer (mt#4784)", () => {
   const DETECTOR = "mt4784-writer-reader-agreement";
 
