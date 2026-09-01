@@ -598,3 +598,37 @@ describe("mt#4580 — findPeerHeldClaims (the recommend-start arm)", () => {
     expect(out.degradedReason).toContain("db down");
   });
 });
+
+describe("mt#4580 AT5 — elision holds on the Rung-2 path too", () => {
+  test("a ref inside a fenced block is not collected, so nomination never runs", async () => {
+    let resolveCalls = 0;
+    const fenced = ["Here is an example:", "```", "Start mt#4556 next.", "```"].join("\n");
+    const out = await nominatePendingClaims(fenced, {
+      resolve: async () => {
+        resolveCalls += 1;
+        return null;
+      },
+      run: async () => {
+        throw new Error("nominate must not run on an elided ref");
+      },
+    });
+    expect(resolveCalls).toBe(0);
+    expect(out.claims).toEqual([]);
+  });
+
+  test("the same sentence UNfenced does reach the stage", async () => {
+    // The negative control for the test above: without it, "0 calls" could mean
+    // the elision worked OR that the gate never admits this shape at all.
+    let resolveCalls = 0;
+    await nominatePendingClaims("Start mt#4556 next.", {
+      resolve: async () => {
+        resolveCalls += 1;
+        return null;
+      },
+      run: async () => {
+        throw new Error("unreachable — resolve returns null");
+      },
+    });
+    expect(resolveCalls).toBe(1);
+  });
+});
