@@ -52,8 +52,15 @@ GlobalRegistrator.register();
 // mt#4130 capture above is: this preload is loaded by exactly the population
 // that renders React and mutates the URL, and a per-file fix leaves every
 // other consumer still leaking into the shared object.
+// Clears SEARCH and HASH only, preserving `pathname` (PR #3542 R1). The leak is
+// entirely in the query string, so resetting the path was collateral — and not
+// harmless: `useListControls.ts:128` and `memories-url.ts:78` both BUILD the url
+// they write from `window.location.pathname`, and `useListControls.test.ts`,
+// `MemoriesPage.test.tsx` and `MemoriesList.test.tsx` each capture
+// `window.location.href` to restore later. Forcing "/" would have changed what
+// those write and what they consider "original", for no benefit here.
 beforeEach(() => {
-  window.history.replaceState(null, "", "/");
+  window.history.replaceState(null, "", window.location.pathname);
 });
 
 // mt#4130: make a React render throw visible. Without this, React 18's
