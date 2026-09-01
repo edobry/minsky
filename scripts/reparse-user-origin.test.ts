@@ -47,6 +47,18 @@ describe("parseArgs", () => {
     expect(parseArgs([]).afterId).toBeUndefined();
   });
 
+  test.each([["--after-id="], ["--after-id=   "]])(
+    "%p throws rather than resuming from nowhere",
+    (arg) => {
+      // PR #3553 R1. An empty cursor is the quiet failure: the scan's
+      // `agent_session_id > ''` matches every row, so a resume the operator asked
+      // to be partial silently becomes a full run — AND the scope-match gate is
+      // skipped, because it is skipped whenever --after-id is set. Two safety
+      // properties lost at once, with output that looks entirely normal.
+      expect(() => parseArgs([arg])).toThrow(/--after-id must name a session id/);
+    }
+  );
+
   test("page size defaults, and accepts an override", () => {
     expect(parseArgs([]).pageSize).toBe(150);
     expect(parseArgs(["--page-size=25"]).pageSize).toBe(25);

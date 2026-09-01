@@ -75,6 +75,14 @@ export function parseArgs(argv: string[]): Args {
   const execute = argv.includes("--execute");
   const afterArg = argv.find((a) => a.startsWith("--after-id="));
   const afterId = afterArg ? afterArg.slice("--after-id=".length) : undefined;
+  // Same validation `--page-size` already had, and its absence here was the
+  // inconsistency (PR #3553 R1). An empty `--after-id=` is worse than useless:
+  // the scan's `agent_session_id > ''` matches every row, so it silently becomes
+  // a full re-run of a resume the operator asked to be partial — and it also
+  // suppresses the scope-match gate, which is skipped whenever afterId is set.
+  if (afterId !== undefined && afterId.trim().length === 0) {
+    throw new Error(`--after-id must name a session id, got an empty value: ${afterArg}`);
+  }
   const pageArg = argv.find((a) => a.startsWith("--page-size="));
   const pageSize = pageArg ? Number(pageArg.slice("--page-size=".length)) : DEFAULT_PAGE_SIZE;
   if (!Number.isFinite(pageSize) || pageSize <= 0) {
@@ -235,6 +243,23 @@ async function main(): Promise<void> {
   }
 
   if (!execute) {
+    // The per-session change set, in full (PR #3553 R1, BLOCKING). Aggregates
+    // alone are not a dry run: they tell an operator HOW MUCH would change and
+    // not WHAT, so there is nothing to compare the executed run against. Printed
+    // uncapped on purpose — a truncated change set reads as the whole one, which
+    // is the failure a dry run exists to prevent.
+    // Wording is deliberate: this is the set of sessions that would be
+    // RE-PARSED — those carrying at least one shadowed line — not the set of
+    // rows whose value would change. The two differ in both directions. A
+    // shadowed line adjacent to another user line is overwritten by
+    // `extractTurns` and never becomes a turn (mem#798), and the operation is
+    // idempotent, so this set stays the same size after a successful run rather
+    // than shrinking to zero. An operator reading "229" post-run is seeing the
+    // population, not a backlog.
+    console.log(`  sessions to re-parse (carrying >=1 shadowed line): ${affected.length}`);
+    for (const row of affected) {
+      console.log(`    ${row.agent_session_id}  ${row.shadowed} shadowed line(s)`);
+    }
     console.log("  (dry-run only — re-run with --execute to apply the re-parse)");
     console.log(
       JSON.stringify({
@@ -242,6 +267,10 @@ async function main(): Promise<void> {
         sessionsScanned: scanned,
         affectedSessions: affected.length,
         shadowedLines: lines,
+        changeSet: affected.map((r) => ({
+          agentSessionId: r.agent_session_id,
+          shadowedLines: r.shadowed,
+        })),
       })
     );
     process.exit(0);
@@ -300,8 +329,11 @@ async function main(): Promise<void> {
 
   if (errored > 0) {
     console.error(
-      `  ${errored} session(s) errored and still carry the old user_origin. ` +
-        `Re-run with --after-id=<lastId> after investigating.`
+      `  ${errored} session(s) errored and still carry the old user_origin. ${
+        lastId
+          ? `Re-run with --after-id=${lastId} after investigating.`
+          : `No session completed, so there is no resume cursor — re-run from the start after investigating.`
+      }`
     );
     process.exit(1);
   }
