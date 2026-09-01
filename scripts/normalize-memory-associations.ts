@@ -47,6 +47,7 @@ import { randomUUID } from "node:crypto";
 
 import type { MemoryServiceSurface, MemoryServiceDb } from "@minsky/domain/memory/memory-service";
 import { isKnownAssociationType } from "@minsky/domain/memory/associations";
+import { listEveryMemory } from "./lib/list-every-memory";
 
 const TASK_ID_RE = /^(?:mt|md|gh)#\d+$/;
 
@@ -211,7 +212,9 @@ async function main() {
   const execute = process.argv.includes("--execute");
 
   const memoryService = await buildMemoryService();
-  const all = await memoryService.list({});
+  // Census, not a page: this script decides a WRITE set from what it sees, so a capped read
+  // would report a clean result over a fraction of the corpus (mt#4783). Throws on a short scan.
+  const all = await listEveryMemory(memoryService);
   console.log(`Scanned ${all.length} memories.\n`);
 
   const plans: RecordPlan[] = [];
