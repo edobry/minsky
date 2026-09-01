@@ -741,3 +741,83 @@ Each of these is a real coverage bound, and a shifted-run failure in one of them
 
 Keeping them separate is the point: one undifferentiated list would let shim defects accumulate
 inside what reads as a record of deliberate choices.
+
+## mt#3935: the test-reachability invariant (`bun run check:test-reachability`)
+
+A test file can be committed, reviewed and merged while running in **no suite at all**. Four such
+holes were found before this check existed, and every one of them was found by a person who
+happened to look while doing something else:
+
+| Hole                                             | Found by                                  | Closed by |
+| ------------------------------------------------ | ----------------------------------------- | --------- |
+| `src/cockpit/web/*.test.tsx` top level           | mt#3470, mid-implementation               | mt#3496   |
+| `scripts/**/*.test.ts` (20 files, 246 tests)     | mt#3871, placing a test beside its module | mt#1084   |
+| `tests/utils/` (2 files — **2 of them failing**) | mt#1084's planning audit                  | mt#3934   |
+| `tests/*.test.ts` top level (4 files)            | mt#4726, choosing where to put a new test | mt#4882   |
+
+Silent non-execution is worse than a failure: the file READS as coverage and provides none. The
+`tests/utils` case shows the end state — two `generateDiffSummary` assertions drifted out of
+agreement with the implementation and nothing noticed, because nothing ran them.
+
+`scripts/test-reachability.ts` is the execution-side sibling of `scripts/typecheck-coverage.ts`
+(mt#3780), and deliberately mirrors its shape: a pure comparison core, an allowlist where every
+entry must record a reason, and its own CI step.
+
+### Reached by WHAT
+
+**"Named by some `test:*` script" is not sufficient.** A file reachable only by a script nothing
+invokes is exactly as unrun as a file named by nothing — the same reasoning `typecheck-coverage`
+uses when it counts only tsconfig projects a CI step actually runs. So the covered set comes only
+from suites reachable from a workflow that triggers on `pull_request`.
+
+Two exclusions follow from that and look like bugs otherwise:
+
+- **`clock-shifted-tests.yml`** is `schedule` + `workflow_dispatch` only, so it gates no PR. It
+  would also add nothing, since it walks `ROOTS` + `GRAPH_ONLY_ROOTS` — the same lists, holes
+  included.
+- **`release.yml`** triggers on a `v*` tag push and runs a bare `bun test`, which walks nearly
+  everything. Counting it would mark almost every file covered and make the check vacuous, and a
+  suite that runs only at release time cannot stop a bad merge anyway.
+
+`scripts/check-test-changed-line-coverage.ts` (mt#4779) is recorded in `CHANGE_SCOPED_RUNNERS`
+rather than skipped: it genuinely runs tests, but only the ones a PR ADDS, so it keeps no file
+covered from one PR to the next.
+
+### Three parsing traps, all of which made it green for the wrong reason
+
+Every one of these was hit during implementation, and each produced a clean report while real
+holes were open. They are the reason the unit tests exist:
+
+- **Prose is not a command.** `ci.yml`'s own error string reads `bun test did not print a
+completion summary line ("Ran N tests across M files")`. Parsed as an invocation, its word
+  `tests` became a positional root covering the entire `tests/` tree — 1669/1669 reached, four
+  real holes hidden. `bun test` must now be in COMMAND POSITION (start of segment, after a shell
+  operator, or behind `VAR=value` prefixes).
+- **A comment describing a spawn is not a spawn.** The runner-detection heuristic reads a script's
+  source; this script's own docblock quotes `["bun", script]` to explain the gated runner, so the
+  check classified ITSELF as an unregistered runner and aborted with exit 2 the moment it was
+  wired into CI. Comments are stripped before matching, and the signal requires an actual spawn of
+  `bun` — importing `ROOTS` to REASON about files is what a coverage check does, not what a runner
+  does.
+- **`run: |` matches an inline-command pattern.** Without a negative lookahead, the block-scalar
+  indicator is captured as a command whose body is the literal `|`, silently dropping every
+  multi-line step — which is where most suite invocations live.
+
+A fourth is structural rather than a bug: a value-taking flag must consume its value, or
+`--preload ./tests/setup.ts` leaves `./tests/setup.ts` looking like a positional root and every
+preloading suite appears to cover the whole `tests/` tree.
+
+### Paths are anchored prefixes, deliberately
+
+`bun test`'s positional arguments are SUBSTRING filters (see `scripts/run-tests-main.ts`'s header
+for the repro). This check models them as anchored prefixes instead, which is stricter: a
+substring model counts more files as covered, so every error it made would hide a hole. The repo
+already prefixes generated file arguments with `./` precisely to anchor the match, so the strict
+model is also the accurate one.
+
+### The allowlist
+
+Every entry needs a non-empty `reason` AND a `tracking` task — the architecture test asserts both.
+A hole is acceptable only when something owns closing it; an entry without a task is an untracked
+gap wearing a decision's clothes. A prefix matching no unreached file is reported as STALE and
+fails the check, so a closed hole cannot leave its exemption behind.
