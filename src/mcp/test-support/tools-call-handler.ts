@@ -59,19 +59,28 @@ export function getToolsCallHandler(
   return (request: unknown, ctx: unknown = {}) =>
     handler(request, {
       ...(ctx as Record<string, unknown>),
+      // Defaults FIRST, caller's `mcpReq` spread over them — so a test that supplies its
+      // own member wins, and one that supplies none still gets both defaults. The outer
+      // spread cannot do this: it sets sibling keys, so a literal `mcpReq` after it would
+      // silently discard whatever the caller passed (PR #3547 R2 caught exactly that —
+      // the comment here claimed caller-first while the code was default-wins).
       mcpReq: {
         requestState: () => undefined,
         // `notify` is the second `ctx.mcpReq` member our own dispatch path reaches:
         // `server.ts:1471` passes it to `buildProgressReporter` whenever the request
-        // carries a `progressToken` (mt#2677). No test here sets one today, so this
-        // default is never exercised — but without it, the first test that does would
-        // fail on an undefined callee rather than on its own assertion.
+        // carries a `progressToken` (mt#2677). It is the ONLY other one — verified by
+        // grepping `ctx.mcpReq.` across src, packages and scripts. No test sets a
+        // progressToken today, so this default is never exercised; without it, the first
+        // test that did would fail on an undefined callee rather than on its assertion.
         //
-        // A no-op is the right default because the spec makes progress delivery
-        // optional ("the receiver is not obligated to provide these notifications").
-        // A test that ASSERTS on progress must pass its own `mcpReq` — the spread above
-        // is caller-first for exactly that, so overriding it needs no change here.
+        // A no-op is the right default because the spec makes progress delivery optional
+        // ("the receiver is not obligated to provide these notifications"). A test that
+        // ASSERTS on progress passes its own `notify`, which the spread below honours.
         notify: async () => {},
+        ...(((ctx as { mcpReq?: Record<string, unknown> } | undefined)?.mcpReq ?? {}) as Record<
+          string,
+          unknown
+        >),
       },
     });
 }
