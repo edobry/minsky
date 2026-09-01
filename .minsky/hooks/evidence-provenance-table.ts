@@ -168,6 +168,106 @@ export function taskIdsWithStatusRead(calls: readonly ToolCallWithResult[]): Set
 }
 
 // ---------------------------------------------------------------------------
+// Discharge: a claim about what another task's RECORD SAYS (mt#4876)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tool spellings that surface a task's SPEC BODY.
+ *
+ * Deliberately a STRICT SUBSET of {@link STATUS_READ_TOOL_NAMES}, and the
+ * difference is the entire point of the class this serves. That set answers
+ * "was this task's current STATE read?" and correctly counts `tasks_status_get`
+ * and `refs_status`, both of which return a lifecycle position and no prose. A
+ * claim about what a task's record SAYS cannot rest on either.
+ *
+ * The originating incident is exactly this gap, not a hypothetical: on
+ * 2026-09-01 an agent wrote *"consistent with mt#4753 being BLOCKED"* into
+ * mt#4864's spec, sourced from mt#4753's TITLE — whose own text carries the
+ * disclaimer *"(not the same-account case this was filed for)"*. mt#4753's BODY
+ * records the opposite: its premise was falsified 2026-08-29 and its §Experiment
+ * concludes *"No code change is needed for a same-account repo."* A title plus a
+ * status is what `tasks_get` returns without `includeSpec`, and `tasks_get` is in
+ * the status set — so the wider join would have DISCHARGED the claim it exists to
+ * catch. This is `check-task-spec-read.ts`'s own principle applied to a join:
+ * *"A status field says where a task sits in the lifecycle. Only its BODY says
+ * whether it is still worth doing."*
+ *
+ * `tasks_get` appears here too, but conditionally — see {@link taskIdsWithSpecRead}.
+ */
+export const SPEC_CONTENT_READ_TOOL_NAMES: readonly string[] = ["tasks_spec_get", "tasks_get"];
+
+/**
+ * Tool spellings whose call AUTHORS a task's spec body, keyed by the input field
+ * whose presence makes the call a spec write.
+ *
+ * Authorship counts as content engagement for the same reason `specWasAuthored`
+ * credits it in `check-task-spec-read.ts` (mt#2814): writing a spec addressed to a
+ * task id requires having its content in hand, and is at least as strong a signal
+ * as reading it. Without this, a session that amends mt#X's spec and then explains
+ * something by reference to mt#X fires — at an author who demonstrably engaged the
+ * record.
+ *
+ * `tasks_edit` is gated on a spec-writing field rather than counted outright: a
+ * metadata-only edit (`--kind`, `--title`, `--tag`) touches no prose, which mirrors
+ * `editHasSpecContent` in the spec-read guard. `tasks_create` is absent because a
+ * task being born carries no id anyone could have engaged with.
+ */
+const SPEC_AUTHOR_FIELD_BY_TOOL: Readonly<Record<string, readonly string[]>> = {
+  tasks_spec_patch: ["content"],
+  tasks_spec_search_replace: ["replace"],
+  tasks_edit: ["specContent", "spec", "specFile"],
+};
+
+/**
+ * Task ids whose spec BODY was read or authored in this session.
+ *
+ * Returning a SET, per {@link taskIdsWithStatusRead}'s reasoning: the claim is
+ * about ONE task, and engaging a DIFFERENT task's body is not evidence about it.
+ *
+ * `tasks_get` counts ONLY with a truthy `includeSpec`. That is not defensive
+ * coding — a bare `tasks_get` returns title, status, kind and tags, which is
+ * precisely the surface the originating incident mistook for the record. The MCP
+ * gate and the CLI's `--include-spec` are the same gate, and
+ * `check-task-spec-read.ts` already draws the line in the same place.
+ *
+ * KNOWN RECALL GAP, named rather than guessed at: the CLI spellings
+ * (`minsky tasks spec get …` / `minsky tasks get --include-spec` through `Bash` or
+ * `session_exec`) are NOT matched here. This module's own note on
+ * `STATUS_READ_TOOL_NAMES` sets the discipline for that omission — the CLI channel
+ * is left out because it is UNMEASURED, and should be added "on measured fires, not
+ * on anticipation." The direction of error is a FALSE FIRE at an author who read
+ * the spec through the CLI, which is the dangerous direction, so this gap is the
+ * first thing to check when classifying calibration records. Recovering it needs
+ * the command-manifest resolution `check-task-spec-read.ts` performs
+ * (`cliSpecEngagements`), which is why it is not a one-line addition.
+ */
+export function taskIdsWithSpecRead(calls: readonly ToolCallWithResult[]): Set<string> {
+  const out = new Set<string>();
+  const add = (value: unknown): void => {
+    if (typeof value !== "string") return;
+    const id = normalizeTaskId(value);
+    if (id !== "") out.add(id);
+  };
+
+  for (const call of calls) {
+    const name = normalizeToolName(call.toolName);
+
+    if (SPEC_CONTENT_READ_TOOL_NAMES.includes(name)) {
+      if (name === "tasks_get" && !call.input["includeSpec"]) continue;
+      add(call.input["taskId"]);
+      continue;
+    }
+
+    const authorFields = SPEC_AUTHOR_FIELD_BY_TOOL[name];
+    if (authorFields && authorFields.some((f) => call.input[f] !== undefined)) {
+      add(call.input["taskId"]);
+    }
+  }
+
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Discharge: a claimed FILE-LEVEL COLLISION (mt#4168, re-homed from mt#3806)
 // ---------------------------------------------------------------------------
 

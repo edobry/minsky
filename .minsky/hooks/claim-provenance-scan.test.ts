@@ -17,7 +17,10 @@ import type { DispatchContext } from "./registry";
 import type { ToolHookInput } from "./types";
 import type { TranscriptLine } from "./transcript";
 import {
+  causalAttributionSentences,
+  causalAttributionSubjects,
   citedPrNumbers,
+  claimsCausalTaskAttribution,
   claimsFileCollision,
   claimsNoOwner,
   claimsRemainingWork,
@@ -26,6 +29,8 @@ import {
   run,
   SPEC_TEXT_FIELD_BY_TOOL,
 } from "./claim-provenance-scan";
+import { taskIdsWithSpecRead, taskIdsWithStatusRead } from "./evidence-provenance-table";
+import { findToolCallsWithResults } from "./transcript";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -686,6 +691,223 @@ describe("tasks_edit --spec-file recall (mt#4295, via mt#4525's shared resolver)
  *
  * Differential pair: the control proves the fixture can fire at all.
  */
+// ---------------------------------------------------------------------------
+// Causal attribution to another task (mt#4876)
+// ---------------------------------------------------------------------------
+
+/**
+ * The originating shape, verbatim in substance: an explanation attributed to a
+ * task whose spec was never opened. mt#4864's own correction records that the
+ * claim came from mt#4753's TITLE.
+ */
+const CAUSAL_SPEC = `## Summary
+
+Ship the corpus split.
+
+## Progress
+
+The reviewer bot did not review within 300s and its check run reads absent; consistent
+with mt#9999 being BLOCKED.
+`;
+
+/** AT3's negative control: the same refs, listed rather than explained. */
+const CROSS_REFERENCE_SPEC = `## Summary
+
+Ship the corpus split.
+
+## Context
+
+- **mt#9999** (DONE) — the immediately adjacent seam extension.
+- **mt#8888** (TODO) — a reference sweep.
+`;
+
+/**
+ * The `includeSpec: true` variant. `TASK_GET_CALL` above is the BARE form, which
+ * returns a title and no body — the surface the originating incident mistook for
+ * the record, and the reason these two must be separate fixtures.
+ */
+const TASK_GET_WITH_SPEC_CALL = (taskId: string) =>
+  toolCallLine("mcp__minsky__tasks_get", { taskId, includeSpec: true });
+
+describe("causalAttributionSentences — recognition", () => {
+  test("recognizes an explanation attributed to a named task", () => {
+    expect(causalAttributionSentences(CAUSAL_SPEC)).toHaveLength(1);
+    expect(claimsCausalTaskAttribution(CAUSAL_SPEC, "mt#1")).toBe(true);
+  });
+
+  test("AT3 — refs listed as cross-references explain nothing and do not fire", () => {
+    expect(causalAttributionSentences(CROSS_REFERENCE_SPEC)).toEqual([]);
+    expect(claimsCausalTaskAttribution(CROSS_REFERENCE_SPEC, "mt#1")).toBe(false);
+  });
+
+  test("both signals must land in ONE sentence, not merely one paragraph", () => {
+    const split = `## Context\n\nBecause the parser changed, the output differs. See mt#9999 for context.\n`;
+    expect(causalAttributionSentences(split)).toEqual([]);
+  });
+
+  test("`unexplained` is not an explanation — the leading \\b cannot match inside a word", () => {
+    // Lifted from the originating incident's own correction text, which says the
+    // reviewer's silence is "a new, unexplained signal".
+    const spec = `## Context\n\nThe silence is a new, unexplained signal that mt#9999 does not cover.\n`;
+    expect(causalAttributionSentences(spec)).toEqual([]);
+  });
+
+  test("a relationship assertion belongs to mt#2264 and is skipped even with a connective", () => {
+    const spec = `## Context\n\nThis is blocked on mt#9999 because the edge was never wired.\n`;
+    expect(causalAttributionSentences(spec)).toEqual([]);
+  });
+
+  test("a gate-report paragraph is a RECORD of the check, not a claim", () => {
+    const spec = `## Gate results\n\n- **(a)** Five sections present. Pass.\n- **(g)** FAILED because mt#9999 overlaps on the same seam.\n- **(m)** Quote verified verbatim.\n`;
+    expect(causalAttributionSentences(spec)).toEqual([]);
+  });
+
+  test("a fenced quotation of another spec is not this author asserting anything", () => {
+    const spec = [
+      "## Context",
+      "",
+      "The earlier revision read:",
+      "",
+      "```",
+      "consistent with mt#9999 being BLOCKED",
+      "```",
+      "",
+    ].join("\n");
+    expect(causalAttributionSentences(spec)).toEqual([]);
+  });
+
+  test("an INLINE code span keeps its ref — blanking those would switch the class off", () => {
+    const spec = [
+      "## Context",
+      "",
+      "The check run reads absent, consistent with `mt#9999` being BLOCKED.",
+      "",
+    ].join("\n");
+    expect(causalAttributionSentences(spec)).toHaveLength(1);
+  });
+});
+
+describe("causalAttributionSubjects — the join key", () => {
+  test("excludes the task being written: a self-explanation has no other record to demand", () => {
+    expect(
+      causalAttributionSubjects("This works because mt#1 changed the parser.", "mt#1")
+    ).toEqual([]);
+  });
+
+  test("normalizes so punctuation cannot defeat the join", () => {
+    expect(causalAttributionSubjects("... because mt#9999 shipped.", "mt#1")).toEqual(["mt9999"]);
+  });
+
+  test("a sentence naming no OTHER task is not adjudicable", () => {
+    expect(causalAttributionSubjects("This works because the parser changed.", "mt#1")).toEqual([]);
+  });
+});
+
+describe("taskIdsWithSpecRead — a STRICT subset of the status-read set (mt#4876)", () => {
+  const calls = (lines: TranscriptLine[]) => findToolCallsWithResults(lines);
+
+  test("a status read is credited by the STATUS set and NOT by the CONTENT set", () => {
+    const lines = [STATUS_GET_CALL("mt#9999")];
+    expect(taskIdsWithStatusRead(calls(lines)).has("mt9999")).toBe(true);
+    expect(taskIdsWithSpecRead(calls(lines)).has("mt9999")).toBe(false);
+  });
+
+  test("a bare tasks_get returns a TITLE — the originating incident's own source", () => {
+    const lines = [TASK_GET_CALL("mt#9999")];
+    expect(taskIdsWithStatusRead(calls(lines)).has("mt9999")).toBe(true);
+    expect(taskIdsWithSpecRead(calls(lines)).has("mt9999")).toBe(false);
+  });
+
+  test("tasks_get WITH includeSpec surfaces the body and does discharge", () => {
+    expect(taskIdsWithSpecRead(calls([TASK_GET_WITH_SPEC_CALL("mt#9999")])).has("mt9999")).toBe(
+      true
+    );
+  });
+
+  test("tasks_spec_get always discharges", () => {
+    expect(taskIdsWithSpecRead(calls([SPEC_GET_CALL("mt#9999")])).has("mt9999")).toBe(true);
+  });
+
+  test("refs_status is a status read and does not discharge", () => {
+    const lines = [toolCallLine("mcp__minsky__refs_status", { refs: ["mt#9999"] })];
+    expect(taskIdsWithStatusRead(calls(lines)).has("mt9999")).toBe(true);
+    expect(taskIdsWithSpecRead(calls(lines)).has("mt9999")).toBe(false);
+  });
+
+  test("authoring a spec counts as content engagement (mt#2814's credit)", () => {
+    const lines = [
+      toolCallLine(SPEC_PATCH_TOOL, { taskId: "mt#9999", content: "## Summary\n\nx" }),
+    ];
+    expect(taskIdsWithSpecRead(calls(lines)).has("mt9999")).toBe(true);
+  });
+
+  test("a METADATA-only tasks_edit touches no prose and does not discharge", () => {
+    const lines = [toolCallLine(EDIT_TOOL, { taskId: "mt#9999", kind: "implementation" })];
+    expect(taskIdsWithSpecRead(calls(lines)).has("mt9999")).toBe(false);
+  });
+});
+
+describe("run — causal attribution (AT1, AT2, AT3)", () => {
+  test("AT1 — fires when the cited task's spec was never opened", () => {
+    const outcome = run(patchInput(CAUSAL_SPEC), ctxWith([...NOISE]));
+    expect(outcome?.calibration?.outcome).toBe("matched");
+    expect(outcome?.calibration?.kinds).toContain("a causal attribution to another task");
+  });
+
+  test("AT2 — silent when this session read the cited task's spec", () => {
+    const outcome = run(patchInput(CAUSAL_SPEC), ctxWith([...NOISE, SPEC_GET_CALL("mt#9999")]));
+    expect(outcome?.calibration?.outcome).toBe("clean");
+  });
+
+  test("AT3 — a cross-reference list is silent, confirming the trigger discriminates", () => {
+    const outcome = run(patchInput(CROSS_REFERENCE_SPEC), ctxWith([...NOISE]));
+    expect(outcome?.calibration?.outcome).toBe("clean");
+  });
+
+  test("THE DISTINCTION: a status read does NOT discharge this class", () => {
+    // The pair that makes the class worth having. `taskIdsWithStatusRead` — which
+    // the remaining-work class joins on — would have credited both of these, so
+    // the originating incident would have passed a guard already at this seam.
+    const status = run(patchInput(CAUSAL_SPEC), ctxWith([...NOISE, STATUS_GET_CALL("mt#9999")]));
+    expect(status?.calibration?.outcome).toBe("matched");
+
+    const bareGet = run(patchInput(CAUSAL_SPEC), ctxWith([...NOISE, TASK_GET_CALL("mt#9999")]));
+    expect(bareGet?.calibration?.outcome).toBe("matched");
+
+    const withSpec = run(
+      patchInput(CAUSAL_SPEC),
+      ctxWith([...NOISE, TASK_GET_WITH_SPEC_CALL("mt#9999")])
+    );
+    expect(withSpec?.calibration?.outcome).toBe("clean");
+  });
+
+  test("reading a DIFFERENT task's spec is not evidence about this one", () => {
+    const outcome = run(patchInput(CAUSAL_SPEC), ctxWith([...NOISE, SPEC_GET_CALL("mt#8888")]));
+    expect(outcome?.calibration?.outcome).toBe("matched");
+  });
+
+  test("the join is PER SENTENCE — one read subject does not discharge another", () => {
+    const twoClaims = `## Context\n\nThe bot stayed silent, consistent with mt#9999 being BLOCKED.\n\nThe sweep is slow because mt#8888 rebuilt the index.\n`;
+    const onlyOne = run(patchInput(twoClaims), ctxWith([...NOISE, SPEC_GET_CALL("mt#9999")]));
+    expect(onlyOne?.calibration?.outcome).toBe("matched");
+
+    const both = run(
+      patchInput(twoClaims),
+      ctxWith([...NOISE, SPEC_GET_CALL("mt#9999"), SPEC_GET_CALL("mt#8888")])
+    );
+    expect(both?.calibration?.outcome).toBe("clean");
+  });
+
+  test("the sibling classes are untouched — a status read still discharges remaining-work", () => {
+    // AT4's regression direction at this seam: adding a stricter join for the new
+    // class must not tighten the existing one, whose discharge is deliberately the
+    // wider status read (mt#4299).
+    const remaining = `## Context\n\nmt#9999 still needs its guard before this can ship.\n`;
+    const outcome = run(patchInput(remaining), ctxWith([...NOISE, STATUS_GET_CALL("mt#9999")]));
+    expect(outcome?.calibration?.outcome).toBe("clean");
+  });
+});
+
 describe("citation elision only ever removes collision verbs — it never manufactures one", () => {
   // A real, adjacent collision verb: this must still be reported.
   const CONTROL = "mt#1 overlaps with mt#2 on src/foo.ts";
