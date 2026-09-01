@@ -25,6 +25,12 @@ import {
   PROXIMITY_CHARS,
   refKey,
   TERMINAL_ASK_STATES,
+  // mt#4580 — the Rung-2 climb
+  findPeerHeldClaims,
+  findUnbackedClaims,
+  nominatePendingClaims,
+  NOMINATION_EXEMPLARS,
+  toolInputHaystack,
 } from "./turn-end-stale-state-assertion-scan";
 
 /** The literal shape of mem#669 R17's closing message — the originating case. */
@@ -401,5 +407,337 @@ describe("mt#4375 SC2 — the vocabulary is named constants, not inline literals
 
   test("a bare lead word with nothing after it still declares", () => {
     expect(declaresResolution("resolved")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4580 — the Rung-2 climb
+// ---------------------------------------------------------------------------
+
+/**
+ * The two real occurrences, verbatim (mem#1269 R19/R20).
+ *
+ * Kept verbatim on PURPOSE, and deliberately absent from NOMINATION_EXEMPLARS:
+ * the fixture asserts on the real text while the exemplars describe only the
+ * SHAPE. That separation is what makes the recall test evidence rather than a
+ * tautology — an exemplar seeded with R19 would make this pass by memorization
+ * and prove nothing about the paraphrase the next miss arrives in. The sibling
+ * detector states the same discipline in its own exemplar docblock.
+ */
+/** Family names, shared so a rename cannot silently desync these fixtures. */
+const FAMILY_PAST_TENSE = "past-tense-claim";
+const FAMILY_RECOMMEND_START = "recommend-start";
+/** A tool whose input carries a taskId — the "backed" case's stand-in. */
+const TOOL_SPEC_PATCH = "tasks_spec_patch";
+/** A tail carrying a ref, used to drive the Rung-2 stage in tests. */
+const TAIL_WITH_REF = "Next up is mt#4556.";
+/** Guard body for a dep that must never be invoked in a given test. */
+const UNREACHABLE = "must not be reached";
+
+const R19_RECOMMEND_START = [
+  "### Recommended next steps",
+  "",
+  "1. **Narrow mt#4555** to the once-per-PR hybrid question, drop the rest, and close it out.",
+  "2. **Start mt#4556** (config fingerprint) — mt#4554's arms are unmeasurable without it.",
+].join("\n");
+
+const R20_PAST_TENSE =
+  "I've recorded this correction on the task. My earlier framing was too strong.";
+
+/** The shape mt#4199 WAS built for — the control that makes the zeros mean something. */
+const RUNG1_CONTROL = "Still with you: ask#8467 — it needs your answer before I can proceed.";
+
+describe("mt#4580 — Rung 1 is blind to both shapes (the measurement, with a control)", () => {
+  test("the control fires, so the probe demonstrably works", () => {
+    const claims = findPendingClaims(RUNG1_CONTROL);
+    expect(claims.length).toBe(1);
+    expect(claims[0]?.entity.ref).toBe("ask#8467");
+  });
+
+  test("R19 (recommend-start) is invisible to the phrase gate", () => {
+    expect(findPendingClaims(R19_RECOMMEND_START)).toEqual([]);
+  });
+
+  test("R20 (past-tense claim) is invisible to the phrase gate", () => {
+    expect(findPendingClaims(R20_PAST_TENSE)).toEqual([]);
+  });
+
+  test("the miss is at RECOGNITION, not the state check — the refs were always findable", () => {
+    // This is the load-bearing detail: collectEntityRefs finds them fine, so no
+    // state-side fix could have helped. findPendingClaims returns early because
+    // zero assertion phrases matched.
+    expect(collectEntityRefs(R19_RECOMMEND_START).map((r) => r.id)).toContain("mt#4556");
+    expect(collectAssertions(R19_RECOMMEND_START)).toEqual([]);
+  });
+});
+
+describe("mt#4580 — exemplars describe the shape, never the miss", () => {
+  test("no exemplar contains either occurrence verbatim", () => {
+    const all = NOMINATION_EXEMPLARS.flatMap((s) => s.exemplars);
+    for (const ex of all) {
+      expect(R19_RECOMMEND_START).not.toContain(ex);
+      expect(R20_PAST_TENSE).not.toContain(ex);
+    }
+  });
+
+  test("both families are present and non-empty", () => {
+    const families = NOMINATION_EXEMPLARS.map((s) => s.family).sort();
+    expect(families).toEqual(["past-tense-claim", "recommend-start"]);
+    for (const s of NOMINATION_EXEMPLARS) expect(s.exemplars.length).toBeGreaterThan(0);
+  });
+});
+
+describe("mt#4580 — cost discipline: no ref means no IO", () => {
+  test("a turn naming no entity never resolves nomination deps", async () => {
+    let resolveCalls = 0;
+    const out = await nominatePendingClaims("All done here, nothing outstanding.", {
+      resolve: async () => {
+        resolveCalls += 1;
+        return null;
+      },
+      run: async () => {
+        throw new Error("nominate must not be reached without a ref");
+      },
+    });
+    expect(resolveCalls).toBe(0);
+    expect(out.claims).toEqual([]);
+    expect(out.degradedReason).toBeUndefined();
+  });
+
+  test("an unavailable embedding provider degrades rather than firing", async () => {
+    const out = await nominatePendingClaims(TAIL_WITH_REF, {
+      resolve: async () => null,
+      run: async () => {
+        throw new Error("must not run without deps");
+      },
+    });
+    expect(out.claims).toEqual([]);
+    expect(out.degradedReason).toBe("nomination-deps-unavailable");
+  });
+});
+
+describe("mt#4580 — findUnbackedClaims (the past-tense arm)", () => {
+  const claim = (id: string) => ({
+    entity: { kind: "task" as const, ref: id, id, idForm: "short" as const, at: 0 },
+    assertion: { family: FAMILY_PAST_TENSE, phrase: "I recorded that", at: 0 },
+  });
+
+  test("a claim whose ref no tool call carried is unbacked", () => {
+    const lines = [
+      { type: "tool_use", name: "tasks_get", input: { taskId: "mt#9999" } },
+    ] as unknown as Parameters<typeof findUnbackedClaims>[1];
+    expect(findUnbackedClaims([claim("mt#4555")], lines).map((c) => c.entity.id)).toEqual([
+      "mt#4555",
+    ]);
+  });
+
+  test("a claim whose ref a tool call DID carry is backed", () => {
+    const lines = [
+      { type: "tool_use", name: TOOL_SPEC_PATCH, input: { taskId: "mt#4555" } },
+    ] as unknown as Parameters<typeof findUnbackedClaims>[1];
+    expect(findUnbackedClaims([claim("mt#4555")], lines)).toEqual([]);
+  });
+
+  test("only the past-tense family is inspected", () => {
+    const other = {
+      ...claim("mt#4555"),
+      assertion: { family: FAMILY_RECOMMEND_START, phrase: "start it", at: 0 },
+    };
+    expect(findUnbackedClaims([other], [])).toEqual([]);
+  });
+
+  test("non-tool_use lines contribute nothing to the haystack", () => {
+    const lines = [
+      { type: "assistant", text: "mt#4555 is mentioned in prose only" },
+    ] as unknown as Parameters<typeof toolInputHaystack>[0];
+    expect(toolInputHaystack(lines)).toBe("");
+  });
+});
+
+describe("mt#4580 — findPeerHeldClaims (the recommend-start arm)", () => {
+  const claim = {
+    entity: {
+      kind: "task" as const,
+      ref: "mt#4556",
+      id: "mt#4556",
+      idForm: "short" as const,
+      at: 0,
+    },
+    assertion: { family: FAMILY_RECOMMEND_START, phrase: "start it next", at: 0 },
+  };
+
+  test("a peer session.started row marks the recommendation stale", async () => {
+    const out = await findPeerHeldClaims([claim], undefined, {
+      read: async () => [
+        { eventType: "session.started", createdAt: new Date(), payload: { sessionId: "peer-1" } },
+      ],
+      decide: () => ({ fired: true, message: "peer says so", outcome: "decided" }),
+    });
+    expect(out.held.map((c) => c.entity.id)).toEqual(["mt#4556"]);
+    expect(out.degradedReasons).toEqual([]);
+  });
+
+  test("a quiet ledger holds nothing", async () => {
+    const out = await findPeerHeldClaims([claim], undefined, {
+      read: async () => [],
+      decide: () => ({ fired: false, outcome: "decided" }),
+    });
+    expect(out.held).toEqual([]);
+    expect(out.degradedReasons).toEqual([]);
+  });
+
+  test("an unreadable ledger degrades — it does NOT read as 'no peer'", async () => {
+    // The whole failure class this guard exists for is a negative nobody
+    // actually checked. These two must never collapse into one value.
+    const out = await findPeerHeldClaims([claim], undefined, {
+      read: async () => null,
+      decide: () => ({ fired: true, message: "should not be consulted" }),
+    });
+    expect(out.held).toEqual([]);
+    expect(out.degradedReasons.join(" ")).toContain("peer-read-unavailable");
+  });
+
+  test("a throwing read degrades rather than escaping the Stop guard", async () => {
+    const out = await findPeerHeldClaims([claim], undefined, {
+      read: async () => {
+        throw new Error("db down");
+      },
+      decide: () => ({ fired: false }),
+    });
+    expect(out.held).toEqual([]);
+    expect(out.degradedReasons.join(" ")).toContain("db down");
+  });
+});
+
+describe("mt#4580 AT5 — elision holds on the Rung-2 path too", () => {
+  test("a ref inside a fenced block is not collected, so nomination never runs", async () => {
+    let resolveCalls = 0;
+    const fenced = ["Here is an example:", "```", "Start mt#4556 next.", "```"].join("\n");
+    const out = await nominatePendingClaims(fenced, {
+      resolve: async () => {
+        resolveCalls += 1;
+        return null;
+      },
+      run: async () => {
+        throw new Error("nominate must not run on an elided ref");
+      },
+    });
+    expect(resolveCalls).toBe(0);
+    expect(out.claims).toEqual([]);
+  });
+
+  test("the same sentence UNfenced does reach the stage", async () => {
+    // The negative control for the test above: without it, "0 calls" could mean
+    // the elision worked OR that the gate never admits this shape at all.
+    let resolveCalls = 0;
+    await nominatePendingClaims("Start mt#4556 next.", {
+      resolve: async () => {
+        resolveCalls += 1;
+        return null;
+      },
+      run: async () => {
+        throw new Error("unreachable — resolve returns null");
+      },
+    });
+    expect(resolveCalls).toBe(1);
+  });
+});
+
+describe("mt#4580 PR #3544 R1 — the three review findings", () => {
+  test("BLOCKING: a hung dependency resolve is bounded, not awaited forever", async () => {
+    // The finding: nominate's own timeoutMs covers the embedding call only, and
+    // resolveNominationDeps converts a THROW to null but not a HANG. A resolve
+    // that never settles would stall the Stop hook.
+    const out = await nominatePendingClaims(TAIL_WITH_REF, {
+      resolve: () => new Promise(() => {}), // never settles
+      run: async () => {
+        throw new Error(UNREACHABLE);
+      },
+    });
+    expect(out.degradedReason).toBe("nomination-deps-timeout");
+    expect(out.claims).toEqual([]);
+    // The degraded reason IS the timing assertion: it is only reachable through
+    // the deadline branch, and the test would hang rather than fail if the
+    // deadline were absent. A wall-clock check adds nothing and is flaky.
+  }, 15000);
+
+  test("R2: a SYNCHRONOUS throw from resolve degrades rather than escaping", async () => {
+    // The sync throw happens at the call site, outside the race — so without
+    // deferring it and catching, it bypasses the deadline and bubbles out of
+    // the Stop hook entirely.
+    const out = await nominatePendingClaims(TAIL_WITH_REF, {
+      resolve: (() => {
+        throw new Error("sync boom");
+      }) as unknown as NonNullable<Parameters<typeof nominatePendingClaims>[1]>["resolve"],
+      run: async () => {
+        throw new Error(UNREACHABLE);
+      },
+    });
+    expect(out.claims).toEqual([]);
+    expect(out.degradedReason).toContain("nomination-deps-threw");
+    expect(out.degradedReason).toContain("sync boom");
+  });
+
+  test("R2 control: an ASYNC rejection degrades the same way", async () => {
+    const out = await nominatePendingClaims(TAIL_WITH_REF, {
+      resolve: async () => {
+        throw new Error("async boom");
+      },
+      run: async () => {
+        throw new Error(UNREACHABLE);
+      },
+    });
+    expect(out.degradedReason).toContain("nomination-deps-threw");
+  });
+
+  test("NON-BLOCKING: an id is not backed by a LONGER id that contains it", () => {
+    // mt#455 is a prefix of mt#4555. A bare substring check clears the claim,
+    // silently, in the under-firing direction.
+    const claim = {
+      entity: {
+        kind: "task" as const,
+        ref: "mt#455",
+        id: "mt#455",
+        idForm: "short" as const,
+        at: 0,
+      },
+      assertion: { family: FAMILY_PAST_TENSE, phrase: "I recorded that", at: 0 },
+    };
+    const lines = [
+      { type: "tool_use", name: TOOL_SPEC_PATCH, input: { taskId: "mt#4555" } },
+    ] as unknown as Parameters<typeof findUnbackedClaims>[1];
+    expect(findUnbackedClaims([claim], lines).map((c) => c.entity.id)).toEqual(["mt#455"]);
+  });
+
+  test("NON-BLOCKING: the exact id still backs the claim", () => {
+    // Control for the test above — without it, "unbacked" could mean the
+    // boundary works OR that nothing ever matches.
+    const claim = {
+      entity: {
+        kind: "task" as const,
+        ref: "mt#455",
+        id: "mt#455",
+        idForm: "short" as const,
+        at: 0,
+      },
+      assertion: { family: FAMILY_PAST_TENSE, phrase: "I recorded that", at: 0 },
+    };
+    const lines = [
+      { type: "tool_use", name: TOOL_SPEC_PATCH, input: { taskId: "mt#455" } },
+    ] as unknown as Parameters<typeof findUnbackedClaims>[1];
+    expect(findUnbackedClaims([claim], lines)).toEqual([]);
+  });
+
+  test("NON-BLOCKING: each failed ledger read is its own calibration entry", async () => {
+    const mk = (id: string) => ({
+      entity: { kind: "task" as const, ref: id, id, idForm: "short" as const, at: 0 },
+      assertion: { family: FAMILY_RECOMMEND_START, phrase: "start it", at: 0 },
+    });
+    const out = await findPeerHeldClaims([mk("mt#1"), mk("mt#2")], undefined, {
+      read: async () => null,
+      decide: () => ({ fired: false }),
+    });
+    // Two refs failed -> two entries, countable. Not one joined string.
+    expect(out.degradedReasons.length).toBe(2);
   });
 });
