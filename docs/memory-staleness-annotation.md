@@ -253,14 +253,38 @@ failed to resolve. Roughly a third of the explicit status claims in this corpus 
 
 Trigger 3's refs union into trigger 1's existing lookup, so it adds **no** query.
 
-**No quotation prefilter yet — but the primitive now exists (mt#4454).** A status claim inside a
-code fence or blockquote will still match here: trigger 3 reads the raw body, and only trigger 1's
-`extractTrackingTaskRefs` was wired to the elider. It is tolerable meanwhile for the reason in (1)
-above. What changed is that adopting it is now a one-line composition rather than a dependency —
-`elideQuotedAndMarkdown` from `packages/domain/src/text/prose-elision.ts`. It was deliberately NOT
-applied to triggers 2 and 3 in the same change: their own false-positive profiles are unmeasured,
-and wiring an elider into three detectors on one detector's evidence is the opposite of ADR-024's
-evidence gate. Same applies to trigger 2's `CITED_PATH_PATTERN` / `CITED_TABLE_PATTERN`.
+**Quotation prefilter: WIRED (mt#4785).** All three triggers now match on the ADR-024 Rung 1
+residual — but triggers 2 and 3 take it DIFFERENTLY, and the difference is measured rather than
+stylistic.
+
+**Trigger 3 composes it directly.** `PARENTHETICAL_STATUS` is not backtick-dependent, so elision
+removes a claim only when the claim itself is quoted. Measured over 1354 memories: 194 carry an
+assertion and exactly **4 lose one**, all four genuine false positives —
+
+| Record   | What it was quoting                                                          |
+| -------- | ---------------------------------------------------------------------------- |
+| mem#367  | a **superseded version of its own bullet** ("this bullet previously read …") |
+| mem#1218 | a **guard's stdout**, inside its code fence                                  |
+| mem#1091 | **another spec's stale claim, quoted in order to correct it**                |
+| mem#1080 | a `>` **blockquote** listing filed tune tasks                                |
+
+mem#1091 is the sharpest: the sentence exists to say the claim was wrong, and the un-elided
+detector flagged the record for containing the claim it was correcting.
+
+**Trigger 2 takes it as a SPLIT — gate on elided, cited subjects from raw.** Its
+`CITED_PATH_PATTERN` and `CITED_TABLE_PATTERN` require literal backticks, because a cited subject
+is backticked precisely BECAUSE it is a symbol. Measured: whole-haystack elision fixes the gate on
+**1** record (mem#1105, which quotes its own `## MEASURED 2026-08-19` heading) and strips the cited
+subsystems from **55** of the 60 measurement-carrying records. Since `subsystems` feeds the
+intervening-change lookup, that is the input the verdict is computed from, not decoration — naive
+composition fails trigger 2's own originating-incident replay test (mem#773 × mt#4345). Same-length
+elision filler (`ELISION_FILL`, mt#4792) is what makes reading raw at an elided offset legal.
+
+**Trigger 3 now has a reported rate for the first time.** `scripts/verify-memory-staleness.ts`
+imported trigger 2's extractor and never trigger 3's — and trigger 3 was never exported from the
+`packages/domain/src/memory` barrel at all, so nothing outside `memory-service.ts` could reach it.
+Both are fixed here; the script's third section reports 194 carrying an assertion, 75 drifted, 63
+firing (4.65%).
 
 **`unresolved` also emits a structured warning.** A memory naming a task id the task graph
 cannot account for is worth knowing about even though it must never block or annotate the

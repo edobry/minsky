@@ -47,5 +47,17 @@ export {
   renderMeasurementNote,
 } from "./measurement-decay";
 export type { DetectedMeasurement, InterveningTask, MeasurementDecay } from "./measurement-decay";
+
+// Trigger 3 (mt#4743). Added to the barrel by mt#4785: trigger 2 has been exported here since
+// it shipped, trigger 3 never was, so the only consumer that could reach it was
+// `memory-service.ts` via a relative import — which is why
+// `scripts/verify-memory-staleness.ts` reported a rate for triggers 1 and 2 and none for 3.
+export {
+  assertedTaskIds,
+  computeTaskStateDrift,
+  extractTaskStateAssertions,
+  renderTaskStateNote,
+} from "./task-state-assertion";
+export type { DriftedAssertion, TaskStateAssertion, TaskStateDrift } from "./task-state-assertion";
 export { combineStaleness } from "./staleness";
 export { createInterveningTaskLookup } from "./intervening-task-lookup";

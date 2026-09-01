@@ -44,6 +44,7 @@
  */
 
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+import { elideQuotedAndMarkdown } from "../text/prose-elision";
 
 /**
  * The date must bind to MEASURING A QUANTITY. Each pattern captures an ISO date.
@@ -184,14 +185,35 @@ export interface MeasurementDetectionInput {
 export function extractMeasurement(
   record: MeasurementDetectionInput
 ): DetectedMeasurement | undefined {
-  const haystack = `${record.description ?? ""}\n${record.content}`;
-  if (!FIGURE_PATTERN.test(haystack)) return undefined;
+  const raw = `${record.description ?? ""}\n${record.content}`;
+
+  // ADR-024 Rung 1 (mt#4785), applied as a SPLIT rather than a wholesale swap — and the split
+  // is measured, not stylistic.
+  //
+  // The GATE — is this record ASSERTING a dated measurement, or QUOTING someone else's? — is a
+  // question about the FIGURE and the DATE, so it reads the elided residual. A date inside a
+  // code span (mem#1105 quotes its own `## MEASURED 2026-08-19` heading) is not this record
+  // taking a measurement.
+  //
+  // The SUBJECTS are read from RAW, and must be. `CITED_PATH_PATTERN` and
+  // `CITED_TABLE_PATTERN` require literal backticks — a cited subject is backticked precisely
+  // BECAUSE it is a symbol — so elision destroys exactly what they exist to find. Measured
+  // over the live corpus (1343 records, 2026-09-01): 60 records carry a measurement; eliding
+  // the whole haystack fixes the gate on **1** and strips the cited subsystems from **55**.
+  // Since `subsystems` feeds the intervening-change lookup, that is not cosmetic — it is the
+  // input the decay verdict is computed from.
+  //
+  // Same-length filler (`ELISION_FILL`, mt#4792) is what makes this legal: an offset found in
+  // `elided` indexes `raw` identically, so `matchedSentence` slices the ORIGINAL and shows the
+  // reader real prose rather than a row of dots.
+  const elided = elideQuotedAndMarkdown(raw);
+  if (!FIGURE_PATTERN.test(elided)) return undefined;
 
   let oldest: { date: string; index: number } | undefined;
   for (const pattern of MEASUREMENT_DATE_PATTERNS) {
     // Module-level `g` patterns keep `lastIndex` across calls; reset before each use.
     pattern.lastIndex = 0;
-    for (const match of haystack.matchAll(pattern)) {
+    for (const match of elided.matchAll(pattern)) {
       const date = match[1];
       if (!date || !isValidIsoDate(date)) continue;
       if (!oldest || date < oldest.date) oldest = { date, index: match.index ?? 0 };
@@ -201,8 +223,8 @@ export function extractMeasurement(
 
   return {
     measuredOn: oldest.date,
-    matchedSentence: sentenceAround(haystack, oldest.index),
-    subsystems: extractCitedSubsystems(haystack),
+    matchedSentence: sentenceAround(raw, oldest.index),
+    subsystems: extractCitedSubsystems(raw),
   };
 }
 
