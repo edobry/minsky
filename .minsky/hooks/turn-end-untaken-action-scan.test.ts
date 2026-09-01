@@ -1804,7 +1804,16 @@ describe("present-progressive assertion arm (mt#4835)", () => {
         ctx,
         storeDir
       );
-      expect(outcome?.calibration?.["presentProgressiveArm"]).toEqual(["Running the dry"]);
+      // Asserted as a PREFIX, not an exact string. The stored phrase is
+      // currently truncated to "Running the dry" because the shared
+      // `ACTION_OBJECT` ends at `the\s+\w+` and `\w` does not match `-` — a
+      // PRE-EXISTING limit affecting `ill-action` and `going-to` equally, now
+      // tracked as mt#4847. Pinning the truncated literal here would make this
+      // test assert the defect and fail once mt#4847 fixes it (PR #3537 R1,
+      // finding 4).
+      const arm = outcome?.calibration?.["presentProgressiveArm"] as string[] | undefined;
+      expect(arm).toHaveLength(1);
+      expect(arm?.[0]).toStartWith("Running the");
       expect(outcome?.calibration?.["presentProgressiveArmLogOnly"]).toBe(true);
     });
 
@@ -1854,6 +1863,33 @@ describe("present-progressive assertion arm (mt#4835)", () => {
       ["Writing it down a fourth time was the failure pattern."],
     ])("long-separation gerund subject stays silent: %s", (message) => {
       expect(detectPresentProgressiveAssertion(message)).toEqual([]);
+    });
+  });
+
+  // PR #3537 R1, finding 3. Synthetic rather than corpus-drawn — the 438-record
+  // log contains no contraction instance, so the shipped measurement is
+  // unaffected by this fix. That is the honest framing: the corpus result was
+  // clean, AND it did not exercise this shape.
+  describe("R1 finding 3 — negated contractions are gerund subjects too", () => {
+    test.each([
+      ["Planning it now isn't worth the churn."],
+      ["Running it wasn't the plan."],
+      ["Shipping it wouldn't help."],
+      ["Filing that doesn't change the outcome."],
+      ["Running it hasn't helped before."],
+    ])("negated gerund subject stays silent: %s", (message) => {
+      expect(detectPresentProgressiveAssertion(message)).toEqual([]);
+    });
+
+    // The other half of that finding, deliberately NOT taken. `it's` after the
+    // phrase is an independent clause whose subject is `it`, not the
+    // participial phrase — and the arm's own primary fixture (AT1) is exactly
+    // that shape, so suppressing on `'s` would silence the incident this arm
+    // exists to catch.
+    test("a following `it's` clause does NOT suppress — it is not a gerund subject", () => {
+      expect(
+        detectPresentProgressiveAssertion("Running the gate now — it's the falsifier.")
+      ).toHaveLength(1);
     });
   });
 

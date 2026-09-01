@@ -844,9 +844,24 @@ const PRESENT_PROGRESSIVE_RE = new RegExp(
  *
  * Known cost: a genuine assertion trailed by one of these verbs ("Filing it
  * now, will report back") is suppressed. Acceptable while log-only.
+ *
+ * ## Contractions (PR #3537 R1, finding 3) — the negated half only
+ *
+ * `\b` does not close after the stem in `isn't` (the next char is a word char),
+ * so `Planning it now isn't worth the churn` escaped and fired. Verified, then
+ * fixed by the optional `n't` group: the participle IS the subject of `isn't`,
+ * so that is a genuine gerund subject and a genuine false positive.
+ *
+ * **The `'s` half of that finding is deliberately NOT taken, and the counter-
+ * example is this arm's own primary fixture.** In `Running the dry-run gate now
+ * — it's the falsifier that decides A vs B`, the subject of `it's` is `it`, not
+ * the participial phrase; the clause is an independent comment FOLLOWING a true
+ * assertion. Adding `['’]s` here would suppress the exact incident tail this arm
+ * exists to catch (AT1), and would also swallow ordinary possessives. `it's`
+ * after the phrase is not a gerund-subject marker.
  */
 const GERUND_SUBJECT_CONTINUATION =
-  /\b(?:is|are|was|were|would|will|could|should|means?|makes?|risks?|costs?|gives?|produces?|turns?|turned|reproduc\w+|duplicat\w+|forks?|becomes?|remains?|seems?|feels?|looks?|beats?|helps?|requires?)\b/i;
+  /\b(?:is|are|was|were|would|will|could|should|do|does|did|has|have|had|means?|makes?|risks?|costs?|gives?|produces?|turns?|turned|reproduc\w+|duplicat\w+|forks?|becomes?|remains?|seems?|feels?|looks?|beats?|helps?|requires?)(?:n['’]t)?\b/i;
 
 /**
  * Pure detector for the present-progressive arm — exported for tests.
