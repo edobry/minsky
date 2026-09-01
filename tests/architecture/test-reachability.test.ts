@@ -16,6 +16,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   REACHABILITY_ALLOWLIST,
+  classifyCondition,
   compareReachability,
   extractPullRequestRunSteps,
   invokesTests,
@@ -27,6 +28,9 @@ import {
   type AllowlistEntry,
   type SuiteScope,
 } from "../../scripts/test-reachability";
+
+/** The real guard on `integration-tests.yml`'s `github-api` job (PR #3556 R1). */
+const SECRET_GUARD = "needs.check-secrets.outputs.has_github_token == 'true'";
 
 const scope = (roots: string[], excludePrefixes: string[] = []): SuiteScope => ({
   suite: "test",
@@ -174,6 +178,40 @@ describe("compareReachability", () => {
     expect(result.unusedAllowlistPrefixes).toEqual(["gone/"]);
   });
 
+  test("a file reached ONLY by a conditional suite is a violation, not coverage", () => {
+    // PR #3556 R1 (BLOCKING). A conditionally-guarded job is real coverage
+    // sometimes and none other times, so it never satisfies the invariant on
+    // its own — and the report must name the guard, or the reader cannot tell
+    // this from a plain hole.
+    const gated: SuiteScope = {
+      suite: "integration-tests.yml",
+      roots: ["tests/integration"],
+      excludePrefixes: [],
+      conditional: true,
+      guard: SECRET_GUARD,
+    };
+
+    const result = compareReachability(["tests/integration/x.test.ts"], [main, gated], []);
+
+    expect(result.unreached).toEqual([]);
+    expect(result.conditionallyReached).toEqual([
+      {
+        file: "tests/integration/x.test.ts",
+        suite: "integration-tests.yml",
+        guard: SECRET_GUARD,
+      },
+    ]);
+  });
+
+  test("an unconditional suite wins over a conditional one covering the same file", () => {
+    const gated: SuiteScope = { ...scope(["./src"]), conditional: true, guard: "x" };
+
+    const result = compareReachability([COVERED], [gated, main], []);
+
+    expect(result.conditionallyReached).toEqual([]);
+    expect(result.reachedBy.get(COVERED)).toEqual(["test"]);
+  });
+
   test("bringing an unreached file into a suite removes the violation — the fix direction", () => {
     const files = [COVERED, "tests/b.test.ts"];
 
@@ -244,6 +282,34 @@ describe("invokesTests", () => {
   });
 });
 
+describe("classifyCondition", () => {
+  test("an absent or always-true condition runs on a PR", () => {
+    expect(classifyCondition(undefined)).toBe("runs-on-pr");
+    expect(classifyCondition("${{ always() }}")).toBe("runs-on-pr");
+    expect(classifyCondition("success()")).toBe("runs-on-pr");
+  });
+
+  test("`event_name != 'schedule'` is TRUE on a pull_request", () => {
+    expect(classifyCondition("github.event_name != 'schedule'")).toBe("runs-on-pr");
+  });
+
+  test("a condition requiring some other event can never fire on a PR", () => {
+    // The nightly docker suite. Counting it credited nine testcontainer files
+    // that no pull_request has ever run.
+    const nightly =
+      "github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_docker_suite == true)";
+
+    expect(classifyCondition(nightly)).toBe("never-on-pr");
+  });
+
+  test("an undecidable condition fails closed to conditional", () => {
+    expect(classifyCondition(SECRET_GUARD)).toBe("conditional");
+    expect(classifyCondition("needs.check-secrets.outputs.has_supabase_url == 'true'")).toBe(
+      "conditional"
+    );
+  });
+});
+
 describe("extractPullRequestRunSteps", () => {
   const prWorkflow = (steps: string) =>
     `on:\n  pull_request:\n    branches: [main]\njobs:\n${steps}`;
@@ -256,8 +322,8 @@ describe("extractPullRequestRunSteps", () => {
       prWorkflow("  build:\n    steps:\n      - run: |\n          bun run test:reviewer\n")
     );
 
-    expect(steps.join("\n")).toContain("bun run test:reviewer");
-    expect(steps).not.toContain("|");
+    expect(steps.map((s) => s.command).join("\n")).toContain("bun run test:reviewer");
+    expect(steps.map((s) => s.command)).not.toContain("|");
   });
 
   test("captures an inline step body", () => {
@@ -265,7 +331,41 @@ describe("extractPullRequestRunSteps", () => {
       prWorkflow("  build:\n    steps:\n      - run: bun run test:hooks\n")
     );
 
-    expect(steps).toEqual(["bun run test:hooks"]);
+    expect(steps.map((s) => s.command)).toEqual(["bun run test:hooks"]);
+    expect(steps[0]?.verdict).toBe("runs-on-pr");
+  });
+
+  test("a job-level `if:` propagates to its steps, and names the guard", () => {
+    // PR #3556 R1 (BLOCKING): these jobs concluded `skipped` on this very PR
+    // while the check credited their files as covered.
+    const steps = extractPullRequestRunSteps(
+      prWorkflow(
+        "  gated:\n    if: needs.check-secrets.outputs.has_github_token == 'true'\n    steps:\n      - run: bun test tests/integration/a.test.ts\n"
+      )
+    );
+
+    expect(steps[0]?.verdict).toBe("conditional");
+    expect(steps[0]?.guard).toContain("has_github_token");
+  });
+
+  test("a job's condition does not leak into the NEXT job", () => {
+    const steps = extractPullRequestRunSteps(
+      prWorkflow(
+        "  gated:\n    if: needs.check-secrets.outputs.has_github_token == 'true'\n    steps:\n      - run: bun test a\n  plain:\n    steps:\n      - run: bun test b\n"
+      )
+    );
+
+    expect(steps.map((s) => s.verdict)).toEqual(["conditional", "runs-on-pr"]);
+  });
+
+  test("a step-level `if:` guards only its own step", () => {
+    const steps = extractPullRequestRunSteps(
+      prWorkflow(
+        "  build:\n    steps:\n      - name: gated\n        if: needs.x.outputs.y == 'true'\n        run: bun test a\n      - name: plain\n        run: bun test b\n"
+      )
+    );
+
+    expect(steps.map((s) => s.verdict)).toEqual(["conditional", "runs-on-pr"]);
   });
 
   test("a workflow with no pull_request trigger contributes nothing", () => {
@@ -283,12 +383,29 @@ describe("the shipped allowlist", () => {
     expect(validateAllowlist(REACHABILITY_ALLOWLIST)).toEqual([]);
   });
 
-  test("every entry names an owning task", () => {
-    // This is mt#3935's SC5 rendered as an assertion: a reported hole is
-    // acceptable only when something owns closing it. An entry without a
-    // tracking task is an untracked gap wearing a decision's clothes.
+  test("every entry either names an owning task or declares itself permanent", () => {
+    // mt#3935's SC5 rendered as an assertion: a hole that someone intends to
+    // close must name who is closing it, so it cannot quietly become the
+    // status quo. The permanent branch exists for exclusions that are a design
+    // decision rather than a gap — a secret-gated job, a nightly-only suite —
+    // where there is no task to file and a fabricated one would be worse.
     for (const entry of REACHABILITY_ALLOWLIST) {
-      expect(entry.tracking).toMatch(/^mt#\d+$/);
+      if (entry.tracking !== undefined) {
+        expect(entry.tracking).toMatch(/^mt#\d+$/);
+      } else {
+        expect(entry.reason).toContain("PERMANENT BY DESIGN");
+      }
+    }
+  });
+
+  test("every permanent entry names the condition that keeps it out", () => {
+    // A permanent exclusion is only auditable if the reader can check it. Each
+    // one cites the workflow guard or trigger responsible, so a future change
+    // to that guard is visibly a change to this entry's premise.
+    for (const entry of REACHABILITY_ALLOWLIST) {
+      if (entry.tracking === undefined) {
+        expect(entry.reason).toMatch(/github\.event_name|needs\.check-secrets/);
+      }
     }
   });
 });

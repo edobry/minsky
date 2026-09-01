@@ -783,6 +783,53 @@ Two exclusions follow from that and look like bugs otherwise:
 rather than skipped: it genuinely runs tests, but only the ones a PR ADDS, so it keeps no file
 covered from one PR to the next.
 
+### A workflow triggering on a PR is not the same as its jobs RUNNING on one
+
+The check parses job and step `if:` conditions and classifies each into three verdicts, because
+crediting a job that does not run is the same failure this invariant exists to catch, one level up
+(PR #3556 R1, BLOCKING):
+
+- **`runs-on-pr`** — no condition, `always()`, `success()`, or `github.event_name != 'schedule'`
+  (which is TRUE on a pull_request). Counted as coverage.
+- **`never-on-pr`** — an expression requiring some other event and never naming `pull_request`,
+  like the docker suite's `github.event_name == 'schedule' || (workflow_dispatch && ...)`.
+  Contributes nothing.
+- **`conditional`** — anything undecidable statically: a secret probe, a `needs.*` output, an
+  input. **Fails closed.** Such a suite is real coverage sometimes and none other times, so it
+  never satisfies the invariant alone; a file reached only this way is reported under
+  `REACHED ONLY BY A CONDITIONAL JOB`, naming the guard.
+
+This was not hypothetical when it was added. `integration-tests.yml`'s `github-api` and `supabase`
+jobs are gated on secrets and both concluded **`skipped`** on the very PR that introduced this
+check, while their three test files were being counted as covered. Honouring conditions also
+revealed that the nine `*.testcontainer.integration.test.ts` files run on **no** PR at all — the
+job that runs them is nightly-and-manual only. Twelve files were being credited to jobs that had
+not run.
+
+### The allowlist, and why stale entries fail the build
+
+Every entry needs a non-empty `reason`. Beyond that an entry is one of two kinds, and the
+architecture test asserts the distinction:
+
+- **Tracked** — a hole someone intends to close. Requires `tracking: "mt#N"`, so it cannot quietly
+  become the status quo.
+- **Permanent** — an exclusion that is a design decision rather than a gap: a secret-gated job, a
+  nightly-only suite. Its `reason` must contain `PERMANENT BY DESIGN` **and cite the workflow guard
+  or trigger responsible**, so a later change to that guard is visibly a change to this entry's
+  premise. There is no task to file for these, and inventing one would be worse.
+
+**A prefix matching no unreached file fails the check as STALE.** This is deliberate and stricter
+than the sibling `typecheck-coverage` invariant, which reports stale entries without gating (PR
+#3556 R1, non-blocking). The reason: an exemption that outlives its hole is exactly how a closed
+gap keeps a live licence to reopen silently — the entry is still there, still matching nothing,
+and the day a file lands under that prefix it is exempt for a reason that stopped being true
+months earlier. Deleting a stale entry is a one-line change, and it is the same kind of bookkeeping
+the `tracking` requirement already imposes.
+
+Allowlist prefixes match with the same `pathCovers` used for suite roots, so a directory covers its
+descendants, an exact path covers only itself, and a `*` glob is honoured — which is what lets the
+nightly testcontainer suite be one entry instead of nine that go stale on the tenth file.
+
 ### Three parsing traps, all of which made it green for the wrong reason
 
 Every one of these was hit during implementation, and each produced a clean report while real
@@ -814,10 +861,3 @@ for the repro). This check models them as anchored prefixes instead, which is st
 substring model counts more files as covered, so every error it made would hide a hole. The repo
 already prefixes generated file arguments with `./` precisely to anchor the match, so the strict
 model is also the accurate one.
-
-### The allowlist
-
-Every entry needs a non-empty `reason` AND a `tracking` task — the architecture test asserts both.
-A hole is acceptable only when something owns closing it; an entry without a task is an untracked
-gap wearing a decision's clothes. A prefix matching no unreached file is reported as STALE and
-fails the check, so a closed hole cannot leave its exemption behind.

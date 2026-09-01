@@ -129,6 +129,35 @@ export const REACHABILITY_ALLOWLIST: readonly AllowlistEntry[] = [
     reason: "Same integration-tests.yml omission as engprod-ledger-suppression-verdict.",
     tracking: "mt#4884",
   },
+  // ── Permanent: deliberately not PR-gated, by design rather than by omission ──
+  {
+    prefix: "tests/integration/*.testcontainer.integration.test.ts",
+    reason:
+      "PERMANENT BY DESIGN. The `docker-suite` job runs these, and it is gated on " +
+      "`github.event_name == 'schedule' || (workflow_dispatch && inputs.run_docker_suite)` " +
+      "(mt#4347) — so it never fires on a pull_request. Spinning up testcontainer Postgres on " +
+      "every PR is the cost that gating exists to avoid. A glob rather than nine paths so a " +
+      "tenth member is covered the day it is added.",
+  },
+  {
+    prefix: "tests/integration/github-api.integration.test.ts",
+    reason:
+      "PERMANENT BY DESIGN. Runs only when `needs.check-secrets.outputs.has_github_token == " +
+      "'true'`, so it is skipped on any PR without repo secrets — including this one, where the " +
+      "job concluded `skipped`. It exercises a real GitHub repo and cannot run credential-free.",
+  },
+  {
+    prefix: "tests/integration/github-issues-backend.integration.test.ts",
+    reason:
+      "PERMANENT BY DESIGN. Same secret-gated `github-api` job as github-api.integration — " +
+      "`needs.check-secrets.outputs.has_github_token == 'true'`.",
+  },
+  {
+    prefix: "tests/integration/postgres-pool-saturation.supabase.integration.test.ts",
+    reason:
+      "PERMANENT BY DESIGN. Runs only when `needs.check-secrets.outputs.has_supabase_url == " +
+      "'true'` — it needs a real Supabase branch database, so it cannot be PR-gated.",
+  },
 ];
 
 // ── Functional core (pure — unit-tested without reading the repo) ─────────────
@@ -146,6 +175,14 @@ export interface SuiteScope {
   readonly roots: readonly string[];
   /** Repo-relative prefixes this suite skips. */
   readonly excludePrefixes: readonly string[];
+  /**
+   * True when an `if:` on this suite's job or step could not be shown to hold
+   * on a `pull_request`. Such a suite is real coverage sometimes and no
+   * coverage other times, so it never satisfies the invariant on its own.
+   */
+  readonly conditional?: boolean;
+  /** The guarding expression, for the report. */
+  readonly guard?: string;
 }
 
 export interface AllowlistProblem {
@@ -173,8 +210,24 @@ export function validateAllowlist(entries: readonly AllowlistEntry[]): Allowlist
   return problems;
 }
 
+/**
+ * The entry covering `file`, if any.
+ *
+ * Matching reuses `pathCovers`, so an allowlist prefix reads exactly like a
+ * suite root — a directory covers its descendants, an exact path covers only
+ * itself, and a `*` glob is honoured. That last one matters: the nightly
+ * testcontainer suite is a glob in the workflow, and spelling out its nine
+ * members would go stale the moment a tenth is added.
+ */
+export function matchAllowlist(
+  file: string,
+  entries: readonly AllowlistEntry[]
+): AllowlistEntry | undefined {
+  return entries.find((entry) => pathCovers(entry.prefix, file));
+}
+
 export function isAllowlisted(file: string, entries: readonly AllowlistEntry[]): boolean {
-  return entries.some((entry) => file === entry.prefix || file.startsWith(entry.prefix));
+  return matchAllowlist(file, entries) !== undefined;
 }
 
 /** Strip a leading `./` and a trailing `/` so path forms compare equal. */
@@ -222,9 +275,21 @@ export function scopeReaches(scope: SuiteScope, file: string): boolean {
   return scope.roots.some((root) => pathCovers(root, file));
 }
 
+export interface ConditionalHit {
+  readonly file: string;
+  readonly suite: string;
+  readonly guard: string;
+}
+
 export interface ReachabilityComparison {
   /** Test files reached by no PR-gating suite and not allowlisted — the violations. */
   readonly unreached: string[];
+  /**
+   * Files reached ONLY by a conditionally-guarded job. Real coverage sometimes
+   * and none other times, so these fail alongside `unreached` unless
+   * allowlisted — with the guard named, so the report says which condition.
+   */
+  readonly conditionallyReached: ConditionalHit[];
   /** Test files reached by no PR-gating suite but explicitly allowlisted. */
   readonly allowlisted: string[];
   /** Allowlist prefixes that match no unreached file — stale entries to delete. */
@@ -239,20 +304,34 @@ export function compareReachability(
   allowlist: readonly AllowlistEntry[]
 ): ReachabilityComparison {
   const unreached: string[] = [];
+  const conditionallyReached: ConditionalHit[] = [];
   const allowlisted: string[] = [];
   const reachedBy = new Map<string, string[]>();
   const usedPrefixes = new Set<string>();
 
   for (const file of testFiles) {
-    const suites = scopes.filter((scope) => scopeReaches(scope, file)).map((scope) => scope.suite);
-    if (suites.length > 0) {
-      reachedBy.set(file, suites);
+    const matching = scopes.filter((scope) => scopeReaches(scope, file));
+    const guaranteed = matching.filter((scope) => scope.conditional !== true);
+    if (guaranteed.length > 0) {
+      reachedBy.set(
+        file,
+        guaranteed.map((scope) => scope.suite)
+      );
       continue;
     }
-    const entry = allowlist.find((e) => file === e.prefix || file.startsWith(e.prefix));
+    const entry = matchAllowlist(file, allowlist);
     if (entry) {
       allowlisted.push(file);
       usedPrefixes.add(entry.prefix);
+      continue;
+    }
+    const conditional = matching[0];
+    if (conditional !== undefined) {
+      conditionallyReached.push({
+        file,
+        suite: conditional.suite,
+        guard: conditional.guard ?? "",
+      });
     } else {
       unreached.push(file);
     }
@@ -260,6 +339,7 @@ export function compareReachability(
 
   return {
     unreached,
+    conditionallyReached,
     allowlisted,
     unusedAllowlistPrefixes: allowlist
       .map((e) => e.prefix)
@@ -550,15 +630,116 @@ export function resolveCommandScopes(
   return scopes;
 }
 
-/** Every `run:` command in a workflow that triggers on `pull_request`. */
-export function extractPullRequestRunSteps(yaml: string): string[] {
+/**
+ * Whether an `if:` expression lets its job/step run on a `pull_request` event.
+ *
+ * A workflow triggering on `pull_request` is NOT the same as all of its jobs
+ * running on one — PR #3556 R1 (BLOCKING). `integration-tests.yml` gates
+ * `github-api` and `supabase` on secrets being present, and both concluded
+ * `skipped` on this PR's own CI run while the check credited their files as
+ * covered. Crediting a job that does not run is precisely the failure this
+ * whole invariant exists to catch, one level up.
+ */
+export type ConditionVerdict = "runs-on-pr" | "never-on-pr" | "conditional";
+
+export function classifyCondition(raw: string | undefined): ConditionVerdict {
+  if (raw === undefined) return "runs-on-pr";
+  const expr = raw
+    .replace(/\$\{\{|\}\}/g, "")
+    .trim()
+    .toLowerCase();
+  if (expr === "") return "runs-on-pr";
+  if (expr === "always()" || expr === "success()") return "runs-on-pr";
+
+  // `github.event_name != 'schedule'` is TRUE on a pull_request, so a job
+  // carrying it is unconditional for our purposes.
+  const notEvent = expr.match(/^github\.event_name\s*!=\s*['"]([a-z_]+)['"]$/);
+  if (notEvent?.[1] !== undefined) {
+    return notEvent[1] === "pull_request" ? "never-on-pr" : "runs-on-pr";
+  }
+
+  // An expression that requires some event and never names pull_request cannot
+  // fire on one — e.g. the nightly docker suite's
+  // `github.event_name == 'schedule' || (... 'workflow_dispatch' ...)`.
+  if (/github\.event_name\s*==/.test(expr) && !/['"]pull_request['"]/.test(expr)) {
+    return "never-on-pr";
+  }
+
+  // Anything else — a secret probe, a `needs.*` output, an input — cannot be
+  // decided statically. Fail closed: treat it as NOT guaranteed coverage.
+  return "conditional";
+}
+
+export interface WorkflowStep {
+  readonly command: string;
+  readonly verdict: ConditionVerdict;
+  /** The `if:` expression responsible, for the report. Empty when unconditional. */
+  readonly guard: string;
+}
+
+const indentOf = (line: string): number => (line.match(/^(\s*)/)?.[1] ?? "").length;
+
+/**
+ * Every `run:` command in a workflow that triggers on `pull_request`, carrying
+ * the verdict of its job-level and step-level `if:` conditions.
+ *
+ * Parsed by indentation rather than with a YAML library, deliberately: this
+ * runs as a CI step and adding a parser dependency to it is a bigger commitment
+ * than the shapes it needs to read. Job keys sit at indent 2, job-level keys
+ * (including `if:`) at 4, step items at 6, and step keys at 8 — which is enough
+ * to tell a job's `if:` from a step's without ambiguity.
+ */
+export function extractPullRequestRunSteps(yaml: string): WorkflowStep[] {
   const onBlock = yaml.split(/^jobs:/m)[0] ?? "";
   if (!/^\s{2}pull_request:/m.test(onBlock)) return [];
 
-  const commands: string[] = [];
+  const steps: WorkflowStep[] = [];
   const lines = yaml.split("\n");
+  let jobIf: string | undefined;
+  let stepIf: string | undefined;
+  let inJobs = false;
+
+  const record = (command: string): void => {
+    const jobVerdict = classifyCondition(jobIf);
+    const stepVerdict = classifyCondition(stepIf);
+    const verdict: ConditionVerdict =
+      jobVerdict === "never-on-pr" || stepVerdict === "never-on-pr"
+        ? "never-on-pr"
+        : jobVerdict === "conditional" || stepVerdict === "conditional"
+          ? "conditional"
+          : "runs-on-pr";
+    const guard = [jobIf, stepIf].filter(
+      (c) => c !== undefined && classifyCondition(c) !== "runs-on-pr"
+    );
+    steps.push({ command, verdict, guard: guard.join(" && ") });
+  };
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
+    if (/^jobs:/.test(line)) {
+      inJobs = true;
+      continue;
+    }
+    if (!inJobs) continue;
+
+    // A new job resets both conditions; a new step resets only the step's.
+    if (indentOf(line) === 2 && /^\s{2}[A-Za-z0-9_-]+:\s*$/.test(line)) {
+      jobIf = undefined;
+      stepIf = undefined;
+      continue;
+    }
+    const jobCond = line.match(/^\s{4}if:\s*(\S.*)$/);
+    if (jobCond?.[1] !== undefined) {
+      jobIf = jobCond[1];
+      continue;
+    }
+    if (/^\s{6}-\s/.test(line)) stepIf = undefined;
+    const stepCond = line.match(/^\s{8}if:\s*(\S.*)$/);
+    if (stepCond?.[1] !== undefined) {
+      stepIf = stepCond[1];
+      continue;
+    }
+
     // The negative lookahead is load-bearing: without it `run: |` matches as an
     // INLINE command whose body is the literal `|`, and the block-scalar branch
     // below never runs — silently dropping every multi-line step, which is
@@ -567,21 +748,21 @@ export function extractPullRequestRunSteps(yaml: string): string[] {
     // `- name: X` / `  run: cmd` across two lines, and `- run: cmd` on one.
     const inline = line.match(/^\s*(?:-\s+)?run:\s*(?![|>])(\S.*)$/);
     if (inline?.[1] !== undefined) {
-      commands.push(inline[1]);
+      record(inline[1]);
       continue;
     }
     if (!/^\s*(?:-\s+)?run:\s*[|>]-?\s*$/.test(line)) continue;
-    const indent = (lines[i + 1]?.match(/^(\s*)/)?.[1] ?? "").length;
+    const indent = indentOf(lines[i + 1] ?? "");
     if (indent === 0) continue;
     const block: string[] = [];
     for (let j = i + 1; j < lines.length; j++) {
       const next = lines[j] ?? "";
-      if (next.trim() !== "" && (next.match(/^(\s*)/)?.[1] ?? "").length < indent) break;
+      if (next.trim() !== "" && indentOf(next) < indent) break;
       block.push(next.trim());
     }
-    commands.push(block.join("\n"));
+    record(block.join("\n"));
   }
-  return commands;
+  return steps;
 }
 
 export function buildPullRequestScopes(workflowDir: string): SuiteScope[] {
@@ -589,8 +770,15 @@ export function buildPullRequestScopes(workflowDir: string): SuiteScope[] {
   for (const file of readdirSync(workflowDir).sort()) {
     if (!file.endsWith(".yml") && !file.endsWith(".yaml")) continue;
     const yaml = readText(join(workflowDir, file));
-    for (const command of extractPullRequestRunSteps(yaml)) {
-      scopes.push(...resolveCommandScopes(command, file));
+    for (const step of extractPullRequestRunSteps(yaml)) {
+      // A job that provably never runs on a PR contributes nothing at all; a
+      // job whose condition cannot be decided statically contributes a
+      // CONDITIONAL scope, which never satisfies the invariant on its own.
+      if (step.verdict === "never-on-pr") continue;
+      const conditional = step.verdict === "conditional";
+      for (const scope of resolveCommandScopes(step.command, file)) {
+        scopes.push(conditional ? { ...scope, conditional, guard: step.guard } : scope);
+      }
     }
   }
   return scopes;
@@ -643,9 +831,15 @@ function main(): never {
     console.log(
       JSON.stringify(
         {
-          suites: scopes.map((s) => ({ suite: s.suite, roots: s.roots })),
+          suites: scopes.map((s) => ({
+            suite: s.suite,
+            roots: s.roots,
+            conditional: s.conditional === true,
+            guard: s.guard ?? "",
+          })),
           checked: files.length,
           unreached: result.unreached,
+          conditionallyReached: result.conditionallyReached,
           allowlisted: result.allowlisted,
           unusedAllowlistPrefixes: result.unusedAllowlistPrefixes,
         },
@@ -654,8 +848,14 @@ function main(): never {
       )
     );
   } else {
-    console.log(`Suites gating a PR: ${scopes.length}`);
-    for (const scope of scopes) console.log(`  ${scope.suite}`);
+    const unconditional = scopes.filter((s) => s.conditional !== true);
+    console.log(`Suites gating a PR: ${unconditional.length} unconditional`);
+    for (const scope of unconditional) console.log(`  ${scope.suite}`);
+    const guarded = scopes.filter((s) => s.conditional === true);
+    if (guarded.length > 0) {
+      console.log(`\nConditionally-guarded suites (NOT counted as coverage): ${guarded.length}`);
+      for (const scope of guarded) console.log(`  ${scope.suite}  [if: ${scope.guard}]`);
+    }
     console.log(`\nTracked test files: ${files.length}`);
     console.log(`Reached: ${result.reachedBy.size}`);
     console.log(`Allowlisted (known holes): ${result.allowlisted.length}`);
@@ -668,6 +868,17 @@ function main(): never {
           "Either bring it into a suite, or add an allowlist entry recording WHY it is not run."
       );
     }
+    if (result.conditionallyReached.length > 0) {
+      console.error(`\nREACHED ONLY BY A CONDITIONAL JOB (${result.conditionallyReached.length}):`);
+      for (const hit of result.conditionallyReached) {
+        console.error(`  ${hit.file}\n    only ${hit.suite}, guarded by: ${hit.guard}`);
+      }
+      console.error(
+        "\nEach file above runs only when its job's condition happens to hold, so nothing\n" +
+          "guarantees it ran on this PR. Bring it into an unconditional suite, or allowlist it\n" +
+          "naming the guard."
+      );
+    }
     if (result.unusedAllowlistPrefixes.length > 0) {
       console.error(`\nSTALE ALLOWLIST ENTRIES (${result.unusedAllowlistPrefixes.length}):`);
       for (const prefix of result.unusedAllowlistPrefixes) console.error(`  ${prefix}`);
@@ -675,7 +886,10 @@ function main(): never {
     }
   }
 
-  const failed = result.unreached.length > 0 || result.unusedAllowlistPrefixes.length > 0;
+  const failed =
+    result.unreached.length > 0 ||
+    result.conditionallyReached.length > 0 ||
+    result.unusedAllowlistPrefixes.length > 0;
   process.exit(failed ? 1 : 0);
 }
 
