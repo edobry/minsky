@@ -1004,9 +1004,46 @@ export async function run(
   const finalMessage = input.last_assistant_message ?? "";
   if (finalMessage.length === 0) return null;
 
-  // The cheap gate. No IO past this point unless it hits.
-  const claims = findPendingClaims(finalMessage);
-  if (claims.length === 0) return null;
+  // The cheap gate. Rung 1 is pure string work and stays first — a turn with a
+  // recognised phrase never pays for the semantic stage.
+  let claims = findPendingClaims(finalMessage);
+  let rung: 1 | 2 = 1;
+  let nominationScores: { family: string; score: number }[] = [];
+  let rung2Degraded: string | undefined;
+
+  if (claims.length === 0) {
+    // Rung 2. Only reached when Rung 1 recognised nothing; itself gated on a
+    // ref being present, so a turn naming no entity still does zero IO.
+    const nominated = await nominatePendingClaims(finalMessage);
+    claims = nominated.claims;
+    nominationScores = nominated.scores;
+    rung2Degraded = nominated.degradedReason;
+    rung = 2;
+
+    if (claims.length === 0) {
+      // A degradation is worth recording — a stage that silently never runs is
+      // indistinguishable from one that runs and finds nothing, which is the
+      // exact confusion this guard exists to catch. A clean no-nomination is
+      // not worth a record.
+      if (rung2Degraded === undefined) return null;
+      return {
+        calibration: {
+          source: "live",
+          channel: "stop",
+          timestamp: new Date().toISOString(),
+          session_id: input.session_id,
+          stop_hook_active: input.stop_hook_active === true,
+          fired: false,
+          rung: 2,
+          claims: [],
+          contradicted: [],
+          resolvedCount: 0,
+          final_message_tail: safeTruncate(finalMessage, CALIBRATION_TAIL_CHARS, "tail"),
+          suppressionReasons: [rung2Degraded],
+        },
+      };
+    }
+  }
 
   const sessionId = input.session_id ?? "unknown";
   // Dedup on the claimed refs, not the turn: an advisory continuation re-enters
@@ -1020,6 +1057,60 @@ export async function run(
   if (flagged.has(key)) return null;
   flagged.add(key);
   writeFlagged(sessionId, flagged, storeDir);
+
+  // Rung 2's families answer to DIFFERENT substrates than terminality, so they
+  // never reach `lookupLiveStates`. Routing by family is what makes this a
+  // widening rather than a reinterpretation of the existing check: a Rung-1
+  // claim takes exactly the path it always took.
+  if (rung === 2) {
+    const peer = await findPeerHeldClaims(claims, input.cwd);
+    const turnLines = readTurnLines(input.transcript_path);
+    const unbacked = turnLines === null ? [] : findUnbackedClaims(claims, turnLines);
+
+    const suppressionReasons: string[] = [];
+    if (rung2Degraded !== undefined) suppressionReasons.push(rung2Degraded);
+    if (peer.degradedReason !== undefined) suppressionReasons.push(peer.degradedReason);
+    if (turnLines === null && claims.some((c) => c.assertion.family === "past-tense-claim")) {
+      suppressionReasons.push("transcript-unreadable: past-tense claims not checked");
+    }
+    if (peer.held.length === 0 && unbacked.length === 0 && suppressionReasons.length === 0) {
+      suppressionReasons.push("nominated-but-substrate-agrees");
+    }
+
+    return {
+      calibration: {
+        source: "live",
+        channel: "stop",
+        timestamp: new Date().toISOString(),
+        session_id: input.session_id,
+        stop_hook_active: input.stop_hook_active === true,
+        fired: peer.held.length > 0 || unbacked.length > 0,
+        rung: 2,
+        nominationScores,
+        claims: claims.map((c) => ({
+          ref: c.entity.ref,
+          kind: c.entity.kind,
+          assertionFamily: c.assertion.family,
+          assertionPhrase: c.assertion.phrase,
+        })),
+        contradicted: [
+          ...peer.held.map((r) => ({
+            ref: r.entity.ref,
+            assertedPending: r.assertion.phrase,
+            liveState: "peer-activity-on-ledger",
+          })),
+          ...unbacked.map((r) => ({
+            ref: r.entity.ref,
+            assertedPending: r.assertion.phrase,
+            liveState: "no-tool-call-carried-this-ref",
+          })),
+        ],
+        resolvedCount: claims.length,
+        final_message_tail: safeTruncate(finalMessage, CALIBRATION_TAIL_CHARS, "tail"),
+        suppressionReasons,
+      },
+    };
+  }
 
   const lookup = await lookupLiveStates(claims);
   // mt#4375: two independent contradiction signals — the state column, and the
@@ -1045,6 +1136,10 @@ export async function run(
       session_id: input.session_id,
       stop_hook_active: input.stop_hook_active === true,
       fired: contradicted.length > 0,
+      // Tagged so the calibration stream keeps the rungs separable. Rung 1 and
+      // Rung 2 have different precision profiles by construction, and pooling
+      // their false-positive rates would make either one unreadable.
+      rung: 1,
       claims: claims.map((c) => ({
         ref: c.entity.ref,
         kind: c.entity.kind,
