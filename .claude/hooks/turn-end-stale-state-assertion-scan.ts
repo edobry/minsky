@@ -71,6 +71,12 @@ import {
   type ExemplarSet,
 } from "../../packages/domain/src/detectors/embedding-nomination";
 import { resolveNominationDeps } from "../../packages/domain/src/detectors/embedding-nomination-factory";
+import {
+  callerSessionIdFromCwd,
+  decidePeerActivity,
+  readTaskEvents,
+} from "./warn-peer-task-activity";
+import { extractFinalTurn, parseTranscript, type TranscriptLine } from "./transcript";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_STALE_STATE_ASSERTION_SCAN";
 
@@ -558,6 +564,172 @@ export async function nominatePendingClaims(
     claims,
     scores: result.nominations.map((n) => ({ family: n.family, score: n.score })),
   };
+}
+
+// ---------------------------------------------------------------------------
+// State check for `recommend-start`: peer activity, not terminality (mt#4580)
+// ---------------------------------------------------------------------------
+
+/** A recommendation whose target the ledger shows someone else already holds. */
+export interface PeerHeldClaim extends PendingClaim {
+  /** The advisory text `decidePeerActivity` produced, carried for the record. */
+  peerEvidence: string;
+}
+
+export interface PeerCheckOutcome {
+  held: PeerHeldClaim[];
+  /** Set when the ledger read could not run. Never conflated with "no peer". */
+  degradedReason?: string;
+}
+
+/**
+ * Does the ledger show another actor on a task this message recommends STARTING?
+ *
+ * The terminality check mt#4199 ships cannot answer this: a task actively being
+ * worked is NOT terminal, so it passes that test cleanly while being exactly the
+ * thing the principal must not be sent to pick up.
+ *
+ * Reuses `decidePeerActivity` and `readTaskEvents` from the PreToolUse sibling
+ * rather than reimplementing them. That guard already fires on this signal — it
+ * simply cannot see a prose recommendation, because a recommendation is not a
+ * tool call. Two mechanisms existed; neither was wired to this junction.
+ *
+ * A failed read is `degradedReason`, never an empty `held`. "The ledger says no
+ * peer" and "I could not read the ledger" must not collapse into one value: the
+ * whole failure class this guard exists for is a negative that was never
+ * actually checked.
+ */
+export async function findPeerHeldClaims(
+  claims: PendingClaim[],
+  cwd: string | undefined,
+  deps?: { read: typeof readTaskEvents; decide: typeof decidePeerActivity }
+): Promise<PeerCheckOutcome> {
+  const read = deps?.read ?? readTaskEvents;
+  const decide = deps?.decide ?? decidePeerActivity;
+
+  // Only task refs, only the family whose defect is staleness. An ask cannot be
+  // "started by a peer session", so a recommendation naming one is out of scope.
+  const targets = claims.filter(
+    (c) => c.assertion.family === "recommend-start" && c.entity.kind === "task"
+  );
+  if (targets.length === 0) return { held: [] };
+
+  const callerSessionId = callerSessionIdFromCwd(cwd);
+  const held: PeerHeldClaim[] = [];
+  const failures: string[] = [];
+  const seen = new Set<string>();
+
+  for (const claim of targets) {
+    if (seen.has(claim.entity.id)) continue;
+    seen.add(claim.entity.id);
+
+    let events: Awaited<ReturnType<typeof readTaskEvents>>;
+    try {
+      events = await read(claim.entity.id);
+    } catch (err) {
+      failures.push(`${claim.entity.ref}: ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
+    if (events === null) {
+      failures.push(`${claim.entity.ref}: ledger read unavailable`);
+      continue;
+    }
+
+    const decision = decide(claim.entity.id, events, Date.now(), callerSessionId);
+    if (decision.fired && decision.message) {
+      held.push({ ...claim, peerEvidence: decision.message });
+    }
+  }
+
+  return {
+    held,
+    ...(failures.length > 0 ? { degradedReason: `peer-read-failed: ${failures.join("; ")}` } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// State check for `past-tense-claim`: the turn's own tool calls (mt#4580)
+// ---------------------------------------------------------------------------
+
+/**
+ * Every tool input in the turn, flattened to searchable text.
+ *
+ * Pure and value-in: the caller reads the transcript, this decides. Keeping the
+ * IO out is what lets the rule be tested without patching a collaborator the
+ * function reaches itself (`testing-standards.mdc §Testable Design`).
+ */
+export function toolInputHaystack(turnLines: TranscriptLine[]): string {
+  const parts: string[] = [];
+  for (const line of turnLines) {
+    if (line.type !== "tool_use") continue;
+    const input = (line as { input?: unknown }).input;
+    if (input === undefined || input === null) continue;
+    try {
+      parts.push(typeof input === "string" ? input : JSON.stringify(input));
+    } catch {
+      // intentional-swallow: a non-serialisable input contributes no searchable
+      // text. Dropping it can only make the check MORE conservative — the claim
+      // is reported unbacked — which is the safe direction for an advisory.
+    }
+  }
+  return parts.join("\n");
+}
+
+/**
+ * Which past-tense completion claims name an entity this turn never touched?
+ *
+ * The discriminator is positional and structural, borrowed verbatim from the
+ * sibling `turn-end-untaken-action-scan`'s own docblock: *"anything appearing in
+ * `last_assistant_message` had NO tool call after it by construction."* That
+ * sibling keys on the opposite TENSE — a commitment to act NEXT — so a claim
+ * that the work is ALREADY done escapes it entirely. Only the corpus differs;
+ * the reasoning transfers unchanged.
+ *
+ * A false completion claim is strictly worse than an unmet commitment: it
+ * asserts the work is done, so nothing downstream goes looking for it. R20 is
+ * the recorded case — "I've recorded this correction on the task", in a turn
+ * with zero tool calls; the write landed a turn later.
+ *
+ * Conservative by construction: a claim counts as BACKED whenever the entity id
+ * appears anywhere in any tool input this turn. That over-accepts (mentioning
+ * `mt#N` in an unrelated call clears it) and under-fires, which is the right
+ * direction for a record-only stage whose false positives cost operator trust.
+ */
+export function findUnbackedClaims(
+  claims: PendingClaim[],
+  turnLines: TranscriptLine[]
+): PendingClaim[] {
+  const targets = claims.filter((c) => c.assertion.family === "past-tense-claim");
+  if (targets.length === 0) return [];
+
+  const haystack = toolInputHaystack(turnLines);
+  const out: PendingClaim[] = [];
+  const seen = new Set<string>();
+  for (const claim of targets) {
+    const dedupe = `${claim.entity.kind}:${claim.entity.id}`;
+    if (seen.has(dedupe)) continue;
+    seen.add(dedupe);
+    if (!haystack.includes(claim.entity.id)) out.push(claim);
+  }
+  return out;
+}
+
+/**
+ * Read the turn's tool calls, or null when the transcript is unreadable.
+ *
+ * Null is NOT an empty turn: an unreadable transcript would make every claim
+ * look unbacked, which is precisely the false-positive class that erodes trust
+ * in an advisory. The caller reports it as degraded instead.
+ */
+export function readTurnLines(transcriptPath: string | undefined): TranscriptLine[] | null {
+  if (!transcriptPath) return null;
+  try {
+    return extractFinalTurn(parseTranscript(transcriptPath)).turnLines;
+  } catch {
+    // intentional-swallow: an unreadable transcript is a degraded check, not a
+    // guard failure. The caller distinguishes it from "no tool calls".
+    return null;
+  }
 }
 
 /** What the substrate returned for one ref, plus the key that identifies the ENTITY. */

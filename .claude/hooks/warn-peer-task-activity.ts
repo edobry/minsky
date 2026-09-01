@@ -248,7 +248,23 @@ export function decidePeerActivity(
 }
 
 /** Read this task's event rows. Returns null on any failure (fail open). */
-async function readTaskEvents(taskId: string): Promise<TaskEventRow[] | null> {
+/**
+ * Read a task's event ledger. Returns null when the read could not run.
+ *
+ * EXPORTED for `turn-end-stale-state-assertion-scan.ts` (mt#4580), which needs
+ * the same rows at a different interception point: this guard is PreToolUse on
+ * `tasks_status_set`, so it sees a tool call and never a prose recommendation.
+ * A closing message that tells the principal to START a task another session
+ * already holds is exactly this signal, arriving through a channel this guard
+ * cannot observe. Sharing the read — and `decidePeerActivity` beside it — keeps
+ * one attribution rule with one place to fix it, which matters because
+ * attribution here is deliberately partial (mt#4440) and must stay partial in
+ * the same way on both surfaces.
+ *
+ * This is an additive export: nothing about this guard's own PreToolUse
+ * behaviour changes.
+ */
+export async function readTaskEvents(taskId: string): Promise<TaskEventRow[] | null> {
   const bootstrap = await ensureHookDomainBootstrap();
   if (!bootstrap.ok) return null;
 
