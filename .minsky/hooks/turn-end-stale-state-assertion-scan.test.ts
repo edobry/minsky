@@ -429,6 +429,10 @@ const FAMILY_PAST_TENSE = "past-tense-claim";
 const FAMILY_RECOMMEND_START = "recommend-start";
 /** A tool whose input carries a taskId — the "backed" case's stand-in. */
 const TOOL_SPEC_PATCH = "tasks_spec_patch";
+/** A tail carrying a ref, used to drive the Rung-2 stage in tests. */
+const TAIL_WITH_REF = "Next up is mt#4556.";
+/** Guard body for a dep that must never be invoked in a given test. */
+const UNREACHABLE = "must not be reached";
 
 const R19_RECOMMEND_START = [
   "### Recommended next steps",
@@ -501,7 +505,7 @@ describe("mt#4580 — cost discipline: no ref means no IO", () => {
   });
 
   test("an unavailable embedding provider degrades rather than firing", async () => {
-    const out = await nominatePendingClaims("Next up is mt#4556.", {
+    const out = await nominatePendingClaims(TAIL_WITH_REF, {
       resolve: async () => null,
       run: async () => {
         throw new Error("must not run without deps");
@@ -644,10 +648,10 @@ describe("mt#4580 PR #3544 R1 — the three review findings", () => {
     // The finding: nominate's own timeoutMs covers the embedding call only, and
     // resolveNominationDeps converts a THROW to null but not a HANG. A resolve
     // that never settles would stall the Stop hook.
-    const out = await nominatePendingClaims("Next up is mt#4556.", {
+    const out = await nominatePendingClaims(TAIL_WITH_REF, {
       resolve: () => new Promise(() => {}), // never settles
       run: async () => {
-        throw new Error("must not be reached");
+        throw new Error(UNREACHABLE);
       },
     });
     expect(out.degradedReason).toBe("nomination-deps-timeout");
@@ -656,6 +660,35 @@ describe("mt#4580 PR #3544 R1 — the three review findings", () => {
     // the deadline branch, and the test would hang rather than fail if the
     // deadline were absent. A wall-clock check adds nothing and is flaky.
   }, 15000);
+
+  test("R2: a SYNCHRONOUS throw from resolve degrades rather than escaping", async () => {
+    // The sync throw happens at the call site, outside the race — so without
+    // deferring it and catching, it bypasses the deadline and bubbles out of
+    // the Stop hook entirely.
+    const out = await nominatePendingClaims(TAIL_WITH_REF, {
+      resolve: (() => {
+        throw new Error("sync boom");
+      }) as unknown as NonNullable<Parameters<typeof nominatePendingClaims>[1]>["resolve"],
+      run: async () => {
+        throw new Error(UNREACHABLE);
+      },
+    });
+    expect(out.claims).toEqual([]);
+    expect(out.degradedReason).toContain("nomination-deps-threw");
+    expect(out.degradedReason).toContain("sync boom");
+  });
+
+  test("R2 control: an ASYNC rejection degrades the same way", async () => {
+    const out = await nominatePendingClaims(TAIL_WITH_REF, {
+      resolve: async () => {
+        throw new Error("async boom");
+      },
+      run: async () => {
+        throw new Error(UNREACHABLE);
+      },
+    });
+    expect(out.degradedReason).toContain("nomination-deps-threw");
+  });
 
   test("NON-BLOCKING: an id is not backed by a LONGER id that contains it", () => {
     // mt#455 is a prefix of mt#4555. A bare substring check clears the claim,

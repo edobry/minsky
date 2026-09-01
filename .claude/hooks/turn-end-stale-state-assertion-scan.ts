@@ -566,7 +566,27 @@ export async function nominatePendingClaims(
   const resolve = deps?.resolve ?? resolveNominationDeps;
   const run = deps?.run ?? nominate;
 
-  const nominationDeps = await withDeadline(resolve(), DEPS_RESOLVE_TIMEOUT_MS);
+  // `Promise.resolve().then(resolve)` rather than `resolve()` directly, and a
+  // catch around both: a SYNCHRONOUS throw from `resolve` happens at the call
+  // site, outside the race, so it would bypass the deadline and bubble out of
+  // the Stop hook (PR #3544 R2). The shipped `resolveNominationDeps` has its own
+  // try/catch and will not do this — but the parameter is injectable, the type
+  // does not forbid it, and this whole stage exists to degrade rather than
+  // crash. Same class as R1's unbounded-resolve finding, fixed alongside it
+  // rather than left as its sibling.
+  let nominationDeps: Awaited<ReturnType<typeof resolveNominationDeps>> | typeof RESOLVE_TIMED_OUT;
+  try {
+    nominationDeps = await withDeadline(
+      Promise.resolve().then(() => resolve()),
+      DEPS_RESOLVE_TIMEOUT_MS
+    );
+  } catch (err) {
+    return {
+      claims: [],
+      degradedReason: `nomination-deps-threw: ${err instanceof Error ? err.message : String(err)}`,
+      scores: [],
+    };
+  }
   if (nominationDeps === RESOLVE_TIMED_OUT) {
     // Distinct from `unavailable`: nothing is misconfigured, the resolve simply
     // did not return. Kept separate so the calibration stream can tell a
