@@ -55,8 +55,11 @@
  *
  * @see mt#4743 — this trigger's originating task
  * @see mt#4765 — why this stays off the write path
- * @see mt#4454 — the quotation prefilter this should consume when it exists
+ * @see mt#4454 — the quotation prefilter, hoisted to `../text/prose-elision`
+ * @see mt#4785 — wired it in here; the "when it exists" above is discharged
  */
+
+import { elideQuotedAndMarkdown } from "../text/prose-elision";
 
 /** The task statuses a memory can assert, exactly as the task record spells them. */
 const ASSERTABLE_STATUSES = [
@@ -115,7 +118,18 @@ export function extractTaskStateAssertions(record: {
   description?: string | null;
   content: string;
 }): TaskStateAssertion[] {
-  const haystack = `${record.description ?? ""}\n${record.content}`;
+  // ADR-024 Rung 1 (mt#4785): match on the RESIDUAL. A record that QUOTES someone else's
+  // `mt#N (STATUS)` claim — a superseded version of its own text, a guard's output, another
+  // spec's stale assertion — is not ASSERTING that status, and flagging it as drifted is
+  // backwards: the clearest instances are records written specifically to CORRECT a stale
+  // claim, which then get flagged for containing the claim they corrected.
+  //
+  // Naive composition is right here, unlike trigger 2's: PARENTHETICAL_STATUS is not
+  // backtick-dependent, so elision removes a claim only when the claim itself is quoted.
+  // Measured over the live corpus (1343 records, 2026-09-01): 197 records carry an assertion,
+  // 4 lose one, and all 4 are genuine false positives — see the module's test file for the
+  // verbatim fixtures. No record loses a genuine assertion.
+  const haystack = elideQuotedAndMarkdown(`${record.description ?? ""}\n${record.content}`);
   const seen = new Set<string>();
   const assertions: TaskStateAssertion[] = [];
 

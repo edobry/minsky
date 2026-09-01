@@ -54,6 +54,22 @@ interface Summary {
       interveningTasks: string[];
     }[];
   };
+  /**
+   * Trigger 3 (mt#4743), added by mt#4785.
+   *
+   * It was measurable by nothing until now: this script imported trigger 2's extractor and
+   * never trigger 3's, so trigger 3's rate was unreported and mt#4785's own first success
+   * criterion could not be evaluated. Reported separately for the same reason triggers 1 and 2
+   * are — independent detectors with independent precision profiles, and one combined number
+   * would hide which is noisy.
+   */
+  taskState: {
+    carryAssertion: number;
+    drifted: number;
+    fires: number;
+    fireRatePercent: number;
+    records: { shortId?: string; name: string; drifted: string[] }[];
+  };
 }
 
 async function main(): Promise<number> {
@@ -101,6 +117,9 @@ async function main(): Promise<number> {
     createInterveningTaskLookup,
     extractMeasurement,
     computeMeasurementDecay,
+    extractTaskStateAssertions,
+    assertedTaskIds,
+    computeTaskStateDrift,
   } = await import("@minsky/domain/memory");
   const { memoriesTable } = await import("@minsky/domain/storage/schemas/memory-embeddings");
 
@@ -138,6 +157,7 @@ async function main(): Promise<number> {
       fireRatePercent: 0,
       records: [],
     },
+    taskState: { carryAssertion: 0, drifted: 0, fires: 0, fireRatePercent: 0, records: [] },
   };
 
   for (const { row, extracted } of perRecord) {
@@ -205,6 +225,50 @@ async function main(): Promise<number> {
   summary.measurement.fireRatePercent =
     rows.length === 0 ? 0 : Math.round((summary.measurement.fires / rows.length) * 10000) / 100;
 
+  // ── Trigger 3: task-state assertions (mt#4743) ────────────────────────────
+  // Added by mt#4785. Reuses `lookup` — the SAME batched status lookup trigger 1 already
+  // built above — rather than issuing its own: trigger 3's refs union into trigger 1's, which
+  // is the property mt#4743 shipped so the third trigger costs no extra query.
+  const assertionsPerRecord = perRecord.map(({ row }) => ({
+    row,
+    assertions: extractTaskStateAssertions({
+      content: String(row["content"] ?? ""),
+      description: String(row["description"] ?? ""),
+    }),
+  }));
+  const assertedIds = [
+    ...new Set(assertionsPerRecord.flatMap((p) => assertedTaskIds(p.assertions))),
+  ];
+  const assertedStatuses =
+    assertedIds.length > 0 ? await lookup(assertedIds) : new Map<string, string>();
+
+  for (const { row, assertions } of assertionsPerRecord) {
+    if (assertions.length === 0) continue;
+    summary.taskState.carryAssertion++;
+
+    const drift = computeTaskStateDrift(assertions, assertedStatuses);
+    if (!drift) continue;
+    summary.taskState.drifted++;
+
+    // FIRES means a reader actually sees a note. Per `combineTaskStateDrift`, non-promoting
+    // drift is recorded and renders nothing, so counting `drifted` alone would overstate what
+    // reaches anyone — the same silent/loud split trigger 1 reports for `unresolved`.
+    if (drift.drifted.some((d) => d.nowTerminal)) {
+      summary.taskState.fires++;
+      if (summary.taskState.records.length < 40) {
+        summary.taskState.records.push({
+          shortId: row["shortId"] ? String(row["shortId"]) : undefined,
+          name: String(row["name"] ?? ""),
+          drifted: drift.drifted.map(
+            (d) => `${d.taskId} says ${d.assertedStatus}, is ${d.currentStatus}`
+          ),
+        });
+      }
+    }
+  }
+  summary.taskState.fireRatePercent =
+    rows.length === 0 ? 0 : Math.round((summary.taskState.fires / rows.length) * 10000) / 100;
+
   if (asJson) {
     console.log(JSON.stringify(summary, null, 2));
     return 0;
@@ -225,6 +289,13 @@ async function main(): Promise<number> {
   console.log(`  -> decayed (FIRES):          ${m.fires}`);
   console.log(`     of which handoff_*:       ${m.handoffFires} (${handoffShare}%)`);
   console.log(`Fire rate over whole corpus:   ${m.fireRatePercent}%`);
+
+  const ts = summary.taskState;
+  console.log("\n--- trigger 3: task-state assertions (mt#4743) ---");
+  console.log(`Carry a status assertion:      ${ts.carryAssertion}`);
+  console.log(`  -> drifted (any):            ${ts.drifted}`);
+  console.log(`  -> FIRES (drifted+terminal): ${ts.fires}`);
+  console.log(`Fire rate over whole corpus:   ${ts.fireRatePercent}%`);
 
   if (verbose) {
     console.log("\n--- firing records ---");
