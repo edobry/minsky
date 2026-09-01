@@ -630,7 +630,15 @@ const NEGATED_ASSERTION_RE =
  * section and 6 carry an `SC<N>` heading. Keying on the section would have shipped a check with a
  * 5% ceiling and no way to notice it — mem#704's can't-fail probe.
  *
- * Fenced blocks are elided first: a pasted run log or a quoted body is not this PR's own claim.
+ * Fenced blocks AND blockquote lines are elided first: a pasted run log, or a quotation of the
+ * offending line, is not this PR's own claim.
+ *
+ * **The blockquote half is not hypothetical — this check's own PR was the first instance.** That
+ * body quotes mt#4804's SC3 line to explain what is being detected, as `> **SC3** — met by
+ * construction, confirmed post-merge…`. With fenced-only elision the detector fires on the PR
+ * that introduces it, which is the same "unmatchable by construction" noise mem#719 records:
+ * output nobody can act on erodes trust in the output that is right. The sibling detector's
+ * `elideBlocksAndQuotes` already treats blockquote LINES this way, for the same reason.
  */
 export function findAssertDeferConjunctions(prBody: string): AssertDeferFinding[] {
   const withoutFences = prBody.replace(
@@ -640,6 +648,9 @@ export function findAssertDeferConjunctions(prBody: string): AssertDeferFinding[
 
   const findings: AssertDeferFinding[] = [];
   for (const rawLine of withoutFences.split(/\n/)) {
+    // A blockquote line is someone else's text being discussed, never this body's own assertion.
+    if (/^\s{0,3}>/.test(rawLine)) continue;
+
     const line = rawLine.replace(/\s+/g, " ").trim();
     if (line.length === 0) continue;
 

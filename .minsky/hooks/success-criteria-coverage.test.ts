@@ -722,6 +722,19 @@ describe("mt#4829 — assert-met-while-deferring-evidence", () => {
     expect(findAssertDeferConjunctions(body)).toEqual([]);
   });
 
+  test("a BLOCKQUOTED line is elided — this check's own PR was the first instance", () => {
+    // Verbatim shape from THIS check's PR body, which quotes the offending line to explain what
+    // is being detected. With fenced-only elision the detector fired on the PR introducing it.
+    const body = [
+      "mt#4804's PR body carried this, and it merged:",
+      "",
+      `> **SC3** — met by construction, confirmed post-merge. Registering **is** the backfill: …`,
+      "",
+      "The two halves contradict.",
+    ].join("\n");
+    expect(findAssertDeferConjunctions(body)).toEqual([]);
+  });
+
   test("a line with no criterion reference is out of scope", () => {
     expect(
       findAssertDeferConjunctions("The migration is met by construction, confirmed post-merge.")
