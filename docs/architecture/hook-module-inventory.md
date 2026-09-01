@@ -61,8 +61,8 @@ larger than a subtraction from 60 suggests.
 | -------------- | ------- |
 | already-domain | 13      |
 | movable        | 89      |
-| immovable      | 83      |
-| **total**      | **185** |
+| immovable      | 84      |
+| **total**      | **186** |
 
 Of the 89 movable, **18** land in ADR-026 tier 1 (they reach persistence, so the
 `ensureHookDomainBootstrap` requirement attaches); the other 71 are tier 2 —
@@ -73,7 +73,7 @@ Immovable splits by reason class:
 
 | Reason class                    | Count |
 | ------------------------------- | ----- |
-| no-decision: library            | 43    |
+| no-decision: library            | 44    |
 | no-decision: store              | 11    |
 | host-lifecycle                  | 10    |
 | no-decision: registry           | 10    |
@@ -259,7 +259,7 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `warn-stale-forward-reference.ts`          | standalone-hook  | findForwardReferences, decideStaleForwardReference                | side-effecting (injector+recorder)            | plant | advisory   |
 | `warn-unwired-task-relationship.ts`        | dispatcher-guard | findRelationshipAssertions, isDischarged                          | side-effecting (recorder)                     | plant | advisory   |
 
-## immovable (83)
+## immovable (84)
 
 | Module                                    | Role                | Reason                                                                                                                                                                                                                                                                                             | Effects                                       | Plane   |
 | ----------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ------- |
@@ -314,6 +314,7 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `merge-gate-fire-log.ts`                  | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `merge-gate-task-resolution.ts`           | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | side-effecting (derived: writes fs / spawns)  | plant   |
 | `merge-grant-store.ts`                    | store               | no decision to lift — local state store; its content is an effect, not a verdict.                                                                                                                                                                                                                  | side-effecting (derived: writes fs / spawns)  | plant   |
+| `operator-deferral-fixtures.ts`           | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `output-label-tokens.ts`                  | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `parallel-work-guard-overrides.ts`        | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `parallel-work-guard-standalone.ts`       | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |

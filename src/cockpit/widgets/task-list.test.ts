@@ -257,3 +257,42 @@ describe("createTaskListWidget — project-scope wiring (mt#2418)", () => {
   // repo's own custom/no-global-module-mocks ESLint rule), in
   // src/cockpit/project-scope.test.ts.
 });
+
+describe("createTaskListWidget — terminal statuses on demand (mt#4774)", () => {
+  function captureOptions(query?: Record<string, string>) {
+    let captured: TaskListOptions | undefined;
+    const deps: TaskListDeps = {
+      taskService: makeCapturingTaskService([TASK], (o) => {
+        captured = o;
+      }),
+    };
+    const widget = createTaskListWidget(async () => deps);
+    return widget.fetch({ id: "task-list", ...(query ? { query } : {}) }).then(() => captured);
+  }
+
+  test("omits `all` by default — the active-work payload the 10s poll carries", async () => {
+    const captured = await captureOptions();
+    // Not `false`: absent, so `shouldIncludeTaskStatus` takes its
+    // hidden-by-default branch exactly as before this change.
+    expect(captured?.all).toBeUndefined();
+  });
+
+  test("passes all: true when the page asks for terminal statuses", async () => {
+    const captured = await captureOptions({ includeTerminal: "true" });
+    expect(captured?.all).toBe(true);
+  });
+
+  test("keeps the project scope while including terminal statuses", async () => {
+    // The two options are independent — asking for DONE tasks must not widen
+    // the project filter.
+    const captured = await captureOptions({ includeTerminal: "true" });
+    expect(captured?.projectScope).toBeDefined();
+  });
+
+  test("only the literal string 'true' opts in — a stray value does not widen the payload", async () => {
+    for (const value of ["", "false", "1", "yes", "TRUE"]) {
+      const captured = await captureOptions({ includeTerminal: value });
+      expect(captured?.all).toBeUndefined();
+    }
+  });
+});

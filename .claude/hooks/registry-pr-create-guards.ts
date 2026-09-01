@@ -368,4 +368,58 @@ export const PR_CREATE_GUARDS: GuardRegistration[] = [
       expects: "calibration",
     },
   },
+  {
+    // mt#4769 — the REACH half of the operator-deferral family, PR-body half.
+    //
+    // Surfaces A and B of that detector evaluate chat prose and an
+    // `AskUserQuestion` call; neither reads an artifact body. So a deferral
+    // authored into a PR body — the surface `user-preferences.mdc §Probe before
+    // deferring` names FIRST — matched nothing and left no record at all.
+    // Measured during the originating incident (mt#4695 / PR #3483): the
+    // detector RAN on the chat turns and correctly found nothing, because the
+    // deferral was in the PR body.
+    //
+    // **Why this lives here and not with its two siblings in
+    // `registry-delegation-guards.ts`.** `registry.test.ts`'s "PreToolUse
+    // families share no matcher token" invariant is what licenses arranging
+    // families freely; `session_pr_create` / `session_pr_edit` are THIS family's
+    // tokens. One registration spanning this family's tokens and
+    // `task-create`'s would have made cross-family order load-bearing. Hence a
+    // second, identical registration there for `tasks_spec_patch` — same module,
+    // same function, filed under whichever family owns the token.
+    name: "operator-deferral-artifact-surface-pr",
+    effects: [recorderEffect()],
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__session_pr_create|mcp__minsky__session_pr_edit",
+    module: () =>
+      import("./operator-deferral-detector").then((m) => ({ run: m.runArtifactSurface })),
+    // Same module and renderer as the three sibling registrations, so the same
+    // probe. It OVER-poses this surface — the shared probe renders five matches
+    // where this one returns at most two — which is the safe direction.
+    renderProbe: () => import("./operator-deferral-detector").then((m) => m.renderWorstCase()),
+    // 5s, not the 10s its `UserPromptSubmit` siblings carry: this surface reads
+    // one already-in-memory string and runs two regex sets over it, with no
+    // transcript walk beyond the probe check. Matches `claim-provenance-scan`,
+    // which does the same shape of work at the same seam. The budget is not
+    // free — every guard's `timeoutMs` sums into the dispatcher entry's derived
+    // timeout, so over-declaring here would widen three of them.
+    timeoutMs: 5000,
+    calibrationLog: "operator-deferral",
+    denyCapable: false,
+    needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 2100, optionCount: 1 },
+    canary: {
+      input: {
+        transcript_path: "mt4769-canary-transcript",
+        tool_name: "mcp__minsky__session_pr_create",
+        tool_input: {
+          title: "Add the thing",
+          body: "## Outcome\n\nLive verification requires Railway access, so it is deferred to the operator.",
+        },
+      },
+      transcriptLines: [{ type: "user", message: { role: "user", content: "first turn" } }],
+      expects: "calibration",
+    },
+  },
 ];
