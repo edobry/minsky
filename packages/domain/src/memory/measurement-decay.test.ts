@@ -293,3 +293,67 @@ describe("replay of the originating incident (mem#773 x mt#4345)", () => {
     expect(computeMeasurementDecay(m, [], NOW)).toBeUndefined();
   });
 });
+
+/**
+ * ADR-024 Rung 1 — quotation prefilter, applied as a SPLIT (mt#4785).
+ *
+ * The gate reads the elided residual; the cited subjects read RAW. Both halves need guarding,
+ * and the second is the one a naive "just compose the elider" change would break: measured
+ * over 1343 live memories on 2026-09-01, whole-haystack elision fixes the gate on 1 record and
+ * strips the cited subsystems from 55.
+ */
+describe("extractMeasurement — quotation prefilter split (mt#4785)", () => {
+  test("GATE: a measurement claim the record QUOTES does not fire", () => {
+    const content =
+      'The older note said "Measured 2026-08-01: 47 rows in the table." and never revisited it.';
+    expect(extractMeasurement({ content })).toBeUndefined();
+  });
+
+  test("GATE: mem#1105 — a date inside a code span is not this record measuring anything", () => {
+    // Verbatim shape from the one live record whose gate flips: the record quotes its own
+    // section heading while writing ABOUT a measurement, rather than taking one.
+    const content =
+      "The `## MEASURED 2026-08-19` section is left readable because it is the wrong reasoning, " +
+      "and it cites 47 rows.";
+    expect(extractMeasurement({ content })).toBeUndefined();
+  });
+
+  test("GATE: an ordinary unquoted measurement still fires (false-negative guard)", () => {
+    const found = extractMeasurement({ content: "Measured 2026-08-01: 47 rows in the table." });
+    expect(found?.measuredOn).toBe("2026-08-01");
+  });
+
+  test("SUBJECTS: backticked paths and tables survive — they are read from RAW", () => {
+    // THE regression guard for this change. `CITED_PATH_PATTERN` / `CITED_TABLE_PATTERN`
+    // require literal backticks, so eliding the haystack before subject extraction returns []
+    // and the decay verdict loses the input it is computed from.
+    const found = extractMeasurement({
+      content:
+        "Measured 2026-08-01: 47 rows in `packages/domain/src/memory/staleness.ts` " +
+        "and the `memory_embeddings` table.",
+    });
+    expect(found).toBeDefined();
+    expect(found?.subsystems).toContain("packages/domain/src/memory/staleness.ts");
+    expect(found?.subsystems).toContain("memory_embeddings");
+  });
+
+  test("matchedSentence is sliced from RAW, so the reader sees prose not filler", () => {
+    // Same-length elision (ELISION_FILL, mt#4792) is what makes the offset reusable; if the
+    // sentence were sliced from the elided copy it would render a run of dots.
+    const found = extractMeasurement({
+      content: "Measured 2026-08-01: 47 rows in `some_table` here.",
+    });
+    expect(found?.matchedSentence).toContain("some_table");
+    expect(found?.matchedSentence).not.toContain("·");
+  });
+
+  test("a quoted measurement and a real one in the same record: the real one wins", () => {
+    const content = [
+      'The old note said "Measured 2020-01-01: 5 rows".',
+      "Measured 2026-08-01: 47 rows in `memory_embeddings`.",
+    ].join("\n");
+    const found = extractMeasurement({ content });
+    // Not the quoted 2020 date, even though `extractMeasurement` takes the OLDEST match.
+    expect(found?.measuredOn).toBe("2026-08-01");
+  });
+});
