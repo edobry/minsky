@@ -19,6 +19,8 @@ import {
   SUPPRESSION_PRINCIPAL_INSTRUCTION_HALT,
   detectArmedWatcherEvidence,
   detectStrandedTaskState,
+  detectPresentProgressiveAssertion,
+  PRESENT_PROGRESSIVE_FAMILY,
   STRANDED_TASK_FAMILY,
   TASK_ADVANCING_TOOLS,
   TASK_ID_INPUT_KEYS,
@@ -1739,5 +1741,153 @@ describe("evaluation stream (mt#4117)", () => {
     );
     expect(outcome?.additionalContext ?? "").toContain(FIRED_HEADER);
     expect(readEvaluationRecords(projectDir)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4835 — the present-progressive assertion arm. "Running X now" asserts an
+// action is ALREADY UNDERWAY, a stronger claim than "I'll X", and the detector
+// matched nothing for it.
+//
+// Every negative fixture below is VERBATIM from
+// `.minsky/untaken-action-calibration.jsonl` (438 real turn-ending tails), not
+// invented. That corpus is where the discriminator came from: 9 of the 11
+// participle-shaped occurrences in it are gerund SUBJECTS, and six of those are
+// the agent explaining why it is deliberately NOT acting.
+// ---------------------------------------------------------------------------
+
+describe("present-progressive assertion arm (mt#4835)", () => {
+  // The attested miss. The principal caught it: "you said 'Running the dry-run
+  // gate now' but then did nothing, why?"
+  const SPEC_CASE_1 =
+    "Running the dry-run gate now — it's the falsifier that decides A vs B on evidence, " +
+    "and it commits to neither.";
+
+  describe("AT1 — the attested miss now matches", () => {
+    test("the verbatim incident tail matches the arm", () => {
+      const matches = detectPresentProgressiveAssertion(SPEC_CASE_1);
+      expect(matches).toHaveLength(1);
+      expect(matches[0]?.family).toBe(PRESENT_PROGRESSIVE_FAMILY);
+    });
+
+    test("today's phrase families are still silent on it — the negative control", () => {
+      // The arm is the ONLY thing that reaches this tail. If this ever starts
+      // passing via `detectUntakenAction`, the arm has stopped being the reason
+      // the class is covered and this suite is measuring the wrong mechanism.
+      expect(detectUntakenAction(SPEC_CASE_1)).toEqual([]);
+    });
+
+    test.each([
+      ["Filing that as a gap unless you'd rather I leave it."],
+      ["Dispatching the reviewer subagent."],
+      ["Kicking off the audit pass."],
+      ["Filing the umbrella and children next."],
+    ])("sibling form matches: %s", (message) => {
+      expect(detectPresentProgressiveAssertion(message)).toHaveLength(1);
+    });
+  });
+
+  describe("AT2 — log-only: it records, it never injects", () => {
+    test("a turn matching ONLY the arm produces a calibration record and no advisory", () => {
+      const outcome = run(
+        { session_id: "pp-log-only", last_assistant_message: SPEC_CASE_1 } as StopHookInput,
+        ctx,
+        storeDir
+      );
+      expect(outcome?.calibration).toBeDefined();
+      expect(outcome?.additionalContext).toBeUndefined();
+    });
+
+    test("the record names the arm so a calibration pass can find it", () => {
+      const outcome = run(
+        { session_id: "pp-named", last_assistant_message: SPEC_CASE_1 } as StopHookInput,
+        ctx,
+        storeDir
+      );
+      expect(outcome?.calibration?.["presentProgressiveArm"]).toEqual(["Running the dry"]);
+      expect(outcome?.calibration?.["presentProgressiveArmLogOnly"]).toBe(true);
+    });
+
+    test("an injecting family on the SAME turn still injects", () => {
+      // The log-only split must scope to the arm, not silence the whole guard.
+      const outcome = run(
+        {
+          session_id: "pp-mixed",
+          last_assistant_message: `${SPEC_CASE_1} I'll file it.`,
+        } as StopHookInput,
+        ctx,
+        storeDir
+      );
+      expect(outcome?.additionalContext ?? "").toContain(FIRED_HEADER);
+    });
+  });
+
+  describe("AT3 — the gerund-subject class does NOT fire (verbatim corpus fixtures)", () => {
+    // Six attested gerund subjects. Each is the participle serving as the
+    // SUBJECT of a following finite verb, so it asserts nothing about work in
+    // flight — and four of the six are the agent correctly declining to act.
+    // Firing here would tell the agent to do what it had just refused, which is
+    // the failure class mt#4634 and mt#4438 already track.
+    test.each([
+      ["Running it is dogfooding the principle."],
+      ["Planning it in isolation would produce a plan mt#4113 immediately duplicates."],
+      ["Planning it now would either duplicate that work or immediately block on it."],
+      ["Planning it now would fork attention while PR #3058 has a CI wait armed."],
+      ["Starting it here risks collapsing mid-action, which is the expensive failure."],
+      ["Running it turned an honest unknown into a measured negative."],
+    ])("gerund subject stays silent: %s", (message) => {
+      expect(detectPresentProgressiveAssertion(message)).toEqual([]);
+    });
+  });
+
+  describe("AT4 — the three long-separation residuals, also excluded", () => {
+    // These three separate the gerund from its finite verb by arbitrary
+    // material — markdown emphasis, a subordinate clause, an adverbial. A
+    // three-word lookahead misses all three; the shipped 60-char window reaches
+    // them. Pinned because a later narrowing of that window would silently
+    // re-admit them as false positives.
+    test.each([
+      [
+        "Shipping mt#3476 *is* the experiment — and if the predictions don't come back, it's falsified",
+      ],
+      ["Fixing the docs while leaving that in place would have reproduced the defect."],
+      ["Writing it down a fourth time was the failure pattern."],
+    ])("long-separation gerund subject stays silent: %s", (message) => {
+      expect(detectPresentProgressiveAssertion(message)).toEqual([]);
+    });
+  });
+
+  describe("AT5 — no regression on the sibling families or the in-flight tunes", () => {
+    test.each([
+      ["ill-action", "I'll file it."],
+      ["going-to", "I'm going to write the PR."],
+      ["say-the-word", "Say the word and I'll merge."],
+    ])("%s still fires", (_family, message) => {
+      expect(detectUntakenAction(message).length).toBeGreaterThan(0);
+    });
+
+    test("the arm adds nothing to a `next-up` shape (mt#4560 is tuning that FP down)", () => {
+      // mt#4560's false positive is a third-person description of a FILED
+      // task's next step. The arm must not become a second way for that same
+      // message to fire, which would make mt#4560's tune harder rather than
+      // easier.
+      const nextUp = "Next up is mt#4560, which tunes the `next-up` family.";
+      expect(detectPresentProgressiveAssertion(nextUp)).toEqual([]);
+    });
+
+    test("suppression patterns are honoured — the arm is not a bypass", () => {
+      // An armed-wait sign-off is exactly the behavior `work-completion.mdc`
+      // prescribes; the arm reuses SUPPRESSION_PATTERNS so it cannot re-open a
+      // hole the phrase side already closed.
+      expect(
+        detectPresentProgressiveAssertion("Filing that now — I'll report back when it lands.")
+      ).toEqual([]);
+    });
+
+    test("a quoted commitment does not fire (elision is applied)", () => {
+      expect(detectPresentProgressiveAssertion('The detector matches "Filing that now".')).toEqual(
+        []
+      );
+    });
   });
 });
