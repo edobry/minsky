@@ -219,6 +219,41 @@ const SPEC_AUTHOR_FIELD_BY_TOOL: Readonly<Record<string, readonly string[]>> = {
 };
 
 /**
+ * An affirmative flag value, accepting the spellings a flag actually arrives in.
+ *
+ * NOT bare truthiness (PR #3554 R1, BLOCKING). `!input["includeSpec"]` credits any
+ * non-empty string, so `includeSpec: "false"` and `includeSpec: "0"` would both
+ * count as a spec read. The error direction is what makes this worth a helper
+ * rather than a cast: an over-credited read FALSELY DISCHARGES a claim, silencing
+ * the guard on exactly the case it exists to catch, and it does so silently.
+ *
+ * `tasks_edit`'s `--spec` is a boolean flag on the CLI, and a shell-shaped caller
+ * spells booleans as strings, so the string forms are accepted deliberately rather
+ * than defensively — but only the affirmative ones.
+ */
+function isAffirmative(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value !== "string") return false;
+  const v = value.trim().toLowerCase();
+  return v === "true" || v === "1" || v === "yes";
+}
+
+/**
+ * A spec-writing field that actually carries a spec.
+ *
+ * `!== undefined` is not enough (PR #3554 R1, BLOCKING): `specContent: null` and
+ * `specContent: ""` both pass a presence test while writing no prose, and would
+ * grant content-read credit for a call that engaged nothing. `spec` is the one
+ * boolean member of the set — it opens the spec for an interactive edit — so it is
+ * judged by {@link isAffirmative} rather than by length.
+ */
+function carriesAuthoredSpec(field: string, value: unknown): boolean {
+  if (field === "spec") return isAffirmative(value);
+  return typeof value === "string" && value.trim() !== "";
+}
+
+/**
  * Task ids whose spec BODY was read or authored in this session.
  *
  * Returning a SET, per {@link taskIdsWithStatusRead}'s reasoning: the claim is
@@ -253,13 +288,13 @@ export function taskIdsWithSpecRead(calls: readonly ToolCallWithResult[]): Set<s
     const name = normalizeToolName(call.toolName);
 
     if (SPEC_CONTENT_READ_TOOL_NAMES.includes(name)) {
-      if (name === "tasks_get" && !call.input["includeSpec"]) continue;
+      if (name === "tasks_get" && !isAffirmative(call.input["includeSpec"])) continue;
       add(call.input["taskId"]);
       continue;
     }
 
     const authorFields = SPEC_AUTHOR_FIELD_BY_TOOL[name];
-    if (authorFields && authorFields.some((f) => call.input[f] !== undefined)) {
+    if (authorFields && authorFields.some((f) => carriesAuthoredSpec(f, call.input[f]))) {
       add(call.input["taskId"]);
     }
   }

@@ -648,10 +648,11 @@ export function targetTaskId(toolInput: Record<string, unknown> | undefined): st
  * claims in specs (recorded verbatim in mt#4301), so it is attested spec-authoring
  * vocabulary that this doc corpus happens not to sample.
  *
- * SEVEN candidates measured ZERO and are DROPPED rather than carried on plausibility
- * — `accounts for`, `on account of`, `stems from`, `attributable to`, `that is why`,
+ * SIX candidates measured ZERO and are DROPPED rather than carried on plausibility —
+ * `accounts for`, `on account of`, `stems from`, `attributable to`, `that is why`,
  * `explained by`. That deletion is the sampling rule doing its work; do not re-add one
- * without a count.
+ * without a count. (Seven candidates measured zero in all; `caused by` was the seventh
+ * and is kept on the separate evidence named above.)
  *
  * `explains` is safe against `unexplained`: the leading `\b` cannot match inside a
  * word, so *"a new, unexplained signal"* — a phrase from the originating incident's

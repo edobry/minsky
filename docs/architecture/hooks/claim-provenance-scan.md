@@ -486,9 +486,10 @@ attribution — the failure that cost the collision class 8 of 8 sampled fires b
 states for its own. Counted over `docs/` + `.minsky/rules/`, as sentences carrying both the
 connective and an `mt#` ref: `because` 45 · `which is why` 7 · `the reason` 5 · `explains` 2 ·
 `consistent with` 2 · `due to` 1. `caused by` measured zero here and is kept on separate evidence —
-it is one of `/create-task` §2c's five named causal triggers. **Seven candidates measured zero and
-were dropped rather than carried on plausibility**: `accounts for`, `on account of`, `stems from`,
-`attributable to`, `that is why`, `explained by`.
+it is one of `/create-task` §2c's five named causal triggers. **Six candidates measured zero and were
+dropped rather than carried on plausibility**: `accounts for`, `on account of`, `stems from`,
+`attributable to`, `that is why`, `explained by`. (Seven measured zero in all — `caused by` is the
+seventh, kept on the separate evidence just named.)
 
 Three suppressions, each answering one of the negative controls the task specified:
 

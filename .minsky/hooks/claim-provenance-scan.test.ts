@@ -81,6 +81,12 @@ const SPEC_PATCH_TOOL = "mcp__minsky__tasks_spec_patch";
 /** The other spec-write seam — the one with a by-reference body (mt#4295). */
 const EDIT_TOOL = "mcp__minsky__tasks_edit";
 
+/**
+ * The metadata read whose `includeSpec` flag decides whether it surfaced a BODY.
+ * Named once because the mt#4876 cases exercise both spellings of that flag.
+ */
+const TASK_GET_TOOL = "mcp__minsky__tasks_get";
+
 /** A spec-patch call — the seam both originating incidents actually wrote at. */
 function patchInput(content: string): ToolHookInput {
   return {
@@ -374,7 +380,7 @@ function patchInputFor(taskId: string, content: string): ToolHookInput {
 
 const STATUS_GET_CALL = (taskId: string) =>
   toolCallLine("mcp__minsky__tasks_status_get", { taskId });
-const TASK_GET_CALL = (taskId: string) => toolCallLine("mcp__minsky__tasks_get", { taskId });
+const TASK_GET_CALL = (taskId: string) => toolCallLine(TASK_GET_TOOL, { taskId });
 const SPEC_GET_CALL = (taskId: string) => toolCallLine("mcp__minsky__tasks_spec_get", { taskId });
 const REFS_STATUS_CALL = (refs: string[]) => toolCallLine("mcp__minsky__refs_status", { refs });
 
@@ -727,7 +733,7 @@ Ship the corpus split.
  * the record, and the reason these two must be separate fixtures.
  */
 const TASK_GET_WITH_SPEC_CALL = (taskId: string) =>
-  toolCallLine("mcp__minsky__tasks_get", { taskId, includeSpec: true });
+  toolCallLine(TASK_GET_TOOL, { taskId, includeSpec: true });
 
 describe("causalAttributionSentences — recognition", () => {
   test("recognizes an explanation attributed to a named task", () => {
@@ -844,6 +850,54 @@ describe("taskIdsWithSpecRead — a STRICT subset of the status-read set (mt#487
   test("a METADATA-only tasks_edit touches no prose and does not discharge", () => {
     const lines = [toolCallLine(EDIT_TOOL, { taskId: "mt#9999", kind: "implementation" })];
     expect(taskIdsWithSpecRead(calls(lines)).has("mt9999")).toBe(false);
+  });
+
+  // PR #3554 R1 (BLOCKING). Bare truthiness over-credits, and an over-credited read
+  // FALSELY DISCHARGES — it silences the guard on the case it exists to catch, with
+  // no signal. These are the dangerous direction, so each spelling is pinned.
+  describe("a NEGATIVE flag value is not an affirmative one", () => {
+    for (const negative of ["false", "0", "no", "", "  "] as const) {
+      test(`includeSpec: ${JSON.stringify(negative)} does not discharge`, () => {
+        const lines = [toolCallLine(TASK_GET_TOOL, { taskId: "mt#9999", includeSpec: negative })];
+        expect(taskIdsWithSpecRead(calls(lines)).has("mt9999")).toBe(false);
+      });
+    }
+
+    test("includeSpec: false (real boolean) does not discharge", () => {
+      const lines = [toolCallLine(TASK_GET_TOOL, { taskId: "mt#9999", includeSpec: false })];
+      expect(taskIdsWithSpecRead(calls(lines)).has("mt9999")).toBe(false);
+    });
+
+    test('the stringy affirmative "true" DOES discharge — the accepted spelling', () => {
+      const lines = [toolCallLine(TASK_GET_TOOL, { taskId: "mt#9999", includeSpec: "true" })];
+      expect(taskIdsWithSpecRead(calls(lines)).has("mt9999")).toBe(true);
+    });
+  });
+
+  describe("a PRESENT-but-empty spec field carries no prose", () => {
+    for (const [label, value] of [
+      ["null", null],
+      ["empty string", ""],
+      ["whitespace only", "   \n  "],
+    ] as const) {
+      test(`specContent: ${label} does not discharge`, () => {
+        const lines = [toolCallLine(EDIT_TOOL, { taskId: "mt#9999", specContent: value })];
+        expect(taskIdsWithSpecRead(calls(lines)).has("mt9999")).toBe(false);
+      });
+
+      test(`tasks_spec_patch content: ${label} does not discharge`, () => {
+        const lines = [toolCallLine(SPEC_PATCH_TOOL, { taskId: "mt#9999", content: value })];
+        expect(taskIdsWithSpecRead(calls(lines)).has("mt9999")).toBe(false);
+      });
+    }
+
+    test("`spec` is the one BOOLEAN member of the set and is judged as a flag", () => {
+      const off = [toolCallLine(EDIT_TOOL, { taskId: "mt#9999", spec: false })];
+      expect(taskIdsWithSpecRead(calls(off)).has("mt9999")).toBe(false);
+
+      const on = [toolCallLine(EDIT_TOOL, { taskId: "mt#9999", spec: true })];
+      expect(taskIdsWithSpecRead(calls(on)).has("mt9999")).toBe(true);
+    });
   });
 });
 
