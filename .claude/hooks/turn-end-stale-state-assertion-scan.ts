@@ -566,20 +566,22 @@ export async function nominatePendingClaims(
   const resolve = deps?.resolve ?? resolveNominationDeps;
   const run = deps?.run ?? nominate;
 
-  // `Promise.resolve().then(resolve)` rather than `resolve()` directly, and a
-  // catch around both: a SYNCHRONOUS throw from `resolve` happens at the call
-  // site, outside the race, so it would bypass the deadline and bubble out of
-  // the Stop hook (PR #3544 R2). The shipped `resolveNominationDeps` has its own
-  // try/catch and will not do this — but the parameter is injectable, the type
-  // does not forbid it, and this whole stage exists to degrade rather than
-  // crash. Same class as R1's unbounded-resolve finding, fixed alongside it
-  // rather than left as its sibling.
+  // A SYNCHRONOUS throw from `resolve` happens at the CALL SITE, outside the
+  // race, so it bypasses the deadline entirely (PR #3544 R2). The try/catch is
+  // what contains it — and containing it matters because the shipped
+  // `resolveNominationDeps` has its own try/catch but the parameter is
+  // injectable and the type does not forbid throwing. This stage exists to
+  // degrade rather than crash the Stop hook.
+  //
+  // An earlier revision ALSO deferred through `Promise.resolve().then(...)` to
+  // convert the sync throw into a rejection. The negative control removed it:
+  // with the defer reverted, the sync-throw test still passed, because the call
+  // site is already inside this try block. Two mechanisms, one of them doing
+  // nothing and untestable — so the defer is gone. That is the control earning
+  // its keep, not a cosmetic simplification.
   let nominationDeps: Awaited<ReturnType<typeof resolveNominationDeps>> | typeof RESOLVE_TIMED_OUT;
   try {
-    nominationDeps = await withDeadline(
-      Promise.resolve().then(() => resolve()),
-      DEPS_RESOLVE_TIMEOUT_MS
-    );
+    nominationDeps = await withDeadline(resolve(), DEPS_RESOLVE_TIMEOUT_MS);
   } catch (err) {
     return {
       claims: [],
