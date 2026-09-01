@@ -171,22 +171,21 @@ export const NOMINATION_EXEMPLARS: ExemplarSet[] = [
 ];
 
 /**
- * Operator kill switch for this guard's Rung-2 stage.
+ * There is deliberately NO stage-level kill switch here.
  *
- * Named to match the shipped sibling's convention
- * (`MINSKY_DISABLE_RUNG2_NOMINATION` on `retrospective-trigger-scanner`) but
- * scoped to this guard, so one detector's stage can be silenced without
- * silencing the other's.
+ * An earlier revision of this change added `MINSKY_DISABLE_STALE_STATE_RUNG2`,
+ * mirroring `MINSKY_DISABLE_RUNG2_NOMINATION` on the sibling scanner, and
+ * registered it in both registries. It was removed before this shipped: the
+ * spec's own criterion says no new override var is minted, and `hook-files.mdc`
+ * records why — that population went 34 → 99 since ADR-028 was accepted, which
+ * is the growth the consolidation exists to stop. The sibling's var predates
+ * that tightening; it is precedent for the shape, not licence to add another.
  *
- * Registered `operator-override` in `HOOK_ONLY_ENV_VAR_CATEGORIES` and listed
- * in `known-override-env-vars.ts`, exactly as the sibling is. An earlier draft
- * of this docblock claimed it was "not an operator-override var in the
- * `hook-files.mdc` sense" because the whole-guard skip already exists — that was
- * wrong on the registry axis: the sibling has identical semantics and identical
- * reasoning, and IS registered. `known-override-env-vars.test.ts` fails naming
- * the entry when it is not.
+ * `MINSKY_SKIP_STALE_STATE_ASSERTION_SCAN` already covers the new classes: it
+ * returns before any claim-finding runs, so it disables Rung 1 and Rung 2
+ * together. Per-stage granularity was a convenience nobody asked for, and it
+ * cost two registry entries to buy.
  */
-export const NOMINATION_DISABLE_ENV_VAR = "MINSKY_DISABLE_STALE_STATE_RUNG2";
 
 /**
  * Bound on the substrate read. Past this the scan reports a skip, never a fire.
@@ -510,11 +509,6 @@ export async function nominatePendingClaims(
   finalMessage: string,
   deps?: { resolve: typeof resolveNominationDeps; run: typeof nominate }
 ): Promise<NominationOutcome> {
-  const disabled = process.env[NOMINATION_DISABLE_ENV_VAR];
-  if (disabled === "1" || disabled?.toLowerCase() === "true") {
-    return { claims: [], degradedReason: "rung2-disabled", scores: [] };
-  }
-
   const tail = finalMessage.slice(-TAIL_WINDOW_CHARS);
   const prose = elideQuotedAndCodeContexts(tail);
 
