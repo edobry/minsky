@@ -508,6 +508,50 @@ export interface NominationOutcome {
 /** Nomination is bounded well under the Stop hook's own budget. */
 export const NOMINATION_TIMEOUT_MS = 2000;
 
+/**
+ * Dependency RESOLUTION is bounded separately, and must be.
+ *
+ * `nominate`'s own `timeoutMs` covers the embedding call and nothing before it.
+ * `resolveNominationDeps` awaits `getConfiguration()` and
+ * `createEmbeddingServiceFromConfig()`, and its try/catch converts a THROW into
+ * `null` — but a HANG is not a throw. An unreachable provider endpoint or a
+ * wedged config read would therefore stall the Stop hook indefinitely, before
+ * the nomination timeout is ever armed.
+ *
+ * Caught by the reviewer on PR #3544 R1; verified at the cited location rather
+ * than taken on the finding's word. The two budgets are deliberately equal and
+ * separate — together they bound the stage at ~4s worst case, which is inside
+ * what a Stop hook can absorb.
+ */
+export const DEPS_RESOLVE_TIMEOUT_MS = 2000;
+
+/** A resolve that exceeded {@link DEPS_RESOLVE_TIMEOUT_MS}. */
+const RESOLVE_TIMED_OUT = Symbol("resolve-timed-out");
+
+/**
+ * Await `work`, or give up after `ms`.
+ *
+ * The timer is cleared on the settled path so a pending handle cannot keep the
+ * hook process alive past its own work — a Stop guard that exits late is a
+ * latency bug the operator experiences as a hung turn.
+ */
+async function withDeadline<T>(
+  work: Promise<T>,
+  ms: number
+): Promise<T | typeof RESOLVE_TIMED_OUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<typeof RESOLVE_TIMED_OUT>((resolve) => {
+        timer = setTimeout(() => resolve(RESOLVE_TIMED_OUT), ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 export async function nominatePendingClaims(
   finalMessage: string,
   deps?: { resolve: typeof resolveNominationDeps; run: typeof nominate }
@@ -522,7 +566,13 @@ export async function nominatePendingClaims(
   const resolve = deps?.resolve ?? resolveNominationDeps;
   const run = deps?.run ?? nominate;
 
-  const nominationDeps = await resolve();
+  const nominationDeps = await withDeadline(resolve(), DEPS_RESOLVE_TIMEOUT_MS);
+  if (nominationDeps === RESOLVE_TIMED_OUT) {
+    // Distinct from `unavailable`: nothing is misconfigured, the resolve simply
+    // did not return. Kept separate so the calibration stream can tell a
+    // provider that is absent from one that is wedged — different remedies.
+    return { claims: [], degradedReason: "nomination-deps-timeout", scores: [] };
+  }
   if (nominationDeps === null) {
     return { claims: [], degradedReason: "nomination-deps-unavailable", scores: [] };
   }
@@ -578,8 +628,16 @@ export interface PeerHeldClaim extends PendingClaim {
 
 export interface PeerCheckOutcome {
   held: PeerHeldClaim[];
-  /** Set when the ledger read could not run. Never conflated with "no peer". */
-  degradedReason?: string;
+  /**
+   * One entry per ref whose ledger read could not run. Never conflated with
+   * "no peer".
+   *
+   * An ARRAY rather than one joined string (PR #3544 R1): joining N failures
+   * with `"; "` produces a single free-form calibration entry that a reviewer
+   * has to re-parse to count, and that no aggregation can group by cause. One
+   * entry per failure keeps the stream countable.
+   */
+  degradedReasons: string[];
 }
 
 /**
@@ -612,7 +670,7 @@ export async function findPeerHeldClaims(
   const targets = claims.filter(
     (c) => c.assertion.family === "recommend-start" && c.entity.kind === "task"
   );
-  if (targets.length === 0) return { held: [] };
+  if (targets.length === 0) return { held: [], degradedReasons: [] };
 
   const callerSessionId = callerSessionIdFromCwd(cwd);
   const held: PeerHeldClaim[] = [];
@@ -627,11 +685,13 @@ export async function findPeerHeldClaims(
     try {
       events = await read(claim.entity.id);
     } catch (err) {
-      failures.push(`${claim.entity.ref}: ${err instanceof Error ? err.message : String(err)}`);
+      failures.push(
+        `peer-read-failed ${claim.entity.ref}: ${err instanceof Error ? err.message : String(err)}`
+      );
       continue;
     }
     if (events === null) {
-      failures.push(`${claim.entity.ref}: ledger read unavailable`);
+      failures.push(`peer-read-unavailable ${claim.entity.ref}: ledger read returned null`);
       continue;
     }
 
@@ -641,10 +701,7 @@ export async function findPeerHeldClaims(
     }
   }
 
-  return {
-    held,
-    ...(failures.length > 0 ? { degradedReason: `peer-read-failed: ${failures.join("; ")}` } : {}),
-  };
+  return { held, degradedReasons: failures };
 }
 
 // ---------------------------------------------------------------------------
@@ -694,7 +751,23 @@ export function toolInputHaystack(turnLines: TranscriptLine[]): string {
  * appears anywhere in any tool input this turn. That over-accepts (mentioning
  * `mt#N` in an unrelated call clears it) and under-fires, which is the right
  * direction for a record-only stage whose false positives cost operator trust.
+ *
+ * **The match is digit-bounded, not a bare substring (PR #3544 R1).** A plain
+ * `includes` makes every id a prefix of its own longer siblings: a claim about
+ * `mt#455` is cleared by any call carrying `mt#4555`, `mt#4556` or `mt#45550`.
+ * Those ids co-occur constantly — they are neighbours in the same task graph —
+ * so the collision is routine rather than theoretical, and it fails SILENTLY in
+ * the under-firing direction, which is the direction no test notices.
  */
+function idIsBacked(haystack: string, id: string): boolean {
+  // Escape first: an id carries `#`, and a future id form could carry more.
+  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Trailing digit-boundary only. A LEADING boundary would be wrong: the ids
+  // appear inside JSON strings (`"taskId":"mt#4555"`), where the preceding
+  // character is a quote, not a word boundary.
+  return new RegExp(`${escaped}(?!\\d)`).test(haystack);
+}
+
 export function findUnbackedClaims(
   claims: PendingClaim[],
   turnLines: TranscriptLine[]
@@ -709,7 +782,7 @@ export function findUnbackedClaims(
     const dedupe = `${claim.entity.kind}:${claim.entity.id}`;
     if (seen.has(dedupe)) continue;
     seen.add(dedupe);
-    if (!haystack.includes(claim.entity.id)) out.push(claim);
+    if (!idIsBacked(haystack, claim.entity.id)) out.push(claim);
   }
   return out;
 }
@@ -1069,7 +1142,7 @@ export async function run(
 
     const suppressionReasons: string[] = [];
     if (rung2Degraded !== undefined) suppressionReasons.push(rung2Degraded);
-    if (peer.degradedReason !== undefined) suppressionReasons.push(peer.degradedReason);
+    suppressionReasons.push(...peer.degradedReasons);
     if (turnLines === null && claims.some((c) => c.assertion.family === "past-tense-claim")) {
       suppressionReasons.push("transcript-unreadable: past-tense claims not checked");
     }

@@ -424,6 +424,12 @@ describe("mt#4375 SC2 — the vocabulary is named constants, not inline literals
  * and prove nothing about the paraphrase the next miss arrives in. The sibling
  * detector states the same discipline in its own exemplar docblock.
  */
+/** Family names, shared so a rename cannot silently desync these fixtures. */
+const FAMILY_PAST_TENSE = "past-tense-claim";
+const FAMILY_RECOMMEND_START = "recommend-start";
+/** A tool whose input carries a taskId — the "backed" case's stand-in. */
+const TOOL_SPEC_PATCH = "tasks_spec_patch";
+
 const R19_RECOMMEND_START = [
   "### Recommended next steps",
   "",
@@ -509,7 +515,7 @@ describe("mt#4580 — cost discipline: no ref means no IO", () => {
 describe("mt#4580 — findUnbackedClaims (the past-tense arm)", () => {
   const claim = (id: string) => ({
     entity: { kind: "task" as const, ref: id, id, idForm: "short" as const, at: 0 },
-    assertion: { family: "past-tense-claim", phrase: "I recorded that", at: 0 },
+    assertion: { family: FAMILY_PAST_TENSE, phrase: "I recorded that", at: 0 },
   });
 
   test("a claim whose ref no tool call carried is unbacked", () => {
@@ -523,7 +529,7 @@ describe("mt#4580 — findUnbackedClaims (the past-tense arm)", () => {
 
   test("a claim whose ref a tool call DID carry is backed", () => {
     const lines = [
-      { type: "tool_use", name: "tasks_spec_patch", input: { taskId: "mt#4555" } },
+      { type: "tool_use", name: TOOL_SPEC_PATCH, input: { taskId: "mt#4555" } },
     ] as unknown as Parameters<typeof findUnbackedClaims>[1];
     expect(findUnbackedClaims([claim("mt#4555")], lines)).toEqual([]);
   });
@@ -531,7 +537,7 @@ describe("mt#4580 — findUnbackedClaims (the past-tense arm)", () => {
   test("only the past-tense family is inspected", () => {
     const other = {
       ...claim("mt#4555"),
-      assertion: { family: "recommend-start", phrase: "start it", at: 0 },
+      assertion: { family: FAMILY_RECOMMEND_START, phrase: "start it", at: 0 },
     };
     expect(findUnbackedClaims([other], [])).toEqual([]);
   });
@@ -553,7 +559,7 @@ describe("mt#4580 — findPeerHeldClaims (the recommend-start arm)", () => {
       idForm: "short" as const,
       at: 0,
     },
-    assertion: { family: "recommend-start", phrase: "start it next", at: 0 },
+    assertion: { family: FAMILY_RECOMMEND_START, phrase: "start it next", at: 0 },
   };
 
   test("a peer session.started row marks the recommendation stale", async () => {
@@ -564,7 +570,7 @@ describe("mt#4580 — findPeerHeldClaims (the recommend-start arm)", () => {
       decide: () => ({ fired: true, message: "peer says so", outcome: "decided" }),
     });
     expect(out.held.map((c) => c.entity.id)).toEqual(["mt#4556"]);
-    expect(out.degradedReason).toBeUndefined();
+    expect(out.degradedReasons).toEqual([]);
   });
 
   test("a quiet ledger holds nothing", async () => {
@@ -573,7 +579,7 @@ describe("mt#4580 — findPeerHeldClaims (the recommend-start arm)", () => {
       decide: () => ({ fired: false, outcome: "decided" }),
     });
     expect(out.held).toEqual([]);
-    expect(out.degradedReason).toBeUndefined();
+    expect(out.degradedReasons).toEqual([]);
   });
 
   test("an unreadable ledger degrades — it does NOT read as 'no peer'", async () => {
@@ -584,7 +590,7 @@ describe("mt#4580 — findPeerHeldClaims (the recommend-start arm)", () => {
       decide: () => ({ fired: true, message: "should not be consulted" }),
     });
     expect(out.held).toEqual([]);
-    expect(out.degradedReason).toContain("ledger read unavailable");
+    expect(out.degradedReasons.join(" ")).toContain("peer-read-unavailable");
   });
 
   test("a throwing read degrades rather than escaping the Stop guard", async () => {
@@ -595,7 +601,7 @@ describe("mt#4580 — findPeerHeldClaims (the recommend-start arm)", () => {
       decide: () => ({ fired: false }),
     });
     expect(out.held).toEqual([]);
-    expect(out.degradedReason).toContain("db down");
+    expect(out.degradedReasons.join(" ")).toContain("db down");
   });
 });
 
@@ -630,5 +636,75 @@ describe("mt#4580 AT5 — elision holds on the Rung-2 path too", () => {
       },
     });
     expect(resolveCalls).toBe(1);
+  });
+});
+
+describe("mt#4580 PR #3544 R1 — the three review findings", () => {
+  test("BLOCKING: a hung dependency resolve is bounded, not awaited forever", async () => {
+    // The finding: nominate's own timeoutMs covers the embedding call only, and
+    // resolveNominationDeps converts a THROW to null but not a HANG. A resolve
+    // that never settles would stall the Stop hook.
+    const out = await nominatePendingClaims("Next up is mt#4556.", {
+      resolve: () => new Promise(() => {}), // never settles
+      run: async () => {
+        throw new Error("must not be reached");
+      },
+    });
+    expect(out.degradedReason).toBe("nomination-deps-timeout");
+    expect(out.claims).toEqual([]);
+    // The degraded reason IS the timing assertion: it is only reachable through
+    // the deadline branch, and the test would hang rather than fail if the
+    // deadline were absent. A wall-clock check adds nothing and is flaky.
+  }, 15000);
+
+  test("NON-BLOCKING: an id is not backed by a LONGER id that contains it", () => {
+    // mt#455 is a prefix of mt#4555. A bare substring check clears the claim,
+    // silently, in the under-firing direction.
+    const claim = {
+      entity: {
+        kind: "task" as const,
+        ref: "mt#455",
+        id: "mt#455",
+        idForm: "short" as const,
+        at: 0,
+      },
+      assertion: { family: FAMILY_PAST_TENSE, phrase: "I recorded that", at: 0 },
+    };
+    const lines = [
+      { type: "tool_use", name: TOOL_SPEC_PATCH, input: { taskId: "mt#4555" } },
+    ] as unknown as Parameters<typeof findUnbackedClaims>[1];
+    expect(findUnbackedClaims([claim], lines).map((c) => c.entity.id)).toEqual(["mt#455"]);
+  });
+
+  test("NON-BLOCKING: the exact id still backs the claim", () => {
+    // Control for the test above — without it, "unbacked" could mean the
+    // boundary works OR that nothing ever matches.
+    const claim = {
+      entity: {
+        kind: "task" as const,
+        ref: "mt#455",
+        id: "mt#455",
+        idForm: "short" as const,
+        at: 0,
+      },
+      assertion: { family: FAMILY_PAST_TENSE, phrase: "I recorded that", at: 0 },
+    };
+    const lines = [
+      { type: "tool_use", name: TOOL_SPEC_PATCH, input: { taskId: "mt#455" } },
+    ] as unknown as Parameters<typeof findUnbackedClaims>[1];
+    expect(findUnbackedClaims([claim], lines)).toEqual([]);
+  });
+
+  test("NON-BLOCKING: each failed ledger read is its own calibration entry", async () => {
+    const mk = (id: string) => ({
+      entity: { kind: "task" as const, ref: id, id, idForm: "short" as const, at: 0 },
+      assertion: { family: FAMILY_RECOMMEND_START, phrase: "start it", at: 0 },
+    });
+    const out = await findPeerHeldClaims([mk("mt#1"), mk("mt#2")], undefined, {
+      read: async () => null,
+      decide: () => ({ fired: false }),
+    });
+    // Two refs failed -> two entries, countable. Not one joined string.
+    expect(out.degradedReasons.length).toBe(2);
   });
 });
