@@ -24,7 +24,7 @@ For substantial Cockpit design or engineering work, prefer `/agents cockpit-dev`
 | Component lib | shadcn/ui conventions (mt#1773 shipped — `src/cockpit/web/components/ui/*.tsx`). Primitives are **hand-authored** thin Radix wrappers following shadcn's documented subcomponent contracts. Add one by matching the house idiom in `ui/popover.tsx` / `ui/select.tsx`; do **not** use `shadcn add` — see §Why primitives are hand-authored below. |
 | Data layer | TanStack Query (mt#1773 shipped — pages/widgets self-fetch via `useQuery`/`useMutation`; no bare `fetch` + `useState` for server data anywhere in `web/**` per mt#2616 + mt#2641, which migrated the last two `Rail.tsx` holdouts) |
 | Build | Vite (`vite.config.ts`) |
-| Tests | bun test (`src/cockpit/cockpit.test.ts`, `bun run test:components` for pages/widgets/components) |
+| Tests | Server-side (`src/cockpit/*.test.ts`, e.g. `cockpit.test.ts`) run in the MAIN suite — `bun run test`, no happy-dom. Everything under `src/cockpit/web/`, including files at its top level (mt#3496), runs in `bun run test:components` under happy-dom. The two suites do not overlap. |
 | Widget contract | Custom registry (`src/cockpit/widget-registry.ts` + `types.ts`) — backend contract only, see §Widget vocabulary |
 | Config | None per-widget — registry-gated; future cockpit config goes under a `cockpit` tree in `~/.config/minsky/config.yaml` (mt#2294) |
 | DI | None (standalone Express, no tsyringe) |

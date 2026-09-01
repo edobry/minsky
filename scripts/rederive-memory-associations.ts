@@ -30,6 +30,7 @@ import { createHash } from "node:crypto";
 import type { MemoryServiceSurface, MemoryServiceDb } from "@minsky/domain/memory/memory-service";
 import { extractTrackingTaskRefs } from "@minsky/domain/memory/staleness";
 import { TRACKS_TASK_ASSOCIATION } from "@minsky/domain/memory/associations";
+import { listEveryMemory } from "./lib/list-every-memory";
 
 // ── Pure core ───────────────────────────────────────────────────────────────────────────────
 
@@ -223,53 +224,6 @@ async function buildMemoryService(): Promise<MemoryServiceSurface> {
     vectorStorage,
     embeddingService,
   });
-}
-
-/**
- * Page through the WHOLE corpus, then assert the scan actually covered it.
- *
- * `MemoryService.list()` silently caps at `DEFAULT_LIST_CAP` (500) — its own docblock says its
- * array length "cannot answer how many rows actually match" (mt#4761). A capped scan here would
- * report a confident, wrong rate over 37% of the corpus with nothing in the output to show it:
- * the exact derived-view failure this task exists to repair, reproduced in the tool built to
- * repair it. Observed in this script's first live run — 500 scanned against a true 1,342.
- *
- * So the count is not decoration: it makes the scan able to FAIL. A short read throws rather
- * than returning a plausible number (mem#704 — a probe that cannot fail is not verification).
- */
-async function listEveryMemory(
-  service: MemoryServiceSurface
-): Promise<Awaited<ReturnType<MemoryServiceSurface["list"]>>> {
-  if (typeof service.count !== "function") {
-    throw new Error(
-      "MemoryService exposes no count(); cannot prove the scan covered the corpus. Refusing."
-    );
-  }
-
-  // Count FIRST, and compare with `<`, not `!==`. Both choices are about the same race: a record
-  // created while the scan is in flight. Counting first means such a record can only make the
-  // scan LARGER than the floor, never smaller, so it cannot trip the check; comparing with `<`
-  // means a concurrent DELETE (which lowers the true total below the floor) does not either.
-  // What remains catchable is the case worth catching — a SHORT read, where paging silently
-  // stopped early and every rate below would be computed over a fraction of the corpus.
-  const floor = await service.count();
-
-  const PAGE = 500;
-  const out: Awaited<ReturnType<MemoryServiceSurface["list"]>> = [];
-  for (let offset = 0; ; offset += PAGE) {
-    const page = await service.list({ limit: PAGE, offset });
-    out.push(...page);
-    if (page.length < PAGE) break;
-  }
-
-  if (out.length < floor) {
-    throw new Error(
-      `Scan covered ${out.length} of at least ${floor} memories — refusing to report a rate ` +
-        "over a partial corpus. Investigate the pagination before trusting any number below."
-    );
-  }
-
-  return out;
 }
 
 async function main(): Promise<void> {
