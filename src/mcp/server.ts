@@ -1,17 +1,7 @@
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import {
-  ListToolsRequestSchema,
-  CallToolRequestSchema,
-  ListResourcesRequestSchema,
-  ReadResourceRequestSchema,
-  ListPromptsRequestSchema,
-  GetPromptRequestSchema,
-  isInitializeRequest,
-  McpError,
-  type ServerNotification,
-} from "@modelcontextprotocol/sdk/types.js";
+import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
+import { Server, isInitializeRequest, ProtocolError } from "@modelcontextprotocol/server";
+import type { ServerNotification } from "@modelcontextprotocol/server";
 import { log } from "@minsky/shared/logger";
 import type { ProjectContext } from "../types/project";
 import { createProjectContextFromCwd } from "../types/project";
@@ -446,7 +436,7 @@ interface PromptDefinition {
  */
 export class MinskyMCPServer {
   private server: Server;
-  private transport: StdioServerTransport | StreamableHTTPServerTransport;
+  private transport: StdioServerTransport | NodeStreamableHTTPServerTransport;
   private options: MinskyMCPServerOptions & {
     name: string;
     version: string;
@@ -555,7 +545,7 @@ export class MinskyMCPServer {
   // (client POSTed initialize but never closed) don't accumulate indefinitely.
   private httpSessions: Map<
     string,
-    { server: Server; transport: StreamableHTTPServerTransport; lastActiveAt: number }
+    { server: Server; transport: NodeStreamableHTTPServerTransport; lastActiveAt: number }
   > = new Map();
 
   // Maximum concurrent HTTP sessions. When set, new initialize requests are
@@ -999,7 +989,11 @@ export class MinskyMCPServer {
       return;
     }
 
-    let session: { server: Server; transport: StreamableHTTPServerTransport; lastActiveAt: number };
+    let session: {
+      server: Server;
+      transport: NodeStreamableHTTPServerTransport;
+      lastActiveAt: number;
+    };
 
     // Reuse existing session if we have a session ID
     if (sessionId && this.httpSessions.has(sessionId)) {
@@ -1109,7 +1103,7 @@ export class MinskyMCPServer {
       // disconnects from other sessions once any session made a tool call.
       const sessionKey = randomUUID();
       const server = this.createConfiguredServer(sessionKey);
-      const transport = new StreamableHTTPServerTransport({
+      const transport = new NodeStreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
       });
 
@@ -1145,7 +1139,7 @@ export class MinskyMCPServer {
       this.disconnectTracker.recordReconnect();
       const entry: {
         server: Server;
-        transport: StreamableHTTPServerTransport;
+        transport: NodeStreamableHTTPServerTransport;
         lastActiveAt: number;
       } = { server, transport, lastActiveAt: Date.now() };
 
@@ -1310,8 +1304,8 @@ export class MinskyMCPServer {
    */
   private setupRequestHandlers(server: Server, sessionKey: string): void {
     // List tools
-    server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
-      this.diag.captureRequest("tools/list", request, extra);
+    server.setRequestHandler("tools/list", async (request, ctx) => {
+      this.diag.captureRequest("tools/list", request, ctx);
       // mt#1779: dedupe by ToolDefinition identity (dual-registration in
       // `addTool` puts the same tool object under both dotted and underscored
       // keys). Whether to emit the underscored alias is feature-detected from
@@ -1323,10 +1317,23 @@ export class MinskyMCPServer {
       const clientInfo = server.getClientVersion() as { name?: string } | undefined;
       const emitDesktop = shouldEmitDesktopAliases(clientInfo);
       const seen = new Set<ToolDefinition>();
+      // mt#4854: SDK v2 types `Tool.inputSchema` as `{ type: "object"; properties?; required? }`
+      // (with a catchall) where v1 accepted a bare `object`, so the emitted shape now has to
+      // say so. `ToolDefinition.inputSchema` stays `object` — its callers pass a JSON Schema
+      // built elsewhere — hence the cast at the emit site rather than a contract change.
+      //
+      // The `{ type: "object" }` fallback replaces v1's `{}`, and that is NOT a wire change:
+      // the only production `addTool` caller is `command-mapper.ts:508`, which always supplies
+      // `inputSchema` — either a converted Zod JSON Schema or the
+      // `{ type: "object", properties: {}, additionalProperties: true }` default initialized at
+      // `command-mapper.ts:375`. The fallback is unreachable on that path. It is corrected
+      // rather than cast away because a bare `{}` was never spec-valid — the Tool schema has
+      // always required `type: "object"`, and v1's looser typing simply never said so.
+      type EmittedInputSchema = { type: "object" } & Record<string, unknown>;
       const tools: Array<{
         name: string;
         description: string;
-        inputSchema: object;
+        inputSchema: EmittedInputSchema;
       }> = [];
       for (const tool of this.tools.values()) {
         if (seen.has(tool)) continue;
@@ -1334,15 +1341,15 @@ export class MinskyMCPServer {
         tools.push({
           name: emitDesktop ? toClaudeDesktopName(tool.name) : tool.name,
           description: tool.description,
-          inputSchema: tool.inputSchema || {},
+          inputSchema: (tool.inputSchema as EmittedInputSchema | undefined) ?? { type: "object" },
         });
       }
       return { tools };
     });
 
     // Call tool
-    server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-      this.diag.captureRequest("tools/call", request, extra);
+    server.setRequestHandler("tools/call", async (request, ctx) => {
+      this.diag.captureRequest("tools/call", request, ctx);
       // Only true `drain()` (SIGTERM/SIGINT graceful shutdown) sets `draining`
       // — staleness-exit sets `pendingStaleExit` instead, deliberately NOT
       // that flag, so a tool call arriving during the EARLY staleness drain
@@ -1378,7 +1385,7 @@ export class MinskyMCPServer {
       });
 
       // Resolve agentId once per tool call — used for last-touched-by semantics
-      const callerIdentity = this.resolveCallerIdentity(server, extra as RequestExtras | undefined);
+      const callerIdentity = this.resolveCallerIdentity(server, ctx as RequestExtras | undefined);
       const agentId = callerIdentity.agentId;
 
       // mt#1884: per-tool dispatch latency instrumentation (flat Braintrust event).
@@ -1461,7 +1468,7 @@ export class MinskyMCPServer {
           // transport when the caller opted in via _meta.progressToken.
           const progressToken = (request.params as { _meta?: { progressToken?: string | number } })
             ._meta?.progressToken;
-          const progress = buildProgressReporter(progressToken, extra.sendNotification);
+          const progress = buildProgressReporter(progressToken, ctx.mcpReq.notify);
 
           // Inject the resolved caller agentId as `callerActorId` for the tools that
           // need caller identity (mt#3121, extended mt#4408). Two consumers, two reasons:
@@ -1659,7 +1666,7 @@ export class MinskyMCPServer {
           // ES2022 `cause` option so downstream handlers can still inspect machine-
           // readable fields (driver code, sub-error chain) even though the
           // user-facing message is the flattened wireMessage string.
-          if (error instanceof McpError) {
+          if (error instanceof ProtocolError) {
             throw error;
           }
           throw new Error(`Tool execution failed: ${wireMessage}`, { cause: error });
@@ -1701,8 +1708,8 @@ export class MinskyMCPServer {
     });
 
     // List resources
-    server.setRequestHandler(ListResourcesRequestSchema, async (request, extra) => {
-      this.diag.captureRequest("resources/list", request, extra);
+    server.setRequestHandler("resources/list", async (request, ctx) => {
+      this.diag.captureRequest("resources/list", request, ctx);
       return {
         resources: Array.from(this.resources.values()).map((resource) => ({
           uri: resource.uri,
@@ -1713,8 +1720,8 @@ export class MinskyMCPServer {
     });
 
     // Read resource
-    server.setRequestHandler(ReadResourceRequestSchema, async (request, extra) => {
-      this.diag.captureRequest("resources/read", request, extra);
+    server.setRequestHandler("resources/read", async (request, ctx) => {
+      this.diag.captureRequest("resources/read", request, ctx);
       const resource = this.resources.get(request.params.uri);
       if (!resource) {
         throw new Error(`Resource '${request.params.uri}' not found`);
@@ -1741,8 +1748,8 @@ export class MinskyMCPServer {
     });
 
     // List prompts
-    server.setRequestHandler(ListPromptsRequestSchema, async (request, extra) => {
-      this.diag.captureRequest("prompts/list", request, extra);
+    server.setRequestHandler("prompts/list", async (request, ctx) => {
+      this.diag.captureRequest("prompts/list", request, ctx);
       return {
         prompts: Array.from(this.prompts.values()).map((prompt) => ({
           name: prompt.name,
@@ -1752,8 +1759,8 @@ export class MinskyMCPServer {
     });
 
     // Get prompt
-    server.setRequestHandler(GetPromptRequestSchema, async (request, extra) => {
-      this.diag.captureRequest("prompts/get", request, extra);
+    server.setRequestHandler("prompts/get", async (request, ctx) => {
+      this.diag.captureRequest("prompts/get", request, ctx);
       const prompt = this.prompts.get(request.params.name);
       if (!prompt) {
         throw new Error(`Prompt '${request.params.name}' not found`);

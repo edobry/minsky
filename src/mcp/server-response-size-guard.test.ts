@@ -19,6 +19,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
+import { getToolsCallHandler } from "./test-support/tools-call-handler";
 
 const GREET_RESPONSE = "hello from greet2";
 
@@ -64,9 +65,7 @@ describe("tools/call response size cap (mt#4749)", () => {
     });
 
     const sdkServer = (server as unknown as { server: unknown }).server;
-    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
-      ._requestHandlers;
-    const toolsCallHandler = handlers.get("tools/call");
+    const toolsCallHandler = getToolsCallHandler(sdkServer);
     if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
 
     const result = (await toolsCallHandler(
@@ -108,9 +107,7 @@ describe("tools/call response size cap (mt#4749)", () => {
     });
 
     const sdkServer = (server as unknown as { server: unknown }).server;
-    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
-      ._requestHandlers;
-    const toolsCallHandler = handlers.get("tools/call");
+    const toolsCallHandler = getToolsCallHandler(sdkServer);
     if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
 
     await toolsCallHandler(
@@ -143,9 +140,7 @@ describe("tools/call response size cap (mt#4749)", () => {
     });
 
     const sdkServer = (server as unknown as { server: unknown }).server;
-    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
-      ._requestHandlers;
-    const toolsCallHandler = handlers.get("tools/call");
+    const toolsCallHandler = getToolsCallHandler(sdkServer);
     if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
 
     const result = (await toolsCallHandler(

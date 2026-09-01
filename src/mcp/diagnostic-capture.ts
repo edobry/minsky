@@ -1,7 +1,7 @@
 import { appendFileSync, mkdirSync } from "fs";
 import { hostname } from "os";
 import { join } from "path";
-import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import type { Server } from "@modelcontextprotocol/server";
 
 /**
  * Diagnostic capture for mt#953 — agent identity research.
@@ -23,7 +23,7 @@ export interface DiagnosticCapture {
   readonly enabled: boolean;
   captureProcess(): void;
   captureInit(server: Server): void;
-  captureRequest(method: string, request: unknown, extra: unknown): void;
+  captureRequest(method: string, request: unknown, ctx: unknown): void;
 }
 
 const NOOP: DiagnosticCapture = {
@@ -90,15 +90,24 @@ export function createDiagnosticCapture(): DiagnosticCapture {
       };
     },
 
-    captureRequest(method, request, extra) {
-      const e = extra as { sessionId?: string; _meta?: unknown } | undefined;
+    captureRequest(method, request, ctx) {
+      // mt#4854: SDK v2 restructured the handler context. The flat v1 `extra` object
+      // became a structured `ctx`, and the two fields this capture reads moved
+      // DIFFERENTLY: `sessionId` stayed at the top level, while `_meta` moved under
+      // `mcpReq` (the SDK's own `contextPropertyMap.ts` is the source of truth:
+      // `._meta` -> `.mcpReq._meta`, `.sessionId` -> `.sessionId`).
+      //
+      // Reading `ctx._meta` would not throw — it would silently capture `undefined`
+      // for every request, and this is a research capture whose output nothing
+      // asserts on, so the loss would be invisible. Hence the explicit path.
+      const c = ctx as { sessionId?: string; mcpReq?: { _meta?: unknown } } | undefined;
       emit({
         event: "request",
         method,
         request,
         extra: {
-          sessionId: e?.sessionId,
-          _meta: e?._meta,
+          sessionId: c?.sessionId,
+          _meta: c?.mcpReq?._meta,
         },
       });
     },
