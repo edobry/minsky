@@ -15,6 +15,10 @@ import {
   buildReminder,
   run,
   runAskSurface,
+  runArtifactSurface,
+  detectArtifactBodyDeferral,
+  readArtifactBodyForCall,
+  ARTIFACT_TEXT_FIELD_BY_TOOL,
   INJECTION_ENABLED,
   OVERRIDE_ENV_VAR,
   detectActPathWorkaround,
@@ -320,6 +324,132 @@ describe("evaluation stream records misses, not just fires (mt#3463)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Surface G — artifact-body deferral (mt#4769)
+// ---------------------------------------------------------------------------
+
+describe("mt#4769: a deferral authored into an artifact body is observable", () => {
+  /** The shape of the originating incident: a deferral in a PR body. */
+  const DEFERRING_BODY = `## Outcome\n\nThe remaining step ${RAILWAY_ACCESS}, so it is deferred to the operator.\n`;
+
+  const prCreate = (body: unknown): ToolHookInput =>
+    ({
+      session_id: "s-artifact",
+      tool_name: "mcp__minsky__session_pr_create",
+      tool_input: { title: "Ship the thing", body },
+      cwd: "/tmp",
+    }) as unknown as ToolHookInput;
+
+  // AT1 — the surface fires and the record carries the evidence a reviewer
+  // needs to classify it.
+  test("AT1: a capability-shaped deferral in a PR body produces an artifact-body calibration record", () => {
+    const outcome = runArtifactSurface(prCreate(DEFERRING_BODY), ctxWith([]));
+    expect(outcome).not.toBeNull();
+
+    const calibration = outcome?.calibration as Record<string, unknown>;
+    // The unit, so a false-positive review can separate this class from the
+    // chat-prose one. Before mt#4769 the calibration log had no such field and
+    // three units would have written one undifferentiated stream.
+    expect(calibration.evaluated).toBe("artifact-body");
+    expect(calibration.source).toBe("live");
+
+    const matches = calibration.matches as Array<Record<string, unknown>>;
+    expect(matches.length).toBeGreaterThan(0);
+    // The body carries two capability-deferral shapes at once and WHICH pattern
+    // wins is a precedence detail, not this test's subject — pinning it would
+    // couple the artifact surface to the pattern list's ordering. Assert the
+    // pair of properties that actually matter: `phrase` is the pattern hit (the
+    // sweep's diversity axis) and `context` is the surrounding prose a human
+    // reads to classify the fire. Both must be populated (mt#3781).
+    expect(String(matches[0]?.phrase)).toContain("deferred to the operator");
+    expect(String(matches[0]?.context)).toContain(RAILWAY_ACCESS);
+  });
+
+  // AT2 — the denominator. Without this the artifact class would have matches
+  // and no population, and SC5's measured FP rate would have no divisor.
+  test("AT2: a body with no deferral prose yields no outcome (its evaluation is still recorded)", () => {
+    const benign = `## Summary\n\nRenames a constant and updates its two call sites.\n`;
+    expect(runArtifactSurface(prCreate(benign), ctxWith([]))).toBeNull();
+  });
+
+  test("the spec-patch param is read too, not just the PR body", () => {
+    const input = {
+      session_id: "s-artifact-spec",
+      tool_name: "mcp__minsky__tasks_spec_patch",
+      tool_input: { taskId: "mt#1", content: DEFERRING_BODY },
+      cwd: "/tmp",
+    } as unknown as ToolHookInput;
+    expect(runArtifactSurface(input, ctxWith([]))).not.toBeNull();
+  });
+
+  test("the field map names exactly the three writes the rule names", () => {
+    expect(ARTIFACT_TEXT_FIELD_BY_TOOL).toEqual({
+      session_pr_create: "body",
+      session_pr_edit: "body",
+      tasks_spec_patch: "content",
+    });
+  });
+
+  test("a tool outside the map yields no text, so no empty-denominator row is written", () => {
+    const input = {
+      session_id: "s-other",
+      tool_name: "mcp__minsky__session_commit",
+      tool_input: { message: `This ${RAILWAY_ACCESS}.` },
+      cwd: "/tmp",
+    } as unknown as ToolHookInput;
+    expect(readArtifactBodyForCall(input.tool_name, input.tool_input).text).toBeNull();
+    expect(runArtifactSurface(input, ctxWith([]))).toBeNull();
+  });
+
+  test("a non-string body is not coerced into a match", () => {
+    expect(runArtifactSurface(prCreate(undefined), ctxWith([]))).toBeNull();
+    expect(runArtifactSurface(prCreate({ nested: "x" }), ctxWith([]))).toBeNull();
+  });
+
+  test("an empty body is not evaluated as a match", () => {
+    expect(detectArtifactBodyDeferral([], "   \n  ")).toEqual([]);
+  });
+
+  // PR #3533 R1, pinned END-TO-END rather than at the record builder. The wrong
+  // label did not come from `buildCalibrationRecord` — it came from the shared
+  // `toOutcome`, which both prose and ask surfaces route through. A builder-level
+  // assertion passes while the surface that actually reaches it is mislabelled,
+  // so the regression has to be asserted at the surface.
+  test("R1 regression: the ask surface's own outcome is labelled ask-tool-call", () => {
+    const deferringAsk: Record<string, unknown> = {
+      questions: [
+        {
+          question: "The reviewer service is CRASHED. How should we proceed?",
+          options: [{ label: "You recover the reviewer service" }],
+        },
+      ],
+    };
+    const input = {
+      session_id: "s-ask-label",
+      tool_name: "AskUserQuestion",
+      tool_input: deferringAsk,
+      cwd: "/tmp",
+    } as unknown as ToolHookInput;
+
+    const outcome = runAskSurface(input, ctxWith([]));
+    expect(outcome).not.toBeNull();
+    expect((outcome?.calibration as Record<string, unknown>).evaluated).toBe("ask-tool-call");
+  });
+
+  // AT4 — negative control, in its mechanical form. The FULL-revert control is
+  // in the PR body; this one pins the dispatch gate specifically.
+  test("AT4: with the guard overridden, a firing body produces nothing", () => {
+    const prior = process.env[OVERRIDE_ENV_VAR];
+    process.env[OVERRIDE_ENV_VAR] = "1";
+    try {
+      expect(runArtifactSurface(prCreate(DEFERRING_BODY), ctxWith([]))).toBeNull();
+    } finally {
+      if (prior === undefined) delete process.env[OVERRIDE_ENV_VAR];
+      else process.env[OVERRIDE_ENV_VAR] = prior;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Surface A — capability-deferral prose (the family's R1/R3/R5 prose shapes)
 // ---------------------------------------------------------------------------
 
@@ -514,8 +644,16 @@ describe("diversity axis (mt#3781)", () => {
   // sweep actually calls.
   test("AT1: extractDistinctPhrases sees one phrase across the two fires", () => {
     const records = [
-      buildCalibrationRecord("s1", detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION))),
-      buildCalibrationRecord("s2", detectCapabilityDeferral(assistant(TRIGGER_AFTER_REVIEW))),
+      buildCalibrationRecord(
+        "s1",
+        detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION)),
+        "prose-turn"
+      ),
+      buildCalibrationRecord(
+        "s2",
+        detectCapabilityDeferral(assistant(TRIGGER_AFTER_REVIEW)),
+        "prose-turn"
+      ),
     ];
 
     const parsed = records.map(
@@ -529,7 +667,8 @@ describe("diversity axis (mt#3781)", () => {
   test("AT2: the record still carries the surrounding prose", () => {
     const record = buildCalibrationRecord(
       "s1",
-      detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION))
+      detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION)),
+      "prose-turn"
     ) as { matches: Array<{ phrase: string; context: string }> };
 
     // `leadSentences: 1` pulls in the sentence before the trigger, which is the
@@ -775,11 +914,19 @@ describe("calibration-first posture", () => {
   });
 
   test("record carries the mt#2554 coverage-receipt source field and matches shape", () => {
-    const record = buildCalibrationRecord("s4", [
-      { surface: ASK_OPTION_LABEL, matchedPhrase: R5_LABEL, context: R5_LABEL },
-    ]);
+    const record = buildCalibrationRecord(
+      "s4",
+      [{ surface: ASK_OPTION_LABEL, matchedPhrase: R5_LABEL, context: R5_LABEL }],
+      "ask-tool-call"
+    );
     expect(record["source"]).toBe("live");
     expect(record["injection_enabled"]).toBe(false);
+    // PR #3533 R1. `evaluated` shipped defaulted on the first push, so the ask
+    // surface — which reaches this builder through the shared `toOutcome` — was
+    // labelled `prose-turn` on every fire. Pin the VALUE, not just the arity: a
+    // wrong-but-present label reads as data to a false-positive review, which is
+    // worse than the missing field it replaced.
+    expect(record["evaluated"]).toBe("ask-tool-call");
     const matches = record["matches"] as Array<Record<string, unknown>>;
     expect(matches[0]).toEqual({
       category: ASK_OPTION_LABEL,
@@ -1316,7 +1463,7 @@ describe("surface E — ask-justification capability-absence (mt#3999)", () => {
 
   test("the calibration record keeps the shared matches shape", () => {
     const matches = detectAskJustificationAbsence(askTurn({}));
-    const record = buildCalibrationRecord("sess-1", matches);
+    const record = buildCalibrationRecord("sess-1", matches, "prose-turn");
     const entries = record["matches"] as Array<Record<string, unknown>>;
 
     expect(entries[0]).toEqual({

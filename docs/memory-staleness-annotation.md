@@ -1,6 +1,8 @@
 # Memory-staleness annotation
 
-**Status:** shipped (mt#1709, trigger 1) · **Source:** `packages/domain/src/memory/staleness.ts`
+**Status:** shipped — trigger 1 (mt#1709), trigger 2 (mt#4452), trigger 3 (mt#4743) ·
+**Surfaces:** `memory_search` (mt#1709) and `memory_get` (mt#4743) ·
+**Source:** `packages/domain/src/memory/staleness.ts`
 
 A memory that documents a workaround usually names the task that will retire it — _"Budget:
 retire when mt#1700 ships"_, _"Tracking task: mt#1700"_, _"this bridge holds until mt#1700
@@ -8,9 +10,24 @@ lands"_. Until this shipped, that clause was inert prose. Nothing fired when the
 so the record kept surfacing in `memory_search` with a prescription that had already been
 superseded, and readers applied it.
 
-This annotates the search result at read time with the observed delta: the tracking task the
+This annotates the record at read time with the observed delta: the tracking task the
 memory itself names has reached a completed status. It does not edit, retire, or rank the
 record.
+
+## Which reads are annotated (mt#4743)
+
+**Both `memory_search` and `memory_get`.** mt#1709 shipped with one call site, inside
+`search()`, and `get()` returned the row unannotated for its whole life. That was the wrong
+half: an agent reaches a memory **by id** when something already told it which memory matters —
+a handoff naming `mem#367`, a spec cross-reference, a family root cited by a prior task — so the
+fetch-by-id reads are the load-bearing ones, and the speculative search reads were the only ones
+getting the banner.
+
+`MemoryService.getWithStaleness` routes through the **same** `annotateStaleness` pass, on a
+one-element result list, rather than reimplementing it. Parity is therefore structural: a fourth
+trigger added later lands on both surfaces at once, with no second implementation to keep in
+step. `get()` itself is deliberately left un-annotated — it is the internal read for callers
+that want the row, not a verdict about it.
 
 ## What a reader sees
 
@@ -109,6 +126,42 @@ the grammar is identical to the genuine form.
 After the anchor requirement: **131 of 1206 (10.86%)**. mem#96, mem#19 and mem#102 all stopped
 firing.
 
+### The quotation prefilter, and the second defect it closed (mt#4454)
+
+The anchor requirement fixed the first precision defect and left a second one it could not see: a
+clause the record **quotes** rather than declares. The grammar is identical, so — exactly as with
+mem#96 — no reading of the pattern list could have surfaced it. Two live instances:
+
+| Record       | Matched text                       | Context                                                                            |
+| ------------ | ---------------------------------- | ---------------------------------------------------------------------------------- |
+| **mem#484**  | `retire when mt#2056 ships`        | a **prose quotation** of a DIFFERENT memory's budget, inside an incident narrative |
+| **mem#1340** | `` `Retire when mt#1541 ships.` `` | a **code span** — the record's own documented discrimination-control fixture       |
+
+So the text scan now matches the **residual** after ADR-024 Rung 1 elision
+(`packages/domain/src/text/prose-elision.ts`): markdown code spans / fenced blocks / blockquote
+lines, then prose-quoted spans. Both halves are load-bearing — mem#484 survives markdown elision
+untouched, mem#1340 needs it.
+
+Measured over the live corpus (1343 memories, 2026-08-30), comparing the text path before and
+after: **10 records stopped producing a ref, 0 gained one.** All 10 were producing a _stale_
+banner, and the three `Temporary mechanism budget` records kept their genuine `mt#1034` clause
+while losing only the backticked `tracking task: mt#1503` **example** — which is what a
+one-sided fix would have destroyed.
+
+**The corpus-wide fire rate did not move (149 of 1343, 11.09%), and that is not the fix failing.**
+Since mt#4448 the write path derives `associations.tracksTask` from the same extractor, and
+`extractTrackingTaskRefs` checks the association FIRST — so all 10 records already carry a minted
+association and keep rendering stale from it. This fix stops NEW false associations at the source;
+repairing the already-minted ones is **mt#4765**.
+
+**Known false negative, accepted deliberately.** ADR-024's half (b) is _"prose-quoted spans **and
+explicit discussion-framing**"_, and only the first ships. A record quoting its OWN budget —
+mem#1237's _`("retires when mt#4525 and mt#4295 land …")`_ — is elided too, because nothing yet
+distinguishes whose clause is being quoted. Two of the ten (mem#1237, mem#361) are this shape. The
+trade is a record that goes un-annotated against records that were being annotated wrongly; if
+self-quotation proves commoner than 2-in-10, that is the evidence for building the framing half,
+not for widening the patterns.
+
 ### Why it does not reuse `bridge-memory-retirement.ts`'s patterns
 
 `.minsky/hooks/bridge-memory-retirement.ts` (mt#2062) solves what looks like the same problem
@@ -139,8 +192,75 @@ Both `current` and `unresolved` render **nothing**. That is the silence contract
 that emits on every result trains readers to skip it. `unresolved` stays distinguishable in the
 structured field for anyone who asks; it just does not shout.
 
-A record declaring no retirement clause at all gets **no `staleness` field**, which is the
-overwhelmingly common case (about 87% of the corpus).
+A record declaring no retirement clause at all gets **no `staleness` field**, which is still the
+common case. The **87%** figure this sentence carried was measured before triggers 2 and 3
+existed and is superseded: re-measured 2026-08-30 over 1,339 live records, **333 (24.9%)** now
+declare something any trigger can key on — an association, a retirement clause, or a task-state
+assertion — and **75.1%** still declare nothing and cost no lookup.
+
+## Trigger 3 — task-state assertions (mt#4743)
+
+Triggers 1 and 2 both detect a memory declaring **its own** expiry. The most common thing a
+long-lived family root actually contains is neither: a statement about **another task's** state.
+Lineage sections are made of them, and they rot silently — the sentence was true when written and
+nothing re-derives it.
+
+Originating incident: `/plan-task mt#1873` fetched mem#367 by id, carried its description of
+Surface 4 as _"still blind"_ into a spec as current fact, and the analyzer had shipped twelve days
+earlier. Neither shipped trigger could see it.
+
+### The pattern set is one form, and the reason is checkability
+
+Measured over the live corpus (1,339 records):
+
+| Candidate form                              | Records    | Shipped? |
+| ------------------------------------------- | ---------- | -------- |
+| `mt#N (STATUS)` — parenthetical             | 120 (9.0%) | **yes**  |
+| `mt#N is/was still\|now\|scoped\|already …` | 53 (4.0%)  | no       |
+| `mt#N remains …`                            | 9 (0.7%)   | no       |
+
+The split is **not** by frequency. The parenthetical names a status TOKEN, so the claim can be
+compared against the task record and a mismatch is a fact. _"mt#4196 is still blind"_ names no
+status; deciding whether it is now false means reading what "blind" meant, which is a judgment no
+comparison can make. Shipping only the checkable form keeps this trigger's precision a property of
+the mechanism rather than of a heuristic needing calibration.
+
+The closing paren is deliberately **not** required, because the corpus routinely qualifies the
+status inside the same parenthetical — `mt#4141 (DONE 2026-08-14, PR #2998)`,
+`mt#2052 (PLANNING, stalled ~83 days)`. Anchoring on `)` would miss both, and an annotated status
+is if anything more likely to be stale than a bare one.
+
+### What it is worth
+
+Of **174** claims across those 120 records: **121 accurate, 53 (30.5%) now wrong**, of which
+**47** assert a non-terminal status for a task that has since reached DONE or CLOSED. Zero refs
+failed to resolve. Roughly a third of the explicit status claims in this corpus are false.
+
+### Two deliberate non-behaviors
+
+1. **It never touches `extractTrackingTaskRefs`.** That function has a second consumer:
+   `memory.create` derives `associations.tracksTask` from it (mt#4448), and the read path then
+   takes the association fast path without re-scanning text — so a false match there is minted
+   once into structured data and is immune to every later fix (mt#4765). Trigger 3 is a sibling of
+   trigger 2's `annotateMeasurementDecay`: read-path only, so its worst case is a transient
+   advisory a reader dismisses.
+2. **Promotion to `stale` requires the terminal subset.** A lineage bullet reading `mt#X (TODO)`
+   when mt#X is now IN-PROGRESS is dated and says nothing about whether the record's prescription
+   holds; promoting on it would flag a third of the corpus's family roots as obsolete. So
+   promotion needs a drifted assertion whose task went terminal — 47 of the 53, nearly all the
+   signal without the tail carrying almost none. Non-promoting drift is recorded in
+   `taskStateDrift` and renders nothing, preserving `note`'s "present only when stale" invariant.
+
+Trigger 3's refs union into trigger 1's existing lookup, so it adds **no** query.
+
+**No quotation prefilter yet — but the primitive now exists (mt#4454).** A status claim inside a
+code fence or blockquote will still match here: trigger 3 reads the raw body, and only trigger 1's
+`extractTrackingTaskRefs` was wired to the elider. It is tolerable meanwhile for the reason in (1)
+above. What changed is that adopting it is now a one-line composition rather than a dependency —
+`elideQuotedAndMarkdown` from `packages/domain/src/text/prose-elision.ts`. It was deliberately NOT
+applied to triggers 2 and 3 in the same change: their own false-positive profiles are unmeasured,
+and wiring an elider into three detectors on one detector's evidence is the opposite of ADR-024's
+evidence gate. Same applies to trigger 2's `CITED_PATH_PATTERN` / `CITED_TABLE_PATTERN`.
 
 **`unresolved` also emits a structured warning.** A memory naming a task id the task graph
 cannot account for is worth knowing about even though it must never block or annotate the
@@ -165,22 +285,47 @@ the annotation already fired.
     completedTasks: { taskId: string; status: string }[],
     unresolvedTasks: string[],
     note?: string,   // present only when outcome === "stale"
+    measurement?: MeasurementDecay,   // trigger 2 (mt#4452)
+    taskStateDrift?: TaskStateDrift,  // trigger 3 (mt#4743)
   }
 }
 ```
+
+### `memory_get`'s shape is ADDITIVE (mt#4743)
+
+The domain method returns `MemoryReadResult` — `{ record, staleness? }`, the same `staleness`
+type with no `score`, because a fetch-by-id has no query to be relevant to.
+
+The **MCP/CLI response deliberately does not adopt that wrapper.** `memory.get` has always
+returned the record's fields at the top level, so the command spreads the record and puts
+`staleness` alongside:
+
+```ts
+// memory.get response — every pre-existing field stays at its existing path
+{ id, shortId, type, name, description, content, /* … */, staleness?: { … } }
+```
+
+Nothing that consumed `memory.get` before sees a shape change, and the key is **absent
+entirely** — not `null` — for a record declaring no retirement relationship, matching
+`MemorySearchResult`'s optional-not-`"current"` convention. When probing for it, test
+`has("staleness")` rather than reading the value: a `jq '{staleness}'` projection over a
+record that lacks the key prints `null`, which is indistinguishable from a present-and-null
+field.
 
 Computed per response and **never persisted** — the stored record is untouched, so the verdict
 itself cannot go stale.
 
 ## Where it is wired
 
-| Site                                               | Role                                                                |
-| -------------------------------------------------- | ------------------------------------------------------------------- |
-| `packages/domain/src/memory/staleness.ts`          | pure detection core (no I/O)                                        |
-| `packages/domain/src/memory/task-status-lookup.ts` | batched status query — the only piece touching a DB                 |
-| `MemoryService.search()`                           | annotation pass; unions refs across the page, one lookup per search |
-| `src/adapters/shared/commands/memory/index.ts`     | injects the production lookup                                       |
-| `.minsky/hooks/memory-search.ts`                   | **carries the note into injected agent context**                    |
+| Site                                                 | Role                                                                 |
+| ---------------------------------------------------- | -------------------------------------------------------------------- |
+| `packages/domain/src/memory/staleness.ts`            | pure detection core (no I/O)                                         |
+| `packages/domain/src/memory/task-status-lookup.ts`   | batched status query — the only piece touching a DB                  |
+| `packages/domain/src/memory/task-state-assertion.ts` | trigger 3's pure detection core (mt#4743)                            |
+| `MemoryService.search()`                             | annotation pass; unions refs across the page, one lookup per search  |
+| `MemoryService.getWithStaleness()`                   | the fetch-by-id surface (mt#4743); same pass, one-element list       |
+| `src/adapters/shared/commands/memory/index.ts`       | injects the production lookup; spreads `staleness` into `memory.get` |
+| `.minsky/hooks/memory-search.ts`                     | **carries the note into injected agent context**                     |
 
 That last row is the one that makes the feature real. The injector's parser rebuilds each
 result field-by-field, so a new response field is dropped unless explicitly carried — server-side

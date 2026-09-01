@@ -59,13 +59,13 @@ larger than a subtraction from 60 suggests.
 
 | Bucket         | Count   |
 | -------------- | ------- |
-| already-domain | 11      |
-| movable        | 88      |
-| immovable      | 82      |
-| **total**      | **181** |
+| already-domain | 13      |
+| movable        | 89      |
+| immovable      | 83      |
+| **total**      | **185** |
 
-Of the 86 movable, **18** land in ADR-026 tier 1 (they reach persistence, so the
-`ensureHookDomainBootstrap` requirement attaches); the other 69 are tier 2 —
+Of the 89 movable, **18** land in ADR-026 tier 1 (they reach persistence, so the
+`ensureHookDomainBootstrap` requirement attaches); the other 71 are tier 2 —
 leaf functions with an explicit required `deps` parameter, no container, no import-time side effect.
 mt#4374 SC7 asks for a first wave that avoids tier 1; that is the tier-2 column below.
 
@@ -73,7 +73,7 @@ Immovable splits by reason class:
 
 | Reason class                    | Count |
 | ------------------------------- | ----- |
-| no-decision: library            | 42    |
+| no-decision: library            | 43    |
 | no-decision: store              | 11    |
 | host-lifecycle                  | 10    |
 | no-decision: registry           | 10    |
@@ -127,7 +127,7 @@ decision inline — `code-mechanism-assertion-detector.ts` does exactly that acr
 domain call covers one of its surfaces rather than its decision. Recording it as already-domain would
 overstate the baseline in exactly the way this document exists to correct.
 
-## already-domain (11)
+## already-domain (13)
 
 The hook module parses, calls, and relays; the verdict is a domain function. This is the shape
 mt#4374 is extracting toward — `flakiness-control-detector.ts` calls itself "the thin adapter".
@@ -136,6 +136,8 @@ mt#4374 is extracting toward — `flakiness-control-detector.ts` calls itself "t
 | -------------------------------------- | ---------------- | -------------------------------------------------------------------- | --------------------------------------------- | ----- |
 | `block-github-mcp-pr-writes.ts`        | standalone-hook  | `checkToolDenial (detectors/github-mcp-pr-write-denial)`             | decides-only (derived: no fs write, no spawn) | plant |
 | `block-nested-fork-dispatch.ts`        | standalone-hook  | `decideNestedForkDispatchGate (detectors/nested-fork-dispatch-gate)` | decides-only (derived: no fs write, no spawn) | plant |
+| `criterion-reconciliation-scan.ts`     | dispatcher-guard | `detectCriterionReconciliation (detectors/criterion-reconciliation)` | side-effecting (recorder)                     | plant |
+| `cross-turn-hedge-detector.ts`         | dispatcher-guard | `detectCrossTurnHedgeDecay (detectors/cross-turn-hedge)`             | side-effecting (recorder)                     | plant |
 | `dispatch-intent-write-gate.ts`        | standalone-hook  | `decideDispatchIntentGate (detectors/dispatch-intent-gate)`          | decides-only (derived: no fs write, no spawn) | plant |
 | `drive-pr-to-convergence.ts`           | standalone-hook  | `decidePrConvergenceReminder (detectors/pr-convergence-reminder)`    | decides-only (derived: no fs write, no spawn) | plant |
 | `flakiness-control-detector.ts`        | dispatcher-guard | `detectFlakinessAttribution (detectors/flakiness-attribution)`       | side-effecting (injector+recorder)            | plant |
@@ -146,13 +148,13 @@ mt#4374 is extracting toward — `flakiness-control-detector.ts` calls itself "t
 | `tasks-status-set-guard.ts`            | standalone-hook  | `validateStatusTransition (tasks/status-transitions)`                | decides-only (derived: no fs write, no spawn) | plant |
 | `warn-bare-prohibition-dispatch.ts`    | standalone-hook  | `analyzeNegativeConstraints (validation/negative-constraint)`        | side-effecting (derived: writes fs / spawns)  | plant |
 
-## movable (88)
+## movable (89)
 
 Decision is inline in the hook module. `Extraction unit` names the function a wave lifts; where no
 `detect*`/`scan*`/`decide*` export exists the cell says so rather than guessing, and that module
 needs a read before it is waved.
 
-### ADR-026 tier 2 — no persistence reach (70)
+### ADR-026 tier 2 — no persistence reach (71)
 
 mt#4374's preferred first wave. No `ensureHookDomainBootstrap`, so no import-time side effect and no
 bootstrap requirement.
@@ -211,6 +213,7 @@ bootstrap requirement.
 | `require-review-before-merge.ts`               | standalone-hook  | classifyZeroCheckRuns, evaluateCheckRunsPresence                                                | decides-only (derived: no fs write, no spawn)                 | plant | —          |
 | `require-session-for-main-workspace-edits.ts`  | standalone-hook  | checkFilePathDenial                                                                             | decides-only (derived: no fs write, no spawn)                 | plant | —          |
 | `retrospective-completeness-detector.ts`       | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | side-effecting (recorder)                                     | plant | preference |
+| `retrospective-discharge.ts`                   | library          | analyzeDischarge, hasDurableArtifact, hasDeclineMarker                                          | decides-only (derived: no fs write, no spawn)                 | plant | preference |
 | `silent-stretch-detector.ts`                   | dispatcher-guard | measureSilentStretch, findTurnBoundaryTimestamps                                                | side-effecting (injector+recorder)                            | plant | preference |
 | `skill-staleness-detector.ts`                  | dispatcher-guard | detectStaleness, decideAndUpdate                                                                | decides-only (injector)                                       | plant | advisory   |
 | `stamp-ask-conversation.ts`                    | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | side-effecting (derived: writes fs / spawns)                  | plant | —          |
@@ -256,10 +259,11 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `warn-stale-forward-reference.ts`          | standalone-hook  | findForwardReferences, decideStaleForwardReference                | side-effecting (injector+recorder)            | plant | advisory   |
 | `warn-unwired-task-relationship.ts`        | dispatcher-guard | findRelationshipAssertions, isDischarged                          | side-effecting (recorder)                     | plant | advisory   |
 
-## immovable (82)
+## immovable (83)
 
 | Module                                    | Role                | Reason                                                                                                                                                                                                                                                                                             | Effects                                       | Plane   |
 | ----------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ------- |
+| `actionables-block.ts`                    | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `agent-dispatch-stamp.ts`                 | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `armed-watcher.ts`                        | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `ask-conversation-map.ts`                 | store               | no decision to lift — local state store; its content is an effect, not a verdict.                                                                                                                                                                                                                  | side-effecting (derived: writes fs / spawns)  | plant   |
@@ -343,7 +347,7 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `types.ts`                                | library             | product-baseline closure — SPEC.md's observability-baseline rule: transitive imports must stay node-stdlib + same-directory, because the baseline runs from an arbitrary install path.                                                                                                             | side-effecting (derived: writes fs / spawns)  | product |
 | `unrendered-result-fields.ts`             | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 
-## Divergence: matched by the pinned grep, no import (32)
+## Divergence: matched by the pinned grep, no import (34)
 
 Every module below is inside mt#4368's `60` and reaches no domain code. Listed per mt#4372 SC3, which
 requires the grep figure to be carried as a cross-check with its divergences named.
@@ -364,6 +368,7 @@ a change to the generator's naming cannot silently add or drop rows here.
 | `claim-provenance-corpus-fixtures.ts`          | immovable |
 | `code-mechanism-assertion-dedup-store.ts`      | immovable |
 | `context-fill-gauge.ts`                        | movable   |
+| `coverage-claim-path-detector.ts`              | immovable |
 | `coverage-claim-path.ts`                       | movable   |
 | `coverage-receipt.ts`                          | immovable |
 | `dispatch-pretooluse.ts`                       | immovable |
@@ -389,6 +394,7 @@ a change to the generator's naming cannot silently add or drop rows here.
 | `require-execution-evidence-before-merge.ts`   | movable   |
 | `require-growth-justification-before-merge.ts` | movable   |
 | `unrendered-result-fields.ts`                  | immovable |
+| `verify-subagent-model.ts`                     | movable   |
 
 ## Real domain importers (35)
 
@@ -405,6 +411,7 @@ a change to the generator's naming cannot silently add or drop rows here.
 | `check-task-spec-read.ts`                     | movable        | no          |
 | `code-mechanism-assertion-detector.ts`        | movable        | yes         |
 | `constructed-identifier-batch-detector.ts`    | movable        | yes         |
+| `cross-turn-hedge-detector.ts`                | already-domain | —           |
 | `deploy-surface-detector.ts`                  | immovable      | —           |
 | `domain-bootstrap.ts`                         | immovable      | —           |
 | `duplicate-signature-scan.ts`                 | movable        | yes         |

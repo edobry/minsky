@@ -225,6 +225,22 @@ reviewer:
   url: "https://minsky-reviewer-webhook-production.up.railway.app"
 ```
 
+> **The `mcp` section is split across two files by scope (mt#4699).** The block above shows only
+> the project-scoped half. `mcp.auth.token` is a credential for the hosted endpoint and is the same
+> for everyone working on the project, so it belongs in `.minsky/config.yaml` (or user config).
+> **`mcp.transport`, `mcp.port` and `mcp.host` are machine scope and live in the gitignored
+> `.minsky/config.local.yaml`** — two developers on one repo can legitimately differ on them, and
+> `minsky mcp start` does not read them at all (it derives its transport from CLI flags:
+> `--http` / `--local-daemon`). Their only consumers are the local MCP-client registration path
+> (`minsky setup`, `minsky mcp register`).
+>
+> `minsky init` writes the local half for you via `minsky setup`; hand-editing is not expected.
+> Two caveats if you do: the config loader layers `config.local.yaml` over `config.yaml`, so a
+> value set there IS what `getConfiguration()` resolves — but a later `minsky setup` run rewrites
+> the file, so a hand-set transport does not survive one. A project initialized before mt#4699
+> still has these keys in its committed `config.yaml`, and `setup` continues to honour them from
+> there, so nothing needs migrating.
+
 - `mcp.auth.token` — required for `reviewer.retrigger`'s direct endpoint path. Environment
   override: `MINSKY_MCP_AUTH_TOKEN` → `mcp.auth.token`.
 - `reviewer.url` — optional; when unset, falls back to the hosted reviewer URL. Environment

@@ -81,8 +81,8 @@ almost nothing new").
 corpus for family membership would be an unbounded, low-value bulk edit (most
 historical tasks were never structural-fix citations in a retrospective, and
 guessing family membership after the fact from title text alone risks the exact
-premise-verification failure `decision-defaults.mdc §Subsystem-assignment
-verification` warns against). Instead:
+premise-verification failure `decision-defaults.mdc §Premise verification`
+warns against). Instead:
 
 - **Going forward:** when `/retrospective`'s Step 5 (see below) cites a structural-
   fix task and that task lacks a family tag, the retrospective is the natural place

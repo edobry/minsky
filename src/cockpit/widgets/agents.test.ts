@@ -17,6 +17,10 @@ import { SessionStatus } from "@minsky/domain/session/types";
 import type { SessionAttachment } from "@minsky/domain/session/index";
 import { isAllProjects } from "@minsky/domain/project/scope";
 import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-transcripts-schema";
+import { agentSpawnsTable } from "@minsky/domain/storage/schemas/agent-spawns-schema";
+import { minskySessionLinksTable } from "@minsky/domain/storage/schemas/minsky-session-links-schema";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -467,6 +471,7 @@ function makeDrivenSnapshot(overrides: Partial<DrivenSessionSnapshot> = {}): Dri
     taskId: "mt#9999",
     minskySessionId: "aaaaaaaa-0000-0000-0000-000000000001",
     harnessSessionId: null,
+    projectId: null,
     ...overrides,
   };
 }
@@ -544,6 +549,221 @@ describe("spliceDrivenSessions", () => {
     const agents = (data.payload as { agents: AgentRow[] }).agents;
     expect(agents.length).toBe(1);
     expect(agents[0]?.driven).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Driven-session project scoping (mt#4732)
+//
+// spliceDrivenSessions is called unconditionally on the full driven array
+// with no scope awareness prior to this task; these tests pin the three-way
+// classification it now applies under a specific project filter (hidden /
+// standalone / folded into unattributed-summary) directly against the
+// exported function, mirroring the existing direct-call tests above.
+// ---------------------------------------------------------------------------
+
+const UNATTRIBUTED_SUMMARY_KIND = "unattributed-summary" as const;
+const VISIBLE_WORKSPACE_ID = "visible-workspace";
+
+describe("spliceDrivenSessions — project scoping (mt#4732)", () => {
+  const PROJECT_A = "aaaa1111-0000-0000-0000-00000000AAAA";
+  const PROJECT_B = "bbbb2222-0000-0000-0000-00000000BBBB";
+
+  test("AT1: a driven session bound to a DIFFERENT project's workspace does not appear when scoped to another project", () => {
+    // The bound workspace isn't in `rows` at all — exactly what happens when
+    // it belongs to a different project and was filtered out upstream by
+    // listSessions's own projectScope.
+    const snapshot = makeDrivenSnapshot({
+      projectId: PROJECT_A,
+      minskySessionId: "some-project-a-workspace",
+    });
+    const result = spliceDrivenSessions([], [snapshot], PROJECT_B);
+    expect(result.find((r) => r.sessionId === DRIVEN_LOCAL_ID)).toBeUndefined();
+    expect(result.length).toBe(0);
+  });
+
+  test("a driven session confirmed bound to the SAME project survives the filter and carries real projectId", () => {
+    const snapshot = makeDrivenSnapshot({ projectId: PROJECT_B, minskySessionId: null });
+    const result = spliceDrivenSessions([], [snapshot], PROJECT_B);
+    const row = result.find((r) => r.sessionId === DRIVEN_LOCAL_ID);
+    if (!row) throw new Error("expected the driven-session row to survive the filter");
+    expect(row.kind).toBe("driven-session");
+    expect(row.projectId).toBe(PROJECT_B);
+  });
+
+  test("AT2: a driven session with no resolvable project is never dropped — it folds into the unattributed-summary aggregate", () => {
+    const snapshot = makeDrivenSnapshot({
+      projectId: null,
+      minskySessionId: null,
+      taskId: null,
+      harnessSessionId: "conv-unresolvable",
+      cwd: "/some/unresolvable/cwd",
+    });
+    const result = spliceDrivenSessions([], [snapshot], PROJECT_B);
+
+    // Not shown as a full top-level peer...
+    expect(result.find((r) => r.sessionId === DRIVEN_LOCAL_ID)).toBeUndefined();
+    // ...but never silently dropped either.
+    const summary = result.find((r) => r.kind === UNATTRIBUTED_SUMMARY_KIND);
+    if (!summary) throw new Error("expected the unattributed-summary row to be present");
+    expect(summary.projectId).toBeNull();
+    expect(summary.subagents.map((s) => s.conversationId)).toContain("conv-unresolvable");
+  });
+
+  test("mt#4732 R1: a rehydrated session (taskId present, projectId null) folds into unattributed-summary and is NOT mislabeled 'Scratch'", () => {
+    // A session rehydrated from the driven_sessions table after a daemon
+    // restart: taskId/minskySessionId are persisted and carried over, but
+    // projectId is not (see DrivenSessionRecord.projectId's doc comment) —
+    // this must not be confused with a genuinely-untasked scratch launch.
+    const snapshot = makeDrivenSnapshot({
+      projectId: null,
+      taskId: "mt#1234",
+      minskySessionId: "rehydrated-workspace-id",
+      cwd: "/fixture-state/sessions/rehydrated-workspace-id",
+    });
+    const result = spliceDrivenSessions([], [snapshot], PROJECT_B);
+
+    const summary = result.find((r) => r.kind === UNATTRIBUTED_SUMMARY_KIND);
+    if (!summary) throw new Error("expected the unattributed-summary row to be present");
+    expect(summary.subagents.length).toBe(1);
+    expect(summary.subagents[0]?.label).toBe("rehydrated-workspace-id");
+    expect(summary.subagents[0]?.label).not.toContain("Scratch");
+  });
+
+  test("folds into an EXISTING unattributed-summary row already produced by the conversation merge, rather than creating a second one", () => {
+    const existingSummaryRow: AgentRow = {
+      sessionId: `unattributed:${PROJECT_B}`,
+      kind: UNATTRIBUTED_SUMMARY_KIND,
+      shortId: null,
+      title: "1 unattributed conversation",
+      liveness: null,
+      taskId: null,
+      taskTitle: null,
+      prNumber: null,
+      prStatus: null,
+      lastActivityAt: "2026-08-20T00:00:00.000Z",
+      agentId: null,
+      conversationId: null,
+      cwd: null,
+      subagents: [
+        {
+          conversationId: "conv-existing",
+          label: "x",
+          cwd: null,
+          startedAt: null,
+          endedAt: null,
+          model: null,
+        },
+      ],
+      model: null,
+      driven: null,
+      attachState: null,
+      interfaceBinding: null,
+      projectId: null,
+    };
+    const snapshot = makeDrivenSnapshot({
+      projectId: null,
+      minskySessionId: null,
+      harnessSessionId: "conv-new-driven",
+    });
+    const result = spliceDrivenSessions([existingSummaryRow], [snapshot], PROJECT_B);
+
+    const summaries = result.filter((r) => r.kind === UNATTRIBUTED_SUMMARY_KIND);
+    expect(summaries.length).toBe(1);
+    expect(summaries[0]?.subagents.map((s) => s.conversationId)).toEqual([
+      "conv-existing",
+      "conv-new-driven",
+    ]);
+    expect(summaries[0]?.title).toBe("2 unattributed conversations");
+  });
+
+  test("mt#4732 R1: does NOT fold into an unattributed-summary row belonging to a DIFFERENT scope", () => {
+    const wrongScopeSummaryRow: AgentRow = {
+      sessionId: `unattributed:${PROJECT_A}`, // a different scope's row
+      kind: UNATTRIBUTED_SUMMARY_KIND,
+      shortId: null,
+      title: "1 unattributed conversation",
+      liveness: null,
+      taskId: null,
+      taskTitle: null,
+      prNumber: null,
+      prStatus: null,
+      lastActivityAt: "2026-08-20T00:00:00.000Z",
+      agentId: null,
+      conversationId: null,
+      cwd: null,
+      subagents: [
+        {
+          conversationId: "conv-other-scope",
+          label: "x",
+          cwd: null,
+          startedAt: null,
+          endedAt: null,
+          model: null,
+        },
+      ],
+      model: null,
+      driven: null,
+      attachState: null,
+      interfaceBinding: null,
+      projectId: null,
+    };
+    const snapshot = makeDrivenSnapshot({
+      projectId: null,
+      minskySessionId: null,
+      harnessSessionId: "conv-this-scope",
+    });
+    // Scoped to PROJECT_B, while the pre-existing row in `rows` is scoped to
+    // PROJECT_A — matching by kind alone (the pre-fix behavior) would fold
+    // "conv-this-scope" into the WRONG scope's row.
+    const result = spliceDrivenSessions([wrongScopeSummaryRow], [snapshot], PROJECT_B);
+
+    const summaries = result.filter((r) => r.kind === UNATTRIBUTED_SUMMARY_KIND);
+    expect(summaries.length).toBe(2);
+    const wrongScope = summaries.find((r) => r.sessionId === `unattributed:${PROJECT_A}`);
+    expect(wrongScope?.subagents.map((s) => s.conversationId)).toEqual(["conv-other-scope"]);
+    const rightScope = summaries.find((r) => r.sessionId === `unattributed:${PROJECT_B}`);
+    expect(rightScope?.subagents.map((s) => s.conversationId)).toEqual(["conv-this-scope"]);
+  });
+
+  test("AT3: under ALL_PROJECTS scope, an unmatched driven session still becomes its own standalone row and now carries real projectId", () => {
+    const snapshot = makeDrivenSnapshot({ projectId: PROJECT_A, minskySessionId: null });
+    const result = spliceDrivenSessions([], [snapshot]); // default ALL_PROJECTS — unchanged shape
+    const row = result.find((r) => r.sessionId === DRIVEN_LOCAL_ID);
+    if (!row) throw new Error("expected the standalone driven-session row");
+    expect(row.kind).toBe("driven-session");
+    expect(row.projectId).toBe(PROJECT_A);
+  });
+
+  test("matching a VISIBLE workspace row still annotates unconditionally, regardless of the driven record's own projectId", () => {
+    const workspaceRow: AgentRow = {
+      sessionId: VISIBLE_WORKSPACE_ID,
+      kind: "dispatched-agent",
+      shortId: null,
+      title: VISIBLE_WORKSPACE_ID,
+      liveness: "healthy",
+      taskId: null,
+      taskTitle: null,
+      prNumber: null,
+      prStatus: null,
+      lastActivityAt: "2026-08-20T00:00:00.000Z",
+      agentId: null,
+      conversationId: null,
+      cwd: null,
+      subagents: [],
+      model: null,
+      driven: null,
+      attachState: null,
+      interfaceBinding: null,
+      projectId: PROJECT_B,
+    };
+    const snapshot = makeDrivenSnapshot({
+      projectId: PROJECT_A, // stale/mismatched — irrelevant once matched to a visible row
+      minskySessionId: VISIBLE_WORKSPACE_ID,
+    });
+    const result = spliceDrivenSessions([workspaceRow], [snapshot], PROJECT_B);
+    expect(result.length).toBe(1);
+    expect(result[0]?.driven).toEqual({ sessionId: DRIVEN_LOCAL_ID, status: "running" });
   });
 });
 
@@ -824,6 +1044,192 @@ describe("createAgentsWidget — project-scope wiring (mt#2418)", () => {
   // already covered directly, with clean DI (no mock.module, banned by this
   // repo's own custom/no-global-module-mocks ESLint rule), in
   // src/cockpit/project-scope.test.ts.
+});
+
+// ---------------------------------------------------------------------------
+// Conversation-derived-row project scoping (mt#4728)
+//
+// Widget-level reproduction of the live-verified leak: a
+// `principal-conversation` row (kind `principal-conversation` /
+// `subagent-group`) bypassed the project filter that `listSessions` already
+// honors, because `mergeConversationRows`'s `agent_transcripts` window query
+// ran unscoped. These tests exercise the full `createAgentsWidget().fetch()`
+// path — the same layer the peezombie repro was observed at — rather than
+// `mergeConversationRows` in isolation (covered separately in
+// `run-merge.test.ts`).
+// ---------------------------------------------------------------------------
+
+interface ConversationDbFixtureRow {
+  agentSessionId: string;
+  cwd: string | null;
+  startedAt: Date | null;
+  endedAt: Date | null;
+  projectId: string | null;
+  title?: string | null;
+}
+
+/**
+ * Builds a fake conversation DB whose `.where()` branch simulates a
+ * REAL project-scoped Postgres filter (`project_id = filterProjectId OR
+ * project_id IS NULL`), while its direct `.orderBy()` branch (taken only
+ * when `mergeConversationRows` resolves ALL_PROJECTS) returns every row
+ * UNFILTERED. This is deliberately asymmetric so the test can distinguish
+ * "the widget correctly threaded `?project=` through to the merge" from "it
+ * didn't" — a wiring bug that silently drops the scope before calling
+ * `cachedMerge.getMerge` would take the `.orderBy()`-direct branch and leak
+ * every project's rows, exactly like the pre-mt#4728 defect.
+ */
+function makeConversationDb(
+  transcripts: ConversationDbFixtureRow[],
+  filterProjectId: string
+): PostgresJsDatabase {
+  const filtered = transcripts.filter(
+    (t) => t.projectId === filterProjectId || t.projectId == null
+  );
+  return {
+    select: () => ({
+      from: (table: unknown) => {
+        if (table === agentTranscriptsTable) {
+          return {
+            where: () => ({ orderBy: () => ({ limit: () => Promise.resolve(filtered) }) }),
+            orderBy: () => ({ limit: () => Promise.resolve(transcripts) }),
+          };
+        }
+        if (table === minskySessionLinksTable) {
+          return {
+            innerJoin: () => ({ where: () => Promise.resolve([]) }),
+            where: () => Promise.resolve([]),
+          };
+        }
+        if (table === agentSpawnsTable) return { where: () => Promise.resolve([]) };
+        throw new Error("makeConversationDb: unexpected table in .from()");
+      },
+    }),
+    // Every fixture transcript below carries a `title`, so run-merge.ts's
+    // label logic never requests bounded user turns — an empty array is
+    // the correct response either way.
+    execute: () => Promise.resolve([]),
+  } as unknown as PostgresJsDatabase;
+}
+
+// Shared fixture strings — extracted to satisfy custom/no-magic-string-duplication.
+const PEEZOMBIE_SLUG = "edobry/peezombie.me";
+const MINSKY_CWD = "/Users/edobry/Projects/minsky";
+const PEEZOMBIE_CWD = "/Users/edobry/Projects/peezombie.me";
+
+describe("createAgentsWidget — conversation-derived-row project scoping (mt#4728)", () => {
+  const PROJECT_MINSKY = "aaaa1111-0000-0000-0000-000000000001";
+  const PROJECT_PEEZOMBIE = "bbbb2222-0000-0000-0000-000000000002";
+  const CONV_MINSKY = "conv-minsky-0000-0000-0000-000000000001";
+  const CONV_PEEZOMBIE = "conv-peezombie-000-0000-0000-00000000002";
+  const CONV_UNATTRIBUTED = "conv-null-0000-0000-0000-000000000003";
+
+  function makeScopedWidget(conversationDb: PostgresJsDatabase) {
+    return createAgentsWidget(
+      async () => makeSessionProvider([]),
+      undefined,
+      async () => conversationDb,
+      undefined,
+      undefined,
+      async () => makeScopeResolverDb([{ id: PROJECT_PEEZOMBIE, slug: PEEZOMBIE_SLUG }])
+    );
+  }
+
+  test("AT1/AT3: filtering to peezombie excludes the Minsky-cwd principal-conversation row (live-verified repro)", async () => {
+    const conversationDb = makeConversationDb(
+      [
+        {
+          agentSessionId: CONV_MINSKY,
+          cwd: MINSKY_CWD,
+          startedAt: new Date("2026-08-29T14:00:00.000Z"),
+          endedAt: null,
+          projectId: PROJECT_MINSKY,
+          title: "Minsky work",
+        },
+        {
+          agentSessionId: CONV_PEEZOMBIE,
+          cwd: PEEZOMBIE_CWD,
+          startedAt: new Date("2026-08-29T14:05:00.000Z"),
+          endedAt: null,
+          projectId: PROJECT_PEEZOMBIE,
+          title: "Peezombie work",
+        },
+      ],
+      PROJECT_PEEZOMBIE
+    );
+
+    const widget = makeScopedWidget(conversationDb);
+
+    const data = await widget.fetch({
+      id: "agents",
+      query: { project: PEEZOMBIE_SLUG },
+    });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+    const cwds = agents.map((a) => a.cwd);
+    expect(cwds).not.toContain(MINSKY_CWD);
+    expect(cwds).toContain(PEEZOMBIE_CWD);
+
+    const peezombieRow = agents.find((a) => a.sessionId === CONV_PEEZOMBIE);
+    if (!peezombieRow) throw new Error("expected the peezombie row");
+    expect(peezombieRow.kind).toBe("principal-conversation");
+    expect(peezombieRow.projectId).toBe(PROJECT_PEEZOMBIE);
+  });
+
+  // mt#4733 superseded this test's original per-row assertion: pre-mt#4733,
+  // the NULL-attribution conversation surfaced as its OWN standalone row
+  // (`a.sessionId === CONV_UNATTRIBUTED`). Live measurement at mt#4733 found
+  // that literal treatment floods a narrow filter (45:2 in production) — so
+  // it now folds into a single collapsed "unattributed-summary" row (SC2)
+  // instead. The underlying guarantee this test protects — a NULL-attribution
+  // conversation is never silently dropped by the filter — is unchanged;
+  // only its representation is (see run-merge.ts's module header).
+  test("AT2/SC2 (mt#4733): a NULL-project-attribution conversation is never dropped by a specific project filter — it folds into the collapsed unattributed-summary row", async () => {
+    const conversationDb = makeConversationDb(
+      [
+        {
+          agentSessionId: CONV_MINSKY,
+          cwd: MINSKY_CWD,
+          startedAt: new Date("2026-08-29T14:00:00.000Z"),
+          endedAt: null,
+          projectId: PROJECT_MINSKY,
+          title: "Minsky work",
+        },
+        {
+          agentSessionId: CONV_UNATTRIBUTED,
+          cwd: "/some/unresolvable/cwd",
+          startedAt: new Date("2026-08-29T14:10:00.000Z"),
+          endedAt: null,
+          projectId: null,
+          title: "Ambient conversation",
+        },
+      ],
+      PROJECT_PEEZOMBIE
+    );
+
+    const widget = makeScopedWidget(conversationDb);
+
+    const data = await widget.fetch({
+      id: "agents",
+      query: { project: PEEZOMBIE_SLUG },
+    });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+    const cwds = agents.map((a) => a.cwd);
+    // The other project's attributed row is excluded...
+    expect(cwds).not.toContain(MINSKY_CWD);
+    // ...but the NULL-attribution conversation is never dropped — it's
+    // still present, inside the collapsed aggregate's expandable list.
+    expect(agents.find((a) => a.sessionId === CONV_UNATTRIBUTED)).toBeUndefined();
+    const summaryRow = agents.find((a) => a.kind === "unattributed-summary");
+    if (!summaryRow) throw new Error("expected the unattributed-summary row to be present");
+    expect(summaryRow.projectId).toBeNull();
+    expect(summaryRow.subagents.map((s) => s.conversationId)).toContain(CONV_UNATTRIBUTED);
+  });
 });
 
 // ---------------------------------------------------------------------------

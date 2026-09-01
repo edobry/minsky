@@ -20,7 +20,7 @@ import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { useListControls, type SortDir } from "../lib/useListControls";
 import { changesetRecencyTime } from "../lib/format";
-import { useProject } from "../lib/project-context";
+import { useProject, shouldShowProjectIndicator } from "../lib/project-context";
 import {
   Changesets,
   type ChangesetItem,
@@ -75,7 +75,10 @@ type Filters = {
 
 export function ChangesetsPage() {
   const navigate = useNavigate();
-  const { selectedSlug, queryParam } = useProject();
+  const { selectedSlug, queryParam, projects } = useProject();
+  // mt#4729: suppressed when a single project is selected or only one
+  // project exists — see shouldShowProjectIndicator's doc comment.
+  const showProjectBadge = shouldShowProjectIndicator(projects, selectedSlug);
 
   const query = useQuery<ChangesetsListResponse, Error>({
     // mt#2418: selectedSlug in the key so switching projects invalidates
@@ -146,8 +149,14 @@ export function ChangesetsPage() {
   });
 
   function handleRowClick(item: ChangesetItem) {
-    if (item.pr.number != null) {
-      navigate(`/changeset/${encodeURIComponent(String(item.pr.number))}`);
+    // Prefer the server-supplied `changesetId` (mt#4724): it is bare for the
+    // default project and `owner/repo#N` for any other, so a row from a second
+    // project navigates to ITS PR rather than to the default project's PR of
+    // the same number. Falls back to the bare number for payloads that predate
+    // the field.
+    const id = item.changesetId ?? (item.pr.number != null ? String(item.pr.number) : null);
+    if (id) {
+      navigate(`/changeset/${encodeURIComponent(id)}`);
     }
   }
 
@@ -242,7 +251,11 @@ export function ChangesetsPage() {
       {query.isLoading ? (
         <LoadingState message="Loading changesets…" variant="page" />
       ) : (
-        <Changesets items={controls.pageItems} onRowClick={handleRowClick} />
+        <Changesets
+          items={controls.pageItems}
+          onRowClick={handleRowClick}
+          showProjectBadge={showProjectBadge}
+        />
       )}
 
       {controls.pageCount > 1 && (

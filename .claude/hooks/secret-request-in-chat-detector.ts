@@ -42,7 +42,7 @@
 // @see mt#4030 — `credentials.request`, the surface the advisory names
 // @see mt#3987 — the governing suppression decision
 
-import { readInput, readHostCap, deriveBudgets, findRepoRoot } from "./types";
+import { readInput, readHostCap, deriveBudgets } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
   resolveParentTranscriptLinesForPath,
@@ -61,8 +61,7 @@ import type {
   SecretRequestResult,
   SuppressionCause,
 } from "../../packages/domain/src/detectors/secret-request-in-chat";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { logCalibrationRecord, logEvaluationRecord } from "./dispatcher";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
 /**
@@ -84,7 +83,7 @@ export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_SECRET_REQUEST_IN_CHAT";
  * describes-suppression is over-reaching. The FN risk stays measurable only if
  * the suppressions are counted.
  */
-const EVALUATION_LOG = ".minsky/secret-request-in-chat-evaluations.jsonl";
+const EVALUATION_LOG_NAME = "secret-request-in-chat";
 
 /** The tool whose option labels carry surface B. */
 const ASK_TOOL_NAME = "AskUserQuestion";
@@ -156,18 +155,18 @@ export function evaluateTurn(turnLines: TranscriptLine[]): SecretRequestEvaluati
   };
 }
 
-function appendJsonl(cwd: string, relativePath: string, record: Record<string, unknown>): void {
-  try {
-    const logPath = resolve(findRepoRoot(cwd), relativePath);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(
-      `[secret-request-in-chat-detector] Failed to write ${relativePath}: ${msg}\n`
-    );
-  }
+// mt#4752: both streams resolve through the shared helpers, which derive the
+// filename from the stream NAME. `cwd` is the guard's raw input cwd — a
+// FALLBACK, never an authoritative root (see `calibrationLogPath`'s docblock).
+// Two wrappers rather than one path-taking helper: taking the PATH as a
+// parameter is the degree of freedom that let a sibling's filename be spelled
+// wrong and escape .gitignore for weeks (mt#2492).
+function appendEvaluationRecord(cwd: string, record: Record<string, unknown>): void {
+  logEvaluationRecord(EVALUATION_LOG_NAME, record, { fallbackCwd: cwd });
+}
+
+function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): void {
+  logCalibrationRecord(CALIBRATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
 
 /**
@@ -299,7 +298,7 @@ export async function run(
   // about it. The calibration record below is RETURNED, not written here:
   // writing it from both places double-counts every fire, which is the shape
   // that makes a rate un-measurable.
-  appendJsonl(input.cwd ?? process.cwd(), EVALUATION_LOG, {
+  appendEvaluationRecord(input.cwd ?? process.cwd(), {
     timestamp: new Date().toISOString(),
     session_id: input.session_id,
     fired: evaluation.matched,
@@ -318,7 +317,7 @@ export async function run(
   return outcome;
 }
 
-const CALIBRATION_LOG = ".minsky/secret-request-in-chat-calibration.jsonl";
+const CALIBRATION_LOG_NAME = "secret-request-in-chat";
 
 export async function main(): Promise<void> {
   const capInfo = readHostCap("secret-request-in-chat-detector.ts", undefined, {
@@ -378,7 +377,7 @@ export async function main(): Promise<void> {
 
   if (Date.now() < overallDeadline) {
     const cwd = input.cwd ?? process.cwd();
-    appendJsonl(cwd, EVALUATION_LOG, {
+    appendEvaluationRecord(cwd, {
       timestamp: new Date().toISOString(),
       session_id: input.session_id,
       fired: evaluation.matched,
@@ -388,7 +387,7 @@ export async function main(): Promise<void> {
       optionLabelCount: evaluation.optionLabelCount,
     });
     if (evaluation.matched) {
-      appendJsonl(cwd, CALIBRATION_LOG, calibrationRecord(input, evaluation));
+      appendCalibrationRecord(cwd, calibrationRecord(input, evaluation));
     }
   }
 

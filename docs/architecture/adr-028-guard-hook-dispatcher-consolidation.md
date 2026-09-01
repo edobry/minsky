@@ -460,6 +460,52 @@ simplest. Either way, the **schema** becomes shared and the **registration** (wh
 calibration, and their diversity-signal field) is derivable from D2's registry rather than
 hardcoded per-log in `calibration-sweep.ts` as it is today.
 
+**Amendment (mt#4748, 2026-08-30) — the working-tree path above is superseded; state-dir,
+project-keyed, is now where these records live.** The paragraph above decided a REPO-rooted
+location (`.minsky/calibration/<guard-name>.jsonl` or `.minsky/calibration.jsonl`) — what
+actually shipped in Phase 1 was a variant of the first option,
+`.minsky/<guard-name>-calibration.jsonl` per guard, still repo-rooted. Both are the same class of
+decision this amendment reverses: **every Minsky-managed project's working tree**, not just this
+repo's, received these files, and only this repo's own `.gitignore` (mt#2667) ever ignored them —
+a landmine for every other managed project, observed live on peezombie.me (mt#4681). mt#4748's own
+planning findings recorded this as a **DEVIATE** from this section, to be corrected in the same
+change; this is that correction.
+
+`calibrationLogPath` / `evaluationLogPath` (`.minsky/hooks/dispatcher.ts`) now resolve under
+`getMinskyStateDir()` (`~/.local/state/minsky/`, overridable via `MINSKY_STATE_DIR`), nested under
+`projects/<key>/` where `<key>` is a stable hash of the repo root — so calibration/evaluation
+records from different Minsky-managed repos on one machine never collide in a shared file, the
+property the old per-repo working-tree location gave for free. `.gitignore`'s
+`**/.minsky/*-calibration.jsonl` / `**/.minsky/*-evaluations.jsonl` patterns (mt#2667) are RETIRED
+(mt#4748 SC6) rather than left as dead denylist: nothing writes into any working tree for this
+family anymore, so there is no path left for a pattern to cover. See
+`docs/architecture/guard-calibration-stream-inventory.md` for the per-stream location column and
+`packages/domain/src/guard-events/stream-sources.ts` (the `"repo" | "state-dir"` enum every stream
+declares) for the mechanism.
+
+**Second amendment (mt#4816, 2026-08-31) — the amendment above was scoped to one FAMILY, and one
+stream outlived it.** The paragraph above says "nothing writes into any working tree for this
+family anymore," which was true and narrower than it read: `subagent-model-mismatch`
+(`family: "special"`, written by `.minsky/hooks/verify-subagent-model.ts`) was not in the
+calibration/evaluation family and stayed `location: "repo"` — the last such row. The rationale
+above is not family-specific (a working-tree landmine is a landmine for any stream), so mt#4816
+carries it to that stream: it is now state-dir and **flat**, alongside `fire-log` and
+`guard-health-log`, rather than project-keyed. Flat because `project_id` is resolved from each
+record's `session_id` by `attachProjectIds`
+(`packages/domain/src/guard-events/ingest-service.ts`) and never from the file path, so
+project-keying buys no attribution the row does not already carry.
+
+**The `"repo"` member of `GuardEventStreamLocation` is retired in the same change**, and the
+branch that consumed it in `resolveStreamPath` is deleted. Declaring a repo-rooted stream is now
+a TYPE ERROR — this ADR's invariant is enforced by the compiler rather than by a periodic sweep,
+which matters because the four preceding tasks in this family (mt#4752, mt#4778, mt#4811,
+mt#4816) each found "one more writer" that a directory-scoped sweep had missed.
+
+The **schema** and **registration** decisions this section made are unaffected — only the
+filesystem LOCATION changes. What reads these records (the file-based `CALIBRATION_LOG_REGISTRY`
+sweep vs. a future `guard_events` DB read) is explicitly out of mt#4748's scope; see mt#4771 for
+the one known reader (`src/adapters/shared/commands/calibration.ts`) still resolving the pre-amendment path.
+
 ### D5 — Subagent merge policy: default-deny with an explicit, auditable capability grant
 
 Of the three options the spec poses — (a) blanket `agent_id`-non-empty deny, (b) unconditional

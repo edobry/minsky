@@ -164,7 +164,12 @@ export function buildQuery(toolName: string, args: Record<string, unknown>): str
  */
 function formatResult(result: MemorySearchResult, charBudget: number): string {
   const { record, score } = result;
-  const header = `[${record.type}] ${record.name} — score ${score.toFixed(2)}`;
+  // mt#4787: labelled `similarity`, not `score`. This block is AGENT-facing and
+  // fires on most prompts via the memory-search bridge, so it was the widest of
+  // the three surfaces rendering the number — and a bare "score" gives a reader
+  // no way to know which direction is better. `MemorySearchResult.score` is now
+  // a cosine similarity in [0,1] where higher is more similar; the label says so.
+  const header = `[${record.type}] ${record.name} — similarity ${score.toFixed(2)}`;
   const body = record.description ?? record.content ?? "";
   const snippetBudget = Math.max(0, charBudget - header.length - 4);
   const snippet =

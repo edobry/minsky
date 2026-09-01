@@ -5,6 +5,7 @@
  */
 
 import { Command } from "commander";
+import { exit } from "@minsky/shared/process";
 
 export function createGitHubCommand(): Command {
   const github = new Command("github").alias("gh").description("GitHub integration commands");
@@ -16,7 +17,10 @@ export function createGitHubCommand(): Command {
     .option("--verbose", "Show detailed connection information")
     .action(async (options) => {
       const { testGitHubConnection } = await import("./test");
-      await testGitHubConnection(options);
+      const succeeded = await testGitHubConnection(options);
+      if (!succeeded) {
+        exit(1);
+      }
     });
 
   // Status command
@@ -26,7 +30,10 @@ export function createGitHubCommand(): Command {
     .option("--verbose", "Show detailed configuration information")
     .action(async (options) => {
       const { showGitHubStatus } = await import("./status");
-      await showGitHubStatus(options);
+      const succeeded = await showGitHubStatus(options);
+      if (!succeeded) {
+        exit(1);
+      }
     });
 
   return github;

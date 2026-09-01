@@ -46,6 +46,7 @@ import { evaluateSizeBudget, DEFAULT_PER_RULE_CEILING_CHARS } from "../size-budg
 import { DEFAULT_CLAUDE_MD_SIZE_BUDGET } from "../claude-md-size-budget";
 import type { MinskyMonolithicCompileResult } from "../size-budget-report";
 import { loadAdaptedRules, type SkipLogFn, type DynamicImportFn } from "./rule-loader";
+import { createSkipRecorder } from "./skip-recorder";
 
 /** The canonical rule ID for the memory-usage directive. */
 const MEMORY_USAGE_RULE_ID = "memory-usage";
@@ -140,7 +141,9 @@ function makeClaudeMdTarget(
       fsDeps?: MinskyCompileFsDeps
     ): Promise<MinskyMonolithicCompileResult> {
       const fs = fsDeps ?? (realFs as MinskyCompileFsDeps);
-      const rules = await loadAdaptedRules(workspacePath, fs, onSkip, dynamicImport);
+      // mt#3119: capture the loader's FAILURE skips so they reach the result.
+      const { record: recordSkip, reasons: skipReasons } = createSkipRecorder(onSkip);
+      const rules = await loadAdaptedRules(workspacePath, fs, recordSkip, dynamicImport);
 
       const { content, rulesIncluded, rulesSkipped } = buildClaudeMdContent(
         rules,
@@ -173,6 +176,7 @@ function makeClaudeMdTarget(
         filesWritten: [outputPath],
         definitionsIncluded: rulesIncluded,
         definitionsSkipped: rulesSkipped,
+        skipReasons,
         content: options.dryRun ? content : undefined,
         contentsByPath: options.dryRun ? contentsByPath : undefined,
         sizeChars: sizeEvaluation.sizeChars,

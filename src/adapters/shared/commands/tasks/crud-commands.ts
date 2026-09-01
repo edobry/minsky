@@ -16,7 +16,11 @@ import {
   tasksCreateParams,
   tasksDeleteParams,
 } from "./task-parameters";
-import type { PersistenceProvider } from "@minsky/domain/persistence/types";
+import type {
+  PersistenceProvider,
+  SqlCapablePersistenceProvider,
+} from "@minsky/domain/persistence/types";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { SessionProviderInterface } from "@minsky/domain/session/types";
@@ -601,7 +605,10 @@ export class TasksCreateCommand extends BaseTaskCommand<typeof tasksCreateParams
   constructor(
     private readonly getPersistenceProvider?: () => PersistenceProvider,
     private readonly getTaskGraphService?: () => TaskGraphService,
-    private readonly getTaskService?: () => TaskServiceInterface
+    private readonly getTaskService?: () => TaskServiceInterface,
+    // For the work-package create seam's ref-resolution sweep (ADR-046):
+    // buildProductionResolvers wants the container, not the narrower getters.
+    private readonly container?: AppContainerInterface
   ) {
     super();
   }
@@ -636,10 +643,93 @@ export class TasksCreateCommand extends BaseTaskCommand<typeof tasksCreateParams
         }
       }
 
+      // Work-package briefing validation (ADR-046, mt#2911): per-origin
+      // sections + a cited-ref resolution sweep, BEFORE the task exists, so a
+      // refusal leaves nothing behind. Domain-side deliberately (not the
+      // validate-task-spec hook) so every surface — CLI, MCP, /handoff's
+      // terminal step — gets the same refusal.
+      let workPackagePrep: import("./work-package-create-prep").WorkPackagePrepOutcome | null =
+        null;
+      let workPackageDb: unknown = null;
+      if (params.kind === "work-package") {
+        const [{ prepareWorkPackageCreate }, { buildProductionResolvers }] = await Promise.all([
+          import("./work-package-create-prep"),
+          import("../refs"),
+        ]);
+        workPackagePrep = await prepareWorkPackageCreate(
+          specContent,
+          buildProductionResolvers(this.container, params.repo)
+        );
+        if (!workPackagePrep.ok) {
+          process.exitCode = 1;
+          return {
+            success: false,
+            reason: workPackagePrep.reason,
+            ...(workPackagePrep.reason === "invalid-briefing"
+              ? { failures: workPackagePrep.failures }
+              : { unresolved: workPackagePrep.unresolved }),
+            message: workPackagePrep.message,
+          };
+        }
+        // Acquire the queue-writes connection BEFORE the task row exists
+        // (PR #3503 R1): failing here refuses the whole create, instead of
+        // stranding a package task with no member/transfer rows.
+        const provider = this.getPersistenceProvider?.() as
+          | SqlCapablePersistenceProvider
+          | undefined;
+        workPackageDb = provider?.getDatabaseConnection
+          ? await provider.getDatabaseConnection()
+          : null;
+        if (!workPackageDb) {
+          process.exitCode = 1;
+          return {
+            success: false,
+            reason: "db-unavailable",
+            message:
+              "Work-package create refused: no SQL database connection for the member/transfer " +
+              "rows. Nothing was created.",
+          };
+        }
+      }
+
+      // mt#4808: resolve which project this task belongs to BEFORE creating it.
+      // `workspace` was a dead parameter — declared, accepted, forwarded twice,
+      // and read by nothing — so a task whose subject belonged to another
+      // project was silently filed under the server's. Precedence: explicit
+      // workspace/repo → the parent task's project → the filing context
+      // (unchanged fallback). Best-effort throughout: a create must not fail
+      // because a project lookup did.
+      let resolvedProjectId: string | undefined;
+      try {
+        const provider = this.getPersistenceProvider?.() as
+          | { getDatabaseConnection?: () => Promise<unknown> }
+          | undefined;
+        const projectDb = provider?.getDatabaseConnection
+          ? await provider.getDatabaseConnection()
+          : null;
+        if (projectDb) {
+          const { resolveNewTaskProjectId } = await import(
+            "@minsky/domain/project/new-task-project"
+          );
+          const decision = await resolveNewTaskProjectId(
+            {
+              workspace: params.workspace,
+              repo: params.repo,
+              parentTaskId: params.parent,
+            },
+            projectDb
+          );
+          resolvedProjectId = decision.projectId;
+        }
+      } catch (projectErr) {
+        this.debug(`Project resolution for new task failed; using filing context: ${projectErr}`);
+      }
+
       // Create the task using the same function as main branch
       const { createTaskFromTitleAndSpec } = await import("@minsky/domain/tasks");
       const result = await createTaskFromTitleAndSpec(
         {
+          projectId: resolvedProjectId,
           title: params.title,
           spec: specContent, // spec content (or deprecated description alias)
           force: params.force ?? false,
@@ -658,6 +748,48 @@ export class TasksCreateCommand extends BaseTaskCommand<typeof tasksCreateParams
       );
 
       this.debug("Task created successfully");
+
+      // Work-package queue writes (ADR-046): the ordered member rows plus the
+      // opening transfer entry (seq 1, origin groomed|succession — entering
+      // the pool IS the first transfer). Fan-in is computed from the member
+      // table and ANNOTATES, never refuses: reference ≠ reservation.
+      const fanInAnnotations: string[] = [];
+      if (workPackagePrep?.ok) {
+        // Acquired BEFORE the task row was created (see the pre-create block),
+        // so this cannot be null here — a connection failure refused the whole
+        // create instead of stranding a partial entity (PR #3503 R1). The cast
+        // narrows the loosely-held handle back to the drizzle connection.
+        const db = workPackageDb as NonNullable<
+          Awaited<ReturnType<NonNullable<SqlCapablePersistenceProvider["getDatabaseConnection"]>>>
+        >;
+        const [
+          { writeWorkPackageCreateRows, findOpenPackagesReferencing },
+          { resolveCallerActorId },
+        ] = await Promise.all([
+          import("@minsky/domain/tasks/work-package-store"),
+          import("@minsky/domain/agent-identity/index"),
+        ]);
+        const parsed = workPackagePrep.parsed;
+        const fanIn = await findOpenPackagesReferencing(
+          db,
+          parsed.members.map((m) => m.taskId),
+          result.id
+        );
+        for (const hit of fanIn) {
+          fanInAnnotations.push(
+            `Member ${hit.memberTaskId} is also queued by open package ` +
+              `${hit.siblingPackageId} (${hit.siblingStatus ?? "unknown"}) — coordinate, don't race.`
+          );
+        }
+        await writeWorkPackageCreateRows(db, {
+          packageTaskId: result.id,
+          // validateWorkPackageBriefing refused any null origin before create.
+          origin: parsed.origin as NonNullable<typeof parsed.origin>,
+          members: parsed.members,
+          memberStatuses: workPackagePrep.refStatuses,
+          byConversation: resolveCallerActorId(params.callerActorId),
+        });
+      }
 
       // Handle dependsOn: add dependency edges after task creation
       const depsAdded: string[] = [];
@@ -743,11 +875,16 @@ export class TasksCreateCommand extends BaseTaskCommand<typeof tasksCreateParams
         }
       }
 
+      if (fanInAnnotations.length > 0) {
+        message += `\n${fanInAnnotations.map((a) => `⚠ ${a}`).join("\n")}`;
+      }
+
       return this.formatResult(
         this.createSuccessResult(result.id, message, {
           task: result,
           ...(depsAdded.length > 0 && { depsAdded }),
           ...(depsWarnings.length > 0 && { depsWarnings }),
+          ...(fanInAnnotations.length > 0 && { fanIn: fanInAnnotations }),
         }),
         params.json
       );
@@ -925,9 +1062,10 @@ export const createTasksGetCommand = (
 export const createTasksCreateCommand = (
   getPersistenceProvider?: () => PersistenceProvider,
   getTaskGraphService?: () => TaskGraphService,
-  getTaskService?: () => TaskServiceInterface
+  getTaskService?: () => TaskServiceInterface,
+  container?: AppContainerInterface
 ): TasksCreateCommand =>
-  new TasksCreateCommand(getPersistenceProvider, getTaskGraphService, getTaskService);
+  new TasksCreateCommand(getPersistenceProvider, getTaskGraphService, getTaskService, container);
 
 export const createTasksDeleteCommand = (
   getPersistenceProvider?: () => PersistenceProvider,

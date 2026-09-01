@@ -158,7 +158,21 @@ export const sessionStartCommandParams = {
     description: "Git branch to use",
     required: false,
   },
-  repo: commonSessionParams.repo,
+  // mt#4758: overridden locally rather than in `commonSessionParams.repo`,
+  // which ~20 other session commands share and where none of this applies.
+  // The old shared text ("Repository path") read as though this selected the
+  // repository; it never did, and the gap between what it implied and what it
+  // controlled is what let a cross-project call succeed silently.
+  repo: {
+    schema: z.string(),
+    description:
+      "Local checkout to clone FROM (a fetch source, not the repository this session is for). " +
+      "The session's identity — its repo URL, name and project — comes from the TASK's project, " +
+      "not from this argument. For a GitHub-backed project the clone's `origin` is always the " +
+      "forge URL, so passing a local path here only speeds the clone up. Naming a DIFFERENT " +
+      "repository than the task's project is refused rather than silently honored.",
+    required: false,
+  },
   json: commonSessionParams.json,
   quiet: commonSessionParams.quiet,
   noStatusUpdate: {
@@ -803,6 +817,17 @@ export const sessionPrChecksCommandParams = {
     description: "Polling interval in seconds when --wait is enabled (default: 30)",
     required: false,
     defaultValue: 30,
+  },
+  fullBody: {
+    schema: z.boolean(),
+    description:
+      "When true, return the full per-check breakdown instead of the default trimmed payload " +
+      "(mt#2656 shape, extended to this command by mt#4657: summary counts always, plus " +
+      "failingChecks — the failed and still-pending entries — when not all checks passed). " +
+      "Defaults to false. Does not affect the CLI's text output, which always renders every " +
+      "check.",
+    required: false,
+    defaultValue: false,
   },
 };
 

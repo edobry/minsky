@@ -5,9 +5,9 @@
  * and negative (clean) cases that should pass through without an issue.
  *
  * Moved from tests/adapters/shared/commands/memory/ to the domain layer
- * since checkDerivation now lives in src/domain/memory/validation.ts.
+ * since checkDerivation now lives in packages/domain/src/memory/validation.ts.
  *
- * @see src/domain/memory/validation.ts
+ * @see packages/domain/src/memory/validation.ts
  * @see mt#1008
  */
 

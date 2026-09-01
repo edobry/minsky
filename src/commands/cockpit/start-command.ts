@@ -131,6 +131,9 @@ async function recordPortDisplacement(
       eventType: "cockpit.port_displaced",
       payload: {
         port,
+        // Which way the conflict ended — the refusal rows below share this
+        // event type, so consumers separate them on `outcome` (mt#4800).
+        outcome: "displaced",
         displacedPid: displaced.pid,
         displacedCommand: displaced.command,
         // `forced` records WHY the kill was allowed: false is the mt#4205 path
@@ -143,6 +146,42 @@ async function recordPortDisplacement(
     });
   } catch (err) {
     log.warn("cockpit.port_displaced: could not record the displacement", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
+ * Bound on how long an exiting refusal waits for its visibility event. The
+ * provider may still be cold on this path (nothing else has initialized
+ * persistence when the bind fails), so the race covers init + emit together.
+ */
+const CONFLICT_EMIT_TIMEOUT_MS = 5_000;
+
+/**
+ * Record a port-conflict outcome that ends in `process.exit(1)` — a refusal to
+ * displace, or a displacement whose re-bind never succeeded. AWAITED (bounded)
+ * by every caller, unlike `recordPortDisplacement` above: fire-and-forget dies
+ * with the process, and an unrecorded refusal is exactly how the 2026-08-31
+ * stale-build incident stayed invisible for 25+ minutes — no event, no badge,
+ * just a daemon quietly serving old code (mt#4800 SC2).
+ */
+async function recordPortConflictExit(
+  port: number,
+  payload: Record<string, unknown>
+): Promise<void> {
+  try {
+    await Promise.race([
+      (async () =>
+        emitSystemEventFromProvider(await getSharedProvider(), {
+          eventType: "cockpit.port_displaced",
+          payload: { port, ...payload },
+          actor: "cockpit-start",
+        }))(),
+      new Promise<void>((resolve) => setTimeout(resolve, CONFLICT_EMIT_TIMEOUT_MS)),
+    ]);
+  } catch (err) {
+    log.warn("cockpit.port_displaced: could not record the conflict refusal", {
       error: err instanceof Error ? err.message : String(err),
     });
   }
@@ -490,6 +529,16 @@ export function createStartCommand(): Command {
                   `and ${disposition.reason}.`
               );
               console.error(`Run with --force to terminate it and start a new instance.`);
+              // The refusal the 2026-08-31 incident hit — the tray's restart
+              // respawn landed here against the stale daemon its stop had
+              // failed to kill, and nothing recorded it (mt#4800 SC2).
+              await recordPortConflictExit(port, {
+                outcome: "refused",
+                refusal: "preserved-incumbent",
+                holderPid: classification.pid,
+                holderCommand: classification.command,
+                reason: disposition.reason,
+              });
               process.exit(1);
             }
             console.log(
@@ -522,6 +571,12 @@ export function createStartCommand(): Command {
             console.error(
               `Kill PID ${classification.pid} manually, or pass --port to use a different port.`
             );
+            await recordPortConflictExit(port, {
+              outcome: "refused",
+              refusal: "unrecognized-holder",
+              holderPid: classification.pid,
+              holderCommand: classification.command,
+            });
             process.exit(1);
         }
       }
@@ -536,6 +591,17 @@ export function createStartCommand(): Command {
           `Port ${port} is still in use after recovery attempt. ` +
             `Pass --port to use a different port.`
         );
+        if (displaced !== null) {
+          // Strictly worse than a refusal: the incumbent was killed and NOT
+          // replaced (the killZombie teardown race). Record it as its own
+          // outcome so the row is never mistaken for a successful recovery.
+          await recordPortConflictExit(port, {
+            outcome: "displacement-failed",
+            displacedPid: displaced.pid,
+            displacedCommand: displaced.command,
+            forced: displaced.forced,
+          });
+        }
         process.exit(1);
       }
 

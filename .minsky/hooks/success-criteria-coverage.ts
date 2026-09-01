@@ -549,6 +549,132 @@ export function checkSuccessCriteriaCoverage(
   };
 }
 
+// ---------------------------------------------------------------------------
+// mt#4829 — a criterion asserted MET while its own evidence is deferred
+// ---------------------------------------------------------------------------
+
+/**
+ * One PR-body line asserting a criterion satisfied AND deferring the evidence for it.
+ *
+ * The conjunction is the finding. Either half alone is ordinary and correct: "SC3 — met" is a
+ * normal claim, and "SC3 — deferred to mt#N" is the sanctioned way to defer one. Together in a
+ * single entry they contradict — *met* says the criterion holds, *post-merge* concedes the
+ * measurement that would establish it has not been taken — and the pair reads as thorough
+ * because it names a follow-up.
+ *
+ * Originating instance, from mt#4804's merged PR body (#3517):
+ *
+ * > **SC3** — met by construction, confirmed post-merge. Registering **is** the backfill: …
+ *
+ * It was false. The cited mechanism was real and the SCOPE was not, and the line shipped through
+ * self-verification, a bot review and the merge gate.
+ */
+export interface AssertDeferFinding {
+  /** The criterion number the line references. */
+  criterionNumber: number;
+  /** The offending line, whitespace-collapsed. */
+  line: string;
+  /** The assertion token that matched. */
+  assertion: string;
+  /** The deferral token that matched. */
+  deferral: string;
+}
+
+/** Any reference to a criterion by number, in the forms this repo's PR bodies actually use. */
+const SC_LINE_REF_RE = /\bSC\s?#?(\d+)\b/i;
+
+/** Asserts the criterion HOLDS. */
+const ASSERTION_RE = /\b(?:met|satisfied|done|complete)\b/i;
+
+/**
+ * Concedes the establishing measurement has NOT been taken.
+ *
+ * `deferred` is here and is safe: the sanctioned `[scN-deferred: mt#NNNN]` marker is matched and
+ * excluded first, so the bare word only reaches this set in prose form.
+ */
+const DEFERRAL_RE =
+  /\b(?:post-merge|after\s+merge|will\s+verify|confirmed\s+later|deferred|to\s+be\s+verified)\b/i;
+
+/**
+ * Forms this check must NOT flag, because they are the answers it wants authors to give.
+ *
+ * - `[scN-deferred: mt#NNNN]` — the machine-visible deferral the SC-coverage gate already honours.
+ * - `UNVERIFIED` — the label `/implement-task` §7a requires for an un-runnable live exercise.
+ *
+ * Flagging either would train authors away from the right answer, which is what SC2 forbids.
+ */
+const SANCTIONED_RE = /\[sc\d+-deferred:\s*[^\]]+\]|\bUNVERIFIED\b/i;
+
+/**
+ * A NEGATED assertion is not an assertion, and this guard is measured rather than defensive.
+ *
+ * Over 100 merged PRs the naive conjunction produced exactly one false positive, PR #3519's
+ * *"**SC4 is NOT MET**, and is now deferred to an owner rather than merely…"* — an explicit
+ * non-satisfaction plus an explicit owned deferral, which is the ideal authoring form. `MET`
+ * matched the assertion set and `deferred` matched the deferral set, so the pair fired on the
+ * one line in the corpus that most deserved not to be flagged. With this guard, precision on
+ * that corpus goes from 1 of 2 to 1 of 1.
+ */
+const NEGATED_ASSERTION_RE =
+  /\b(?:not\s+(?:yet\s+)?(?:met|satisfied|done|complete)|unmet|isn't\s+met|is\s+not\s+met)\b/i;
+
+/**
+ * Find criterion lines that assert satisfaction and defer their own evidence.
+ *
+ * **Scope is the PR body's SC-REFERENCING LINES, not a `## Success criteria` section.** Measured
+ * over the last 100 merged PRs: 89 reference a criterion by number, while only 5 carry such a
+ * section and 6 carry an `SC<N>` heading. Keying on the section would have shipped a check with a
+ * 5% ceiling and no way to notice it — mem#704's can't-fail probe.
+ *
+ * Fenced blocks AND blockquote lines are elided first: a pasted run log, or a quotation of the
+ * offending line, is not this PR's own claim.
+ *
+ * **The blockquote half is not hypothetical — this check's own PR was the first instance.** That
+ * body quotes mt#4804's SC3 line to explain what is being detected, as `> **SC3** — met by
+ * construction, confirmed post-merge…`. With fenced-only elision the detector fires on the PR
+ * that introduces it, which is the same "unmatchable by construction" noise mem#719 records:
+ * output nobody can act on erodes trust in the output that is right. The sibling detector's
+ * `elideBlocksAndQuotes` already treats blockquote LINES this way, for the same reason.
+ */
+export function findAssertDeferConjunctions(prBody: string): AssertDeferFinding[] {
+  const withoutFences = prBody.replace(
+    /^[ \t]{0,3}(`{3,}|~{3,})[\s\S]*?^[ \t]{0,3}\1[ \t]*$/gm,
+    ""
+  );
+
+  const findings: AssertDeferFinding[] = [];
+  for (const rawLine of withoutFences.split(/\n/)) {
+    // A blockquote line is someone else's text being discussed, never this body's own assertion.
+    if (/^\s{0,3}>/.test(rawLine)) continue;
+
+    const line = rawLine.replace(/\s+/g, " ").trim();
+    if (line.length === 0) continue;
+
+    const ref = line.match(SC_LINE_REF_RE);
+    if (!ref) continue;
+
+    // Sanctioned forms are checked BEFORE the conjunction, so `[scN-deferred: …]` can never
+    // reach the deferral set as a bare `deferred`.
+    if (SANCTIONED_RE.test(line)) continue;
+    if (NEGATED_ASSERTION_RE.test(line)) continue;
+
+    const assertion = line.match(ASSERTION_RE);
+    const deferral = line.match(DEFERRAL_RE);
+    if (!assertion || !deferral) continue;
+
+    const criterionNumber = Number(ref[1]);
+    if (!Number.isInteger(criterionNumber)) continue;
+
+    findings.push({
+      criterionNumber,
+      line,
+      assertion: assertion[0],
+      deferral: deferral[0],
+    });
+  }
+  return findings;
+}
+
 /** Override env var (registered in `HOOK_ONLY_ENV_VARS`) — skips the SC-coverage check. */
 export const SC_COVERAGE_SKIP_ENV_VAR = "MINSKY_SKIP_SC_COVERAGE";
 
@@ -589,6 +715,13 @@ export function runScCoverageCalibration(
 ): ScCoverageCalibrationRunResult {
   if (isScCoverageSkipped(env)) return { ranCheck: false };
 
+  // mt#4829 — computed BEFORE the coverage result and independent of `applicable`. This finding
+  // is decidable from the PR body's claim text alone: it needs no expected value, no actual
+  // value, and no pairing between them, so it must not inherit the applicability of a classifier
+  // (`isExecutableSuccessCriterion`) whose own reach is what mt#4219 questions.
+  const assertDeferFindings = findAssertDeferConjunctions(prBody);
+  const hasAssertDefer = assertDeferFindings.length > 0;
+
   let coverage: ScCoverageResult;
   try {
     coverage = checkSuccessCriteriaCoverage(specContent, prBody, evidenceText);
@@ -600,7 +733,8 @@ export function runScCoverageCalibration(
 
   const hasUnaddressed = coverage.unaddressedCriteria.length > 0;
   const hasDisagreement = coverage.disagreeingCriteria.length > 0;
-  if (!coverage.applicable || (!hasUnaddressed && !hasDisagreement)) {
+  const hasCoverageFinding = coverage.applicable && (hasUnaddressed || hasDisagreement);
+  if (!hasCoverageFinding && !hasAssertDefer) {
     return { ranCheck: true };
   }
 
@@ -637,9 +771,31 @@ export function runScCoverageCalibration(
       `(mem#986).`
     : "";
 
+  // mt#4829: a THIRD finding class, and its remedy differs from both siblings. "Unreferenced"
+  // says run the command; "disagrees" says reconcile the number. This one says the entry
+  // contradicts itself — pick which half is true, then either produce the evidence or use the
+  // sanctioned `[scN-deferred: mt#NNNN]` / `UNVERIFIED` form.
+  const assertDeferList = assertDeferFindings
+    .map(
+      (f) =>
+        `  - SC${f.criterionNumber}: asserts "${f.assertion}" and defers with "${f.deferral}" — ` +
+        `${truncateForWarning(f.line)}`
+    )
+    .join("\n");
+
+  const assertDeferPart = hasAssertDefer
+    ? `${assertDeferFindings.length} criterion entry(s) for ${task} assert satisfaction AND defer ` +
+      `their own evidence in the same line:\n${assertDeferList}\n\n` +
+      `The two halves contradict: "met" says the criterion holds, while the deferral concedes the ` +
+      `measurement that would establish it has not been taken — and the pair reads as thorough ` +
+      `because it names a follow-up. Either produce the evidence now, or drop the assertion and ` +
+      `use \`[sc<N>-deferred: mt#NNNN]\` or an \`UNVERIFIED\` label with its reason.`
+    : "";
+
   const warning =
-    `[execution-evidence-sc-coverage] CALIBRATION (log-only, mt#3350/mt#4214 — would block if ` +
-    `graduated): ${[unaddressedPart, disagreementPart].filter(Boolean).join("\n\n")}\n\n` +
+    `[execution-evidence-sc-coverage] CALIBRATION (log-only, mt#3350/mt#4214/mt#4829 — would ` +
+    `block if graduated): ` +
+    `${[unaddressedPart, disagreementPart, assertDeferPart].filter(Boolean).join("\n\n")}\n\n` +
     `Merge is NOT blocked by this. Override: set ${SC_COVERAGE_SKIP_ENV_VAR}=1.`;
 
   return {
@@ -675,7 +831,17 @@ export function runScCoverageCalibration(
       findingClasses: [
         ...(hasUnaddressed ? ["unreferenced"] : []),
         ...(hasDisagreement ? ["disagrees"] : []),
+        // mt#4829 — rated separately for the same reason the first two are: its remedy is
+        // "reconcile the entry with itself", not "run the command" or "fix the number", so a
+        // shared FP rate across the three would be uninterpretable.
+        ...(hasAssertDefer ? ["asserted-met-evidence-deferred"] : []),
       ],
+      assertDeferFindings: assertDeferFindings.map((f) => ({
+        number: f.criterionNumber,
+        line: f.line,
+        assertion: f.assertion,
+        deferral: f.deferral,
+      })),
       disagreeingCriteria: coverage.disagreeingCriteria.map((d) => ({
         number: d.criterion.number,
         text: d.criterion.text,

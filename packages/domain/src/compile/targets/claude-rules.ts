@@ -38,6 +38,7 @@ import type {
   MinskyCompileFsDeps,
 } from "../types";
 import { loadAdaptedRules, type SkipLogFn, type DynamicImportFn } from "./rule-loader";
+import { createSkipRecorder } from "./skip-recorder";
 
 /**
  * Banner emitted in the BODY of every generated `.claude/rules/*.md` file,
@@ -157,7 +158,11 @@ function makeClaudeRulesTarget(
       fsDeps?: MinskyCompileFsDeps
     ): Promise<MinskyCompileResult> {
       const fs = fsDeps ?? (realFs as MinskyCompileFsDeps);
-      const rules = await loadAdaptedRules(workspacePath, fs, onSkip, dynamicImport);
+      // mt#3119: `rulesSkipped` below is rules this target did not SELECT — benign. The
+      // recorder captures the loader's FAILURE skips (broken import, schema-invalid,
+      // ambiguous source), which are the ones an operator needs to see.
+      const { record: recordSkip, reasons: skipReasons } = createSkipRecorder(onSkip);
+      const rules = await loadAdaptedRules(workspacePath, fs, recordSkip, dynamicImport);
       const outputDir = options.outputPath || claudeRulesOutputDir(workspacePath);
 
       const { files, rulesIncluded, rulesSkipped } = buildClaudeRulesContent(rules, outputDir);
@@ -207,6 +212,7 @@ function makeClaudeRulesTarget(
         filesWritten,
         definitionsIncluded: rulesIncluded,
         definitionsSkipped: rulesSkipped,
+        skipReasons,
         content: options.dryRun
           ? files.map(({ path: p, content: c }) => `// ${p}\n${c}`).join("\n\n")
           : undefined,

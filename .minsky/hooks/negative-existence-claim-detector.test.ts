@@ -25,12 +25,14 @@ import {
   renderWorstCase,
   run,
 } from "./negative-existence-claim-detector";
+import { evaluationLogPath, calibrationLogPath } from "./dispatcher";
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput } from "./types";
 import type { DispatchContext } from "./registry";
 
 const DONE_TASK = "mt#2677";
-const EVALUATION_LOG = ".minsky/negative-existence-claim-evaluations.jsonl";
+/** mt#4748: the calibration/evaluation stream name this detector writes under. */
+const STREAM_NAME = "negative-existence-claim";
 
 /**
  * Instance 3's actual claim (mem#924, mt#3916): a grep for ONE spelling of a
@@ -43,16 +45,39 @@ const INSTANCE_3_CLAIM =
 
 let tempDirs: string[] = [];
 
+/** The resolved-project-dir env var the shared path helpers read (mt#4752). */
+const PROJECT_DIR_ENV = "CLAUDE_PROJECT_DIR";
+let priorProjectDir: string | undefined;
+
 function makeTempCwd(): string {
   const dir = mkdtempSync(join(tmpdir(), "mt3918-"));
   mkdirSync(join(dir, ".minsky"), { recursive: true });
   tempDirs.push(dir);
+  // mt#4752: the cwd handed to the detector is its RAW input cwd, which the
+  // shared resolver deliberately ranks BELOW `CLAUDE_PROJECT_DIR` — a raw cwd
+  // is routinely a session workspace or a subdirectory, so letting it outrank
+  // the resolved project dir is the bug mt#3745 removed. These tests want the
+  // temp dir to be authoritative, so they say so rather than relying on the
+  // ambient env being unset. Without this they assert against a log written
+  // into the REAL repo.
+  if (priorProjectDir === undefined) priorProjectDir = process.env[PROJECT_DIR_ENV];
+  process.env[PROJECT_DIR_ENV] = dir;
   return dir;
 }
 
 afterEach(() => {
-  for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true });
+  for (const dir of tempDirs) {
+    // mt#4748: the evaluation/calibration logs now resolve under the shared
+    // state dir, project-keyed by `dir` — outside `dir` itself, so the
+    // `rmSync(dir, ...)` below no longer cleans them up.
+    rmSync(evaluationLogPath(STREAM_NAME, { projectDir: dir }), { force: true });
+    rmSync(calibrationLogPath(STREAM_NAME, { projectDir: dir }), { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
   tempDirs = [];
+  if (priorProjectDir === undefined) delete process.env[PROJECT_DIR_ENV];
+  else process.env[PROJECT_DIR_ENV] = priorProjectDir;
+  priorProjectDir = undefined;
   delete process.env[OVERRIDE_ENV_VAR];
 });
 
@@ -250,7 +275,10 @@ describe("AT4 — evaluation stream records fired AND non-fired cases", () => {
     });
     expect(quietOutcome).toBeNull();
 
-    const logPath = join(cwd, EVALUATION_LOG);
+    // mt#4748: resolves under the state dir, project-keyed by `cwd`, not
+    // under `cwd` itself — compute through the same helper the detector
+    // routes through.
+    const logPath = evaluationLogPath(STREAM_NAME, { projectDir: cwd });
     expect(existsSync(logPath)).toBe(true);
     const records = readFileSync(logPath, "utf-8")
       .trim()
@@ -277,8 +305,8 @@ describe("AT4 — evaluation stream records fired AND non-fired cases", () => {
     });
 
     expect(outcome?.calibration).toBeDefined();
-    expect(existsSync(join(cwd, ".minsky/negative-existence-claim-calibration.jsonl"))).toBe(false);
-    expect(existsSync(join(cwd, EVALUATION_LOG))).toBe(true);
+    expect(existsSync(calibrationLogPath(STREAM_NAME, { projectDir: cwd }))).toBe(false);
+    expect(existsSync(evaluationLogPath(STREAM_NAME, { projectDir: cwd }))).toBe(true);
   });
 
   it("evaluates nothing when the turn wrote no durable artifact", async () => {
@@ -299,14 +327,14 @@ describe("AT4 — evaluation stream records fired AND non-fired cases", () => {
     expect(outcome).toBeNull();
     // The population this detector measures is artifact-writing turns; a chat-only
     // turn is not a miss, so it must not enter the denominator.
-    expect(existsSync(join(cwd, EVALUATION_LOG))).toBe(false);
+    expect(existsSync(evaluationLogPath(STREAM_NAME, { projectDir: cwd }))).toBe(false);
   });
 });
 
 describe("AT5 — documentation and override registration", () => {
   it("is documented in the hook-observers source rule", () => {
     const rule = readFileSync(".minsky/rules/hook-observers.mdc", "utf-8");
-    expect(rule).toContain("negative-existence-claim");
+    expect(rule).toContain(STREAM_NAME);
     expect(rule).toContain(OVERRIDE_ENV_VAR);
   });
 
@@ -332,7 +360,7 @@ describe("adapter wiring", () => {
       lookupDoneTaskIds: doneLookup,
     });
     expect(outcome?.auditLines?.[0]).toContain("OVERRIDE");
-    expect(existsSync(join(cwd, EVALUATION_LOG))).toBe(false);
+    expect(existsSync(evaluationLogPath(STREAM_NAME, { projectDir: cwd }))).toBe(false);
   });
 
   it("counts a shell search by its leading token and reads its result", () => {

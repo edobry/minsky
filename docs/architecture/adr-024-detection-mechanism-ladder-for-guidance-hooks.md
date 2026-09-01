@@ -104,10 +104,29 @@ divergent regex copies:
 
 - **Rung 1 — quotation/citation-aware deterministic prefilter (the default stopping point).**
   Before matching, elide (a) markdown code spans / fenced blocks / blockquote lines — reusing
-  `block-out-of-band-merge.ts`'s `elideMarkdownNonProse` same-length-whitespace pass — and
+  `elideMarkdownNonProse`'s **same-length, non-matching-filler** pass — and
   (b) prose-quoted spans and explicit discussion-framing. Match on the residual. ~Zero added
   cost; directly targets the precision axis. (Prose-quotation detection is the load-bearing,
   harder part; its sufficiency is an empirical gate, not an assumption.)
+
+  **Amended 2026-08-31 (mt#4792).** This clause read _"same-length-whitespace pass"_ until the
+  filler was found to defeat the very next sentence. Two properties are required, not one:
+
+  - **Same-length**, so an offset into the residual is a valid offset into the raw text. Every
+    consumer reads the residual for structure and slices the ORIGINAL by index.
+  - **Non-matching** — the filler must be neither `\s` nor `\w`. Whitespace lets a caller's own
+    `\s+` run straight THROUGH an elided hole, so a clause that does not match the raw text
+    matches the residual: the prefilter manufactures the false positive it exists to remove.
+    Measured on the shipped implementation — ``"Retire when `an aside` mt#7777 ships."`` did not
+    match `\bretire[sd]?\s+(?:when|once|after)\s+(mt#\d+)\b`, and blanked to spaces it did.
+
+  "Whitespace" was incidental — it described the pass that already existed (mt#1707) rather than a
+  filler chosen on its merits — and it contradicts _"Match on the residual"_: the residual must be
+  ALIGNED with the raw text, never MATCHABLE ACROSS what was removed. The implementation now uses
+  U+00B7 (`ELISION_FILL` in `packages/domain/src/text/prose-elision.ts`), which is one UTF-16 code
+  unit, non-`\s`, and non-`\w` so `\b` still forms at the seams. Eliding may only ever REMOVE
+  matches; a property test in that module's spec file enforces it.
+
 - **Rung 2 — embedding recall-widening (only if paraphrase misses recur).** Embedding-similarity
   nomination against a small curated exemplar set per family (the `memory-search.ts` cost
   profile), gated on a measured recall-miss rate.

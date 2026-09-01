@@ -2,18 +2,41 @@
  * Shared entity-label resolver (mt#2883 — cockpit identity legibility).
  *
  * ONE place that turns an entity reference into a human-legible display label
- * plus its canonical anchor, consumed by the TabBar (working-set strip), the
- * CommandPalette (via the shared task-index fetcher), and ask requestor cells.
- * The product rule it implements is /product-thinking principle 10 — "derived
- * identity over raw internals": canonical anchors (`mt#X`, `#N`, short ids)
- * stay visible per cockpit-design's entity-ID conventions, but a raw internal
- * string (an id hash, an ascribed `unknown:hash:` actor, prompt text) never
- * stands ALONE as a surface's primary identity.
+ * plus its canonical anchor, consumed by the TabBar (working-set strip) and
+ * ask requestor cells. (Historical note, mt#4731: CommandPalette used to ride
+ * this module's `fetchTaskIndex`/`TASK_INDEX_QUERY_KEY` for its own task
+ * search; it now has its own dedicated, project-scoped fetcher — see that
+ * file's DECIDE comment — so this module's task-label channel below is its
+ * only remaining consumer besides tab labels.) The product rule this
+ * implements is /product-thinking principle 10 — "derived identity over raw
+ * internals": canonical anchors (`mt#X`, `#N`, short ids) stay visible per
+ * cockpit-design's entity-ID conventions, but a raw internal string (an id
+ * hash, an ascribed `unknown:hash:` actor, prompt text) never stands ALONE as
+ * a surface's primary identity.
  *
- * Resolution reuses the SAME TanStack Query keys as the surfaces that already
- * fetch each entity family (palette task index, `agents` widget, `attention`
- * cohort, `memories-list`, `changesets` list, context-inspector conversation
- * rows) so tab labels ride existing caches instead of adding fetch load.
+ * DELIBERATELY GLOBAL, not project-scoped (mt#4731 decision) — for the same
+ * reason as `use-entity-index.ts` (see that file's header): a tab's label
+ * must resolve regardless of which project is currently selected, since the
+ * tab itself may reference an entity from a project other than the one in
+ * view (e.g. a task tab left open from before the operator switched
+ * projects).
+ *
+ * Resolution reuses SOME of the SAME TanStack Query keys as sibling surfaces
+ * — cache sharing where it is still correct post-mt#4731, not a blanket
+ * claim about every channel below:
+ *   - `agents` (`["agents"]`) and `context-inspector`/`sessions`
+ *     (`["context-inspector","sessions"]`) — still genuinely shared with
+ *     `use-entity-index.ts`'s identical, equally-global queries.
+ *   - `memories-list` (`["widget","memories-list","","",true]`) — still
+ *     shared with `use-entity-index.ts`'s identical query, but NO LONGER with
+ *     the `MemoriesList`/`CommandPalette` widgets, which now append
+ *     `selectedSlug` to their own keys (mt#4731) so their cache diverges
+ *     even in the unscoped (`null`) case.
+ *   - `attention` (`["attention"]`) and `changeset-label-index` below are
+ *     each this module's OWN dedicated key — `attention` used to be shared
+ *     with the `Attention` widget's identical bare key; that widget now
+ *     scopes to `["attention", selectedSlug]` (mt#4731), so this channel
+ *     fetches independently rather than riding a shared cache entry.
  * Every resolution degrades to the caller's existing fallback label (the
  * shortened id) while data is loading or the entity is outside the fetched
  * window — labels enrich, never block.

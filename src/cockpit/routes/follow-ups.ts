@@ -11,6 +11,14 @@
  * routes — this module is only the read/write surface, mirroring the
  * separation between `routes/sweeps.ts` (liveness read) and the sweep loops
  * themselves.
+ *
+ * Project scope (mt#4746): `?project=<slug>` on the GET list endpoint
+ * resolves through the same `resolveCockpitProjectScope()` (mt#2418
+ * pattern) every other cockpit project-scoped read uses, then passes the
+ * resolved uuid to `FollowUpService.list({ projectScope })` — see that
+ * service's docblock for the documented partial-filter semantics (only
+ * follow-ups with a resolvable `relatedTaskId` can be attributed to a
+ * project).
  */
 import type express from "express";
 import type { FollowUpService } from "@minsky/domain/scheduler/follow-up-service";
@@ -22,6 +30,14 @@ import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
 export interface FollowUpRoutesOptions {
   /** Override the FollowUpService used by every endpoint (used in tests). */
   followUpServiceOverride?: FollowUpService | null;
+  /**
+   * Test seam (mt#4746, mirrors `routes/tasks.ts`'s `getProjectScopeDb`):
+   * overrides `resolveCockpitProjectScope`'s own db-fetch for the GET list
+   * endpoint's `?project=` resolution. Production callers never set this.
+   */
+  getProjectScopeDb?: () => Promise<
+    import("@minsky/domain/project/scope-resolver").ScopeResolverDb | null
+  >;
 }
 
 function isValidStatus(value: string): value is (typeof FOLLOW_UP_STATUS_VALUES)[number] {
@@ -30,7 +46,7 @@ function isValidStatus(value: string): value is (typeof FOLLOW_UP_STATUS_VALUES)
 
 /** Mount the /api/follow-ups* routes on `app`. */
 export function mountFollowUpRoutes(app: express.Express, opts: FollowUpRoutesOptions = {}): void {
-  const { followUpServiceOverride } = opts;
+  const { followUpServiceOverride, getProjectScopeDb } = opts;
 
   const resolveService = async (): Promise<FollowUpService | null> =>
     followUpServiceOverride !== undefined ? followUpServiceOverride : getServerFollowUpService();
@@ -61,11 +77,23 @@ export function mountFollowUpRoutes(app: express.Express, opts: FollowUpRoutesOp
         }
       }
 
-      const followUps = await service.list(
-        typeof statusParam === "string" && isValidStatus(statusParam)
-          ? { status: statusParam }
-          : undefined
-      );
+      // Project scope (mt#4746) — see the module docblock. Fail-open to
+      // ALL_PROJECTS on any resolution failure (PR #2056 R1), same as every
+      // other cockpit project-scoped read.
+      const { resolveCockpitProjectScope } = await import("../project-scope");
+      const { isAllProjects } = await import("@minsky/domain/project/scope");
+      const projectParam =
+        typeof req.query["project"] === "string" ? req.query["project"] : undefined;
+      const projectScopeValue = await resolveCockpitProjectScope(projectParam, {
+        getDb: getProjectScopeDb,
+      });
+      const projectScope = isAllProjects(projectScopeValue) ? undefined : projectScopeValue;
+
+      const followUps = await service.list({
+        status:
+          typeof statusParam === "string" && isValidStatus(statusParam) ? statusParam : undefined,
+        projectScope,
+      });
 
       res.json({ followUps, total: followUps.length });
     } catch (err) {

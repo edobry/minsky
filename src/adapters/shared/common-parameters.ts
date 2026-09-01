@@ -15,6 +15,7 @@ import {
   type TaskStatus,
 } from "@minsky/domain/tasks/taskConstants";
 import { WORKFLOWS, type TaskKind } from "@minsky/domain/tasks/workflows";
+import { RULE_FORMAT_DESCRIPTION } from "../../utils/option-descriptions";
 
 /** Known task kinds, derived from the workflow registry (mt#1812 / mt#2661). */
 const TASK_KIND_VALUES = Object.keys(WORKFLOWS) as [TaskKind, ...TaskKind[]];
@@ -403,7 +404,7 @@ export const RulesParameters = {
    */
   format: {
     schema: z.string().optional(),
-    description: "Rule format (cursor or generic)",
+    description: RULE_FORMAT_DESCRIPTION,
     required: false,
   } as CommandParameterDefinition,
 

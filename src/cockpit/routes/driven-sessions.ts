@@ -28,6 +28,19 @@
  * pipeline entirely; it is wired from
  * src/commands/cockpit/start-command.ts once the server is listening.
  *
+ * Project scope (mt#4746): `GET /api/driven-session`'s `?project=<slug>`
+ * filters directly on each registry record's `projectId` (mt#4732 already
+ * resolves and stamps this at spawn time on the task-bound launch path — no
+ * new resolution step needed, just a read of an already-present field). A
+ * record with `projectId: null` (explicit-cwd or scratch launch — nothing to
+ * resolve, per the spawn handler's own mt#4732 comments) is EXCLUDED from a
+ * scoped read, the same strict `eq()`-only semantics `widgets/agents.ts`'s
+ * `spliceDrivenSessions` already applies to a driven session with no
+ * matching workspace row. The mutation endpoints (create/attach/stop) and
+ * `GET .../turn-active` are UNSCOPED — see `scope-census.ts`'s allowlist for
+ * why (they act on one already-identified session id, or are a
+ * daemon-wide liveness signal).
+ *
  * @see mt#2750 — this module
  * @see ../driven-session-host.ts — spawn/parse/registry/input-forwarding logic
  * @see ../driven-session-ws.ts — the WS channel this session id addresses
@@ -109,6 +122,15 @@ export interface DrivenSessionRoutesOptions {
   onStateChange?: (record: DrivenSessionRecord) => void;
   /** Override the scratch-session default cwd (defaults to the daemon's cwd). */
   scratchCwd?: string;
+  /**
+   * Test seam (mt#4746, mirrors `routes/tasks.ts`'s `getProjectScopeDb`):
+   * overrides `resolveCockpitProjectScope`'s own db-fetch for `GET
+   * /api/driven-session`'s `?project=` resolution. Production callers never
+   * set this.
+   */
+  getProjectScopeDb?: () => Promise<
+    import("@minsky/domain/project/scope-resolver").ScopeResolverDb | null
+  >;
 }
 
 /** Serialize one registry record for the create/list responses (mt#2752).
@@ -212,6 +234,9 @@ export function mountDrivenSessionRoutes(
       let cwd: string;
       let taskId: string | null = null;
       let minskySessionId: string | null = null;
+      // mt#4732: project attribution, resolved only on the task-bound branch
+      // below (the only branch with a workspace to read one from).
+      let projectId: string | null = null;
       let onHarnessSessionLinked = opts.onHarnessSessionLinked;
       // mt#2753: cost capture applies to every driven session regardless of
       // launch shape — success criterion 1 is "every driven session", not
@@ -239,10 +264,19 @@ export function mountDrivenSessionRoutes(
         const workspace = await resolve(taskId);
         cwd = workspace.sessionDir;
         minskySessionId = workspace.minskySessionId;
+        projectId = workspace.projectId;
       } else if (hasCwd) {
         cwd = cwdRaw as string;
+        // mt#4732: `projectId` stays at its `null` initial value here —
+        // deliberately, not an oversight. An explicit-cwd launch has no
+        // Minsky workspace to read a projectId from, so there is nothing to
+        // resolve. The agents widget treats this the same as any other
+        // unresolvable driven-session attribution (folded into the
+        // unattributed-summary aggregate under a specific project filter).
       } else {
         cwd = opts.scratchCwd ?? process.cwd();
+        // mt#4732: same "nothing to resolve" reasoning as the `hasCwd`
+        // branch above — a scratch launch has no bound workspace either.
       }
 
       const { record } = startDrivenSession({
@@ -252,6 +286,7 @@ export function mountDrivenSessionRoutes(
         model,
         taskId,
         minskySessionId,
+        projectId,
         onHarnessSessionLinked,
         onResultSummary,
         onStateChange,
@@ -362,10 +397,27 @@ export function mountDrivenSessionRoutes(
    * GET /api/driven-session — list app-started sessions. Minimal snapshot;
    * a full cockpit `session ps`-style view is Rung 2B/2C (out of scope here
    * per the mt#2750 spec's Scope section).
+   *
+   * Project scope (mt#4746): `?project=<slug>` filters directly on each
+   * record's `projectId` (mt#4732) — see the module docblock. Fail-open to
+   * ALL_PROJECTS on any resolution failure (PR #2056 R1), same as every
+   * other cockpit project-scoped read.
    */
-  app.get("/api/driven-session", (_req, res) => {
-    const sessions = registry.list().map(toSessionSummary);
-    res.status(200).json({ sessions });
+  app.get("/api/driven-session", async (req, res) => {
+    const { resolveCockpitProjectScope } = await import("../project-scope");
+    const { isAllProjects } = await import("@minsky/domain/project/scope");
+    const projectParam =
+      typeof req.query["project"] === "string" ? req.query["project"] : undefined;
+    const projectScope = await resolveCockpitProjectScope(projectParam, {
+      getDb: opts.getProjectScopeDb,
+    });
+
+    const all = registry.list();
+    const scoped = isAllProjects(projectScope)
+      ? all
+      : all.filter((record) => record.projectId === projectScope);
+
+    res.status(200).json({ sessions: scoped.map(toSessionSummary) });
   });
 
   /**

@@ -119,13 +119,17 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
   // version does not parse); deriving the cursor from message rows alone
   // re-fetches such an update forever and wedges the channel behind it.
   "principal.poll_advanced",
-  // mt#4205 — `cockpit start` terminated a previous cockpit instance that was
-  // holding the port and not answering its own health endpoint. Actionable for
-  // the same reason as `guard.overridden`: a process was force-terminated, and
-  // the operator should be able to see that it happened and how often. A RISING
-  // count is the signal that matters — each row means the daemon wedged badly
-  // enough to need displacing, so a recurrence is a wedge worth chasing rather
-  // than a recovery worth celebrating.
+  // mt#4205 — `cockpit start` resolved a port conflict. Originally emitted
+  // only when a wedged incumbent was terminated; mt#4800 widened it to every
+  // conflict OUTCOME — a displacement, a REFUSAL to displace (the branch whose
+  // silence hid the 2026-08-31 stale-build incident), or a displacement whose
+  // re-bind failed — discriminated by the payload's `outcome` field (shapes
+  // below). Actionable for the same reason as `guard.overridden`: a process
+  // was force-terminated (or a start was turned away), and the operator should
+  // be able to see that it happened and how often. A RISING count is the
+  // signal that matters — each row means the port was contested, so a
+  // recurrence is a wedge worth chasing rather than a recovery worth
+  // celebrating.
   //
   // The FIRST daemon-lifecycle event type in this enum. Every other value is
   // emitted by an agent-driven action, which is exactly why the 2026-08-06
@@ -215,22 +219,44 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
  *
  * Payload shape for the mt#3021 shared destructive-override audit type:
  *
- * Payload shape for the mt#4205 cockpit port-displacement type:
+ * Payload shapes for the mt#4205 cockpit port-conflict type (widened by
+ * mt#4800 — the type now records every way a port conflict ENDS, not only a
+ * successful displacement; consumers discriminate on `outcome`):
  *
- *   - `cockpit.port_displaced` → `{ port: number; displacedPid: number;
+ *   - `cockpit.port_displaced` with `outcome: "displaced"` →
+ *       `{ port: number; outcome: "displaced"; displacedPid: number;
  *       displacedCommand: string; forced: boolean }`
  *       `forced` is false on the automatic path (the incumbent answered
  *       nothing, so it was displaced without operator involvement) and true
  *       when the disposition said preserve and `--force` overrode it. Without
  *       it the row cannot tell a self-healed wedge from a manual kill, which is
  *       the distinction that makes a rising count meaningful.
- *       emitted by `src/commands/cockpit/start-command.ts` AFTER the
+ *       Emitted by `src/commands/cockpit/start-command.ts` AFTER the
  *       replacement server has successfully bound the port — not at the moment
  *       of the kill. The guard runs before this process initializes
  *       configuration or persistence, so an emit at the decision point resolves
- *       no provider and silently no-ops (mt#4154's evidence-loss shape). The
- *       consequence, stated rather than implied: a displacement whose
- *       re-listen then fails leaves only the log line.
+ *       no provider and silently no-ops (mt#4154's evidence-loss shape).
+ *   - `outcome: "refused"` →
+ *       `{ port: number; outcome: "refused";
+ *       refusal: "preserved-incumbent" | "unrecognized-holder";
+ *       holderPid: number; holderCommand: string; reason?: string }`
+ *       The start path found the port held and chose NOT to displace — either
+ *       a recognized incumbent still answering `/api/health` (no `--force`;
+ *       `reason` carries the disposition's own sentence) or a holder it could
+ *       not attribute. Emitted BEFORE the refusing `process.exit(1)` and
+ *       awaited with a 5s bound (a fire-and-forget dies with the process),
+ *       initializing the provider on demand. mt#4800: the 2026-08-31 incident
+ *       was a `preserved-incumbent` refusal loop that emitted nothing, so the
+ *       stale build served silently for 25+ minutes.
+ *   - `outcome: "displacement-failed"` →
+ *       `{ port: number; outcome: "displacement-failed"; displacedPid: number;
+ *       displacedCommand: string; forced: boolean }`
+ *       The incumbent was killed and the re-bind still failed (the socket
+ *       teardown race) — strictly worse than a refusal, recorded so the row is
+ *       never mistaken for a successful recovery. Same pre-exit, bounded-await
+ *       timing as `"refused"`.
+ *       Rows predating mt#4800 carry no `outcome` field and are all
+ *       displacement-shaped.
  *
  * Payload shape for the mt#3021 shared destructive-override audit type:
  *

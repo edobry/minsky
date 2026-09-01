@@ -370,6 +370,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "criterion-reconciliation-scan",
+    {
+      description:
+        'Records when a spec write EXPLAINS that a Success Criterion or Acceptance Test is unmet — "is not satisfied", "cannot be satisfied", "unsatisfiable" — names that criterion, and leaves the criterion\'s own normative text untouched in the same revision. Fires at the spec-WRITE seam, one round earlier than the reviewer that caught this four times in eight days (mt#4038, mt#4162, mt#4320; mt#4076 wrote only to the PR body and never reaches this seam). Both halves of the join are sections of the SAME document, so it needs no database and no transcript. Unlike its seam siblings it IS on ADR-024\'s ladder and says so: the discharging action is structural but cannot be the trigger, so the nominating half is a phrase set by necessity — Rung 1 only, and a recall bound is answered by a rung climb rather than a widened list. Record-only at ship; the evaluation stream carries the miss denominator.',
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("criterion-reconciliation-scan"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "warn-unwired-task-relationship",
     {
       description:
@@ -656,6 +666,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "cross-turn-hedge-detector",
+    {
+      description:
+        "Records a claim the agent HEDGED in an earlier turn and then restated as fact in a later one, with no tool call naming that subject in between. Gives claim-confidence.mdc's warrant vocabulary a falsifier — until now nothing matched on it. Subjects are decidable entity refs only; the hedge turn's OWN lookup is deliberately not counted as resolving, since it is usually what produced the hedge. Log-only.",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("cross-turn-hedge-detector"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "secret-request-in-chat-detector",
     {
       description:
@@ -710,6 +730,26 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     {
       description:
         "The `AskUserQuestion` half of the operator-deferral evaluation: records option labels that defer an action the agent could have probed for itself.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("operator-deferral-detector")],
+      stratum: "registry",
+    },
+  ],
+  [
+    "operator-deferral-artifact-surface-pr",
+    {
+      description:
+        "The PR-body half of the operator-deferral evaluation: records a deferral written into a PR body at create or edit time — the surface `user-preferences.mdc §Probe before deferring` names FIRST, and the one the detector's chat-prose and AskUserQuestion surfaces structurally could not read.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("operator-deferral-detector")],
+      stratum: "registry",
+    },
+  ],
+  [
+    "operator-deferral-artifact-surface-spec",
+    {
+      description:
+        "The task-spec half of the same evaluation: records a deferral written into a spec via `tasks_spec_patch`. Split from its PR-body twin only because a guard's matcher tokens must be filed under the registry family that owns them.",
       failureClasses: ["lost-signal"],
       provenance: [hook("operator-deferral-detector")],
       stratum: "registry",

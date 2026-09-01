@@ -1,3 +1,5 @@
+import { apiFetch, type ApiFetchOptions, type ApiFetchParams } from "./api-client";
+
 export interface WidgetMeta {
   id: string;
   title: string;
@@ -20,24 +22,25 @@ export async function fetchWidgets(): Promise<WidgetMeta[]> {
   return res.json() as Promise<WidgetMeta[]>;
 }
 
+/**
+ * Fetch a single widget's data. As of mt#4730, `?project=<selected-slug>` is
+ * default-appended by {@link apiFetch} — a caller no longer needs to spread
+ * `useProject().queryParam` in for the widget to receive the current
+ * selection (a widget the backend hasn't scoped yet simply ignores the
+ * param; see `src/cockpit/scope-census.ts`). Callers that already pass
+ * `project` explicitly are unaffected (explicit wins); pass
+ * `{ global: true }` to opt a deliberately-global fetch out entirely.
+ */
 export async function fetchWidgetData(
   id: string,
-  params?: Record<string, string | number>
+  params?: ApiFetchParams,
+  options?: ApiFetchOptions
 ): Promise<WidgetData> {
   if (!WIDGET_ID_PATTERN.test(id)) {
     throw new Error(
       `fetchWidgetData id "${id}" must be a bare kebab-case widget id — pass query params via the second argument`
     );
   }
-  let url = `/api/widget/${id}/data`;
-  if (params) {
-    const qs = new URLSearchParams();
-    for (const [k, v] of Object.entries(params)) {
-      qs.set(k, String(v));
-    }
-    const str = qs.toString();
-    if (str) url += `?${str}`;
-  }
-  const res = await fetch(url);
+  const res = await apiFetch(`/api/widget/${id}/data`, params, options);
   return res.json() as Promise<WidgetData>;
 }

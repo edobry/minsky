@@ -53,7 +53,17 @@ async function fetchProjects(): Promise<ProjectSummary[]> {
 // false-positives on the `*KEY = "<string>"` shape (mirrors lib/tabs.tsx).
 const STORAGE_KEY = "cockpit.project.v1"; // gitleaks:allow
 
-function loadPersistedSlug(): string | null {
+/**
+ * Read the persisted project selection directly, bypassing React context.
+ *
+ * Exported (mt#4730) so `lib/api-client.ts`'s `apiFetch` can default-append
+ * `?project=` to every request without needing a hook call — `apiFetch` is a
+ * plain async function usable from non-component code (event handlers,
+ * other lib modules), so it cannot call `useProject()` itself. This is the
+ * SAME source of truth `ProjectProvider` reads on mount; the two never
+ * diverge because there is only one persisted value.
+ */
+export function loadPersistedSlug(): string | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     return typeof raw === "string" && raw.trim() !== "" ? raw : null;
@@ -82,6 +92,61 @@ export function deriveQueryParam(selectedSlug: string | null): { project: string
 export function isKnownSlug(projects: ProjectSummary[], slug: string | null): boolean {
   if (slug === null) return true;
   return projects.some((p) => p.slug === slug);
+}
+
+// ---------------------------------------------------------------------------
+// Project-badge helpers (mt#4729) — shared by TaskList / Changesets /
+// RunDetail row rendering, so the "when to show" rule and the "what label"
+// rule each live in exactly one place rather than being reimplemented per
+// widget.
+// ---------------------------------------------------------------------------
+
+/**
+ * True when a project indicator is worth rendering: the all-projects view
+ * (no project explicitly selected) AND 2+ projects actually exist. A single
+ * known project, or an explicit selection, makes a per-row badge pure noise
+ * — there is nothing left to distinguish (mission-control density: no
+ * indicator with no useful state to convey). Mirrors the same threshold
+ * `ProjectSelector` already uses to decide whether to render itself at all.
+ */
+export function shouldShowProjectIndicator(
+  projects: ProjectSummary[],
+  selectedSlug: string | null
+): boolean {
+  return selectedSlug === null && projects.length >= 2;
+}
+
+/**
+ * Resolve a project slug (as carried on e.g. `TaskListItem.project`, or a
+ * session/changeset row's `repoName`) to a human-readable label —
+ * `displayName` when the shell knows a project by that slug, else the slug
+ * itself (which is already a valid identifier per mt#4729 SC1 — no reason
+ * to degrade to null just because `/api/projects` hasn't resolved a nicer
+ * name for it yet, e.g. a race with that fetch, or a project the shell's
+ * list doesn't (yet) include).
+ */
+export function projectLabelBySlug(projects: ProjectSummary[], slug: string | null): string | null {
+  if (!slug) return null;
+  const project = projects.find((p) => p.slug === slug);
+  return project?.displayName ?? slug;
+}
+
+/**
+ * Resolve a project UUID (as carried on uuid-keyed rows — `AgentRow.projectId`,
+ * an ask row's `projectId`, a workstream card's parent `projectId`, a memory
+ * record's `projectId`) to a human-readable label — `displayName`, else the
+ * `slug` (mt#4773). Unlike `projectLabelBySlug`, an UNRESOLVED id has no
+ * readable fallback (a raw uuid is the illegibility this exists to remove), so
+ * the caller receives `null` and decides: a list row hides the badge; a detail
+ * surface may still show the uuid as a last resort. `ProjectBadge`'s docblock
+ * has named this helper since mt#4729; it ships with the first uuid-keyed
+ * consumers.
+ */
+export function projectLabelById(projects: ProjectSummary[], id: string | null): string | null {
+  if (!id) return null;
+  const project = projects.find((p) => p.id === id);
+  if (!project) return null;
+  return project.displayName ?? project.slug;
 }
 
 interface ProjectContextValue {
@@ -162,4 +227,17 @@ export function useProject(): ProjectContextValue {
     throw new Error("useProject must be used within a ProjectProvider");
   }
   return ctx;
+}
+
+/**
+ * Like `useProject`, but `null` outside a `ProjectProvider` instead of a
+ * throw (mt#4773). For PRESENTATION-ONLY affordances — the per-row project
+ * badge, the instance-level scope cue — where "no selection context" and
+ * "nothing to indicate" are the same answer, so rendering nothing is correct
+ * rather than a masked bug. Anything that SCOPES data must keep using
+ * `useProject`: a silently-absent provider there means silently-unscoped
+ * fetches, which is exactly what the throw exists to catch.
+ */
+export function useOptionalProject(): ProjectContextValue | null {
+  return useContext(ProjectContext);
 }

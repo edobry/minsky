@@ -27,6 +27,7 @@ import { stripUnsupportedCapabilities } from "./capabilities";
 import { readAuthToken, DEFAULT_TOKEN_PATH } from "./token";
 import { DaemonClient, describeDaemonFailure } from "./client";
 import { makeErrorResponse, toolsListCount, type JsonRpcMessage } from "./protocol";
+import { boundOversizedResponse, type ResponseBoundDeps } from "./response-bound";
 
 /** Fixed default daemon port per ADR-038 §Question 4. */
 export const DEFAULT_DAEMON_URL = "http://127.0.0.1:48765/mcp";
@@ -84,6 +85,8 @@ export interface ShimDeps {
   stdin?: NodeJS.ReadStream;
   stdout?: NodeJS.WriteStream;
   stderr?: NodeJS.WriteStream;
+  /** Injected for tests — see {@link handleLine}'s `responseBoundDeps`. */
+  responseBoundDeps?: ResponseBoundDeps;
 }
 
 /**
@@ -166,6 +169,7 @@ export function runShim(options: ShimOptions, deps: ShimDeps = {}): DaemonClient
         conversationAgentId: currentConversationAgentId(),
         stdout,
         stderr,
+        responseBoundDeps: deps.responseBoundDeps,
       });
     }
   });
@@ -186,6 +190,12 @@ export async function handleLine(
     conversationAgentId: string | null;
     stdout: Pick<NodeJS.WriteStream, "write">;
     stderr: Pick<NodeJS.WriteStream, "write">;
+    /**
+     * Injected for tests — overrides `boundOversizedResponse`'s filesystem
+     * seam (mt#4749). Defaults to the real state dir / fs when omitted, which
+     * is what every non-test caller (`runShim`) relies on.
+     */
+    responseBoundDeps?: ResponseBoundDeps;
   }
 ): Promise<void> {
   let msg: JsonRpcMessage;
@@ -261,7 +271,16 @@ export async function handleLine(
         // there is nowhere to report a failure to write a diagnostic except the
         // stream that just failed.
       }
-      ctx.stdout.write(`${JSON.stringify(resp)}\n`);
+
+      // mt#4749: the last checkpoint before the write that IS the JSON-RPC
+      // channel to the harness. A response whose serialized size runs into the
+      // tens of megabytes killed that connection outright (twice, once per
+      // server alias) in the originating incident — `boundOversizedResponse`
+      // spools an oversized frame to a file and substitutes a bounded error
+      // response instead, so this write can never itself take the transport
+      // down regardless of which tool produced the oversized result.
+      const bounded = boundOversizedResponse(resp, ctx.responseBoundDeps);
+      ctx.stdout.write(`${JSON.stringify(bounded)}\n`);
     }
   } catch (err) {
     // Never silently drop a message on HTTP failure (the named gap in the

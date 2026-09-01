@@ -121,8 +121,42 @@ New **session** and **memory** records are also stamped with the resolved
 - `memory.create` defaults `project_id` to the resolved current scope when
   no explicit `projectId` is provided; an explicitly-provided value is always
   respected.
-- **Ask write-stamping** is deferred to Phase-1.3b — the Ask domain type
-  does not yet carry a `projectId` field (see `ask/repository.ts` `toInsert`).
+- `asks.create` stamps `project_id` from the **parent task's** project when the
+  Ask has a `parentTaskId`, and from the filing context otherwise (mt#4772).
+  The parent wins because an Ask is ABOUT its parent task, while the filing
+  context only records which server the agent was connected to; the lookup
+  reuses mt#4808's `resolveTaskProjectId` and fails open to the context at
+  every step. Before this, a parented Ask stamped the filing context and so
+  listed under the wrong project on `/asks`, while its own activity event —
+  keyed on `relatedTaskId` — rendered under the right one: one entity, two
+  project identities depending on the page.
+
+  (This bullet previously read _"Ask write-stamping is deferred to Phase-1.3b —
+  the Ask domain type does not yet carry a `projectId` field."_ That was stale
+  from mt#2563, which added the field and the stamp; `toInsert` has carried
+  `projectId` since. The residual defect was never a missing field, only a
+  mis-resolved value — a distinction worth preserving here, because the stale
+  wording pointed at the wrong fix.)
+
+- `tasks.create` no longer stamps from the filing context alone (mt#4808).
+  It resolves per call, in precedence order: an explicit `workspace`/`repo`
+  the caller named → the `parent` task's project → the filing context
+  (unchanged fallback). Explicit beats inherited because an argument the
+  caller passed is an instruction while a parent's project is an inference;
+  a caller wanting the parent's project omits the argument. Every lookup
+  fails open to the next level — a create must not fail, or silently NULL its
+  project, because a lookup did. Resolved in
+  `packages/domain/src/project/new-task-project.ts`; the per-call value
+  reaches the row through `CreateTaskOptions.projectId`, which overrides the
+  backend's construction-time `currentProjectId` (the MCP path injects a boot
+  singleton, so nothing per-call could reach the insert without that seam).
+
+**Deviation from `## Decision`, recorded not resolved.** The per-process
+resolution model above describes reads. Two write paths now resolve from the
+ENTITY rather than the process context — `session.start` (mt#4758) and
+`tasks.create` (mt#4808) — and `asks_create` is the third and last call site of
+the same root (mt#4772, open). Amending `## Decision` to match belongs with the
+phase that owns this ADR, not with an individual bugfix; **mt#2391** carries it.
 
 ## Cross-references
 

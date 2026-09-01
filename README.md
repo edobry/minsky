@@ -133,6 +133,24 @@ step — Minsky auto-migrates the schema on first connect (`MINSKY_AUTO_MIGRATE`
 defaults to `true`), so there is never a `minsky persistence migrate` command to
 run as part of onboarding.
 
+### Grant the GitHub App access to your repository
+
+Minsky opens pull requests and posts reviews through a GitHub App rather than
+your personal token, so the App's installation has to cover each repository you
+onboard. `minsky setup` checks this and tells you if it does not.
+
+Expanding an installation's repository access is something only you can do —
+GitHub's API restricts it to a personal access token, deliberately, so that an
+App cannot widen its own permissions. Minsky therefore does not do it for you.
+What it does instead is file a **request** you can see and act on: it names the
+repository and the App, links straight to the installation's settings page, and
+resolves itself once you grant access. There is nothing to confirm afterwards —
+Minsky notices the grant on its own the next time it checks.
+
+Until the grant lands, pull-request creation fails with a bare `404`, and
+because the reviewer bot rides the same App's webhooks, code review is blocked
+too — not just PR creation.
+
 ### Configure the database directly
 
 `minsky setup db` is the same interactive wizard `minsky setup` falls into

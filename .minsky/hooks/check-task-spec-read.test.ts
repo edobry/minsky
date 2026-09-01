@@ -40,8 +40,20 @@ import {
   unreadAskTaskIds,
   buildAskAdvisoryReason,
   cliSpecEngagements,
+  FALSIFIED_BANNER_TOKEN,
+  extractSpecBody,
+  specCarriesFalsifiedBanner,
+  falsifiedAskTaskIds,
+  buildFalsifiedAdvisoryReason,
 } from "./check-task-spec-read";
 import { readManifest, resolveCommandNode } from "./detect-cli-mcp-substitution";
+
+/**
+ * A transcript path that is present but does not resolve — the "nothing was
+ * surfaced" case, distinct from an ABSENT `transcript_path` (the only fail-open).
+ * Shared by both ask-seam legs so the two cannot drift apart.
+ */
+const MISSING_TRANSCRIPT_PATH = "/nonexistent/path.jsonl";
 
 /** A non-spec tool name reused across fixtures. */
 const MEMORY_SEARCH_TOOL = "mcp__minsky__memory_search";
@@ -1118,9 +1130,7 @@ describe("unreadAskTaskIds", () => {
     // surfaced", so the deny leg DENIES and this leg advises. Pinned here
     // because the criterion this test discharges originally claimed the
     // unreadable case failed open, and it does not.
-    expect(unreadAskTaskIds("/nonexistent/path.jsonl", undefined, ["mt#3473"])).toEqual([
-      "mt#3473",
-    ]);
+    expect(unreadAskTaskIds(MISSING_TRANSCRIPT_PATH, undefined, ["mt#3473"])).toEqual(["mt#3473"]);
   });
 });
 
@@ -1344,5 +1354,247 @@ describe("specWasSurfaced / specWasAuthored — CLI channel (mt#4380)", () => {
 
   test("an empty target id is never discharged by a CLI read", () => {
     expect(specWasSurfaced([bashCommand(CLI_SPEC_GET_TARGET)], "")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The falsified-premise leg (mt#4561)
+// ---------------------------------------------------------------------------
+//
+// AT1 ("a /plan-task run recording a gate-(o) failure produces the marker") is
+// not represented here: the emitter is skill PROSE the agent follows, so there
+// is no function to call. What IS mechanised is the READ, and that is what the
+// tests below cover — the asymmetry the task's own Summary argues for.
+
+const BANNER_LINE =
+  `> **${FALSIFIED_BANNER_TOKEN} — 2026-08-27.** Gate (o) did not reproduce the cause this\n` +
+  "> spec asserts. Evidence: `## Gap Report (PLANNING — not yet READY)`.\n";
+
+describe("specCarriesFalsifiedBanner (mt#4561)", () => {
+  test("fires on a banner in the spec's top block", () => {
+    const spec = `${BANNER_LINE}\n## Summary\n\nSomething.\n`;
+    expect(specCarriesFalsifiedBanner(spec)).toBe(true);
+  });
+
+  test("AT3: does NOT fire when the token sits BELOW the first heading — another task's verdict", () => {
+    // 32 of the 94 measured phrase-set fires sat on a line naming a DIFFERENT
+    // task. Position, not a matcher, is what excludes them.
+    const spec = [
+      "## Summary",
+      "",
+      "This task is fine.",
+      "",
+      "## Context",
+      "",
+      `mt#2718 carries a ${FALSIFIED_BANNER_TOKEN} banner, which is why we are not building on it.`,
+      "",
+      `mt#3659 does too.`,
+      "",
+    ].join("\n");
+    expect(specCarriesFalsifiedBanner(spec)).toBe(false);
+  });
+
+  test("AT4 (negative control): a banner quoted inside a fence at the top does not fire", () => {
+    const fence = "```";
+    const spec = [
+      "Some preamble describing the convention:",
+      "",
+      fence,
+      `> **${FALSIFIED_BANNER_TOKEN} — 2026-08-27.** ...`,
+      fence,
+      "",
+      "## Summary",
+      "",
+    ].join("\n");
+    expect(specCarriesFalsifiedBanner(spec)).toBe(false);
+  });
+
+  test("AT2: does NOT fire on the four measured prose false positives", () => {
+    // Each is a live directive about PART of a task, which the rejected phrase
+    // set could not separate from a verdict on the whole task.
+    const proseFalsePositives = [
+      "## Scope\n\nOut of scope … do not implement the sibling's half here.",
+      "## Scope\n\ndo not build independently of the sibling embeddings tasks",
+      "## Summary\n\nDo NOT build a second symbol-matching layer.",
+      "## Context\n\n(already decided, do not re-open)",
+    ];
+    for (const spec of proseFalsePositives) {
+      expect(specCarriesFalsifiedBanner(spec)).toBe(false);
+    }
+  });
+
+  test("an empty or absent body never fires", () => {
+    expect(specCarriesFalsifiedBanner("")).toBe(false);
+    expect(specCarriesFalsifiedBanner("## Summary\n\nnothing here\n")).toBe(false);
+  });
+
+  test("a spec that is ONLY a banner, with no headings at all, still fires", () => {
+    expect(specCarriesFalsifiedBanner(BANNER_LINE)).toBe(true);
+  });
+});
+
+describe("extractSpecBody (mt#4561)", () => {
+  test("unwraps the MCP JSON envelope's content field", () => {
+    const body = `${BANNER_LINE}\n## Summary\n`;
+    expect(extractSpecBody(JSON.stringify({ success: true, content: body }))).toBe(body);
+  });
+
+  test("falls through to the raw text for the CLI spelling", () => {
+    const body = "## Summary\n\nplain markdown, not JSON\n";
+    expect(extractSpecBody(body)).toBe(body);
+  });
+
+  test("a malformed body does not throw", () => {
+    expect(extractSpecBody("{ not json")).toBe("{ not json");
+    expect(extractSpecBody("")).toBe("");
+  });
+
+  test("JSON without a string content field falls through rather than yielding undefined", () => {
+    const raw = JSON.stringify({ success: true, content: 42 });
+    expect(extractSpecBody(raw)).toBe(raw);
+  });
+});
+
+describe("falsifiedAskTaskIds (mt#4561)", () => {
+  test("flags an id whose spec THIS SESSION READ carries the banner", () => {
+    const parentPath = buildTranscriptTree(
+      [
+        assistantToolUseWithId("call-1", SPEC_GET_TOOL, { taskId: "mt#3473" }),
+        toolResultJson("call-1", {
+          success: true,
+          content: `${BANNER_LINE}\n## Summary\n\nThe killed pilot.\n`,
+        }),
+      ],
+      {}
+    );
+    expect(falsifiedAskTaskIds(parentPath, undefined, ["mt#3473"])).toEqual(["mt#3473"]);
+  });
+
+  test("does NOT flag an id whose read spec carries no banner", () => {
+    const parentPath = buildTranscriptTree(
+      [
+        assistantToolUseWithId("call-1", SPEC_GET_TOOL, { taskId: "mt#2718" }),
+        toolResultJson("call-1", { success: true, content: "## Summary\n\nAlive and well.\n" }),
+      ],
+      {}
+    );
+    expect(falsifiedAskTaskIds(parentPath, undefined, ["mt#2718"])).toEqual([]);
+  });
+
+  test("a read with no correlated result is not read as a clean spec", () => {
+    // hasResult false must not be treated as \"no banner\" — that is the
+    // empty-vs-never-returned distinction findToolCallsWithResults carries.
+    const parentPath = buildTranscriptTree(
+      [assistantToolUseWithId("call-1", SPEC_GET_TOOL, { taskId: "mt#3473" })],
+      {}
+    );
+    expect(falsifiedAskTaskIds(parentPath, undefined, ["mt#3473"])).toEqual([]);
+  });
+
+  test("an id the session never read is not flagged — that is the sibling leg's case", () => {
+    const parentPath = buildTranscriptTree(
+      [
+        assistantToolUseWithId("call-1", SPEC_GET_TOOL, { taskId: "mt#2718" }),
+        toolResultJson("call-1", { success: true, content: "## Summary\n\nfine\n" }),
+      ],
+      {}
+    );
+    expect(falsifiedAskTaskIds(parentPath, undefined, ["mt#3473"])).toEqual([]);
+  });
+
+  test("no ids means no transcript work", () => {
+    expect(falsifiedAskTaskIds(MISSING_TRANSCRIPT_PATH, undefined, [])).toEqual([]);
+  });
+
+  // PR #3410 R1 (BLOCKING): the leg scanned only the MCP shape, while
+  // `specWasSurfaced` credits BOTH surfaces (mt#4380). A CLI read therefore
+  // left the id credited-as-read by the sibling leg and unscanned by this one —
+  // a false negative neither leg would report.
+  test("R1: a CLI `tasks spec get` read is scanned for the banner", () => {
+    const parentPath = buildTranscriptTree(
+      [
+        assistantToolUseWithId("call-1", "Bash", {
+          command: "minsky tasks spec get mt#3473",
+        }),
+        toolResultJson("call-1", {
+          success: true,
+          content: `${BANNER_LINE}\n## Summary\n\nThe killed pilot.\n`,
+        }),
+      ],
+      {}
+    );
+    expect(falsifiedAskTaskIds(parentPath, undefined, ["mt#3473"])).toEqual(["mt#3473"]);
+  });
+
+  test("R1: a CLI `tasks get --include-spec` read is scanned for the banner", () => {
+    const parentPath = buildTranscriptTree(
+      [
+        assistantToolUseWithId("call-1", "mcp__minsky__session_exec", {
+          command: "minsky tasks get mt#3473 --include-spec",
+        }),
+        toolResultJson("call-1", {
+          success: true,
+          content: `${BANNER_LINE}\n## Summary\n`,
+        }),
+      ],
+      {}
+    );
+    expect(falsifiedAskTaskIds(parentPath, undefined, ["mt#3473"])).toEqual(["mt#3473"]);
+  });
+
+  test("R1 (negative control): a CLI read of a DIFFERENT task is not credited to ours", () => {
+    const parentPath = buildTranscriptTree(
+      [
+        assistantToolUseWithId("call-1", "Bash", {
+          command: "minsky tasks spec get mt#2718",
+        }),
+        toolResultJson("call-1", {
+          success: true,
+          content: `${BANNER_LINE}\n## Summary\n`,
+        }),
+      ],
+      {}
+    );
+    expect(falsifiedAskTaskIds(parentPath, undefined, ["mt#3473"])).toEqual([]);
+  });
+
+  test("R1: a CLI read whose spec carries no banner does not fire", () => {
+    const parentPath = buildTranscriptTree(
+      [
+        assistantToolUseWithId("call-1", "Bash", {
+          command: "minsky tasks spec get mt#3473",
+        }),
+        toolResultJson("call-1", { success: true, content: "## Summary\n\nAlive.\n" }),
+      ],
+      {}
+    );
+    expect(falsifiedAskTaskIds(parentPath, undefined, ["mt#3473"])).toEqual([]);
+  });
+});
+
+describe("buildFalsifiedAdvisoryReason (mt#4561)", () => {
+  test("names the task, says it is advisory, and names the override", () => {
+    const reason = buildFalsifiedAdvisoryReason(ASKS_CREATE_TOOL, ["mt#3473"]);
+    expect(reason).toContain("mt#3473");
+    expect(reason).toContain("filing an ask that names");
+    // Leg-SPECIFIC substrings (PR #3410 R1, non-blocking): "NOT blocked" is
+    // shared verbatim with buildAskAdvisoryReason, so asserting on it alone
+    // would pass against the wrong leg's output.
+    expect(reason).toContain("FALSIFIED PROBLEM STATEMENT");
+    expect(reason).toContain("could NOT");
+    expect(reason).toContain("reproduce the cause the spec asserts");
+    expect(reason).toContain(OVERRIDE_ENV_VAR);
+  });
+
+  test("the edit spelling names editing rather than filing", () => {
+    expect(buildFalsifiedAdvisoryReason(ASKS_EDIT_TOOL, ["mt#3473"])).toContain(
+      "editing an ask that names"
+    );
+  });
+
+  test("pluralises for several ids", () => {
+    const reason = buildFalsifiedAdvisoryReason(ASKS_CREATE_TOOL, ["mt#3473", "mt#4072"]);
+    expect(reason).toContain("their specs carry");
+    expect(reason).toContain("mt#3473, mt#4072");
   });
 });

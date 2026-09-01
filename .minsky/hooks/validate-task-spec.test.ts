@@ -3,6 +3,7 @@ import {
   validateSpecContent,
   extractSpecContent,
   buildDenialReason,
+  isKindExemptFromSpecShape,
   MIN_SPEC_LENGTH_FOR_VALIDATION,
   REQUIRED_HEADINGS,
 } from "./validate-task-spec";
@@ -128,5 +129,22 @@ describe("buildDenialReason", () => {
   test("is prefixed with [validate-task-spec] so the denial is self-identifying", () => {
     const reason = buildDenialReason("My Task", [SUCCESS_CRITERIA_HEADING]);
     expect(reason.startsWith("[validate-task-spec] ")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isKindExemptFromSpecShape (ADR-046, mt#2911)
+// ---------------------------------------------------------------------------
+
+describe("isKindExemptFromSpecShape", () => {
+  test("kind work-package is exempt — briefings are validated domain-side", () => {
+    expect(isKindExemptFromSpecShape({ kind: "work-package" })).toBe(true);
+  });
+
+  test("every other kind (and absent kind) still gets the spec-shape check", () => {
+    expect(isKindExemptFromSpecShape({ kind: "implementation" })).toBe(false);
+    expect(isKindExemptFromSpecShape({ kind: "state-ops" })).toBe(false);
+    expect(isKindExemptFromSpecShape({})).toBe(false);
+    expect(isKindExemptFromSpecShape(undefined)).toBe(false);
   });
 });

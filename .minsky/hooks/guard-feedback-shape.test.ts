@@ -284,6 +284,8 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "code-mechanism-assertion-detector",
         "constructed-identifier-batch-detector",
         "context-fill-gauge",
+        "cross-turn-hedge-detector",
+        "criterion-reconciliation-scan",
         "duplicate-check-candidate-read",
         "flakiness-control-detector",
         "guard-health-escalation-detector",
@@ -300,6 +302,8 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         // mt#4215 — also a `renderProbe` producer, per the note above.
         "nonexistent-search-path",
         "operator-deferral-ask-surface",
+        "operator-deferral-artifact-surface-pr",
+        "operator-deferral-artifact-surface-spec",
         "operator-deferral-detector",
         "pre-narration-detector",
         "require-duplicate-check-record",
@@ -403,9 +407,16 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   "build-claim-injection-detector": "capped", // deploySurfaceFiles.slice(0, 6)
   "causal-premise-detector": RENDER_PROBE_SAMPLE, // one line per phrase, uncapped
   "constructed-identifier-batch-detector": RENDER_PROBE_SAMPLE, // one line per match, uncapped
+  // mt#4701. Both EXCERPTS are capped (240 chars each, `MAX_EXCERPT_CHARS`), but
+  // the FINDING COUNT is not — one line per decayed subject — so this is a sample
+  // of a realistic worst case, not a proved ceiling. A cap on the finding count is
+  // owed before any INJECTION_ENABLED flip, and the registration says so too.
+  "cross-turn-hedge-detector": RENDER_PROBE_SAMPLE,
   "knowledge-acquisition-detector": RENDER_PROBE_SAMPLE, // researchTools joined, uncapped
   "operator-deferral-detector": "capped", // <=3 matches x 240-char contexts
   "operator-deferral-ask-surface": "capped", // same module, same renderer
+  "operator-deferral-artifact-surface-pr": "capped", // same module, same renderer
+  "operator-deferral-artifact-surface-spec": "capped", // same module, same renderer
   "calibration-review-cadence-detector": "capped", // ADVISORY_BUDGET_CHARS byte-budget fit (mt#3824)
   // Capped on BOTH axes — MAX_RENDERED_CLAIMS with an `...and N more` line, and
   // each phrase bounded by the matcher's own 120-char cap — and the ceiling is
@@ -439,6 +450,13 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   // render is the ceiling for any realistic model id (measured 269 known / 355
   // fallback against the declared 400), not a sample of an unbounded axis.
   "context-fill-gauge": "capped",
+  // mt#4213. Both rendered axes are bounded: the id list at `MAX_RENDERED_IDS`
+  // with an `…and N more` overflow suffix, and a fixed body. So `renderWorstCase`
+  // is a proved ceiling (measured 384 against the declared 420), not a sample.
+  // Note the contrast with `spec-criterion-claim-detector` below, which is
+  // RENDER_PROBE_SAMPLE precisely because it still owes this cap — paying it at
+  // authoring time is what buys "capped" here.
+  "criterion-reconciliation-scan": "capped",
   "guard-health-escalation-detector": WORST_CASE_CANARY, // two capped sections + a truncated interpolation
   "inject-ask-responses": "capped", // MAX_ENUMERATED_ASKS x (MAX_TITLE_CHARS + MAX_CHOSEN_RENDER_CHARS) (mt#3564)
   "inject-current-time": "fixed",

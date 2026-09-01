@@ -20,6 +20,7 @@
 import { describe, test, expect } from "bun:test";
 import { handleLine, runShim } from "./main";
 import { AGENT_ID_META_KEY } from "./identity";
+import { MAX_STDOUT_FRAME_BYTES, type ResponseBoundDeps } from "./response-bound";
 import type { DaemonClient } from "./client";
 import type { JsonRpcMessage } from "./protocol";
 
@@ -358,5 +359,123 @@ describe("runShim — per-frame identity resolution (mt#4440)", () => {
     // The frozen-at-startup shape stamps FIRST here too — that inequality is
     // the whole assertion.
     expect(second?._meta?.[AGENT_ID_META_KEY]).toBe(SECOND);
+  });
+});
+
+/**
+ * The transport-level size cap (mt#4749 AT2): "a deliberately oversized tool
+ * response produces a structured error or spooled-file pointer, and the next
+ * tool call on the same connection succeeds."
+ *
+ * `handleLine` is exercised end-to-end here (not `boundOversizedResponse`
+ * directly, which `response-bound.test.ts` already covers) specifically to
+ * prove the WIRING: that the write which reaches `stdout` — the actual
+ * JSON-RPC channel to the harness — is the bounded frame, and that a second
+ * `handleLine` call against the SAME `stdout`/`client` fakes (standing in for
+ * "the same connection") still produces a normal, well-formed response.
+ */
+describe("handleLine — oversized-response transport cap (mt#4749 AT2)", () => {
+  /** In-memory fs fake — no real filesystem touched (custom/no-real-fs-in-tests). */
+  function fakeResponseBoundDeps(): {
+    deps: {
+      mkdirSync: (dir: string, opts?: unknown) => void;
+      writeFileSync: (p: string, c: string) => void;
+      stateDir: string;
+    };
+    filesWritten: Record<string, string>;
+  } {
+    const filesWritten: Record<string, string> = {};
+    return {
+      filesWritten,
+      deps: {
+        stateDir: "/fake-state",
+        mkdirSync: () => {},
+        writeFileSync: (p: string, c: string) => {
+          filesWritten[p] = c;
+        },
+      },
+    };
+  }
+
+  test("an oversized tool response is bounded before it reaches stdout", async () => {
+    const stdout = makeSink();
+    const stderr = makeSink();
+    const fake = fakeResponseBoundDeps();
+    const hugeText = "x".repeat(MAX_STDOUT_FRAME_BYTES + 1000);
+    const client = makeClient([
+      { jsonrpc: "2.0", id: 5, result: { content: [{ type: "text", text: hugeText }] } },
+    ]);
+
+    await handleLine(JSON.stringify({ jsonrpc: "2.0", id: 5, method: "tools/call" }), {
+      client,
+      conversationAgentId: null,
+      stdout,
+      stderr,
+      responseBoundDeps: fake.deps as unknown as ResponseBoundDeps,
+    });
+
+    expect(stdout.written).toHaveLength(1);
+    const frame = JSON.parse(stdout.written[0] as string) as JsonRpcMessage;
+    // Never the huge payload itself.
+    expect((stdout.written[0] as string).length).toBeLessThan(1000);
+    expect(frame.id).toBe(5);
+    expect(frame.error).toBeDefined();
+    expect(frame.error?.message).toContain("too large");
+    // Spooled, not dropped.
+    expect(Object.keys(fake.filesWritten)).toHaveLength(1);
+  });
+
+  test("the NEXT tool call on the same connection still succeeds", async () => {
+    // Same stdout/stderr/client-shape fakes across both calls, standing in
+    // for "the same connection" the acceptance test names.
+    const stdout = makeSink();
+    const stderr = makeSink();
+    const fake = fakeResponseBoundDeps();
+    const hugeText = "y".repeat(MAX_STDOUT_FRAME_BYTES + 1000);
+
+    const oversizedClient = makeClient([
+      { jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: hugeText }] } },
+    ]);
+    await handleLine(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call" }), {
+      client: oversizedClient,
+      conversationAgentId: null,
+      stdout,
+      stderr,
+      responseBoundDeps: fake.deps as unknown as ResponseBoundDeps,
+    });
+
+    // A fresh, ordinary-sized response — the daemon and the transport are
+    // both still alive, which is the whole point of the bound.
+    const normalClient = makeClient([{ jsonrpc: "2.0", id: 2, result: { ok: true } }]);
+    await handleLine(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call" }), {
+      client: normalClient,
+      conversationAgentId: null,
+      stdout,
+      stderr,
+      responseBoundDeps: fake.deps as unknown as ResponseBoundDeps,
+    });
+
+    expect(stdout.written).toHaveLength(2);
+    const secondFrame = JSON.parse(stdout.written[1] as string) as JsonRpcMessage;
+    expect(secondFrame).toEqual({ jsonrpc: "2.0", id: 2, result: { ok: true } });
+  });
+
+  test("an ordinary-sized response is forwarded unchanged", async () => {
+    const stdout = makeSink();
+    const stderr = makeSink();
+    const client = makeClient([{ jsonrpc: "2.0", id: 9, result: { ok: true } }]);
+
+    await handleLine(JSON.stringify({ jsonrpc: "2.0", id: 9, method: "tools/call" }), {
+      client,
+      conversationAgentId: null,
+      stdout,
+      stderr,
+    });
+
+    expect(JSON.parse(stdout.written[0] as string)).toEqual({
+      jsonrpc: "2.0",
+      id: 9,
+      result: { ok: true },
+    });
   });
 });

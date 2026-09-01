@@ -8,10 +8,12 @@
  * scoped to exactly what it renders, matching the existing one-hook-per-metric
  * convention on this board.
  *
- * Query key: ["plant-board", "backlog-counts"]
+ * Query key: ["plant-board", "backlog-counts", selectedSlug] (mt#4731 —
+ * selectedSlug in the key so switching projects invalidates and refetches).
  * staleTime: 30s, refetchInterval: 60s (breath-clock cadence, matching useReadyCount).
  */
 import { useQuery } from "@tanstack/react-query";
+import { useProject } from "../lib/project-context";
 
 interface TaskListItem {
   id: string;
@@ -28,8 +30,9 @@ export interface BacklogCounts {
   planning: number;
 }
 
-async function fetchBacklogCounts(): Promise<BacklogCounts> {
-  const res = await fetch("/api/tasks");
+async function fetchBacklogCounts(queryParam?: { project: string }): Promise<BacklogCounts> {
+  const qs = queryParam ? `?project=${encodeURIComponent(queryParam.project)}` : "";
+  const res = await fetch(`/api/tasks${qs}`);
   if (!res.ok) throw new Error(`tasks API: ${res.status}`);
   const body = (await res.json()) as TaskListResponse;
   let todo = 0;
@@ -42,9 +45,10 @@ async function fetchBacklogCounts(): Promise<BacklogCounts> {
 }
 
 export function useTaskBacklogCounts() {
+  const { selectedSlug, queryParam } = useProject();
   return useQuery({
-    queryKey: ["plant-board", "backlog-counts"],
-    queryFn: fetchBacklogCounts,
+    queryKey: ["plant-board", "backlog-counts", selectedSlug],
+    queryFn: () => fetchBacklogCounts(queryParam),
     staleTime: 30_000,
     refetchInterval: 60_000,
   });

@@ -8,6 +8,7 @@
  */
 
 import { TASK_STATUS_VALUES } from "@minsky/domain/tasks/taskConstants";
+import { RULE_FORMAT_VALUES } from "@minsky/domain/rules/types";
 
 // ------------------------------------------------------------------
 // Repository Resolution
@@ -141,7 +142,7 @@ export const RULE_NAME_DESCRIPTION = "Display name of the rule (defaults to ID)"
 /**
  * Description for rule format option
  */
-export const RULE_FORMAT_DESCRIPTION = "Format of the rule file (cursor or generic)";
+export const RULE_FORMAT_DESCRIPTION = `Format of the rule file (${RULE_FORMAT_VALUES.join(", ")})`;
 
 /**
  * Description for rule tags option

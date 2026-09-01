@@ -340,9 +340,42 @@ export interface WorkflowRunsOperations {
     options?: import("./github-workflow-runs").ListWorkflowRunsOptions
   ): Promise<import("./github-workflow-runs").WorkflowRun[]>;
   /**
-   * Download and return the logs for a specific workflow run as a text string.
+   * List the jobs of a specific workflow run — id/name/status/conclusion
+   * (mt#4749). Lets a caller pick a `jobId` for `viewJobLog` without a
+   * separate GitHub UI round trip.
    */
-  viewLogs(runId: number): Promise<string>;
+  listJobs(runId: number): Promise<import("./github-workflow-runs").RunJobSummary[]>;
+  /**
+   * Download and return the logs for a specific workflow run as a text
+   * string — the UNBOUNDED whole-run form (every job's log, ZIP-decoded and
+   * concatenated). Prefer `viewJobLog` or `viewFailedJobLogs` for the common
+   * diagnose-a-red-check case. `options.tailLines` bounds the result to the
+   * last N lines; regardless, an oversized result is spooled to a
+   * server-side file and replaced with a pointer rather than returned inline
+   * (mt#4749 — see `boundLogPayload` in github-workflow-runs.ts).
+   */
+  viewLogs(
+    runId: number,
+    options?: import("./github-workflow-runs").ViewLogsOptions
+  ): Promise<string>;
+  /**
+   * Download the log for a SINGLE job via GitHub's native per-job log
+   * endpoint — bounded to that job's own output, no ZIP, no other jobs'
+   * output (mt#4749). The preferred bounded fetch for a known failing job id.
+   */
+  viewJobLog(
+    jobId: number,
+    options?: import("./github-workflow-runs").ViewLogsOptions
+  ): Promise<string>;
+  /**
+   * Fetch logs only for the jobs of `runId` that did not succeed — combines
+   * `listJobs` + `viewJobLog` so a caller doesn't need the list-then-fetch
+   * round trip to find the failing job (mt#4749).
+   */
+  viewFailedJobLogs(
+    runId: number,
+    options?: import("./github-workflow-runs").ViewLogsOptions
+  ): Promise<import("./github-workflow-runs").ViewFailedJobLogsResult>;
   /**
    * Re-run a workflow run by its numeric ID (mt#2775). Defaults to re-running
    * only the failed jobs; pass `{ fullRerun: true }` to re-run every job.

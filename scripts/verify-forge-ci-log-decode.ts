@@ -91,7 +91,7 @@ if (pinnedRunId) {
   );
 }
 
-const logs = await viewWorkflowRunLogs(gh, runId, octokit);
+const logs = await viewWorkflowRunLogs(gh, runId, {}, octokit);
 
 const DEFLATE_FALLBACK_MARKER = "DEFLATE entry could not be inflated";
 const BASE64_FALLBACK_MARKER = "[base64-encoded ZIP";

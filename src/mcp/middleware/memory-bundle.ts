@@ -66,6 +66,20 @@ import { safeTruncate } from "@minsky/shared/safe-truncate";
 const DEFAULT_K = 20;
 
 /**
+ * Explicit `limit` for the two `list()` calls below (PR #3488 R1
+ * class-not-instance follow-up to the R1 review). `MemoryService.list()`
+ * defaults to `DEFAULT_LIST_CAP` (500) — a bound this bundle's own ranking
+ * logic predates. The bundle ranks by `accessCount DESC` across the FULL
+ * feedback+user population (see the "Bundle shape choice" doc comment above)
+ * — `list()`'s default order is `created desc`, so silently capping to the
+ * 500 most-RECENTLY-CREATED rows could exclude an OLDER, heavily-accessed
+ * record from ranking consideration entirely, which is exactly the ranking
+ * this bundle exists to get right. Set well above any real corpus size for
+ * either type.
+ */
+const LIST_FETCH_LIMIT = 1_000_000;
+
+/**
  * Hard character cap for the entire instructions bundle text.
  * ~4 chars/token * 3500 tokens = 14000 chars (conservative for non-ASCII).
  */
@@ -184,8 +198,8 @@ export async function composeMemoryBundle(
     // We use separate list calls per type since the list filter only accepts
     // one type at a time, then merge and sort client-side.
     const [feedbackResult, userResult] = await Promise.all([
-      memoryService.list({ type: "feedback", excludeSuperseded: true }),
-      memoryService.list({ type: "user", excludeSuperseded: true }),
+      memoryService.list({ type: "feedback", excludeSuperseded: true, limit: LIST_FETCH_LIMIT }),
+      memoryService.list({ type: "user", excludeSuperseded: true, limit: LIST_FETCH_LIMIT }),
     ]);
 
     // Merge and sort by accessCount DESC, then updatedAt DESC as tiebreaker.

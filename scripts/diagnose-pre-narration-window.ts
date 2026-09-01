@@ -42,6 +42,7 @@ import {
   detectPreNarrationWithSuppression,
   elideMarkdownContexts,
   extractClaimedPrNumber,
+  extractUniqueClaimedPrNumber,
   extractPrNumbersForTools,
   extractWindowToolUseNames,
   windowSlice,
@@ -555,7 +556,13 @@ function main(): void {
       // fire and then taking the window is what the detector sees; using the
       // full pre-fire history here would re-introduce, in the measurement, the
       // exact scope mismatch R2 removed from the code.
-      const claimedPr = extractClaimedPrNumber(match.phrase);
+      // mt#4810: the same two-step the detector now uses — the matched phrase
+      // first, then the claim's own sentence. Kept in sync deliberately: the
+      // comment above is explicit that a divergence here would misreport the
+      // very fix this script exists to measure, and this is where that would
+      // have happened.
+      const claimedPr =
+        extractClaimedPrNumber(match.phrase) ?? extractUniqueClaimedPrNumber(match.context ?? "");
       const identityBacked =
         claimedPr !== null &&
         extractPrNumbersForTools(

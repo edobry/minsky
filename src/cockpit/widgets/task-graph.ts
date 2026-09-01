@@ -22,6 +22,7 @@ import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
+import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
 import { describeWidgetDegradedReason } from "../db-providers";
 
 // ---------------------------------------------------------------------------
@@ -72,6 +73,14 @@ export interface TaskGraphPayload {
 export interface TaskGraphDeps {
   taskService: TaskServiceInterface;
   taskGraphService: TaskGraphService;
+  /**
+   * Optional test seam (mt#4727, mirrors task-list.ts's mt#3016 seam):
+   * overrides `resolveCockpitProjectScope`'s own db-fetch. Production
+   * callers never set this — the default factory omits it, so
+   * `resolveCockpitProjectScope` falls back to its own `defaultGetDb` (the
+   * real `getContextInspectorDb()` singleton).
+   */
+  getDb?: () => Promise<ScopeResolverDb | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,17 +108,33 @@ export function createTaskGraphWidget(getDeps: () => Promise<TaskGraphDeps>): Wi
     // 10s polling: the graph can be ~1K nodes; 5s is too aggressive for a heavy render
     updateMode: { type: "polling", intervalMs: 10_000 },
 
-    async fetch(_ctx: WidgetContext): Promise<WidgetData> {
+    async fetch(ctx: WidgetContext): Promise<WidgetData> {
       try {
-        const { taskService, taskGraphService } = await getDeps();
+        const { taskService, taskGraphService, getDb } = await getDeps();
 
-        // Fetch all tasks (no limit — we want the full graph)
-        const tasks = await taskService.listTasks({});
+        // Project scope (mt#4727): ?project=<slug> resolved to a project
+        // uuid, defaulting to ALL_PROJECTS when omitted/"all" — same
+        // resolution rules as every other cockpit project-scoped read
+        // (mt#2418 pattern, task-list.ts:91-93). resolveCockpitProjectScope
+        // owns its own db-fetch and never throws (fail-open to ALL_PROJECTS
+        // on any resolution failure — PR #2056 R1), so a scoping problem can
+        // never take this widget down.
+        const { resolveCockpitProjectScope } = await import("../project-scope");
+        const projectScope = await resolveCockpitProjectScope(ctx.query?.project, { getDb });
+
+        // Fetch all tasks in scope (no limit — we want the full graph)
+        const tasks = await taskService.listTasks({ projectScope });
 
         // Build a map from task ID → task for quick status lookup
         const taskMap = new Map(tasks.map((t) => [t.id, t]));
 
-        // Fetch all dependency edges in one bulk query
+        // Fetch all dependency edges in one bulk query. Relationships are
+        // NOT themselves project-scoped — the orphan filter below (which
+        // already existed pre-mt#4727 to drop typo'd/deleted-task edges)
+        // does double duty: an edge referencing a task outside the scoped
+        // project is absent from `taskMap` and is filtered out the same way
+        // an orphaned edge is, so scoping `tasks` alone is sufficient to
+        // scope the rendered graph.
         const relationships = await taskGraphService.getAllRelationships("depends");
 
         // Build nodes ONLY from the authoritative listTasks() result.

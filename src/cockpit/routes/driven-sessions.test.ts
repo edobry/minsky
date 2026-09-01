@@ -95,6 +95,9 @@ async function makeHarness(opts?: {
     conversationId: string,
     deps: OrchestrateDrivenSessionAttachDeps
   ) => Promise<DrivenSessionAttachOutcome>;
+  getProjectScopeDb?: () => Promise<
+    import("@minsky/domain/project/scope-resolver").ScopeResolverDb | null
+  >;
 }): Promise<Harness> {
   const registry = new DrivenSessionRegistry();
   const { spawnFn, calls } = makeFakeSpawnFn();
@@ -108,6 +111,7 @@ async function makeHarness(opts?: {
     resolveTaskWorkspace: opts?.resolveTaskWorkspace,
     scratchCwd: opts?.scratchCwd,
     attachDrivenSession: opts?.attachDrivenSession,
+    getProjectScopeDb: opts?.getProjectScopeDb,
     onHarnessSessionLinked: (record) => linked.push(record),
   });
 
@@ -151,8 +155,15 @@ const SCRATCH_CWD = realDir("scratch-checkout");
 const EXPLICIT_CWD = realDir("explicit");
 const HARNESS_ID = "aaaaaaaa-0000-0000-0000-000000000001";
 
-function fakeResolver(): (taskId: string) => Promise<ResolvedTaskWorkspace> {
-  return async () => ({ minskySessionId: WORKSPACE_ID, sessionDir: SESSION_DIR, reused: false });
+function fakeResolver(
+  projectId: string | null = null
+): (taskId: string) => Promise<ResolvedTaskWorkspace> {
+  return async () => ({
+    minskySessionId: WORKSPACE_ID,
+    sessionDir: SESSION_DIR,
+    reused: false,
+    projectId,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -267,6 +278,19 @@ describe("POST /api/driven-session — task-bound", () => {
     expect(record?.minskySessionId).toBe(WORKSPACE_ID);
   });
 
+  // mt#4732: the resolved workspace's projectId must reach the registry
+  // record — the production-wiring half of the agents-widget fix
+  // (spliceDrivenSessions's own tests cover the widget-side classification).
+  test("mt#4732: threads the resolved workspace's projectId onto the registry record", async () => {
+    const PROJECT_ID = "cccc3333-0000-0000-0000-00000000CCCC";
+    const h = await makeHarness({ resolveTaskWorkspace: fakeResolver(PROJECT_ID) });
+    const res = await post(h.url, { taskId: TASK_ID });
+    expect(res.status).toBe(201);
+
+    const record = h.registry.get(res.body.sessionId);
+    expect(record?.projectId).toBe(PROJECT_ID);
+  });
+
   test("fires the init-link observer once the child's init event arrives (spawn-time identity)", async () => {
     const h = await makeHarness({ resolveTaskWorkspace: fakeResolver() });
     const res = await post(h.url, { taskId: TASK_ID });
@@ -331,6 +355,101 @@ describe("GET /api/driven-session", () => {
     expect(row).toBeDefined();
     expect(Object.keys(row).sort()).toEqual(Object.keys(created.body).sort());
     expect(Array.isArray(row.argv)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Project scope (mt#4746 — two-project fixture, mirrors mt#4727's pattern)
+// ---------------------------------------------------------------------------
+
+describe("GET /api/driven-session — project scope (mt#4746)", () => {
+  const PROJECT_A_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const PROJECT_B_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const PROJECT_A_SLUG = "edobry/minsky";
+
+  /** A resolver keyed by taskId, so one harness can spawn sessions bound to
+   * two different projects' workspaces. */
+  function fakeResolverByTaskId(
+    map: Record<string, string | null>
+  ): (taskId: string) => Promise<ResolvedTaskWorkspace> {
+    return async (taskId: string) => ({
+      minskySessionId: `${WORKSPACE_ID}-${taskId.replace("#", "-")}`,
+      sessionDir: realDir(`scope-${taskId.replace("#", "-")}`),
+      reused: false,
+      projectId: map[taskId] ?? null,
+    });
+  }
+
+  function makeScopeResolverDb(
+    rows: Array<{ id: string; slug: string }>
+  ): import("@minsky/domain/project/scope-resolver").ScopeResolverDb {
+    return {
+      select() {
+        return {
+          from() {
+            return {
+              where() {
+                return {
+                  limit() {
+                    return Promise.resolve(rows);
+                  },
+                };
+              },
+            };
+          },
+        };
+      },
+    };
+  }
+
+  test("no ?project= returns sessions from both projects plus the unattributed scratch session", async () => {
+    const resolver = fakeResolverByTaskId({ "mt#1": PROJECT_A_ID, "mt#2": PROJECT_B_ID });
+    const h = await makeHarness({ resolveTaskWorkspace: resolver });
+    await post(h.url, { taskId: "mt#1" });
+    await post(h.url, { taskId: "mt#2" });
+    await post(h.url, { cwd: realDir("scope-scratch") });
+
+    const res = await fetch(`${h.url}/api/driven-session`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sessions: Array<{ taskId: string | null }> };
+    expect(body.sessions.length).toBe(3);
+  });
+
+  test("?project=<project A slug> keeps only project A's session (drops project B and the unattributed scratch session)", async () => {
+    const resolver = fakeResolverByTaskId({ "mt#1": PROJECT_A_ID, "mt#2": PROJECT_B_ID });
+    const h = await makeHarness({
+      resolveTaskWorkspace: resolver,
+      getProjectScopeDb: async () =>
+        makeScopeResolverDb([{ id: PROJECT_A_ID, slug: PROJECT_A_SLUG }]),
+    });
+    await post(h.url, { taskId: "mt#1" });
+    await post(h.url, { taskId: "mt#2" });
+    await post(h.url, { cwd: realDir("scope-scratch-2") });
+
+    const res = await fetch(
+      `${h.url}/api/driven-session?project=${encodeURIComponent(PROJECT_A_SLUG)}`
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sessions: Array<{ taskId: string | null }> };
+    expect(body.sessions.length).toBe(1);
+    expect(body.sessions[0]?.taskId).toBe("mt#1");
+  });
+
+  test("?project=<unresolvable slug> fails open to ALL_PROJECTS (every session returned)", async () => {
+    const resolver = fakeResolverByTaskId({ "mt#1": PROJECT_A_ID, "mt#2": PROJECT_B_ID });
+    const h = await makeHarness({
+      resolveTaskWorkspace: resolver,
+      getProjectScopeDb: async () => null,
+    });
+    await post(h.url, { taskId: "mt#1" });
+    await post(h.url, { taskId: "mt#2" });
+
+    const res = await fetch(
+      `${h.url}/api/driven-session?project=${encodeURIComponent("unknown/repo")}`
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sessions: unknown[] };
+    expect(body.sessions.length).toBe(2);
   });
 });
 

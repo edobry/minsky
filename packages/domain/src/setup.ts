@@ -25,6 +25,16 @@ export interface SetupOptions {
   repoPath: string;
   client?: string;
   overwrite?: boolean;
+  /**
+   * MCP transport settings for this machine (mt#4699).
+   *
+   * `init` passes these directly instead of writing them into the committed
+   * `.minsky/config.yaml` for this function to read back out. When present they
+   * win over anything found in the project config; when absent the project
+   * config is still consulted, so a project initialized before mt#4699 — whose
+   * `config.yaml` still carries an `mcp` section — behaves exactly as it did.
+   */
+  mcp?: MinimalMcpConfig;
 }
 
 export interface SetupResult {
@@ -96,8 +106,14 @@ export async function performSetup(
   const configContent = await fileSystem.readFile(configPath, "utf-8");
   const projectConfig = yamlParse(configContent) as MinimalProjectConfig;
 
-  // 3. Extract mcp section (default to { transport: "stdio" } if missing)
-  const mcpConfig: MinimalMcpConfig = projectConfig?.mcp ?? { transport: "stdio" };
+  // 3. Resolve the mcp section. Precedence (mt#4699): explicitly-passed options
+  // (how `init` supplies them now) > the project config's own `mcp` section
+  // (back-compat for projects initialized before mt#4699, which still carry it)
+  // > the stdio default. ADR-038 is why the default is stdio and not http: the
+  // shared local daemon is reached over HTTP by the SHIM, while the client
+  // itself stays an ordinary `type: "stdio"` entry, because the HTTP transport
+  // carries no conversation identity.
+  const mcpConfig: MinimalMcpConfig = options.mcp ?? projectConfig?.mcp ?? { transport: "stdio" };
   const transport = mcpConfig.transport ?? "stdio";
 
   // 4. Register with the MCP client — writes the harness config file (e.g. .cursor/mcp.json)
@@ -116,9 +132,24 @@ export async function performSetup(
   // 5. Write .minsky/config.local.yaml with workspace.mainPath and workspace.harness
   // Both fields belong under the `workspace` key — placing `harness` at the root
   // would be rejected by the strict config-schema validator (mt#1939).
+  // mt#4699: the `mcp` section lives here rather than in the committed
+  // config.yaml. It is machine scope — `mcp start` never reads it, and its only
+  // consumers are this registration path and `mcp register` — so committing it
+  // forced two developers on one repo to share one answer. `config.local.yaml`
+  // is the gitignored overlay that layers on top of config.yaml
+  // (`configuration/sources/project.ts`), so a reader going through the config
+  // loader sees the same resolved value it always did.
   const localConfigPath = path.join(repoPath, ".minsky", "config.local.yaml");
+  const localMcpSection: Record<string, unknown> = { transport };
+  if (mcpConfig.port !== undefined) {
+    localMcpSection.port = mcpConfig.port;
+  }
+  if (mcpConfig.host !== undefined) {
+    localMcpSection.host = mcpConfig.host;
+  }
   const localConfigContent = yamlStringify({
     workspace: { mainPath: repoPath, harness: client },
+    mcp: localMcpSection,
   });
   await createFileIfNotExists(localConfigPath, localConfigContent, overwrite, fileSystem);
 

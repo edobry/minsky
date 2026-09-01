@@ -175,7 +175,7 @@
 // @see mt#3972 — question-answer lookback widened past non-principal turn openers
 // @see .minsky/hooks/registry.ts — ADR-028 GUARD_REGISTRY entry for this guard; D6 `DispatchContext` doc comment sanctions the per-candidate re-parse pattern used here
 
-import { readInput, readHostCap, deriveBudgets, findRepoRoot, readTunedThreshold } from "./types";
+import { readInput, readHostCap, deriveBudgets, readTunedThreshold } from "./types";
 import { readTunedValue } from "./guard-tuning-store";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
@@ -189,9 +189,8 @@ import {
   DEFAULT_MAX_DEDUPE_READ_BYTES,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import { createHash } from "node:crypto";
+import { calibrationLogPath, logCalibrationRecord } from "./dispatcher";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
@@ -238,7 +237,7 @@ import { captureArtifact } from "./judged-input-capture";
 // re-implemented, as `negative-existence-claim-detector.ts` already does.
 import { elideBlocksAndQuotes } from "./code-mechanism-assertion-detector";
 
-const CALIBRATION_LOG = ".minsky/wall-of-text-calibration.jsonl";
+const CALIBRATION_LOG_NAME = "wall-of-text";
 
 /**
  * Reason string for this detector's ONE suppression gate — the mt#3112
@@ -384,6 +383,25 @@ const DEEPLINK_RE = /minsky:\/\//g;
 // "PR #12" and "PR#12" both count as named refs (PR #2036 R1 sweep).
 const NAMED_REF_RE = /\bmt#\d+|\bPR\s*#\d+/g;
 
+/** The first {@link LEAD_WINDOW_WORDS} words of a block, whitespace-normalized. */
+function leadOf(text: string): string {
+  return text.split(/\s+/).filter(Boolean).slice(0, LEAD_WINDOW_WORDS).join(" ");
+}
+
+/**
+ * Cap a lead at {@link EXCERPT_MAX_CHARS}, appending the truncation marker.
+ *
+ * Extracted by mt#4637 so `excerpt` and `largestBlockExcerpt` cannot drift
+ * apart: SC2 requires them EQUAL when the largest block is the final one, and
+ * two inline copies would satisfy that by coincidence rather than by
+ * construction.
+ */
+function truncateExcerpt(lead: string): string {
+  return lead.length > EXCERPT_MAX_CHARS
+    ? `${lead.slice(0, EXCERPT_MAX_CHARS)}${EXCERPT_TRUNCATION_MARKER}`
+    : lead;
+}
+
 // ---------------------------------------------------------------------------
 // Measurement
 // ---------------------------------------------------------------------------
@@ -414,6 +432,19 @@ export interface WallOfTextMeasurement {
    */
   largestBlockWords: number;
   /**
+   * The LEAD of that largest block, capped exactly like {@link excerpt}
+   * (mt#4637) — the text of the block the over-budget leg actually fired on.
+   *
+   * Equal to `excerpt` when the largest block IS the final one, which is the
+   * common case and costs a duplicate rather than a second record. When they
+   * differ, this is the only field in the record that describes what fired:
+   * `excerpt`, `wordCount`, `lineCount`, `deeplinkCount` and `namedRefCount`
+   * all describe the FINAL block, whatever fired.
+   */
+  largestBlockExcerpt: string;
+  /** 0-based index of the largest block among the turn's blocks (mt#4637). */
+  largestBlockIndex: number;
+  /**
    * Words across EVERY assistant text block in the turn.
    *
    * Recorded, deliberately NOT triggered on. It was the other candidate metric
@@ -440,10 +471,21 @@ export interface WallOfTextMeasurement {
    *
    * Byte-for-byte the string `leadLabelHits` was computed from, so a reviewer
    * classifying a `lead-labels` fire sees the text that matched rather than
-   * only the pattern's name. `wordCount` answers the `over-budget` leg on its
-   * own; nothing in the record answered the label leg, and nothing let a
-   * reviewer recognize a measurement taken against the wrong transcript (the
-   * mt#3028 contamination class) — both are what this carries.
+   * only the pattern's name. It also lets a reviewer recognize a measurement
+   * taken against the wrong transcript (the mt#3028 contamination class).
+   *
+   * **Corrected mt#4637 — this paragraph used to say `wordCount` answers the
+   * `over-budget` leg on its own.** That was true until mt#4531 moved the leg
+   * to `largestBlockWords`, and false afterwards: `wordCount` now answers
+   * NEITHER leg for a turn whose wall is not its last block, and reading it as
+   * the over-budget measurement is what inverted three calibration passes'
+   * verdicts. Which field answers which leg, as shipped:
+   *
+   * - `over-budget` → {@link largestBlockWords}, with {@link largestBlockExcerpt}
+   *   as its text.
+   * - `lead-labels` → `wordCount` (its `LEAD_LABELS_MIN_WORDS` floor) and this
+   *   field, both of which are about the FINAL block by design — the label rule
+   *   is a claim about the report's lead (mt#3336 / ask#6448).
    */
   excerpt: string;
 }
@@ -511,6 +553,24 @@ export interface TurnProse {
   finalText: string;
   /** Words in the largest single assistant text block. */
   largestBlockWords: number;
+  /**
+   * The TEXT of that largest block (mt#4637).
+   *
+   * `largestBlockWords` alone reaches the calibration record as a bare number,
+   * and every text-bearing field beside it is derived from `finalText`. When
+   * the wall is not the last thing said — 39% of over-budget fires, measured
+   * over the 685-record union corpus — a reviewer therefore reads one block
+   * while a different one fired, and the recorded `wordCount` sits BELOW the
+   * threshold on a correct fire. Three separate calibration passes drew the
+   * wrong conclusion from that before this field existed.
+   */
+  largestBlockText: string;
+  /**
+   * Which candidate block that was, 0-based (mt#4637). Distinguishes "the wall
+   * was the opening block" from "the wall was buried mid-turn" without making
+   * a reviewer count.
+   */
+  largestBlockIndex: number;
   /** Words across every assistant text block. */
   totalWords: number;
   /** How many assistant lines carried non-empty text. */
@@ -569,15 +629,32 @@ export function collectTurnProse(turnLines: TranscriptLine[], finalText: string)
   const recordedBlockIsUnflushed =
     finalTrimmed.length > 0 && lastTranscriptBlock?.trim() !== finalTrimmed;
 
-  const candidates = blockTexts.map(countWords);
-  if (recordedBlockIsUnflushed) candidates.push(countWords(finalText));
+  // mt#4637: the TEXTS are carried alongside the counts rather than discarded,
+  // so the block that fires can be recorded. Kept as one parallel list built in
+  // the same place and the same order as `candidates`, for the reason PR #3310
+  // R1 gives just above: deriving the statistics from one candidate list is
+  // what stops a lagged turn getting some fields from one path and some from
+  // another. An index into `candidates` is an index into `candidateTexts`.
+  const candidateTexts = [...blockTexts];
+  if (recordedBlockIsUnflushed) candidateTexts.push(finalText);
+  const candidates = candidateTexts.map(countWords);
   // A turn with no assistant text at all and an empty recorded final: measure
   // zero rather than throwing on `Math.max()` of an empty list.
-  if (candidates.length === 0) candidates.push(0);
+  if (candidates.length === 0) {
+    candidates.push(0);
+    candidateTexts.push("");
+  }
+
+  const largestBlockWords = Math.max(...candidates);
+  const largestBlockIndex = candidates.indexOf(largestBlockWords);
 
   return {
     finalText,
-    largestBlockWords: Math.max(...candidates),
+    largestBlockWords,
+    // `indexOf` on the max is always in range, but the index read is written to
+    // survive `noUncheckedIndexedAccess` rather than asserted past.
+    largestBlockText: candidateTexts[largestBlockIndex] ?? "",
+    largestBlockIndex,
     totalWords: candidates.reduce((a, b) => a + b, 0),
     blockCount: candidates.length,
   };
@@ -598,7 +675,14 @@ export function measureWallOfText(input: string | TurnProse): WallOfTextMeasurem
     typeof input === "string"
       ? (() => {
           const n = input.split(/\s+/).filter(Boolean).length;
-          return { finalText: input, largestBlockWords: n, totalWords: n, blockCount: 1 };
+          return {
+            finalText: input,
+            largestBlockWords: n,
+            largestBlockText: input,
+            largestBlockIndex: 0,
+            totalWords: n,
+            blockCount: 1,
+          };
         })()
       : input;
 
@@ -633,10 +717,15 @@ export function measureWallOfText(input: string | TurnProse): WallOfTextMeasurem
   // identity is what guarantees a lead-labels fire retains the text its
   // `leadLabelHits` were computed from, and it cannot drift as the window
   // constant changes.
-  const excerpt =
-    lead.length > EXCERPT_MAX_CHARS
-      ? `${lead.slice(0, EXCERPT_MAX_CHARS)}${EXCERPT_TRUNCATION_MARKER}`
-      : lead;
+  const excerpt = truncateExcerpt(lead);
+
+  // mt#4637: the same lead-and-truncate shape, applied to the block that
+  // actually fired the over-budget leg. Built through the SAME helper as
+  // `excerpt`, so SC2's identity — when the largest block IS the final one the
+  // two are equal — holds by construction rather than by two paths that happen
+  // to agree today. `lead` itself is still computed once above and still feeds
+  // `leadLabelHits`, which is the identity mt#3576 protects.
+  const largestBlockExcerpt = truncateExcerpt(leadOf(prose.largestBlockText));
 
   return {
     matched,
@@ -644,6 +733,8 @@ export function measureWallOfText(input: string | TurnProse): WallOfTextMeasurem
     wordCount,
     lineCount,
     largestBlockWords: prose.largestBlockWords,
+    largestBlockExcerpt,
+    largestBlockIndex: prose.largestBlockIndex,
     totalWords: prose.totalWords,
     blockCount: prose.blockCount,
     leadLabelHits,
@@ -1353,7 +1444,17 @@ function sameSuppressionReasons(a: readonly string[], b: readonly string[]): boo
  * bounded-read implementation.
  */
 export function readCalibrationLogText(cwd: string): string | undefined {
-  const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
+  // mt#4752: resolve through the same helper the WRITER uses. Reader and writer
+  // previously derived the path independently, so a change to one could silently
+  // stop the dedupe read from finding what the writer had just appended.
+  //
+  // BEHAVIOUR CHANGE, deliberate and shared with every writer migrated in this
+  // change: the old `findRepoRoot(cwd)` is now the LOWEST tier
+  // (`projectDir ?? CLAUDE_PROJECT_DIR ?? fallbackCwd ?? process.cwd()`), so
+  // `CLAUDE_PROJECT_DIR` outranks the raw cwd where it did not before. Reader
+  // and writer move together, which is what keeps the dedupe correct — the
+  // hazard would be migrating one and not the other.
+  const logPath = calibrationLogPath(CALIBRATION_LOG_NAME, { fallbackCwd: cwd });
   return readLogTailText(logPath, MAX_DEDUPE_READ_BYTES);
 }
 
@@ -1363,20 +1464,11 @@ export function readCalibrationLogText(cwd: string): string | undefined {
 // ---------------------------------------------------------------------------
 
 function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): void {
-  try {
-    // mt#2710: resolve the actual repo ROOT, not the raw shell cwd — `cwd` is
-    // routinely a repo subdirectory, and a bare `resolve(cwd, ...)` would
-    // scatter this calibration log into a stray subdirectory `.minsky/`.
-    const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[wall-of-text-detector] Failed to write calibration log: ${msg}\n`);
-  }
+  // mt#4752: the shared helper derives the path from the stream NAME, so the
+  // filename cannot drift from the convention the .gitignore globs encode.
+  // `cwd` is the guard's raw input cwd — a FALLBACK, never an authoritative
+  // root (see `calibrationLogPath`'s docblock for why the two ranks differ).
+  logCalibrationRecord(CALIBRATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
 
 /**
@@ -1441,6 +1533,13 @@ function buildCalibrationRecord(
     // `totalWords` is recorded but NOT triggered on — see its field doc for the
     // heartbeat-shape measurement that disqualified it as a trigger.
     largestBlockWords: m.largestBlockWords,
+    // mt#4637: the TEXT of the block `largestBlockWords` counted. Without it
+    // the number is unfalsifiable from the record — every other text field
+    // describes the FINAL block, so a reviewer reading a 36-word `excerpt`
+    // beside `trigger: over-budget` sees an apparent contradiction rather than
+    // a correct fire on a block the record does not carry.
+    largestBlockExcerpt: m.largestBlockExcerpt,
+    largestBlockIndex: m.largestBlockIndex,
     totalWords: m.totalWords,
     blockCount: m.blockCount,
     trigger: m.trigger,

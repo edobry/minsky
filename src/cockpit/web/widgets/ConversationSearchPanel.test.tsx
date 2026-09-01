@@ -16,6 +16,7 @@ import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/re
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ConversationSearchPanel } from "./ConversationSearchPanel";
+import { ProjectProvider } from "../lib/project-context";
 
 const originalFetch = global.fetch;
 
@@ -30,7 +31,9 @@ function renderPanel() {
   return render(
     <QueryClientProvider client={createTestQueryClient()}>
       <MemoryRouter>
-        <ConversationSearchPanel />
+        <ProjectProvider>
+          <ConversationSearchPanel />
+        </ProjectProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );

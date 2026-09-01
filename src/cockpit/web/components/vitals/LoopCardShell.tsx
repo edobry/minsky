@@ -28,6 +28,11 @@ export interface LoopCardShellProps {
   statusLine: ReactNode;
   /** True when this loop needs operator attention — draws a highlighted border. */
   needsAttention?: boolean;
+  /**
+   * Rendered beside the title (mt#4773) — the instance-level scope cue for
+   * the loops whose data is not project-attributable (Learning, Deploy).
+   */
+  headerExtra?: ReactNode;
   className?: string;
 }
 
@@ -37,6 +42,7 @@ export function LoopCardShell({
   sparkline,
   statusLine,
   needsAttention = false,
+  headerExtra,
   className,
 }: LoopCardShellProps) {
   return (
@@ -49,18 +55,19 @@ export function LoopCardShell({
       data-testid={`loop-card-${label.toLowerCase()}`}
     >
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          {label}
-        </CardTitle>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            {label}
+          </CardTitle>
+          {headerExtra}
+        </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
         <div className="flex items-center gap-4">
           <div className="shrink-0">{ring}</div>
           <div className="min-w-0 flex-1">{sparkline}</div>
         </div>
-        <div className="text-xs leading-snug text-muted-foreground break-words">
-          {statusLine}
-        </div>
+        <div className="text-xs leading-snug text-muted-foreground break-words">{statusLine}</div>
       </CardContent>
     </Card>
   );

@@ -3,6 +3,16 @@
 // Exercises the pure logic (computeReviewDueLogs, shouldReWarn,
 // formatCadenceWarning) with in-memory fixtures — no filesystem I/O per
 // `custom/no-real-fs-in-tests`.
+//
+// ONE exception, at the bottom of the file (mt#4748 R1): a real-fs
+// write/read-parity block, scoped with its own eslint-disable. Every test
+// above proves the PURE logic; none of them proves `run()`'s actual
+// `readContent` closure agrees with the actual production writer
+// (`logCalibrationRecord`) about WHERE a log lives — which is exactly the
+// property that broke silently (this file's two `readContent` closures kept
+// reading the pre-mt#4748 location after the writer moved) while every test
+// in this file's ~1000-line suite, none of which touches real fs, stayed
+// green.
 
 import { describe, expect, test } from "bun:test";
 import type {
@@ -21,6 +31,7 @@ import {
   formatPendingAskLines,
   parseAskStateCache,
   resolveAskStates,
+  run,
   selectPendingAskLogs,
   shouldReWarn,
   ASK_STATE_STALENESS_MS,
@@ -31,6 +42,10 @@ import {
   type AskLookup,
 } from "./calibration-review-cadence-detector";
 import { GUARD_REGISTRY } from "./registry";
+import { logCalibrationRecord } from "./dispatcher";
+import { resolveCalibrationStatePath as cadenceResolveStatePath } from "./calibration-review-cadence-detector";
+import { stubContext } from "./test-support/dispatcher-harness";
+import type { ClaudeHookInput } from "./types";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -1037,3 +1052,66 @@ describe("per-turn path cannot perform a live database read (mt#3744)", () => {
     expect(entry?.event).toBe("UserPromptSubmit");
   });
 });
+
+// ---------------------------------------------------------------------------
+// mt#4748 R1 — end-to-end write/read parity (real fs; see file header)
+// ---------------------------------------------------------------------------
+/* eslint-disable custom/no-real-fs-in-tests -- this block specifically proves
+   that a record written through the REAL production write path
+   (`logCalibrationRecord`, `.minsky/hooks/dispatcher.ts`) is found by this
+   detector's REAL read path (`run()`'s `readContent` closure). A mock or an
+   injected reader would assert the mock, which is exactly the gap that let
+   one of this file's two `readContent` closures go unmigrated while every
+   OTHER test here — none of which touches real fs — stayed green. A
+   throwaway mkdtempSync directory (removed in `finally`) keeps this isolated
+   from any real `.minsky/` or state dir. */
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+describe("mt#4748 R1 — write/read parity (dispatcher write, cadence-detector read)", () => {
+  test("a never-reviewed causal-premise record written via logCalibrationRecord is surfaced as review-due by run()", async () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "mt4748-parity-cadence-"));
+    const statePath = cadenceResolveStatePath(repoRoot, ".minsky/causal-premise-calibration.jsonl");
+    try {
+      mkdirSync(join(repoRoot, ".git"));
+
+      // 60 days old + no watermark -> "never-reviewed" leg fires regardless
+      // of the FIRES_THRESHOLD/DIVERSITY_THRESHOLD count bar (see
+      // `computeReviewDueLogs`'s never-reviewed-aging branch) — one record
+      // is enough, which keeps this test about the READ PATH, not about
+      // reproducing the sweep's threshold arithmetic.
+      const oldTimestamp = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+      logCalibrationRecord(
+        "causal-premise",
+        {
+          timestamp: oldTimestamp,
+          session_id: "mt4748-parity",
+          matchedPhrases: ["because"],
+          hadSameTurnVerification: false,
+        },
+        { projectDir: repoRoot }
+      );
+
+      const input: ClaudeHookInput = {
+        session_id: "mt4748-parity-session",
+        cwd: repoRoot,
+        hook_event_name: "UserPromptSubmit",
+      };
+      const outcome = await run(input, stubContext() as unknown as Parameters<typeof run>[1]);
+
+      // Not a can't-fail probe: a wrong read path makes `readContent` return
+      // null for this log, `totalFires` stays 0, the never-reviewed branch's
+      // `r.totalFires <= 0` guard takes the `never-fired` path instead (which
+      // needs a `liveSinceDate` this synthetic entry has none of), and `due`
+      // never includes "causal-premise" — `outcome` would be `null`. This
+      // assertion is the one the reviewer-caught omission would have failed.
+      expect(outcome).not.toBeNull();
+      expect(outcome?.additionalContext ?? "").toContain("causal-premise");
+    } finally {
+      rmSync(statePath, { force: true });
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+});
+/* eslint-enable custom/no-real-fs-in-tests */

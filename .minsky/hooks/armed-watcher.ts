@@ -83,6 +83,45 @@ import { extractToolUseNames, findToolUseInputs } from "./transcript";
  * shows up as this guard firing on a correctly-armed turn, which is the same
  * signal the calibration log already surfaces, and the same way the three
  * phrasings in this docblock were found.
+ *
+ * ## `pr_watch_create` — the predicted failure mode, realised (mt#3560)
+ *
+ * The paragraph above names it exactly: "a NEW wait tool nobody adds here …
+ * shows up as this guard firing on a correctly-armed turn." That is what
+ * `mcp__minsky__pr_watch_create` was doing. `/plan-task` Step 4's self-resolving
+ * branch instructs an agent to "register the wait on the specific unblocking
+ * event — `pr_watch_create` with `event: \"merged\"` for a PR" — so a turn
+ * following the skill's own prescription armed a watch and was scored as having
+ * armed NOTHING, by both consumers of this predicate.
+ *
+ * `pr_watch_run` was here from mt#4063 and `pr_watch_create` was not. They are
+ * different calls — `create` REGISTERS a watch that outlives the turn
+ * (`pr-watch.ts:274`), `run` executes ONE pass over already-registered watches
+ * (`:386`) — so `create` was the missing one regardless of what is decided
+ * about `run`.
+ *
+ * ## `pr_watch_run`'s membership is an OPEN question, not an endorsement (mt#4696)
+ *
+ * Read literally, this set's own criterion above — "Only calls that actually
+ * leave something running" — excludes `run`: one pass completes within the turn,
+ * which is precisely why `session_pr_checks` is gated on `wait: true` rather than
+ * listed outright. Whether `run` nonetheless counts as INDIRECT evidence (a sweep
+ * is only meaningful when registered watches exist, and those do outlive the
+ * turn) is a real question with a real cost either way, since removing a member
+ * makes BOTH consumers fire more.
+ *
+ * It is NOT settled here, deliberately. mt#3560 added one member; reversing
+ * mt#4063's membership decision — whose per-member reasoning is not recorded —
+ * is a suppression change across two guards and belongs in its own task with a
+ * measured replay. **mt#4696 owns it.** Surfaced by `minsky-reviewer[bot]` on
+ * PR #3416, which was right that an earlier draft of this docblock asserted the
+ * exclusion while the code did the opposite.
+ *
+ * Note what this predicate ALREADY covered, and where the member list is
+ * therefore not the whole answer: backgrounded `Bash` and `session_pr_checks`
+ * are handled by their own loops below, NOT by this Set. Testing membership here
+ * is an accessor over one input to the predicate, not the predicate's verdict —
+ * check by running `detectArmedWatcherEvidence`.
  */
 export const ARMED_WAIT_TOOLS = new Set([
   "ScheduleWakeup",
@@ -90,6 +129,7 @@ export const ARMED_WAIT_TOOLS = new Set([
   "mcp__minsky__session_pr_wait-for-review",
   "mcp__minsky__deployment_wait-for-latest",
   "mcp__minsky__asks_wait-for-response",
+  "mcp__minsky__pr_watch_create",
   "mcp__minsky__pr_watch_run",
   "mcp__minsky__reviewer_watch_run",
 ]);

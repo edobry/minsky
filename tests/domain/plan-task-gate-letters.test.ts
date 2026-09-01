@@ -18,6 +18,8 @@ import { describe, test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import planTaskSkill from "../../.minsky/skills/plan-task/skill.ts";
+import { GATE_BATTERY } from "../../.minsky/skills/plan-task/gate-battery.ts";
+import { ACT_ON_RESULTS } from "../../.minsky/skills/plan-task/act-on-results.ts";
 
 // The append-only gate-letter manifest: [letter, exact heading title], in order.
 // Letter (i) is permanently skipped (reserved for the Step 2.5 premise-audit
@@ -63,5 +65,31 @@ describe("plan-task gate-letter manifest (mt#2964)", () => {
 
   test("the restored problem-statement gate (o) requires reproducing the asserted failure", () => {
     expect(planTaskSkill.content).toMatch(/reproduce the asserted failure/i);
+  });
+});
+
+/**
+ * mt#4698 split `skill.ts` into three source modules whose fragments are concatenated back with
+ * `${GATE_BATTERY}${ACT_ON_RESULTS}`. That composition carries an IMPLICIT contract — the join is
+ * clean only because `GATE_BATTERY` ends with a newline (PR #3482 review, non-blocking).
+ *
+ * This is worth pinning rather than trusting, because the failure is silent in exactly the way
+ * this task already hit once: an off-by-one during the split produced an unparseable module while
+ * `compile` exited 0, the generated SKILL.md stayed byte-identical, and `git status` showed it
+ * unmodified (mt#3786 — an unparseable skill source is skipped, not reported). A boundary that
+ * merely LOOKS right produces no error either; it silently welds Step 4's heading onto the gate
+ * battery's last line, which no gate-letter assertion above would notice.
+ */
+describe("plan-task fragment composition (mt#4698)", () => {
+  test("GATE_BATTERY ends with a newline, so the fragment join cannot weld two lines together", () => {
+    expect(GATE_BATTERY.endsWith("\n")).toBe(true);
+  });
+
+  test("ACT_ON_RESULTS begins at Step 4's heading, so no content is lost at the seam", () => {
+    expect(ACT_ON_RESULTS.startsWith("### Step 4: Act on gate results")).toBe(true);
+  });
+
+  test("the composed content keeps a blank line before Step 4 — the boundary, asserted end-to-end", () => {
+    expect(planTaskSkill.content).toContain("\n\n### Step 4: Act on gate results");
   });
 });

@@ -42,9 +42,55 @@ import { createHash } from "node:crypto";
 import { cappedEvidenceLines } from "./guard-feedback-format";
 import { elideQuotedAndCodeContexts } from "./elision";
 import { detectDeferralPhrases } from "./ask-routing-deferral-detector";
-import { extractFinalTurn, extractToolUseNames, findToolUseInputs } from "./transcript";
+import { logEvaluationRecord } from "./dispatcher";
+import {
+  extractFinalTurn,
+  extractToolUseNames,
+  findToolCallsWithResults,
+  findToolUseInputs,
+} from "./transcript";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_UNTAKEN_ACTION";
+
+/**
+ * Skip switch for the EVALUATION stream only (mt#4117), distinct from
+ * {@link OVERRIDE_ENV_VAR} above. `MINSKY_ACK_UNTAKEN_ACTION` acks the guard
+ * entirely — it short-circuits before any scanning happens, so fire behavior
+ * is gone too. This one does the opposite: it silences ONLY the per-scan
+ * evaluation write, and the detector's fire/suppression/calibration behavior
+ * is untouched, per this task's AT5. Registered as its own hook-only env var
+ * alongside `OVERRIDE_ENV_VAR`, per the sibling detectors' pattern — see the
+ * `HOOK_ONLY_ENV_VAR_CATEGORIES` record in the domain configuration sources
+ * and `.minsky/hooks/known-override-env-vars.ts`.
+ */
+export const EVALUATION_SKIP_ENV_VAR = "MINSKY_SKIP_UNTAKEN_ACTION_EVALUATION";
+
+/**
+ * Logical stream name for `logEvaluationRecord` (mt#4117) — matches this
+ * guard's `calibrationLog: "untaken-action"` registration
+ * (`registry-turn-end-guards.ts`), the same name/path split every other
+ * `logEvaluationRecord` writer uses. Resolves to
+ * `<state-dir>/projects/<key>/untaken-action-evaluations.jsonl`, sitting
+ * beside `untaken-action-calibration.jsonl` — a NEW stream, not a
+ * replacement: the calibration log's shape and population (fires only) are
+ * unchanged by this addition.
+ */
+const EVALUATION_LOG_NAME = "untaken-action";
+
+/**
+ * Append one evaluation record for this guard's scan. Exported under this
+ * exact name so `evaluation-stream-rooting.test.ts` can pin the same
+ * state-dir/project-key rooting the other `logEvaluationRecord` writers get,
+ * per that test's per-detector enumeration.
+ */
+export function appendEvaluationRecord(cwd: string, record: Record<string, unknown>): void {
+  logEvaluationRecord(EVALUATION_LOG_NAME, record, { fallbackCwd: cwd });
+}
+
+function isEvaluationSkipped(): boolean {
+  const value = process.env[EVALUATION_SKIP_ENV_VAR];
+  return value === "1" || value?.toLowerCase() === "true" || value?.toLowerCase() === "yes";
+}
 
 /**
  * RETIRED as an active suppression reason (mt#3620). This guard no longer
@@ -953,6 +999,231 @@ export function turnKeyForMessage(finalMessage: string): string {
   return sha1Short(finalMessage);
 }
 
+/** The match family the tool-call-state arm reports under (mt#4697). */
+export const STRANDED_TASK_FAMILY = "stranded-task-state";
+
+/**
+ * Calls whose RESULT carries a task's current status.
+ *
+ * `tasks_status_set` is deliberately IN this set. It is a write, but the state it leaves behind is
+ * exactly as much evidence as a read returning the same value — a turn that moves a task to
+ * PLANNING and then ends has established a non-terminal status just as surely as one that looked
+ * it up. Occurrence 2 below is that case.
+ *
+ * `tasks_list` and `tasks_search` are deliberately OUT, and this is the single largest precision
+ * lever in the arm. A BULK query returns every task matching a filter, so a turn that lists the
+ * backlog has "read" a hundred non-terminal statuses without having looked at any one of them —
+ * naming one in a status report would then fire. The conjunct is meant to establish that the turn
+ * LOOKED AT this task, and only a targeted query does that.
+ *
+ * **Measured, and it is NOT the noise lever it was expected to be:** removing `tasks_list` moved
+ * the arm's fire rate from 8.94% to 8.88% of replayed turns (1001 -> 994 of 11,196). The
+ * exclusion is kept because the reasoning above is sound on its own, but the honest record is
+ * that it bought almost nothing — a batch `refs_status` is the dominant read shape in this repo
+ * and is nearly as weak a signal of "looked at THIS task". That is why the arm ships log-only;
+ * see the PR body and `## SC6` in the spec.
+ */
+export const TASK_STATUS_READ_TOOLS = new Set([
+  "mcp__minsky__refs_status",
+  "mcp__minsky__tasks_status_get",
+  "mcp__minsky__tasks_get",
+  "mcp__minsky__tasks_status_set",
+]);
+
+/**
+ * Calls that ADVANCE a task, so a non-terminal status on it is work in progress rather than work
+ * left stranded. Matched against each call's INPUT (`task` / `taskId`), not its result.
+ *
+ * `tasks_status_set` is NOT here, per the note above: moving a task to a non-terminal status is
+ * the stranding signal itself, not a defense against it.
+ */
+export const TASK_ADVANCING_TOOLS = new Set([
+  "mcp__minsky__session_start",
+  "mcp__minsky__session_commit",
+  "mcp__minsky__session_pr_create",
+  "mcp__minsky__session_pr_merge",
+  "mcp__minsky__tasks_spec_patch",
+  "mcp__minsky__tasks_spec_search_replace",
+  "mcp__minsky__tasks_dispatch",
+]);
+
+/**
+ * Input keys an advancing tool may carry its task id under (PR #3420 R1).
+ *
+ * Checked against every member of {@link TASK_ADVANCING_TOOLS} at the time of writing: the four
+ * `session_*` tools take `task`, and `tasks_spec_patch` / `tasks_spec_search_replace` /
+ * `tasks_dispatch` take `taskId`. So `id` and `parentTaskId` are not reached by today's set —
+ * they are here because the FAILURE MODE is silent and asymmetric, which is what makes this
+ * blocking rather than cosmetic. This set and `TASK_ADVANCING_TOOLS` are two hand-maintained
+ * lists that must agree; adding a tool that names its id differently would not error, it would
+ * quietly stop crediting that tool as advancing and turn every one of its turns into a fire.
+ *
+ * `advancing-tool-key-parity.test` pins the pairing, so drift is a deliberate edit with a visible
+ * diff — the same defense `ARMED_WAIT_TOOLS` documents for its own hand-maintained set.
+ */
+export const TASK_ID_INPUT_KEYS = ["task", "taskId", "id", "parentTaskId"] as const;
+
+/**
+ * The non-terminal statuses, as an ALLOWLIST rather than "everything that is not DONE/CLOSED".
+ *
+ * The complement form looks equivalent and is not: the regex below matches an uppercase token in
+ * a status-shaped position, and a tool result can carry one that is not a task status at all. The
+ * first replay produced a `COMPLETED` — no such member exists in this state machine — which the
+ * complement form would have accepted as non-terminal and fired on. An allowlist keyed to the real
+ * enum cannot do that.
+ */
+const NON_TERMINAL_TASK_STATUSES = new Set([
+  "TODO",
+  "PLANNING",
+  "READY",
+  "IN-PROGRESS",
+  "IN-REVIEW",
+  "BLOCKED",
+]);
+
+/**
+ * A task id joined to the status the same JSON object reports for it.
+ *
+ * `[^}]` bounds the join to ONE object, which is what makes this safe on a multi-row `refs_status`
+ * payload: without it a lazy any-char span would happily pair row N's id with row N+1's status.
+ * The id key varies by tool (`ref` / `id` / `taskId`) and so does the status key (`status` on a
+ * read, `newStatus` on a set) — `previousStatus` is excluded by the leading quote in the class.
+ */
+const TASK_ID_WITH_STATUS =
+  /"(?:ref|id|taskId)"\s*:\s*"(mt#\d+)"[^}]{0,2000}?"(?:status|newStatus)"\s*:\s*"([A-Z][A-Z-]*)"/g;
+
+const TASK_ID_RE = /^mt#\d+$/;
+
+/** Keys a result object may carry a task id / status under. */
+const RESULT_ID_KEYS = ["ref", "id", "taskId"] as const;
+const RESULT_STATUS_KEYS = ["status", "newStatus"] as const;
+
+/**
+ * Walk a parsed result for objects carrying BOTH a task id and a status, recording each pair.
+ *
+ * Structural, so there is no positional window to get wrong (PR #3420 R1). The regex fallback
+ * below pairs an id with the next status inside the same `{...}`, which needs a length bound, and
+ * any bound is a silent recall cliff: `tasks_get` with a spec attached puts kilobytes between the
+ * id and the status, so a 400-char window quietly dropped exactly the largest results. Parsing
+ * removes the question rather than re-tuning the number.
+ */
+function collectFromJson(value: unknown, out: Map<string, string>): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectFromJson(item, out);
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  const obj = value as Record<string, unknown>;
+
+  const id = RESULT_ID_KEYS.map((k) => obj[k]).find(
+    (v): v is string => typeof v === "string" && TASK_ID_RE.test(v)
+  );
+  const status = RESULT_STATUS_KEYS.map((k) => obj[k]).find(
+    (v): v is string => typeof v === "string"
+  );
+  if (id && status && NON_TERMINAL_TASK_STATUSES.has(status)) out.set(id, status);
+
+  for (const nested of Object.values(obj)) collectFromJson(nested, out);
+}
+
+/**
+ * Task ids with a non-terminal status in one tool result.
+ *
+ * Parse first; fall back to the bounded regex only when the body is not JSON — a tool result is
+ * usually a JSON document but is not guaranteed to be one, and a text result should degrade to
+ * partial recall rather than to a throw.
+ */
+function collectTaskStatuses(resultText: string, out: Map<string, string>): void {
+  try {
+    collectFromJson(JSON.parse(resultText), out);
+    return;
+  } catch {
+    // intentional-swallow: a non-JSON result body is expected, not exceptional — fall through to
+    // the regex path below, which is what handles it.
+  }
+  TASK_ID_WITH_STATUS.lastIndex = 0; // `lastIndex` persists on a /g regex across calls
+  let m: RegExpExecArray | null;
+  while ((m = TASK_ID_WITH_STATUS.exec(resultText)) !== null) {
+    const [, id, status] = m;
+    if (id && status && NON_TERMINAL_TASK_STATUSES.has(status)) out.set(id, status);
+  }
+}
+
+/** Task ids the closing message actually names. */
+function taskIdsNamedIn(text: string): Set<string> {
+  return new Set(text.match(/mt#\d+/g) ?? []);
+}
+
+/**
+ * The tool-call-state match arm (mt#4697): a task this turn READ, whose status came back
+ * NON-TERMINAL, which the closing message NAMES, and which the turn never ADVANCED.
+ *
+ * ## Why this is not another phrase family
+ *
+ * Every one of this guard's ten `COMMITMENT_PATTERNS` families needs a first-person subject or a
+ * fixed idiom, so a turn that names its next action impersonally matches nothing. That axis is
+ * measurably closed: `going-to`, the last family added, fired 0 times in the 252 calibration
+ * records logged in the 19 days after it shipped, and five of the ten families have never fired at
+ * all. ADR-024 §Context names serial regex-family additions as the arms race the ladder exists to
+ * end, and `detectArmedWatcherEvidence` already made this exact move on the SUPPRESSION side
+ * (mt#4063): drop the language axis, read the tool calls. This is that move on the MATCH side.
+ *
+ * It is NOT a Rung-2 climb. Whether a turn left work stranded is a fact about its tool calls, not
+ * a language question, so reading it directly REMOVES the paraphrase axis rather than buying
+ * recall along it.
+ *
+ * ## Why all three conjuncts
+ *
+ * The obvious predicate — "a non-terminal task named in the closing message" — is noisy by
+ * construction, because a status report legitimately names tasks it is not working. Both other
+ * conjuncts are what make this precise instead:
+ *
+ * - **READ this turn** excludes a message that merely mentions ids the turn never queried. The
+ *   turn has to have LOOKED, which is what makes the non-terminal status something it knows.
+ * - **Never ADVANCED** is the spec's own "on which the turn took no action", made decidable: a
+ *   task this turn committed to, opened a PR for, or patched the spec of is work in progress.
+ *
+ * ## Coverage, against the three attested misses
+ *
+ * - 2026-08-21 (occurrence 3, the originating case): `refs_status` returned mt#4324 = `TODO`; the
+ *   closing message named it (*"the unblocked successor but sits at TODO"*); the turn advanced
+ *   mt#4323 instead. **Fires.**
+ * - 2026-08-16 (occurrence 2): the turn SET mt#4183 to PLANNING and named PR #3039 at the close
+ *   without advancing it. **Fires.**
+ * - 2026-08-01 (occurrence 1): a first-person commitment with no task or PR state in the turn at
+ *   all. **Does not fire, and is not meant to** — that is the phrase half.
+ */
+export function detectStrandedTaskState(
+  finalMessage: string,
+  turnLines: Parameters<typeof findToolUseInputs>[0]
+): UntakenActionMatch[] {
+  const named = taskIdsNamedIn(finalMessage);
+  if (named.size === 0) return [];
+
+  const calls = findToolCallsWithResults(turnLines);
+  const advanced = new Set<string>();
+  const nonTerminal = new Map<string, string>();
+
+  for (const call of calls) {
+    if (TASK_ADVANCING_TOOLS.has(call.toolName)) {
+      for (const key of TASK_ID_INPUT_KEYS) {
+        const value = call.input[key];
+        if (typeof value === "string" && TASK_ID_RE.test(value)) advanced.add(value);
+      }
+    }
+
+    if (!TASK_STATUS_READ_TOOLS.has(call.toolName) || !call.hasResult) continue;
+    collectTaskStatuses(call.resultText, nonTerminal);
+  }
+
+  const stranded: UntakenActionMatch[] = [];
+  for (const [id, status] of nonTerminal) {
+    if (!named.has(id) || advanced.has(id)) continue;
+    stranded.push({ family: STRANDED_TASK_FAMILY, matchedPhrase: `${id} (${status})` });
+  }
+  return stranded;
+}
+
 /**
  * Guard-dispatcher entry point (GuardModule contract). `storeDir` is a test
  * seam for the dedup store location; the dispatcher never passes it.
@@ -981,8 +1252,61 @@ export function run(
   const finalMessage = input.last_assistant_message ?? "";
   if (!finalMessage) return null;
 
-  const matches = detectUntakenAction(finalMessage);
-  if (matches.length === 0) return null;
+  // mt#4117: the evaluation stream, distinct from the calibration log below.
+  // The calibration log records FIRES only (matches.length > 0, post-dedup).
+  // This records every SCANNED turn-ending message — fired, not-fired, or
+  // suppressed — so the miss rate is measurable rather than just the hit
+  // count. `finalMessage` is non-empty at this point, so everything past this
+  // line counts as "scanned"; the override branch above returns before this,
+  // matching the sibling detectors' convention of not evaluating an acked turn.
+  const evaluationSkipped = isEvaluationSkipped();
+  const recordEvaluation = (fields: {
+    fired: boolean;
+    suppressed: boolean;
+    suppressionReason?: string;
+    suppressionEvidence?: string[];
+    deduped?: boolean;
+    injected: boolean;
+    deferralOverlap?: boolean;
+    matches: UntakenActionMatch[];
+  }): void => {
+    if (evaluationSkipped) return;
+    appendEvaluationRecord(input.cwd ?? process.cwd(), {
+      timestamp: new Date().toISOString(),
+      session_id: input.session_id,
+      fired: fields.fired,
+      suppressed: fields.suppressed,
+      ...(fields.suppressionReason !== undefined
+        ? { suppressionReason: fields.suppressionReason }
+        : {}),
+      ...(fields.suppressionEvidence !== undefined
+        ? { suppressionEvidence: fields.suppressionEvidence }
+        : {}),
+      ...(fields.deduped !== undefined ? { deduped: fields.deduped } : {}),
+      injected: fields.injected,
+      ...(fields.deferralOverlap !== undefined ? { deferralOverlap: fields.deferralOverlap } : {}),
+      matches: fields.matches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
+      final_message_tail: finalMessage.slice(-TAIL_WINDOW_CHARS),
+    });
+  };
+
+  // mt#4697 SC2: the turn is resolved BEFORE the early return, and the tool-call-state arm is
+  // unioned with the phrase matches. Both halves of that ordering are load-bearing — the arm's
+  // whole purpose is to fire on a turn whose prose matches NOTHING, so computing it after
+  // `matches.length === 0` would make it permanently unreachable on exactly its target case.
+  // `extractFinalTurn` was already being called further down for the suppression predicates; it
+  // is hoisted here rather than called twice.
+  const { turnLines, openingPrompt } = extractFinalTurn(ctx.transcriptLines ?? []);
+  const matches = [
+    ...detectUntakenAction(finalMessage),
+    ...(turnLines.length > 0 ? detectStrandedTaskState(finalMessage, turnLines) : []),
+  ];
+  if (matches.length === 0) {
+    // A genuine non-fire: the matcher found nothing in this turn-ending message.
+    // Silent — no additionalContext, no advisory — per this task's SC4.
+    recordEvaluation({ fired: false, suppressed: false, injected: false, matches: [] });
+    return null;
+  }
 
   const sessionId = input.session_id ?? "unknown";
   const turnKey = turnKeyForMessage(finalMessage);
@@ -990,7 +1314,22 @@ export function run(
   const newMatches = matches.filter(
     (m) => !flagged.has(flagKey(turnKey, m.family, m.matchedPhrase))
   );
-  if (newMatches.length === 0) return null;
+  if (newMatches.length === 0) {
+    // The matcher fired, but every match is a repeat of a phrase already
+    // flagged for this turn (a Stop-continuation re-entry). Recorded as a
+    // fire so the raw matcher signal is not lost, marked `deduped` so a
+    // calibration pass does not double-count it against the same turn the
+    // first pass already recorded.
+    recordEvaluation({ fired: true, suppressed: false, deduped: true, injected: false, matches });
+    return null;
+  }
+
+  // mt#4697 SC6: split the new matches by side. BOTH reach the calibration record — the arm is
+  // being measured, and a fire that is not recorded cannot be classified — but only the phrase
+  // side may reach `additionalContext`. See the note on `additionalContext` for the measurement
+  // that put the arm on the log-only rung.
+  const strandedNew = newMatches.filter((m) => m.family === STRANDED_TASK_FAMILY);
+  const injectable = newMatches.filter((m) => m.family !== STRANDED_TASK_FAMILY);
 
   for (const m of newMatches) {
     flagged.add(flagKey(turnKey, m.family, m.matchedPhrase));
@@ -1022,20 +1361,33 @@ export function run(
   // mt#4116: six suppressions now share one record shape, so it is built once. Each carries its
   // own reason plus one evidence field named for that reason — the calibration pass reads the
   // reason to know WHY a fire was swallowed and the evidence to check whether it should have been.
-  const suppressed = (reason: string, evidenceKey: string, evidence: string[]): GuardOutcome => ({
-    calibration: {
-      source: "live",
-      channel: "stop",
-      timestamp: new Date().toISOString(),
-      session_id: input.session_id,
-      stop_hook_active: input.stop_hook_active === true,
-      matches: newMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
-      final_message_tail: finalMessage.slice(-TAIL_WINDOW_CHARS),
-      deferralOverlap: detectDeferralPhrases(finalMessage).length > 0,
-      suppressionReasons: [reason],
-      [evidenceKey]: evidence,
-    },
-  });
+  const suppressed = (reason: string, evidenceKey: string, evidence: string[]): GuardOutcome => {
+    // mt#4117: a suppressed fire is the class most likely to hide a
+    // regression (SC5) — recorded as suppressed-with-reason, never folded
+    // into a non-fire.
+    recordEvaluation({
+      fired: true,
+      suppressed: true,
+      suppressionReason: reason,
+      suppressionEvidence: evidence,
+      injected: false,
+      matches: newMatches,
+    });
+    return {
+      calibration: {
+        source: "live",
+        channel: "stop",
+        timestamp: new Date().toISOString(),
+        session_id: input.session_id,
+        stop_hook_active: input.stop_hook_active === true,
+        matches: newMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
+        final_message_tail: finalMessage.slice(-TAIL_WINDOW_CHARS),
+        deferralOverlap: detectDeferralPhrases(finalMessage).length > 0,
+        suppressionReasons: [reason],
+        [evidenceKey]: evidence,
+      },
+    };
+  };
 
   const reservedCategory = detectReservedCategoryHalt(finalMessage);
   if (reservedCategory.length > 0) {
@@ -1088,7 +1440,9 @@ export function run(
   // Recorded, not silent, per the same mt#3207 contract as the suppression
   // above: the failure worth catching is this predicate swallowing a TRUE
   // positive, and a suppression that returns null cannot be measured.
-  const { turnLines, openingPrompt } = extractFinalTurn(ctx.transcriptLines ?? []);
+  // `turnLines` / `openingPrompt` are resolved above the early return (mt#4697), so the arm can be
+  // unioned into `matches`. This suppression is unchanged and still runs AFTER the match
+  // computation — which is what makes SC3 hold without a duplicate armed-wait check inside the arm.
   const armedWatcher = turnLines.length > 0 ? detectArmedWatcherEvidence(turnLines) : [];
   if (armedWatcher.length > 0) {
     return suppressed(SUPPRESSION_ARMED_WATCHER_EVIDENCE, "armedWatcherEvidence", armedWatcher);
@@ -1140,6 +1494,18 @@ export function run(
     writeFlagged(sessionId, flagged, storeDir);
   }
 
+  // mt#4117: the un-suppressed path — the raw matcher signal reaches here
+  // whether or not `injectable` ends up empty (the strandedTaskArm-only,
+  // log-only case). `injected` distinguishes the two: an agent actually saw
+  // `additionalContext` only when it is true.
+  recordEvaluation({
+    fired: true,
+    suppressed: false,
+    injected: injectable.length > 0,
+    deferralOverlap: deferralOverlap.length > 0,
+    matches: newMatches,
+  });
+
   return {
     calibration: {
       source: "live",
@@ -1162,10 +1528,25 @@ export function run(
       // only on that path, so the next calibration pass can measure this
       // decision separately from an ordinary fire rather than inferring it.
       ...(harnessCommandDeclined.length > 0 ? { harnessCommandDeclined } : {}),
+      // mt#4697 SC6: the tool-call-state arm's own fires, named so a calibration pass can classify
+      // them without having to separate them from the phrase side by hand.
+      ...(strandedNew.length > 0
+        ? { strandedTaskArm: strandedNew.map((m) => m.matchedPhrase), strandedArmLogOnly: true }
+        : {}),
     },
     // The overlap flag selects the DIRECTIVE, not just the calibration field
     // above (mt#3767) — see `DEFERRAL_DIRECTIVE` for why the winning guard owes
     // the silenced sibling's remedy and not only its speaking slot.
-    additionalContext: buildReminder(newMatches, deferralOverlap.length > 0),
+    //
+    // mt#4697 SC6: the arm ships LOG-ONLY, so its matches reach the calibration record above but
+    // NOT the injection. Measured over 11,196 replayed turns: the arm fires on 994 (8.88%) against
+    // the shipped phrase side's 345 (3.08%) — nearly TRIPLE the volume, on a detector that is
+    // already live. mt#3560's tail-window safety argument does not transfer to a state-keyed arm,
+    // which is exactly what SC6 exists to establish, and ADR-024's ladder wants a calibration pass
+    // to classify those 994 before any of them interrupt an agent. `injectable` is empty when the
+    // arm was the ONLY thing that matched, and then this whole call yields undefined — a recorded
+    // fire with no injection, which is what log-only means here.
+    additionalContext:
+      injectable.length > 0 ? buildReminder(injectable, deferralOverlap.length > 0) : undefined,
   };
 }

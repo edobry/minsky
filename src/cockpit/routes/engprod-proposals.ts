@@ -58,6 +58,19 @@
  * task ever lands on a different backend, its row simply won't be found by
  * `eq(tasksTable.id, taskId)` and the accept/reject call 404s rather than
  * silently touching the wrong store.
+ *
+ * ## Deliberately NOT project-scoped (mt#4727)
+ *
+ * `GET /api/engprod/proposals` does not thread `?project=`. The EngProd
+ * toil-miner is Minsky's own eng-process tooling — every `engprod-proposal`
+ * task it files is filed against Minsky's OWN task backend (see "Backend
+ * assumption" above), regardless of which project a multi-project cockpit
+ * dashboard happens to be viewing. There is no meaningful "which project do
+ * these proposals belong to" question for a project other than Minsky
+ * itself, so scoping this endpoint by the dashboard's `?project=` selection
+ * would either always resolve to the same set (Minsky) or silently hide the
+ * whole digest for any other project — neither is useful. See this task's
+ * spec `## Outcome` for the recorded decision.
  */
 import type express from "express";
 import { eq, and, desc } from "drizzle-orm";

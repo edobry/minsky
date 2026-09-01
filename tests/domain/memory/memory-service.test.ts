@@ -267,12 +267,41 @@ function createFakeDb(initialRows: MemoryRow[] = []): MemoryServiceDb & {
             });
           }
 
+          // mt#4761: MemoryService.list() now always chains
+          // `.orderBy(...).limit(...).offset(...)`. None of this file's
+          // fixtures exceed DEFAULT_LIST_CAP (500), so slicing here never
+          // changes any existing assertion — this exists purely so the
+          // chain doesn't throw "not a function". `applyOrderBy` above is
+          // unchanged (still the stale-filter's lastAccessedAt-ascending
+          // sort) since no test in this file asserts on the NEW default
+          // (`created desc`) order.
+          function withPagination(rows: MemoryRow[]) {
+            let limitN: number | undefined;
+            let offsetN = 0;
+            const chain = {
+              limit(n: number) {
+                limitN = n;
+                return chain;
+              },
+              offset(n: number) {
+                offsetN = n;
+                return chain;
+              },
+              then(resolve: (v: MemoryRow[]) => void, reject?: (err: unknown) => void) {
+                let result = offsetN ? rows.slice(offsetN) : rows;
+                if (limitN !== undefined) result = result.slice(0, limitN);
+                Promise.resolve(result).then(resolve, reject);
+              },
+            };
+            return chain;
+          }
+
           return {
             where(cond: any) {
               const filtered = queryRows(cond);
               return {
                 orderBy(_order: any) {
-                  return Promise.resolve(applyOrderBy(filtered));
+                  return withPagination(applyOrderBy(filtered));
                 },
                 then(resolve: (v: MemoryRow[]) => void, reject?: (err: unknown) => void) {
                   Promise.resolve(filtered).then(resolve, reject);
@@ -280,7 +309,7 @@ function createFakeDb(initialRows: MemoryRow[] = []): MemoryServiceDb & {
               };
             },
             orderBy(_order: any) {
-              return Promise.resolve(applyOrderBy(queryRows()));
+              return withPagination(applyOrderBy(queryRows()));
             },
             then(resolve: (v: MemoryRow[]) => void) {
               resolve(queryRows());

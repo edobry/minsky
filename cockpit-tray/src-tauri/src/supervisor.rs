@@ -58,13 +58,13 @@ use daemon_core::daemon_labels;
 
 pub(crate) use daemon_core::{
     breaches_ceiling, classify_exit, daemon_memory_bytes, daemon_start_time, decide_action,
-    format_duration, handle_health_down_no_child, kill_group, kill_pid, kill_pid_force,
-    log_tail_last_line, open_log, path_env, pid_on_port, port_holder, port_in_use, probe_health,
-    record_spawned, resolve_program, spawn_daemon, take_spawned, teardown, throttle_ok,
-    DaemonAction, DaemonLabels, DaemonSpawnSpec, ExitClass, NoChildCounters, NoChildEffect,
-    SpawnedPgids, SupervisedDaemon, ALERT_COOLDOWN, HTTP_FAILURE_POLL_THRESHOLD,
-    MEMORY_CEILING_BYTES, POLL_INTERVAL, RESPAWN_THROTTLE, RESTART_STORM_THRESHOLD,
-    RESTART_STORM_WINDOW,
+    escalate_unreleased_port, format_duration, handle_health_down_no_child, kill_group,
+    kill_group_force, kill_pid, kill_pid_force, log_tail_last_line, open_log, path_env,
+    pid_on_port, port_holder, port_in_use, probe_health, record_spawned, resolve_program,
+    spawn_daemon, take_spawned, teardown, throttle_ok, DaemonAction, DaemonLabels, DaemonSpawnSpec,
+    Escalation, ExitClass, NoChildCounters, NoChildEffect, SpawnedPgids, StopTarget,
+    SupervisedDaemon, ALERT_COOLDOWN, HTTP_FAILURE_POLL_THRESHOLD, MEMORY_CEILING_BYTES,
+    POLL_INTERVAL, RESPAWN_THROTTLE, RESTART_STORM_THRESHOLD, RESTART_STORM_WINDOW,
 };
 
 /// The cockpit daemon's health endpoint and the identity its body must carry.
@@ -654,7 +654,7 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgids, path: &str) 
 /// be true for the port-owner kill path. Callers compute `adopted_ok` from a
 /// fresh health probe so a conflict (someone else on the supervised port) is
 /// left untouched.
-fn do_stop(sup: &mut Sup, spawned: &SpawnedPgids, path: &str, adopted_ok: bool) {
+fn do_stop(sup: &mut Sup, spawned: &SpawnedPgids, path: &str, adopted_ok: bool) -> StopTarget {
     let port = sup.daemon.port;
     if let Some(mut child) = sup.daemon.child.take() {
         // Only THIS entry's process group — the other registered daemon's is
@@ -666,11 +666,106 @@ fn do_stop(sup: &mut Sup, spawned: &SpawnedPgids, path: &str, adopted_ok: bool) 
         }
         let _ = child.kill();
         let _ = child.wait();
+        return match pgid {
+            Some(pgid) => StopTarget::SpawnedGroup { pgid },
+            None => StopTarget::SpawnedChildOnly {
+                health_confirmed: adopted_ok,
+            },
+        };
     } else if adopted_ok {
         if let Some(pid) = pid_on_port(port, path) {
             kill_pid(pid);
+            return StopTarget::PortHolder { pid };
+        }
+        // The kill was authorized and lsof resolved nothing — the stop attempt
+        // used to end HERE, silently, which is one of the ways mt#4800's stale
+        // daemon kept the port. The caller can now see it happened.
+        return StopTarget::PortHolderUnresolved;
+    }
+    StopTarget::Untouched
+}
+
+/// Grace a SIGTERMed daemon gets to exit AND release its socket before the
+/// escalation tier. Matches the TS side's `killZombie` default (2s), and covers
+/// the kernel's socket teardown, which outlives process death (mt#4205's
+/// observed kill-without-replace race).
+const PORT_RELEASE_GRACE_MS: u64 = 2_000;
+/// How often the release wait re-probes the port.
+const PORT_RELEASE_POLL_MS: u64 = 150;
+
+/// Poll until `port` stops answering the bind probe, or the budget elapses.
+/// Returns whether the port is free.
+async fn wait_port_free(port: u16, budget_ms: u64) -> bool {
+    let deadline = Instant::now() + Duration::from_millis(budget_ms);
+    loop {
+        if !port_in_use(port) {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(PORT_RELEASE_POLL_MS)).await;
+    }
+}
+
+/// Stop this entry's daemon and WAIT until its port is actually released,
+/// escalating to SIGKILL when the polite stop did not take (mt#4800). Returns
+/// whether the port is free — the caller spawns only on `true`, because a spawn
+/// into a held port exits with the CLI's incumbent-preserve refusal, gets
+/// classified `AdoptedIncumbent` on the reprobe, and quietly re-adopts the very
+/// daemon the restart meant to replace. That loop is how two merged fixes
+/// stayed invisible for 25+ minutes on 2026-08-31 while every log looked calm.
+///
+/// This replaces the fixed 500ms sleep the stop→spawn sites used: the wait is
+/// SHORTER in the common case (first re-probe at 150ms) and — the actual point
+/// — it can tell the difference between a released port and a survived stop.
+async fn stop_and_release_port(
+    sup: &mut Sup,
+    spawned: &SpawnedPgids,
+    path: &str,
+    adopted_ok: bool,
+) -> bool {
+    let port = sup.daemon.port;
+    let target = do_stop(sup, spawned, path, adopted_ok);
+    if wait_port_free(port, PORT_RELEASE_GRACE_MS).await {
+        return true;
+    }
+    let holder_now = pid_on_port(port, path);
+    match escalate_unreleased_port(target, holder_now) {
+        Escalation::KillGroup { pgid } => {
+            eprintln!(
+                "[cockpit-tray] {} still holds port {port} after SIGTERM grace; SIGKILLing its process group {pgid}",
+                sup.daemon.labels.display_name
+            );
+            kill_group_force(pgid);
+        }
+        Escalation::KillPid { pid } => {
+            eprintln!(
+                "[cockpit-tray] {} still holds port {port} after SIGTERM grace; SIGKILLing pid {pid}",
+                sup.daemon.labels.display_name
+            );
+            kill_pid_force(pid);
+        }
+        Escalation::TermThenKill { pid } => {
+            eprintln!(
+                "[cockpit-tray] port {port} held by pid {pid}, which never got the stop signal; sending SIGTERM then SIGKILL",
+            );
+            kill_pid(pid);
+            if wait_port_free(port, PORT_RELEASE_GRACE_MS).await {
+                return true;
+            }
+            kill_pid_force(pid);
+        }
+        Escalation::Refuse => {
+            eprintln!(
+                "[cockpit-tray] port {port} is still held after stopping {}, and its holder ({}) cannot be attributed to the daemon we stopped — leaving it alone",
+                sup.daemon.labels.display_name,
+                holder_now.map_or("unresolved".to_string(), |p| format!("pid {p}")),
+            );
+            return false;
         }
     }
+    wait_port_free(port, PORT_RELEASE_GRACE_MS).await
 }
 
 // `health_ok(client, port)` lived here: a bare 2xx check against the cockpit's
@@ -740,9 +835,18 @@ async fn adopt_running(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgids, p
             // 2026-06-04 8-day-stale case) — restart it (kill the
             // health-confirmed daemon, respawn fresh) so new widget
             // registrations / routes load before we report ready (mt#2299).
-            do_stop(sup, spawned, path, true);
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            do_spawn(app, sup, spawned, path);
+            if stop_and_release_port(sup, spawned, path, true).await {
+                do_spawn(app, sup, spawned, path);
+            } else {
+                // Same shape as restart_entry's blocked branch: a spawn into
+                // the held port would refuse and re-adopt the stale daemon.
+                eprintln!(
+                    "[cockpit-tray] {} stale-adoption restart blocked: port {} was not released",
+                    sup.daemon.labels.display_name, sup.daemon.port
+                );
+                report_conflict(app, sup, path);
+                clear_uptime(app, sup);
+            }
         }
         AdoptDecision::Fresh {
             started,
@@ -838,10 +942,18 @@ async fn restart_entry(
     if sup.daemon.child.is_none() && !h && port_in_use(port) {
         // Foreign listener owns the port — refuse to restart over it.
         report_conflict(app, sup, path);
-    } else {
-        do_stop(sup, spawned, path, h);
-        tokio::time::sleep(Duration::from_millis(500)).await;
+    } else if stop_and_release_port(sup, spawned, path, h).await {
         do_spawn(app, sup, spawned, path);
+    } else {
+        // The port never freed. Spawning anyway would exit against the
+        // incumbent and re-adopt it (see stop_and_release_port) — surface the
+        // held port instead of restarting into a silent no-op (mt#4800).
+        eprintln!(
+            "[cockpit-tray] {} restart blocked: port {port} was not released — not spawning into a bind that will refuse",
+            sup.daemon.labels.display_name
+        );
+        report_conflict(app, sup, path);
+        clear_uptime(app, sup);
     }
 }
 

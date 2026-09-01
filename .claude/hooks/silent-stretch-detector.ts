@@ -112,7 +112,7 @@
 // @see mt#3003 — this task: shared anchoring fix (resolveParentTranscriptLines) + dedupe guard
 // @see .minsky/hooks/registry.ts — ADR-028 GUARD_REGISTRY entry for this guard
 
-import { readInput, readHostCap, deriveBudgets, findRepoRoot, readTunedThreshold } from "./types";
+import { readInput, readHostCap, deriveBudgets, readTunedThreshold } from "./types";
 import { readTunedValue } from "./guard-tuning-store";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
@@ -125,10 +125,13 @@ import {
   sessionHasLoggedKey,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import {
+  calibrationLogPath,
+  evaluationLogPath,
+  logCalibrationRecord,
+  logEvaluationRecord,
+} from "./dispatcher";
 import type { DispatchContext, GuardOutcome } from "./registry";
-import { evaluationLogPath, logEvaluationRecord } from "./dispatcher";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — GRADUATED to injection (mt#3399)
@@ -177,7 +180,7 @@ export const INJECTION_ENABLED = true;
  */
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_SILENT_STRETCH";
 
-const CALIBRATION_LOG = ".minsky/silent-stretch-calibration.jsonl";
+const CALIBRATION_LOG_NAME = "silent-stretch";
 
 // ---------------------------------------------------------------------------
 // Cadence thresholds (pinned at planning, 2026-07-15 — see header comment)
@@ -514,20 +517,11 @@ export function buildTurnAnchor(boundaries: TurnBoundaryTimestamps): string | un
 // ---------------------------------------------------------------------------
 
 function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): void {
-  try {
-    // mt#2710: resolve the actual repo ROOT, not the raw shell cwd — `cwd` is
-    // routinely a repo subdirectory, and a bare `resolve(cwd, ...)` would
-    // scatter this calibration log into a stray subdirectory `.minsky/`.
-    const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[silent-stretch-detector] Failed to write calibration log: ${msg}\n`);
-  }
+  // mt#4752: the shared helper derives the path from the stream NAME, so the
+  // filename cannot drift from the convention the .gitignore globs encode.
+  // `cwd` is the guard's raw input cwd — a FALLBACK, never an authoritative
+  // root (see `calibrationLogPath`'s docblock for why the two ranks differ).
+  logCalibrationRecord(CALIBRATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
 
 /**
@@ -538,7 +532,8 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
  * (it had no dedupe check at all before this task).
  */
 function readCalibrationLogText(cwd: string): string | undefined {
-  const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
+  // mt#4752: same helper the writer uses, so reader and writer cannot drift.
+  const logPath = calibrationLogPath(CALIBRATION_LOG_NAME, { fallbackCwd: cwd });
   return readLogTailText(logPath);
 }
 

@@ -11,6 +11,7 @@ import realFs from "fs/promises";
 import matter from "gray-matter";
 import { agentDefinitionSchema } from "../../definitions/schemas";
 import type { AgentDefinition } from "../../definitions/types";
+import { createSkipRecorder } from "./skip-recorder";
 import type {
   MinskyCompileTarget,
   MinskyCompileResult,
@@ -189,6 +190,11 @@ function makeClaudeAgentsTarget(
       const filesWritten: string[] = [];
       const definitionsIncluded: string[] = [];
       const definitionsSkipped: string[] = [];
+      // mt#3119: this target was the only one skipping with NO message on any channel —
+      // the `catch {}` below discarded the error outright, which is the exact shape mt#2182
+      // was filed against. It has no `onSkip` parameter, so the recorder's default sink
+      // (log.warn) supplies the warn half and `skipReasons` supplies the visible half.
+      const { record: recordSkip, reasons: skipReasons } = createSkipRecorder();
       const contentsByPath = new Map<string, string>();
       const dryRunParts: string[] = [];
 
@@ -198,13 +204,18 @@ function makeClaudeAgentsTarget(
         let mod: unknown;
         try {
           mod = await dynamicImport(sourcePath);
-        } catch {
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          recordSkip(
+            `[compile:claude-agents] skipping "${dirName}": failed to import ${sourcePath}: ${reason}`
+          );
           definitionsSkipped.push(dirName);
           continue;
         }
 
         const extracted = extractAgentDefinition(mod, sourcePath);
         if ("error" in extracted) {
+          recordSkip(`[compile:claude-agents] skipping "${dirName}": ${extracted.error}`);
           definitionsSkipped.push(dirName);
           continue;
         }
@@ -217,6 +228,10 @@ function makeClaudeAgentsTarget(
         // lockstep is simpler than making listOutputFiles load every definition
         // just to discover the real name.
         if (dirName !== agent.name) {
+          recordSkip(
+            `[compile:claude-agents] skipping "${dirName}": directory name does not match ` +
+              `agent.name "${agent.name}" — rename one so they match`
+          );
           definitionsSkipped.push(dirName);
           continue;
         }
@@ -240,6 +255,7 @@ function makeClaudeAgentsTarget(
         filesWritten,
         definitionsIncluded,
         definitionsSkipped,
+        skipReasons,
         content: options.dryRun ? dryRunParts.join("\n\n") : undefined,
         contentsByPath: options.dryRun ? contentsByPath : undefined,
       };

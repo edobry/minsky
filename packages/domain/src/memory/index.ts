@@ -11,12 +11,14 @@ export type {
   MemoryCreateInput,
   MemoryUpdateInput,
   MemorySearchResult,
+  MemoryReadResult,
   MemorySearchResponse,
   MemoryListFilter,
   MemorySearchOptions,
 } from "./types";
 
-export { MEMORY_TYPES, MEMORY_SCOPES } from "./types";
+export { MEMORY_TYPES, MEMORY_SCOPES, DEFAULT_COLD_DAYS } from "./types";
+export { l2DistanceToSimilarity, similarityToL2Distance } from "./similarity-score";
 export { MemoryService, getMemoryRecordById, getMemoryRefSummary } from "./memory-service";
 export type { MemoryServiceDeps, MemoryServiceDb, MemoryServiceSurface } from "./memory-service";
 export { checkDerivation } from "./validation";

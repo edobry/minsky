@@ -13,6 +13,7 @@ import {
 import { createCockpitSseClient } from "./lib/sse-client";
 import { queryKeysForChannel } from "./lib/sse-invalidation";
 import { createInFlightGate } from "./lib/in-flight-gate";
+import { useProject } from "./lib/project-context";
 import { HomePage } from "./pages/HomePage";
 // Eager, like HomePage: the catch-all must render immediately rather than
 // flashing the Suspense fallback while a chunk loads for a URL that is
@@ -40,6 +41,9 @@ const SettingsPage = lazy(() =>
 );
 const WorkstreamsPage = lazy(() =>
   import("./pages/WorkstreamsPage").then((m) => ({ default: m.WorkstreamsPage }))
+);
+const WorkPackagesPage = lazy(() =>
+  import("./pages/WorkPackagesPage").then((m) => ({ default: m.WorkPackagesPage }))
 );
 const DigestPage = lazy(() => import("./pages/DigestPage").then((m) => ({ default: m.DigestPage })));
 const ProposalsPage = lazy(() =>
@@ -232,6 +236,9 @@ interface WidgetState {
 export function App() {
   const [widgets, setWidgets] = useState<WidgetState[]>([]);
   const queryClient = useQueryClient();
+  // mt#4731: the task-graph page (the one APP_LEVEL_PROP_WIDGET_IDS member)
+  // previously polled unscoped regardless of the selected project.
+  const { selectedSlug, queryParam } = useProject();
 
   // ---------------------------------------------------------------------------
   // minsky:// deep-link handler (mt#2528, ADR-023).
@@ -288,7 +295,7 @@ export function App() {
 
     function fetchAndApply(widgetId: string): void {
       gate.run(widgetId, () =>
-        fetchWidgetData(widgetId).then((data) => {
+        fetchWidgetData(widgetId, queryParam).then((data) => {
           if (!cancelled) {
             setWidgets((prev) => prev.map((w) => (w.meta.id === widgetId ? { ...w, data } : w)));
           }
@@ -337,7 +344,17 @@ export function App() {
         clearInterval(id);
       }
     };
-  }, []);
+    // mt#4731: re-run the whole polling setup when the selected project
+    // changes, so the task-graph page's data is re-fetched under the new
+    // scope rather than continuing to poll under the old one. `queryParam`
+    // itself isn't listed — it's a derived object recomputed every render
+    // whenever `selectedSlug` changes, so depending on `selectedSlug` alone
+    // (a primitive) is both necessary and sufficient and avoids re-running
+    // on every render from a new-but-equal object reference. (No
+    // eslint-disable here: this config does not register
+    // react-hooks/exhaustive-deps, so referencing it is itself a lint error —
+    // see SessionFilmRibbon.tsx for the precedent.)
+  }, [selectedSlug]);
 
   // ---------------------------------------------------------------------------
   // Data accessors for promoted page routes
@@ -500,6 +517,15 @@ export function App() {
             element={
               <ErrorBoundary id="digest-page">
                 <DigestPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* ADR-046 (mt#2911): the claimable work-package pool. */}
+          <Route
+            path="/work-packages"
+            element={
+              <ErrorBoundary id="work-packages-page">
+                <WorkPackagesPage />
               </ErrorBoundary>
             }
           />

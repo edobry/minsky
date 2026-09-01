@@ -11,6 +11,7 @@ import {
   compareChangesetsByRecency,
   pickBestConversationLink,
   pickBestWorkspaceLink,
+  selectLinkedSessionRow,
   prRefFromChangeset,
   liveDetailFromChangeset,
   repoWebBaseFromPrUrl,
@@ -394,5 +395,66 @@ describe("commitsFromChangeset (mt#3096)", () => {
     const cs = makeChangeset({ commits: [commit("abc123abc123", "m", "2026-07-23T18:00:00Z")] });
     const [only] = commitsFromChangeset(cs, null);
     expect(only?.url).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// selectLinkedSessionRow (mt#4663 — rank first, THEN check survival)
+// ---------------------------------------------------------------------------
+
+interface FakeSessionRow {
+  session: string;
+}
+
+function joinedRow(
+  minskySessionId: string,
+  confidence: number | null,
+  detectedAt: string | null,
+  session: FakeSessionRow | null
+): WorkspaceLinkCandidate & { session: FakeSessionRow | null } {
+  return { minskySessionId, confidence, detectedAt, session };
+}
+
+describe("selectLinkedSessionRow", () => {
+  test("returns null when there are no link rows", () => {
+    expect(selectLinkedSessionRow<FakeSessionRow>([])).toBeNull();
+  });
+
+  test("returns the joined session when the sole link resolves", () => {
+    const row = joinedRow("ws-live", 1.0, "2026-08-01T00:00:00Z", { session: "ws-live" });
+    expect(selectLinkedSessionRow([row])).toEqual({ session: "ws-live" });
+  });
+
+  test("returns null when the sole link's session no longer exists", () => {
+    const row = joinedRow("ws-deleted", 1.0, "2026-08-01T00:00:00Z", null);
+    expect(selectLinkedSessionRow([row])).toBeNull();
+  });
+
+  // The regression this function exists to prevent. Ranking only the rows whose
+  // session survived would return `ws-live` here — a DIFFERENT workspace than
+  // the one the link ranking names, rendered as though it were the right one.
+  // With 98% of link rows dangling (mt#4682) that inversion would be the common
+  // path, and no latency measurement or null-check would reveal it.
+  test("does NOT fall through to a live runner-up when the best link dangles", () => {
+    const bestButDeleted = joinedRow("ws-best", 1.0, "2026-08-01T00:00:00Z", null);
+    const worseButLive = joinedRow("ws-runner-up", 0.2, "2026-08-02T00:00:00Z", {
+      session: "ws-runner-up",
+    });
+    expect(selectLinkedSessionRow([bestButDeleted, worseButLive])).toBeNull();
+    // ...and the ordering is what decides it, not row order in the array.
+    expect(selectLinkedSessionRow([worseButLive, bestButDeleted])).toBeNull();
+  });
+
+  test("resolves the live winner when the higher-confidence link is the live one", () => {
+    const bestAndLive = joinedRow("ws-best", 1.0, "2026-08-01T00:00:00Z", { session: "ws-best" });
+    const worseAndDeleted = joinedRow("ws-other", 0.2, "2026-08-02T00:00:00Z", null);
+    expect(selectLinkedSessionRow([worseAndDeleted, bestAndLive])).toEqual({ session: "ws-best" });
+  });
+
+  test("applies the detectedAt tie-break before checking survival", () => {
+    const olderLive = joinedRow("ws-older", 0.5, "2026-08-01T00:00:00Z", { session: "ws-older" });
+    const newerDeleted = joinedRow("ws-newer", 0.5, "2026-08-05T00:00:00Z", null);
+    // Equal confidence, so the NEWER row wins the tie-break — and it dangles.
+    expect(selectLinkedSessionRow([olderLive, newerDeleted])).toBeNull();
   });
 });

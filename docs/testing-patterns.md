@@ -612,3 +612,85 @@ the child to lead its own group, and Bun's spawned children inherit the parent's
 group kill would signal the runner's own group. The leaf-first budget ordering above covers the
 observed chain instead. A grandchild spawned by something other than these runners is not
 covered.
+
+## mt#4726: the clock-shifted nightly (`bun run test:clock-shifted`)
+
+A test pinned to an absolute instant and compared against a real-clock window passes until the
+wall clock crosses it, then reddens CI with no warning. Three have done exactly that — mt#2491
+(a 1-day fuse), mt#3818 (14 days), mt#4721 (7 days, which took `main` red for every PR). The
+defect is undetectable when introduced: mt#4721's fixture was harmless when written and was
+armed months later by an unrelated production change that never touched the test.
+
+The remedy is temporal rather than static: **run the suite in the future.** A scheduled job
+(`.github/workflows/clock-shifted-tests.yml`, 07:37 UTC daily) runs the corpus with the clock
+moved +30 days, so a fixture that would expire in the next month expires tonight instead.
+
+The prevention half is the convention in `testing-standards.mdc §Testable Design` — inject the
+clock, never read it at the point of use. Nothing lints that; this is its backstop.
+
+### Running it
+
+```bash
+bun run test:clock-shifted              # default +30 days
+bun run test:clock-shifted -- --days=180
+bun run test:clock-shifted -- --days=-30  # backward, for a fixture valid only after some instant
+```
+
+Covers `ROOTS` **plus `./.minsky/hooks`** — the hooks tree is outside the pre-push runner's scope
+for latency, but it is where mt#4721's bomb actually lived.
+
+### Reading the exit code — three values, deliberately
+
+| Exit | Meaning                                                                                                          |
+| ---- | ---------------------------------------------------------------------------------------------------------------- |
+| `0`  | The corpus is clean at this horizon.                                                                             |
+| `1`  | A test's outcome depends on the shift. Each failure is a bomb, or an exemption candidate.                        |
+| `2`  | **The run itself is broken** — preflight failed, the exemption list is malformed, or discovery found zero files. |
+
+Collapsing `2` into `0` would defeat the whole mechanism. This is a **default-empty probe**: its
+output is a list of failures, so a shim that silently stopped working produces an empty list,
+byte-identical to a clean corpus (mem#704). Hence the runner PROVES the shift is in effect before
+every suite invocation, via a probe subprocess, and refuses to continue if it is not.
+
+### Why the horizon is 30 days
+
+From the observed **fuse** — the interval between a fixture being armed and detonating — not from
+how often detonations happen. The three instances' fuses were 1, 14 and 7 days; +30d is roughly
+twice the longest. Inter-arrival is the wrong quantity: a nightly at any positive horizon catches
+every bomb eventually, so the horizon buys **lead time**, not coverage.
+
+### Two gotchas found building it — both cost a real debugging cycle
+
+1. **A probe that uses `console.log` under `tests/setup.ts` emits nothing.** The preload replaces
+   every console method with a no-op mock, so a console-based probe reads exactly like a probe
+   that failed to run. Use `process.stdout.write`.
+2. **`class ShiftedDate extends Date` assigned to `globalThis.Date` breaks `instanceof`.** A Date
+   built inside native code (`fs.stat().mtime`) is a REAL `Date` and is not an instance of the
+   subclass, so `expect(x).toBeInstanceOf(Date)` fails on identity rather than on time. The shim
+   uses a **Proxy** over the real constructor, which forwards `prototype` to the same object and
+   keeps identity intact. Do not "simplify" it to a subclass.
+
+### What the shift does NOT move
+
+Each of these is a real coverage bound, and a shifted-run failure in one of them is not a bomb:
+
+- **Filesystem timestamps.** Real elapsed time advances a file's mtime and the clock together;
+  the shim advances only the clock, so a test that writes a file and measures its age sees a file
+  suddenly 30 days old.
+- **Subprocesses.** A test spawning the real CLI gets an unshifted child — the env var is
+  inherited, but the child never preloads the shim. In-process coverage only.
+- **Monotonic clocks** (`performance.now()`, `process.hrtime()`) and **`Date.parse`**, neither of
+  which reads the wall clock.
+
+### The exemption list
+
+`tests/clock-shift-exemptions.ts`, with **two classes that age in opposite directions**:
+
+- `intentional-time-coupling` — the test genuinely asserts an absolute date. Permanent; this is
+  the repo's inventory of deliberate time-coupling, which did not exist anywhere before.
+- `probe-artifact` — the test is fine and the shim cannot represent its world (the filesystem
+  case above). A **debt against the shim**, so every entry requires a `retiredBy` task; the
+  runner refuses to start on an entry without one.
+
+Keeping them separate is the point: one undifferentiated list would let shim defects accumulate
+inside what reads as a record of deliberate choices.

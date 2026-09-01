@@ -4,6 +4,7 @@ import { mkdir } from "fs/promises";
 import type { SessionProviderInterface } from "../session";
 import { execAsync } from "@minsky/shared/exec";
 import { normalizeRepositoryURI } from "../repository-uri";
+import { parseGitHubOwnerRepo } from "../uri-utils";
 import { GitService } from "../git";
 import { execGitWithTimeout } from "../utils/git-exec";
 import { MinskyError } from "../errors/index";
@@ -71,10 +72,16 @@ import type { ReviewListEntry, PrChangedFile, PostedReviewComment } from "./inde
 import { FallbackTokenProvider, type TokenProvider } from "../auth";
 import {
   listWorkflowRuns as listWorkflowRunsImpl,
+  listWorkflowRunJobs as listWorkflowRunJobsImpl,
   viewWorkflowRunLogs as viewWorkflowRunLogsImpl,
+  viewWorkflowJobLog as viewWorkflowJobLogImpl,
+  viewFailedJobLogs as viewFailedJobLogsImpl,
   rerunWorkflowRun as rerunWorkflowRunImpl,
   type WorkflowRun,
   type ListWorkflowRunsOptions,
+  type RunJobSummary,
+  type ViewLogsOptions,
+  type ViewFailedJobLogsResult,
   type RerunWorkflowRunOptions,
   type RerunWorkflowRunResult,
 } from "./github-workflow-runs";
@@ -147,14 +154,13 @@ export class GitHubBackend implements ForgeBackend {
     // Derive owner/repo from repoUrl when not explicitly provided
     if ((!this.owner || !this.repo) && this.repoUrl.includes("github.com")) {
       try {
-        // SSH: git@github.com:owner/repo.git
-        // HTTPS: https://github.com/owner/repo.git
-        const sshMatch = this.repoUrl.match(/git@github\.com:([^/]+)\/([^.]+)/);
-        const httpsMatch = this.repoUrl.match(/https:\/\/github\.com\/([^.]+)\/([^.]+)/);
-        const match = sshMatch || httpsMatch;
-        if (match && match[1] && match[2]) {
-          this.owner = this.owner || match[1];
-          this.repo = this.repo || match[2].replace(/\.git$/, "");
+        // mt#4671: shared parser — repo AND owner may contain dots. This site
+        // previously captured the owner as `([^.]+)` too, so a dotted org broke
+        // as well.
+        const parsed = parseGitHubOwnerRepo(this.repoUrl);
+        if (parsed) {
+          this.owner = this.owner || parsed.owner;
+          this.repo = this.repo || parsed.repo;
         }
       } catch (_err) {
         // Ignore parsing errors; explicit config may still provide these later
@@ -911,11 +917,35 @@ Repository: https://github.com/${this.owner}/${this.repo}
         return listWorkflowRunsImpl(gh, options ?? {}, octokit);
       },
 
-      viewLogs: async (runId: number): Promise<string> => {
+      listJobs: async (runId: number): Promise<RunJobSummary[]> => {
         const gh = this.requireGitHubContext();
         const token = await this.tokenProvider.getServiceToken();
         const octokit = createOctokit(token);
-        return viewWorkflowRunLogsImpl(gh, runId, octokit);
+        return listWorkflowRunJobsImpl(gh, runId, octokit);
+      },
+
+      viewLogs: async (runId: number, options?: ViewLogsOptions): Promise<string> => {
+        const gh = this.requireGitHubContext();
+        const token = await this.tokenProvider.getServiceToken();
+        const octokit = createOctokit(token);
+        return viewWorkflowRunLogsImpl(gh, runId, options ?? {}, octokit);
+      },
+
+      viewJobLog: async (jobId: number, options?: ViewLogsOptions): Promise<string> => {
+        const gh = this.requireGitHubContext();
+        const token = await this.tokenProvider.getServiceToken();
+        const octokit = createOctokit(token);
+        return viewWorkflowJobLogImpl(gh, jobId, options ?? {}, octokit);
+      },
+
+      viewFailedJobLogs: async (
+        runId: number,
+        options?: ViewLogsOptions
+      ): Promise<ViewFailedJobLogsResult> => {
+        const gh = this.requireGitHubContext();
+        const token = await this.tokenProvider.getServiceToken();
+        const octokit = createOctokit(token);
+        return viewFailedJobLogsImpl(gh, runId, options ?? {}, octokit);
       },
 
       rerun: async (

@@ -2,8 +2,8 @@
  * FakeSessionProvider — in-memory test double for SessionProviderInterface.
  *
  * Follows the canonical FakeX pattern established in
- * `src/domain/persistence/fake-persistence-provider.ts` and continued in
- * `src/domain/tasks/fake-task-service.ts`: a real class implementing the
+ * `packages/domain/src/persistence/fake-persistence-provider.ts` and continued in
+ * `packages/domain/src/tasks/fake-task-service.ts`: a real class implementing the
  * typed DI interface, holding state in memory, with zero external I/O.
  *
  * Hermetic by construction: no filesystem, no DB, no network.
@@ -31,8 +31,8 @@
  *   - getRepoPath → returns "/mock/repo/path"
  *   - getSessionWorkdir → returns "/mock/session/workdir"
  *
- * @see src/domain/persistence/fake-persistence-provider.ts
- * @see src/domain/tasks/fake-task-service.ts
+ * @see packages/domain/src/persistence/fake-persistence-provider.ts
+ * @see packages/domain/src/tasks/fake-task-service.ts
  */
 
 import type { SessionProviderInterface, SessionRecord, SessionListOptions } from "./types";

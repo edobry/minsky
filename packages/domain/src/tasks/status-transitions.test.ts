@@ -265,6 +265,69 @@ describe("status-transitions", () => {
     });
   });
 
+  describe("validateStatusTransition — work-package kind (ADR-046, mt#2911)", () => {
+    // The full allowed map
+    test("TODO → READY is valid for work-package (publish the drafted bundle)", () => {
+      expect(() => validateStatusTransition("TODO", "READY", "work-package")).not.toThrow();
+    });
+
+    test("READY → TODO is valid for work-package (pull back to drafting)", () => {
+      expect(() => validateStatusTransition("READY", "TODO", "work-package")).not.toThrow();
+    });
+
+    test("IN-PROGRESS → DONE is valid for work-package (completed)", () => {
+      expect(() => validateStatusTransition("IN-PROGRESS", "DONE", "work-package")).not.toThrow();
+    });
+
+    test("DONE → CLOSED and CLOSED → TODO are valid for work-package", () => {
+      expect(() => validateStatusTransition("DONE", "CLOSED", "work-package")).not.toThrow();
+      expect(() => validateStatusTransition("CLOSED", "TODO", "work-package")).not.toThrow();
+    });
+
+    test("every non-terminal state can reach CLOSED (supersede/abandon)", () => {
+      for (const from of ["TODO", "READY", "IN-PROGRESS"]) {
+        expect(() => validateStatusTransition(from, "CLOSED", "work-package")).not.toThrow();
+      }
+    });
+
+    // The claim-path reservation: READY → IN-PROGRESS is reachable, but not via
+    // a direct status-set — ownership identity must be written atomically with
+    // the transition, so the claim command owns it.
+    test("READY → IN-PROGRESS via direct status_set is RESERVED for the claim path", () => {
+      expect(() => validateStatusTransition("READY", "IN-PROGRESS", "work-package")).toThrow(
+        /claimed, not status-set/
+      );
+    });
+
+    // Absent states
+    test("PLANNING is absent for work-package (the briefing is the plan)", () => {
+      expect(() => validateStatusTransition("TODO", "PLANNING", "work-package")).toThrow(
+        /Cannot transition from TODO to PLANNING/
+      );
+    });
+
+    test("IN-REVIEW is absent for work-package (no PR of its own)", () => {
+      expect(() => validateStatusTransition("IN-PROGRESS", "IN-REVIEW", "work-package")).toThrow(
+        /Cannot transition from IN-PROGRESS to IN-REVIEW/
+      );
+    });
+
+    test("BLOCKED is absent for work-package (members block individually)", () => {
+      expect(() => validateStatusTransition("READY", "BLOCKED", "work-package")).toThrow(
+        /Cannot transition from READY to BLOCKED/
+      );
+    });
+
+    test("error message includes kind label for work-package transitions", () => {
+      try {
+        validateStatusTransition("IN-PROGRESS", "IN-REVIEW", "work-package");
+        expect(true).toBe(false); // Should not reach here
+      } catch (error) {
+        expect((error as Error).message).toContain("kind: work-package");
+      }
+    });
+  });
+
   describe("validateStatusTransition — state-ops kind (mt#2661)", () => {
     test("TODO → PLANNING is valid for state-ops", () => {
       expect(() => validateStatusTransition("TODO", "PLANNING", "state-ops")).not.toThrow();

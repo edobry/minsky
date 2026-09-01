@@ -335,6 +335,19 @@ export async function createPullRequest(
       pushTimeoutMs: options.pushTimeoutMs,
     });
 
+    // mt#4680 — deliberately NO user-token fallback here, unlike the merge path.
+    //
+    // The asymmetry is real and reads as an oversight, so it is recorded rather
+    // than left implicit. The merge path falls back on a 403, which means "this
+    // identity is known and refused" — retrying as the user is a meaningful
+    // escalation. An App installation that does not cover the repo returns 404,
+    // not 403: silently retrying as the user would then CREATE the PR under the
+    // operator's personal identity, hiding a missing grant that every later
+    // App-authenticated call on that repo will still hit, and detaching the PR
+    // from the bot identity the review and merge gates key on.
+    //
+    // The correct remedy is to grant the installation, which `minsky setup` now
+    // surfaces and the 404 message now names.
     const githubToken = await gh.getToken();
     const octokit = createOctokit(githubToken);
 
