@@ -145,6 +145,16 @@ jobs:
         if: ${{ always() }}
         run: bun run check:typecheck-coverage
 
+      # mt#3935: the sibling invariant for EXECUTION. A test file can be
+      # committed, reviewed and merged while running in no suite at all — four
+      # such holes were found before this step, every one of them by a person
+      # who happened to look rather than by any mechanism. This step fails when
+      # a tracked *.test.ts/.tsx file is executed by no PR-gating suite and is
+      # not allowlisted with a reason and an owning task.
+      - name: Test-reachability invariant
+        if: ${{ always() }}
+        run: bun run check:test-reachability
+
       # Run reviewer typecheck even if earlier steps fail so AT-1/AT-2
       # ("step always runs regardless of which paths changed or which
       # earlier checks fail") hold structurally, not just by step ordering.
