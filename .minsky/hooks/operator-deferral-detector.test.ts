@@ -32,38 +32,38 @@ import { findKillVerb } from "./block-bulk-process-kill";
 import { findOfferShape } from "./ask-routing-deferral-detector";
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput, ToolHookInput } from "./types";
-import type { DispatchContext } from "./registry";
 import { extractDistinctPhrases } from "../../src/domain/calibration/calibration-sweep";
+import {
+  ANCHOR_JUSTIFICATION,
+  ASKS_CREATE_TOOL,
+  ASK_OPTION_LABEL,
+  CREDENTIALS_LIST_TOOL,
+  DEFERRAL_PROSE,
+  FIXTURE_PATH,
+  OPERATOR_ROUTED_RESULT,
+  RAILWAY_ACCESS,
+  R5_LABEL,
+  askTurn,
+  assistantText,
+  correlatedToolResult,
+  correlatedToolUse,
+  ctxWith,
+  userPrompt,
+} from "./operator-deferral-fixtures";
 
 // ---------------------------------------------------------------------------
 // Shared fixture literals
 // ---------------------------------------------------------------------------
 
-const FIXTURE_PATH = "/tmp/fixture.jsonl";
-/** The capability-deferral phrase behind this detector's first live fire. */
-const RAILWAY_ACCESS = "requires Railway access";
-const DEFERRAL_PROSE = `Deferred to operator: ${RAILWAY_ACCESS}.`;
 /** The generic directive's opening — asserted present on some surfaces, ABSENT on others. */
 const PROBE_DIRECTIVE = "Run the capability probe";
-const ASK_OPTION_LABEL = "ask-option-label";
 const CAPABILITY_PROSE = "capability-deferral-prose";
-const R5_LABEL = "You recover the reviewer service";
 /** Shared `test.each` title for every suppression corpus below. */
 const STAYS_SILENT = "stays silent: %s";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
 // ---------------------------------------------------------------------------
-
-const userPrompt = (text: string): TranscriptLine => ({
-  type: "user",
-  message: { role: "user", content: text },
-});
-
-const assistantText = (text: string): TranscriptLine => ({
-  type: "assistant",
-  message: { role: "assistant", content: [{ type: "text", text }] },
-});
 
 const assistantToolUse = (name: string, input: Record<string, unknown>): TranscriptLine => ({
   type: "assistant",
@@ -78,15 +78,6 @@ const toolResult = (text: string): TranscriptLine => ({
     content: [{ type: "tool_result", tool_use_id: "toolu_x", content: [{ type: "text", text }] }],
   },
 });
-
-const ctxWith = (lines: TranscriptLine[]): DispatchContext =>
-  ({
-    event: "UserPromptSubmit",
-    hostCapSec: 60,
-    budgets: { overallMs: 60000, fetchMs: 20000, gitMs: 20000 },
-    transcriptCandidates: [FIXTURE_PATH],
-    transcriptLines: lines,
-  }) as unknown as DispatchContext;
 
 // ---------------------------------------------------------------------------
 // Surface C — permission-deferral prose (mt#3463)
@@ -1220,82 +1211,15 @@ describe("Surface D — denial-anchored deferral (mt#3533)", () => {
 const ASK_JUSTIFICATION = "ask-justification";
 
 /** The channel that lied in the anchor instance — and that surface A counts as a probe. */
-const CREDENTIALS_LIST_TOOL = "mcp__minsky__config_credentials_list";
 
 /** The independent channel that would have falsified it. */
 const AI_VALIDATE_TOOL = "mcp__minsky__ai_validate";
-
-/** The tool whose payload carries an ask justification. */
-const ASKS_CREATE_TOOL = "mcp__minsky__asks_create";
-
-/**
- * ask#6754's claim, verbatim in substance (mt#3547, 2026-08-01): the agent read
- * ONE channel, the credential store, which returned exit-0 JSON that silently
- * omitted the provider — and then asked the operator to authorize pulling a
- * PRODUCTION credential off Railway on that premise.
- */
-const ANCHOR_JUSTIFICATION =
-  "I have no OpenAI key — the credential store has Anthropic and Google, not OpenAI. May I " +
-  "pull the production key off Railway so the replay corpus can run?";
-
-const OPERATOR_ROUTED_RESULT = JSON.stringify({
-  id: "ask-1",
-  state: "routed",
-  routingTarget: "operator",
-  transport: "inbox",
-});
 
 const POLICY_CLOSED_RESULT = JSON.stringify({
   id: "ask-1",
   state: "closed",
   routingTarget: "policy",
 });
-
-function correlatedToolUse(
-  id: string,
-  name: string,
-  input: Record<string, unknown>
-): TranscriptLine {
-  return {
-    type: "assistant",
-    message: { role: "assistant", content: [{ type: "tool_use", id, name, input }] },
-  } as unknown as TranscriptLine;
-}
-
-function correlatedToolResult(id: string, content: string): TranscriptLine {
-  return {
-    type: "user",
-    message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content }] },
-  } as unknown as TranscriptLine;
-}
-
-/** A turn that creates an ask, plus whatever channel calls preceded it. */
-function askTurn(options: {
-  justification?: string;
-  result?: string;
-  channels?: Array<{ name: string; input?: Record<string, unknown> }>;
-}): TranscriptLine[] {
-  const {
-    justification = ANCHOR_JUSTIFICATION,
-    result = OPERATOR_ROUTED_RESULT,
-    channels = [{ name: CREDENTIALS_LIST_TOOL }],
-  } = options;
-
-  const lines: TranscriptLine[] = [];
-  channels.forEach((channel, i) => {
-    lines.push(correlatedToolUse(`toolu_ch${i}`, channel.name, channel.input ?? {}));
-    lines.push(correlatedToolResult(`toolu_ch${i}`, "{}"));
-  });
-  lines.push(
-    correlatedToolUse("toolu_ask", ASKS_CREATE_TOOL, {
-      kind: "authorization.approve",
-      title: "Authorize pulling the production OpenAI key",
-      question: justification,
-    })
-  );
-  lines.push(correlatedToolResult("toolu_ask", result));
-  return lines;
-}
 
 describe("surface E — ask-justification capability-absence (mt#3999)", () => {
   test("AT1: the anchor instance fires, and the advisory names the second channel", () => {

@@ -940,6 +940,22 @@ export interface SharedCalibrationFields {
    */
   supersedes?: string;
   /**
+   * Whether `ask-routing-deferral` ALSO fired on this turn's prose (mt#4702).
+   *
+   * Lifted to the top level here, beside `supersedes` and `suppressionReasons`,
+   * rather than left to the `detectorFields` passthrough. Two producers write
+   * it — `untaken-action` (mt#4407) and `operator-deferral` (mt#4702) — and the
+   * whole point of the field is COMPARING them, which a value nested one level
+   * down defeats: mem#827 is the recorded incident of a reviewer reading
+   * `detectorFields` as the record and reporting present fields as missing.
+   *
+   * Absent means NOT MEASURED, never "no overlap" — every record written before
+   * its producer adopted the field is in that position, and a projection that
+   * defaulted it to `false` would manufacture a measurement (the
+   * accessor-that-synthesizes hazard in `claim-confidence.mdc`).
+   */
+  deferralOverlap?: boolean;
+  /**
    * Injection-layer suppression outcome — the convention
    * `code-mechanism-assertion` introduced in mt#3113, generalized here.
    *
@@ -1212,6 +1228,13 @@ const CONSUMED_MATCH_KEYS = new Set(["family", "class", "category", "phrase", "c
  * to anything narrower than the record's own keys — verified by making that
  * edit, which turns the four mt#3289 tests and mt#3576's `excerpt` tests red
  * together. Those are the tests that pin this; a per-field strip would not.
+ *
+ * The one thing it does NOT cover is a lift the CALLER performs after invoking
+ * this function: the key is unconsumed at the moment `consumed` is computed, so
+ * it rides through and then gets added on top, appearing twice (PR #3531 R3).
+ * `parseCalibrationRecord` therefore folds its cross-kind lifts in BEFORE
+ * calling this — a call-ordering obligation, not something this function can
+ * enforce, which is why it is written down in both places.
  */
 function parseDetectorFields(
   raw: Record<string, unknown>,
@@ -1240,6 +1263,11 @@ function parseDetectorFields(
  * since the first one. So every unconsumed key now rides through as
  * `detectorFields` — a detector author adding a field does not have to know
  * this file exists for the field to reach a reviewer.
+ *
+ * The CROSS-KIND lifts (`supersedes`, `deferralOverlap`) are folded into the
+ * record handed to `parseDetectorFields` rather than added after it — see the
+ * comment at the `lifted` binding, and PR #3531 R3 for the duplication that
+ * ordering prevents.
  */
 export function parseCalibrationRecord(
   line: string,
@@ -1254,13 +1282,31 @@ export function parseCalibrationRecord(
   const record = parseCalibrationRecordCore(raw, kind);
   if (record === null) return null;
   const suppressionReasons = parseSuppressionReasons(raw);
-  const detectorFields = parseDetectorFields(raw, record);
   // mt#3740: a non-string `supersedes` is dropped rather than coerced — a
   // malformed marker must not silently suppress a real record from the counts.
   const supersedes = typeof raw["supersedes"] === "string" ? raw["supersedes"] : undefined;
-  return {
+  // mt#4702: same cross-kind lift as `supersedes` above, and for the same
+  // reason — the field's whole purpose is comparing the two producers that
+  // write it, which `detectorFields` nesting defeats. A non-boolean is DROPPED
+  // rather than coerced: absent must keep meaning "not measured".
+  const deferralOverlap =
+    typeof raw["deferralOverlap"] === "boolean" ? raw["deferralOverlap"] : undefined;
+  // The cross-kind lifts are folded in BEFORE `parseDetectorFields` runs (PR
+  // #3531 R3). That function derives consumed-ness from the keys of the record
+  // it is HANDED, so a field lifted after the call is still unconsumed at the
+  // time it runs and rides through the passthrough too — landing in the parsed
+  // record twice, once at the top level and once under `detectorFields`, and
+  // counting twice in `assessClassifiability`'s evidence tally. Ordering is the
+  // whole fix: it keeps the invariant that function's docblock states true by
+  // construction, with no second key list to drift out of sync.
+  const lifted = {
     ...record,
     ...(supersedes === undefined ? {} : { supersedes }),
+    ...(deferralOverlap === undefined ? {} : { deferralOverlap }),
+  };
+  const detectorFields = parseDetectorFields(raw, lifted);
+  return {
+    ...lifted,
     ...(suppressionReasons === undefined ? {} : { suppressionReasons }),
     ...(detectorFields === undefined ? {} : { detectorFields }),
   };

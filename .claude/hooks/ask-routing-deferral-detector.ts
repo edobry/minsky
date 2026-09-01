@@ -1188,6 +1188,153 @@ function matchAgentActionTier(line: string): AgentActionTier | null {
 const INVERTED_FIRST_PERSON = /\b(?:should|shall|can|could|would|will|may)\s+I\b/i;
 
 /**
+ * A first-person COMMITMENT: the agent saying what it is going to do (mt#4702).
+ *
+ * Deliberately NARROWER than {@link AGENT_ACTION_MATCHERS}' bare tier, and the
+ * narrowness is the safety. `can` / `could` / `should` state a CAPABILITY —
+ * *"I can take it unless you'd rather I wait"* genuinely offers a choice. Only
+ * the committing forms state a decision already made, and only those turn a
+ * following `unless` into a veto rather than an offer. A wider set here would
+ * suppress more, which is the false-positive direction on a LIVE-injecting
+ * guard — the asymmetry {@link lineAt} and {@link hasMenuShape} both record.
+ *
+ * `I'd` is deliberately EXCLUDED despite mt#4702's spec naming it. It is
+ * conditional mood and reads as a recommendation, not a decision — *"I'd start
+ * with the attribution pair; say the word and I'll dispatch"* is an offer, and
+ * it appeared as such in the 2026-08-31 window this predicate was measured on.
+ * Excluding it suppresses less, which is the safe direction.
+ */
+const FIRST_PERSON_COMMITMENT =
+  /\bI\s*['’]ll\b|\bI\s+will\b|\bI\s*(?:['’]m|\s+am)\s+going\s+to\b/gi;
+
+/**
+ * A sentence terminator, which breaks the governing relation (mt#4702).
+ *
+ * *"I'll hold off. Want me to take X or Y?"* is a commitment AND a genuine
+ * offer, in two sentences on one line. Without this bound the commitment would
+ * govern a leg it has nothing to do with, and a real deferral would be
+ * silenced — which is exactly the regression SC4's negative control exists to
+ * catch.
+ */
+const SENTENCE_BREAK = /[.!?]/;
+
+/**
+ * A commitment to STOP, which is NOT an override (mt#4702, reconciling mt#3801).
+ *
+ * The distinction this constant exists for, and it is the whole reconciliation
+ * between two tasks that appear to disagree:
+ *
+ * - *"I'll take mt#4465 next unless you'd rather I clear mt#4716"* — silence
+ *   lets a chosen default PROCEED. Nothing is deferred; the principal's answer
+ *   is an override they may decline to use, and declining costs them nothing.
+ *   This is mt#4702's measured false-positive class.
+ * - *"I'll stop here unless you want more"* — silence STOPS the work. The
+ *   principal's answer is the only thing that continues it, so the decision
+ *   genuinely is handed over. This is mt#3801's shipped case, and its test
+ *   (`mt#3801's own cases are untouched`) is what caught the first cut of this
+ *   predicate suppressing it.
+ *
+ * Both are `I'll <verb> unless you <alternative>`; the grammar cannot separate
+ * them and the DIRECTION of the committed action can. Neither task was wrong —
+ * mt#3801 measured the halting form, mt#4702 measured the continuing one, and
+ * a predicate keyed on commitment alone would have overturned a shipped,
+ * tested decision on evidence that never covered its case.
+ */
+const HALTING_COMMITMENT =
+  /^\s*(?:\w+\s+){0,2}?\b(?:stop|hold|halt|wait|pause|park|defer|leave)\b/i;
+
+/**
+ * True when a GOVERNED agent-action clause starts before `legIndex` (mt#4702).
+ *
+ * Reuses {@link AGENT_ACTION_MATCHERS}' governed tier rather than restating its
+ * patterns, so the two cannot drift; polarity is re-checked here for the same
+ * reason {@link matchAgentActionTier} checks it.
+ */
+function governedOfferIndexBefore(line: string, legIndex: number): number | null {
+  let earliest: number | null = null;
+  for (const { tier, pattern } of AGENT_ACTION_MATCHERS) {
+    if (tier !== "governed") continue;
+    const m = pattern.exec(line);
+    if (!m) continue;
+    const start = m.index ?? 0;
+    if (start >= legIndex) continue;
+    const trailing = line.slice(start + m[0].length);
+    if (/^['’]t\b/.test(trailing) || /^\s+not\b/i.test(trailing)) continue;
+    const lead = line.slice(Math.max(0, start - AGENT_ACTION_LOOKBACK_CHARS), start);
+    if (AGENT_ACTION_NEGATED_LEAD.test(lead)) continue;
+    if (earliest === null || start < earliest) earliest = start;
+  }
+  return earliest;
+}
+
+/**
+ * True when a first-person commitment precedes `index` inside the same
+ * sentence, unnegated and not a commitment to STOP (mt#4702).
+ *
+ * The raw positional test. {@link commitmentGovernsLeg} composes it TWICE —
+ * once on the leg, once on any governed clause before the leg — and that
+ * composition is what separates an offer the agent is MAKING from one it is
+ * VETOING.
+ */
+function commitmentPrecedes(line: string, index: number): boolean {
+  for (const m of line.matchAll(FIRST_PERSON_COMMITMENT)) {
+    const start = m.index ?? 0;
+    const end = start + m[0].length;
+    // A commitment at or after the position does not govern it.
+    if (end > index) break;
+    if (SENTENCE_BREAK.test(line.slice(end, index))) continue;
+    const trailing = line.slice(end);
+    if (/^\s*not\b/i.test(trailing)) continue;
+    // A commitment to STOP hands the decision over — silence ends the work
+    // rather than letting a default proceed. See HALTING_COMMITMENT.
+    if (HALTING_COMMITMENT.test(trailing)) continue;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * True when a first-person commitment GOVERNS the menu leg at `legIndex` —
+ * that is, it precedes the leg inside the same sentence (mt#4702).
+ *
+ * **This is the override-vs-precondition distinction, made structural.** A
+ * deferral makes the principal's answer a PRECONDITION: nothing happens until
+ * they reply. *"I'll take mt#4465 next unless you'd rather I clear mt#4716"*
+ * makes it an OVERRIDE: the agent proceeds either way and silence costs the
+ * principal nothing. Both carry `unless`, both name an agent action, and
+ * `findOfferShape` could not tell them apart — measured at 4 of 4 `unless`
+ * fires false in the 2026-08-30 window, and still firing on 2026-08-31 after
+ * two Rung-2 climbs shipped on this detector.
+ *
+ * It is the shape `decision-defaults.mdc §Take direct action` and
+ * `humility.mdc §Stakes filter` both PRESCRIBE — *"decide it, take a reasonable
+ * default, and say what you picked"* — so the detector was firing on the rule
+ * being obeyed.
+ *
+ * Position is the whole test, and it runs in one direction only: a commitment
+ * AFTER the leg is not a governor. *"Say the word, or I'll start on mt#4637"*
+ * offers first and commits second — a real offer, and it keeps firing.
+ *
+ * Polarity is checked for the same reason {@link namesAgentAction} checks it:
+ * *"I will not touch it unless you say so"* is a precondition, not an override.
+ */
+function commitmentGovernsLeg(line: string, legIndex: number): boolean {
+  // A GOVERNED clause BEFORE the leg already carries the offer, and no
+  // commitment elsewhere on the line can take it back (mt#4311's tier
+  // reasoning, applied positionally). *"Want me to take it, or I'll start on
+  // mt#4637?"* offers in its first clause and commits in its second — found by
+  // the negative control, not anticipated.
+  //
+  // Position is what keeps this from readmitting the false class: in
+  // *"I'll take that next unless you'd rather I clear mt#4716"* the governed
+  // clause sits INSIDE the `unless`, so it is the alternative being vetoed
+  // rather than an offer being made.
+  const governedIndex = governedOfferIndexBefore(line, legIndex);
+  if (governedIndex !== null && !commitmentPrecedes(line, governedIndex)) return false;
+  return commitmentPrecedes(line, legIndex);
+}
+
+/**
  * The OFFER shape: a menu handing the principal a choice about what the AGENT
  * does next (mt#3801) — `"Next step is X unless you'd rather I do Y"`.
  *
@@ -1219,7 +1366,17 @@ export function findOfferShape(
         // keeps `"Want me to file those, or a subset?"` firing.
         if (tier === "bare" && strength !== "explicit-offer") continue;
         const m = pattern.exec(line);
-        if (m) return { index: offset + (m.index ?? 0), length: m[0].length, label };
+        if (!m) continue;
+        const legIndex = m.index ?? 0;
+        // mt#4702: a commitment GOVERNING this leg makes it a veto, not an
+        // offer. The mt#4311 tier gate above cannot reach this class, because
+        // the dominant false shape carries BOTH a bare commitment and a
+        // governed clause — "I'll take that next unless you'd rather I clear X"
+        // resolves to `governed`, so every leg was already admitted. `continue`
+        // rather than `break`: a later leg may sit outside this commitment's
+        // sentence and still be a real offer.
+        if (commitmentGovernsLeg(line, legIndex)) continue;
+        return { index: offset + legIndex, length: m[0].length, label };
       }
     }
     offset += line.length + 1;
