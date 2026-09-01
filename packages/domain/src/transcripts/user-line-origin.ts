@@ -206,6 +206,29 @@ function normalizeKind(kind: string): UserTextOrigin {
   return kind.trim().replace(/-/g, "_");
 }
 
+/**
+ * Is this harness kind the `human` one, whatever its casing?
+ *
+ * Case-insensitive on purpose, and deliberately NOT solved by lowercasing
+ * inside {@link normalizeKind} — PR #3549 R1 offered both, and the difference
+ * matters. Lowercasing in the normalizer would fold EVERY kind, and the reason
+ * {@link UserTextOrigin} is an open string is that an unrecognized kind
+ * "survives verbatim, which is what makes a new harness kind visible in a
+ * `GROUP BY user_origin` rather than silently folded into an existing bucket."
+ * A case-folding normalizer would quietly merge a hypothetical `Peer` into
+ * `peer` and destroy exactly the signal this module keeps that vocabulary open
+ * to preserve.
+ *
+ * So the tolerance is scoped to the ONE comparison that needs it: the mt#4875
+ * carve-out, where a `human` kind on an `isMeta` line must LOSE. Getting that
+ * comparison wrong is silent — a `Human` line would return the mixed-case kind
+ * instead of `harness_meta`, which is neither the pre-mt#4875 behaviour nor the
+ * intended one.
+ */
+function isHumanKind(kind: UserTextOrigin): boolean {
+  return kind.toLowerCase() === OPERATOR_ORIGIN;
+}
+
 /** Read a top-level field off an arbitrary harness line, without assuming its shape. */
 function readField(line: unknown, key: string): unknown {
   if (!line || typeof line !== "object") return undefined;
@@ -299,7 +322,7 @@ export function classifyUserLineOrigin(line: unknown): UserTextOrigin {
   // precedence list above for why the two questions come apart only there.
   if (originKind !== undefined) {
     const kind = normalizeKind(originKind);
-    if (!(isMeta && kind === OPERATOR_ORIGIN)) return kind;
+    if (!(isMeta && isHumanKind(kind))) return kind;
   }
 
   if (isMeta) return HARNESS_META_ORIGIN;

@@ -230,6 +230,33 @@ describe("classifyUserLineOrigin — precedence", () => {
     expect(classifyUserLineOrigin(operatorLine)).toBe(OPERATOR_ORIGIN);
   });
 
+  test.each(["Human", "HUMAN", " human "])(
+    "the carve-out recognizes a %p kind, so casing cannot slip past it",
+    (kind) => {
+      // PR #3549 R1, BLOCKING. `normalizeKind` trims and swaps hyphens but does
+      // NOT lowercase, so comparing its output against `OPERATOR_ORIGIN`
+      // directly let `{ isMeta: true, origin: { kind: "Human" } }` return
+      // `"Human"` — neither the pre-mt#4875 answer (`harness_meta`) nor the
+      // intended one. Silent, because it widens the stored vocabulary rather
+      // than throwing.
+      expect(classifyUserLineOrigin({ ...skillBodyLine, origin: { kind } })).toBe(
+        HARNESS_META_ORIGIN
+      );
+    }
+  );
+
+  test("case tolerance is scoped to the carve-out and does NOT fold other kinds", () => {
+    // The guard on the OTHER fix R1 offered: lowercasing inside `normalizeKind`
+    // would have closed the bug above and silently merged every case-variant
+    // kind into its lowercase sibling — destroying the open-vocabulary signal
+    // this module keeps `UserTextOrigin` a string for. A future refactor that
+    // "simplifies" isHumanKind into a lowercasing normalizer fails here.
+    expect(classifyUserLineOrigin({ type: "user", origin: { kind: "Peer" } })).toBe("Peer");
+    expect(classifyUserLineOrigin({ ...skillBodyLine, origin: { kind: "Coordinator" } })).toBe(
+      "Coordinator"
+    );
+  });
+
   test("isCompactSummary still wins when all three markers are present", () => {
     expect(
       classifyUserLineOrigin({
