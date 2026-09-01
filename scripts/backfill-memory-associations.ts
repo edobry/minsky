@@ -38,6 +38,7 @@ import "reflect-metadata";
 
 import type { MemoryServiceSurface, MemoryServiceDb } from "@minsky/domain/memory/memory-service";
 import { extractTrackingTaskRefs } from "@minsky/domain/memory/staleness";
+import { listEveryMemory } from "./lib/list-every-memory";
 
 async function buildMemoryService(): Promise<MemoryServiceSurface> {
   const { initializeConfiguration, CustomConfigFactory } = await import(
@@ -84,7 +85,9 @@ async function main() {
   const execute = process.argv.includes("--execute");
 
   const memoryService = await buildMemoryService();
-  const allMemories = await memoryService.list({});
+  // Census, not a page. `list({})` here silently capped at 500 over a 1,347-record corpus and
+  // printed a plausible count (mt#4783); this throws on a short scan instead.
+  const allMemories = await listEveryMemory(memoryService);
 
   console.log(`Found ${allMemories.length} memories to scan.\n`);
 
@@ -244,7 +247,14 @@ function countTaskRefs(content: string): number {
   return refs.size;
 }
 
-main().catch((err) => {
-  console.error("Fatal error:", err);
-  process.exit(1);
-});
+// Guarded so a bare IMPORT of this module is inert (mt#4783 SC5). Unguarded, `main()` ran at
+// module scope: any importer — a test, a future reuse of `buildMemoryService()` — would
+// initialize config, open a Postgres connection, begin a full corpus scan, and be able to
+// `process.exit` out from under its caller. The reviewer raised exactly this as BLOCKING against
+// the sibling script in PR #3496, where a negative control confirmed each step.
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error("Fatal error:", err);
+    process.exit(1);
+  });
+}

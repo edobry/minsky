@@ -38,6 +38,7 @@ import type {
   MemoryRecord,
 } from "@minsky/domain/memory/types";
 import { MEMORY_TYPES } from "@minsky/domain/memory/types";
+import { listEveryMemory } from "./lib/list-every-memory";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -287,7 +288,12 @@ export async function runImport(
   // Build existing hash set for idempotency
   let existingHashes: Set<string>;
   try {
-    const existing = await service.list();
+    // Census, not a page (mt#4783). This set is the IDEMPOTENCY guard, so a capped read does
+    // not merely under-report — every memory outside the window is invisible to the dedup
+    // check and gets re-imported as a duplicate by `service.create()` below. Throws on a short
+    // scan; the catch below turns that into a reported error and aborts the import, which is
+    // the right outcome — better no import than a silently duplicating one.
+    const existing = await listEveryMemory(service);
     existingHashes = buildExistingHashSet(existing);
   } catch (err) {
     report.errors.push({ file: "(list)", error: `Cannot list existing memories: ${String(err)}` });

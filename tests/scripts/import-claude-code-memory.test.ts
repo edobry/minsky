@@ -60,7 +60,19 @@ function makeFakeService(existing: MemoryRecord[] = []): MemoryServiceSurface & 
   return {
     created,
 
-    list: async (_filter?: MemoryListFilter) => existing,
+    // Honours limit/offset, and reports a true count (mt#4783). Both matter now that the
+    // importer builds its idempotency set with `listEveryMemory`, which refuses a scan it
+    // cannot prove covered the corpus. Returning `existing` for every page regardless of the
+    // filter would also spin forever once a fixture reached the page size, since a full page
+    // never terminates the walk.
+    list: async (filter?: MemoryListFilter) => {
+      const offset = filter?.offset ?? 0;
+      return filter?.limit === undefined
+        ? existing.slice(offset)
+        : existing.slice(offset, offset + filter.limit);
+    },
+
+    count: async (_filter?: MemoryListFilter) => existing.length,
 
     create: async (input: MemoryCreateInput) => {
       created.push(input);
