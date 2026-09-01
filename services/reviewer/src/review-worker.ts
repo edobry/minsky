@@ -73,7 +73,12 @@ import {
   type ReviewOutput,
   type ReviewUsage,
 } from "./providers";
-import { shouldChunkReview, runChunkedReview } from "./chunked-review";
+import {
+  shouldChunkReview,
+  runChunkedReview,
+  capSinglePassDiff,
+  MAX_SINGLE_PASS_DIFF_CHARS,
+} from "./chunked-review";
 import type { PriorReview } from "./prior-review-summary";
 import { countBlockingFindings } from "./prior-review-summary";
 import {
@@ -780,9 +785,24 @@ async function runReviewBody(
     incrementalScope: incrementalDiffApplied,
   };
 
+  // mt#4879 SC2: bound the single-pass prompt's diff unconditionally. The
+  // routing guard below should mean this never bites — but it is exactly what
+  // the router failing looks like, and the failure it prevents (a provider 400,
+  // no review posted, recorded only in reviewer_webhook_events) is invisible on
+  // the PR. `userPrompt` reaches single-pass and runChunkedReview's empty-file
+  // fallback; the chunked path builds its own prompts per chunk and is unaffected.
+  if (promptDiff.length > MAX_SINGLE_PASS_DIFF_CHARS) {
+    log.warn("reviewer.single_pass_diff_truncated", {
+      owner,
+      repo,
+      pr: pr.number,
+      diffChars: promptDiff.length,
+      capChars: MAX_SINGLE_PASS_DIFF_CHARS,
+    });
+  }
   const userPrompt = buildReviewPrompt({
     ...basePromptInput,
-    diff: promptDiff,
+    diff: capSinglePassDiff(promptDiff),
   });
 
   // Construct the tool context for this PR's HEAD ref. The model can use these

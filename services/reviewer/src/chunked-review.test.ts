@@ -26,6 +26,8 @@ import {
   MAX_FILE_PATCH_TOKENS,
   MAX_FILE_PATCH_CHARS,
   FILES_PER_CHUNK,
+  capSinglePassDiff,
+  MAX_SINGLE_PASS_DIFF_CHARS,
   type ChunkInfo,
 } from "./chunked-review";
 import type { PrFileEntry } from "./github-client";
@@ -289,6 +291,33 @@ describe("shouldChunkReview — whole-diff payload gate (mt#4879)", () => {
     // Passing a SMALL totalDiffChars isolates the per-file scoring: if the fix
     // were only the whole-diff guard, this would return false.
     expect(shouldChunkReview(files, 10, 5_000)).toBe(true);
+  });
+
+  test("capSinglePassDiff leaves an under-cap diff byte-identical", () => {
+    // The common case must not be perturbed: no marker, no copy, same string.
+    const diff = "diff --git a/a.ts b/a.ts\n+one line\n";
+    expect(capSinglePassDiff(diff)).toBe(diff);
+  });
+
+  test("capSinglePassDiff bounds an over-cap diff and says so in the prompt", () => {
+    // SC2's floor under the routing decision: even if the router mis-sizes (or
+    // the outputToolsActive conjunct suppresses chunking), the prompt is bounded
+    // rather than 400ing. SC4: the truncation must be VISIBLE, because a review
+    // that silently saw a prefix is a quiet false-negative.
+    const oversized = "x".repeat(MAX_SINGLE_PASS_DIFF_CHARS + 50_000);
+    const capped = capSinglePassDiff(oversized);
+
+    expect(capped.length).toBeLessThan(oversized.length);
+    expect(capped).toContain("diff truncated at");
+    expect(capped).toContain(String(oversized.length));
+    // The model is told not to treat the missing tail as absence-evidence.
+    expect(capped).toContain("do not report their absence");
+  });
+
+  test("capSinglePassDiff's cap matches a single chunk's diff budget", () => {
+    // Single-pass carries the same non-diff overhead a chunk does, so it gets
+    // the same budget. Pins the relationship rather than the literal.
+    expect(MAX_SINGLE_PASS_DIFF_CHARS).toBe(MAX_CHUNK_DIFF_TOKENS * CHARS_PER_TOKEN);
   });
 
   test("a binary file (no patch, no changed lines) does not force chunking", () => {

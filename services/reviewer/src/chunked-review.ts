@@ -90,7 +90,48 @@ const AVG_DIFF_LINE_CHARS = 50;
 // Note this is why mt#2243's fix did not cover it. That incident's file was a
 // 258 kB bundle: UNDER GitHub's 1MB threshold, so `patch` was present and its
 // length was read correctly. The guards were right; their input was not.
+//
+// UNITS (PR #3551 R1, non-blocking): GitHub's omission threshold is 1MB in
+// BYTES; this floor is in CHARS, because every estimator in this module is
+// chars-based (CHARS_PER_TOKEN). For UTF-8, bytes >= chars, so a withheld file
+// has AT LEAST ~250k chars (all-4-byte worst case) and typically ~1M. The
+// mismatch therefore makes this an OVER-estimate for multi-byte content, never
+// an under-estimate — and the two directions are not symmetric: over-estimating
+// routes an already-large file to chunked review, which truncates it and still
+// produces a review; under-estimating is what produced the provider 400 this
+// task exists to fix. Deliberately biased toward the recoverable error.
 export const GITHUB_OMITTED_PATCH_MIN_CHARS = 1_000_000;
+
+// Hard bound on the diff embedded in a SINGLE-PASS prompt (mt#4879 SC2).
+// Same budget a single chunk gets, since single-pass carries the same non-diff
+// overhead that PROMPT_OVERHEAD_TOKEN_RESERVE is sized for.
+export const MAX_SINGLE_PASS_DIFF_CHARS = MAX_CHUNK_DIFF_TOKENS * CHARS_PER_TOKEN;
+
+/**
+ * Bound the single-pass prompt's diff, and SAY SO in the prompt when it bites.
+ *
+ * This is a floor under the routing decision, not a replacement for it: after
+ * mt#4879's whole-diff guard, a correctly-routed oversized diff goes to chunked
+ * review and never reaches here. It exists because the routing decision has two
+ * ways to be wrong that the guard does not close — the `outputToolsActive &&`
+ * conjunct suppresses chunking entirely when tools are off, and any future
+ * mis-sizing lands in the same place. Without this, either one is a provider
+ * 400 and a review that never posts; with it, the worst case is a review over a
+ * prefix, which the model is told about.
+ *
+ * The marker is load-bearing (SC4): a truncated review that believes it saw
+ * everything is a quiet false-negative, which is worse than the loud failure.
+ */
+export function capSinglePassDiff(diff: string): string {
+  if (diff.length <= MAX_SINGLE_PASS_DIFF_CHARS) return diff;
+  const kept = diff.slice(0, MAX_SINGLE_PASS_DIFF_CHARS);
+  return (
+    `${kept}\n\n` +
+    `[diff truncated at ${MAX_SINGLE_PASS_DIFF_CHARS} of ${diff.length} chars — ` +
+    `this review saw a PREFIX of the diff, not all of it. Findings about files or ` +
+    `hunks after this point are not possible; do not report their absence (mt#4879).]`
+  );
+}
 
 export interface ChunkInfo {
   index: number;
