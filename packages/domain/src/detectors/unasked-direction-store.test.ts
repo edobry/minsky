@@ -16,7 +16,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   writeFindings,
   writeFailedRun,
@@ -78,14 +78,15 @@ afterEach(async () => {
 // ---------------------------------------------------------------------------
 
 describe("path helpers", () => {
-  it("findingsPathFor lands under .minsky/state/unasked-directions/", () => {
-    expect(findingsPathFor("/repo", "abc")).toBe("/repo/.minsky/state/unasked-directions/abc.json");
+  it("findingsPathFor lands under <root>/unasked-directions/", () => {
+    // mt#4778: was `<root>/.minsky/state/unasked-directions/`. The `.minsky/state`
+    // prefix was a repo-working-tree artifact; under the state dir the store sits
+    // directly at the root, alongside `fire-log.jsonl` and the other flat streams.
+    expect(findingsPathFor("/repo", "abc")).toBe("/repo/unasked-directions/abc.json");
   });
 
-  it("signaturesPathFor lands under .minsky/state/unasked-direction-signatures/", () => {
-    expect(signaturesPathFor("/repo", "abc")).toBe(
-      "/repo/.minsky/state/unasked-direction-signatures/abc.json"
-    );
+  it("signaturesPathFor lands under <root>/unasked-direction-signatures/", () => {
+    expect(signaturesPathFor("/repo", "abc")).toBe("/repo/unasked-direction-signatures/abc.json");
   });
 
   it("sanitizeSessionId strips path-traversal and unsafe chars", () => {
@@ -131,9 +132,10 @@ describe("writeFindings / readFindings", () => {
 
   it("returns null when the file is corrupt JSON", async () => {
     const path = findingsPathFor(tempRoot, "broken");
-    await mkdir(join(tempRoot, ".minsky", "state", "unasked-directions"), {
-      recursive: true,
-    });
+    // mt#4778: derive the directory from the path function rather than spelling
+    // the layout again. A literal here is the same split-brain this task fixes —
+    // the test would keep asserting against a layout the code no longer uses.
+    await mkdir(dirname(path), { recursive: true });
     await writeFile(path, "{ not json", "utf-8");
     const r = await readFindings(tempRoot, "broken");
     expect(r).toBeNull();
@@ -223,7 +225,8 @@ describe("listFindingsSessions", () => {
 
   it("ignores non-.json entries", async () => {
     await writeFindings(tempRoot, "alpha", makeOutput(), {});
-    const dir = join(tempRoot, ".minsky", "state", "unasked-directions");
+    // mt#4778: derived, not spelled — see the note on the corrupt-JSON test.
+    const dir = dirname(findingsPathFor(tempRoot, "alpha"));
     await writeFile(join(dir, "README.md"), "not a session", "utf-8");
     const r = await listFindingsSessions(tempRoot);
     expect(r).toEqual(["alpha"]);
@@ -312,9 +315,8 @@ describe("appendSignatureSeed / readSignatureSeeds", () => {
 
   it("readSignatureSeeds returns [] on corrupt JSON", async () => {
     const path = signaturesPathFor(tempRoot, "broken");
-    await mkdir(join(tempRoot, ".minsky", "state", "unasked-direction-signatures"), {
-      recursive: true,
-    });
+    // mt#4778: derived, not spelled — see the note on the corrupt-JSON test.
+    await mkdir(dirname(path), { recursive: true });
     await writeFile(path, "not json", "utf-8");
     const seeds = await readSignatureSeeds(tempRoot, "broken");
     expect(seeds).toEqual([]);
