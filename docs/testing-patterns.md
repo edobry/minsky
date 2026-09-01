@@ -613,6 +613,53 @@ group kill would signal the runner's own group. The leaf-first budget ordering a
 observed chain instead. A grandchild spawned by something other than these runners is not
 covered.
 
+## mt#3496: the `./` in `test:components` is load-bearing — do not tidy it away
+
+`package.json`'s `test:components` selects `./src/cockpit/web`. **The leading `./` is not style.**
+
+Bun's positional filters are substrings, per its own docs: _"Any test file with a path that matches
+one of the filters runs. Filters are commonly file or directory names; glob patterns are not yet
+supported."_ And separately: _"To run a specific file, you must prefix the path with `./` or `/`.
+This distinction … helps the runner distinguish between a literal file path and a filter name that
+should be matched as a substring against test file paths."_
+
+So the bare form `src/cockpit/web` also selects **`src/cockpit/web-dist.test.ts`** — a file that
+lives in `src/cockpit/`, not the web tree, and is already covered by the main suite. Measured:
+
+| Positional form     | Tests / files | `web-dist` wrongly pulled in                              |
+| ------------------- | ------------- | --------------------------------------------------------- |
+| `src/cockpit/web`   | 2790 / 210    | **yes — 12 testcases, run a second time under happy-dom** |
+| `./src/cockpit/web` | 2781 / 209    | no                                                        |
+
+A trailing slash (`src/cockpit/web/`) measures identically clean today, but it is still a substring
+filter — it works only because no other path happens to contain that string. The `./` form is bun's
+documented switch to literal-path semantics, so it is correct by specification rather than by
+accident of current filenames. `scripts/run-tests-main.ts`'s `toBunTestArgs` prefixes every path
+the same way for the same reason (mt#3014).
+
+`package.json` cannot carry a comment, which is why this note exists. The standing guard against
+the hole reopening is mt#3935 (assert every test file is reachable by some suite).
+
+### `--path-ignore-patterns` does NOT take a comma-separated list — repeat the flag
+
+The script also ignores `src/cockpit/web/dist/**`, a gitignored build output the widened selection
+would otherwise scan. Getting that right needed a control, because the wrong form **fails
+silently**:
+
+```bash
+# WRONG — the second pattern is dropped, with no error and no change in the test count
+--path-ignore-patterns='services/**,src/cockpit/web/dist/**'
+
+# RIGHT — repeat the flag
+--path-ignore-patterns='services/**' --path-ignore-patterns='src/cockpit/web/dist/**'
+```
+
+Measured by planting a test-shaped file at `src/cockpit/web/dist/__bundled.test.ts`: the comma form
+picked it up **exactly as if no ignore had been passed at all**, while the repeated form excluded
+it. Both forms report the same `Ran 2781 tests across 209 files`, so the run count cannot tell them
+apart — only a file the pattern is supposed to exclude can (mem#704: a probe that returns the same
+result when the thing is broken is not verification).
+
 ## mt#4726: the clock-shifted nightly (`bun run test:clock-shifted`)
 
 A test pinned to an absolute instant and compared against a real-clock window passes until the
