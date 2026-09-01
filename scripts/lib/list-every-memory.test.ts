@@ -65,10 +65,11 @@ describe("listEveryMemory", () => {
       },
     };
 
-    // The assertion is on the REFUSAL, not on a returned number: 500 of 1347 is exactly the
-    // value the un-fixed callers printed and exited 0 on.
+    // The assertion is on the REFUSAL, not on a returned number: one full page out of 1347 is
+    // exactly what the un-fixed callers printed before exiting 0. Derived from the page size
+    // rather than restating it — the constant tracks DEFAULT_LIST_CAP.
     await expect(listEveryMemory(service)).rejects.toThrow(
-      /Scan covered 500 of at least 1347 memories/
+      new RegExp(`Scan covered ${MEMORY_CENSUS_PAGE_SIZE} of at least 1347 memories`)
     );
   });
 
@@ -90,7 +91,7 @@ describe("listEveryMemory", () => {
     const all = await listEveryMemory(service);
 
     expect(all).toHaveLength(1347);
-    expect(service.offsets).toEqual([0, 500, 1000]);
+    expect(service.offsets).toEqual([0, MEMORY_CENSUS_PAGE_SIZE, MEMORY_CENSUS_PAGE_SIZE * 2]);
     // Distinct records, not one page repeated — a walk that ignored `offset` would still return
     // 1347 rows here and pass a length-only assertion.
     expect(new Set(all.map((m) => m.id)).size).toBe(1347);
@@ -102,8 +103,9 @@ describe("listEveryMemory", () => {
     const all = await listEveryMemory(service);
 
     expect(all).toHaveLength(1000);
-    // The fourth call is what ends the loop; without it this walk would not terminate.
-    expect(service.offsets).toEqual([0, 500, 1000]);
+    // The third call returns an empty page and is what ends the loop; without it this walk
+    // would not terminate.
+    expect(service.offsets).toEqual([0, MEMORY_CENSUS_PAGE_SIZE, MEMORY_CENSUS_PAGE_SIZE * 2]);
   });
 
   test("tolerates a record inserted mid-scan (scan larger than the floor)", async () => {

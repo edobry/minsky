@@ -30,13 +30,17 @@
 
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 import type { MemoryRecord } from "@minsky/domain/memory/types";
+import { DEFAULT_LIST_CAP } from "@minsky/domain/utils/list-pagination";
 
 /**
- * Page size for the census walk. Matches `DEFAULT_LIST_CAP` so a page request is never itself
- * silently truncated — asking for more than the cap would return the cap and read as a short
- * page, ending the walk early at exactly the wrong moment.
+ * Page size for the census walk — DERIVED from the cap, never restated.
+ *
+ * It has to equal `DEFAULT_LIST_CAP` rather than merely resemble it. Requesting MORE than the cap
+ * returns the cap, which the walk reads as a short page and stops on: a silent early exit at
+ * exactly the wrong moment, or (since mt#4783) a thrown coverage failure that breaks all four
+ * callers. A hardcoded copy is fine until someone LOWERS the cap, and then it is not.
  */
-export const MEMORY_CENSUS_PAGE_SIZE = 500;
+export const MEMORY_CENSUS_PAGE_SIZE = DEFAULT_LIST_CAP;
 
 /**
  * The narrow slice of `MemoryServiceSurface` a census needs. A real `MemoryService` satisfies
