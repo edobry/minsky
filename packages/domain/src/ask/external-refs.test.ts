@@ -146,3 +146,42 @@ describe("notionPageUrl", () => {
     expect(notionPageUrl(INCIDENT_ID_BARE)).toBe(INCIDENT_URL);
   });
 });
+
+/**
+ * mt#4793 SC2/SC7 — eliding may only ever REMOVE matches, never manufacture one.
+ *
+ * This module is the only elision site in the family on a WRITE path: `linkifyExternalRefs`
+ * rewrites ask body text. `NOTION_CUE` contains `[\s:—–-]*`, a whitespace-tolerant separator, so
+ * blanking a code region to SPACES let the cue run through the hole and bind `notion` to an id it
+ * was never adjacent to — appending a wrong URL into someone's ask.
+ *
+ * Asserted as the property, not the filler character, so a future filler change that keeps the
+ * guarantee passes and one that breaks it fails.
+ */
+describe("elideCodeRegions only ever removes matches — it never manufactures one", () => {
+  // A cue and an id that are NOT adjacent in the raw text: a code span sits between them.
+  const RAW = "Notion `see the setup guide` 1234567890abcdef1234567890abcdef";
+
+  test("a cue separated from an id by a code span does not linkify", () => {
+    const { text, unlinkified } = linkifyExternalRefs(RAW);
+    // No URL may be appended — the cue and the id were never adjacent.
+    expect(text).toBe(RAW);
+    expect(text).not.toContain("app.notion.com");
+    expect(unlinkified).toEqual([]);
+  });
+
+  test("the filler is not in the cue's own separator class", () => {
+    const residual = elideCodeRegions(RAW);
+    // Same-length, so every offset into the residual is still valid against RAW.
+    expect(residual).toHaveLength(RAW.length);
+    // The blanked span must not read as separator characters, or the cue spans it.
+    const blanked = residual.slice(RAW.indexOf("`"), RAW.lastIndexOf("`") + 1);
+    expect(blanked).not.toMatch(/[\s:—–-]/);
+  });
+
+  test("a genuinely adjacent cue and id still linkify", () => {
+    // One-directional guarantee: elision removes matches, it must not remove real ones.
+    const adjacent = "Notion 1234567890abcdef1234567890abcdef";
+    expect(linkifyExternalRefs(adjacent).text).toContain("app.notion.com");
+  });
+});
