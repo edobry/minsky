@@ -312,8 +312,10 @@ export function extractConsumerAccountDeferral(prBody: string): string | null {
  * shipped speculatively. `MINSKY_HOOK_OVERRIDE=require-execution-evidence-before-merge`
  * remains available and covers the whole gate.
  */
-export const CONSUMER_ACCOUNT_CALIBRATION_LOG =
-  ".minsky/execution-evidence-consumer-account-calibration.jsonl";
+export const CONSUMER_ACCOUNT_STREAM = "execution-evidence-consumer-account";
+
+/** Derived from the stream name (mt#4755), so declaration and write cannot disagree. */
+export const CONSUMER_ACCOUNT_CALIBRATION_LOG = `.minsky/${CONSUMER_ACCOUNT_STREAM}-calibration.jsonl`;
 
 /**
  * One calibration record. `decision` is always `warn` — this surface never denies.

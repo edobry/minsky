@@ -682,9 +682,11 @@ export function findAssertDeferConjunctions(prBody: string): AssertDeferFinding[
 /** Override env var (registered in `HOOK_ONLY_ENV_VARS`) — skips the SC-coverage check. */
 export const SC_COVERAGE_SKIP_ENV_VAR = "MINSKY_SKIP_SC_COVERAGE";
 
-/** Calibration log path (mt#2263 ladder) — repo-root relative. */
-export const SC_COVERAGE_CALIBRATION_LOG =
-  ".minsky/execution-evidence-sc-coverage-calibration.jsonl";
+/** Stream name — the SINGLE source of truth (mt#4755); the path below is DERIVED from it. */
+export const SC_COVERAGE_STREAM = "execution-evidence-sc-coverage";
+
+/** Calibration log path (mt#2263 ladder) — repo-root relative, derived from the stream name. */
+export const SC_COVERAGE_CALIBRATION_LOG = `.minsky/${SC_COVERAGE_STREAM}-calibration.jsonl`;
 
 /** True when the SC-coverage check is skipped via env var. */
 export function isScCoverageSkipped(env: NodeJS.ProcessEnv = process.env): boolean {
