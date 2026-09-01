@@ -862,8 +862,22 @@ async function runReviewBody(
   // a round is genuinely narrowed, the split would decide chunking on the delta
   // and then chunk the whole PR, re-inflating exactly the cost this removes.
   const totalDiffLines = promptDiff.split("\n").length;
+  // mt#4879: pass the diff's CHAR length too. `totalDiffLines` counts newlines
+  // and `promptFileEntries` carries per-file `patch` fields GitHub withholds
+  // above 1MB — so for a change that is few lines and many megabytes, every
+  // input here except this one reads small while the prompt does not.
+  //
+  // The `outputToolsActive &&` conjunct is UNJUSTIFIED for the size case and is
+  // deliberately left in place here (mt#4879 SC5). Checked: `outputToolsActive`
+  // reaches only `callReviewer` and `validateReviewOutput` inside
+  // runChunkedReview — chunk packing and finding aggregation do not consult it —
+  // so nothing structural requires tools for chunking to work. But whether the
+  // non-tools chunked path produces VALID aggregated output was not exercised,
+  // so flipping it blind would trade a known failure for an unmeasured one.
+  // Consequence, stated rather than hidden: with output tools off, an oversized
+  // diff still reaches single-pass and still 400s. Owned by mt#4879 SC5.
   const useChunkedReview =
-    outputToolsActive && shouldChunkReview(promptFileEntries, totalDiffLines);
+    outputToolsActive && shouldChunkReview(promptFileEntries, totalDiffLines, promptDiff.length);
 
   let output: ReviewOutput;
   let validation: { ok: true } | { ok: false; reason: string };
