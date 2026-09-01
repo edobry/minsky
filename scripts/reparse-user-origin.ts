@@ -59,13 +59,19 @@ const DIVERGENCE_FACTOR = 2;
 /** Sessions scanned per keyset page. Bounded so a page's JSONB expansion stays well under the statement timeout. */
 const DEFAULT_PAGE_SIZE = 150;
 
-interface Args {
+export interface Args {
   execute: boolean;
   afterId?: string;
   pageSize: number;
 }
 
-function parseArgs(argv: string[]): Args {
+/**
+ * Exported for test only. `--execute` is the flag standing between a dry-run and
+ * a production mutation, so its parse is worth pinning rather than trusting to
+ * inspection — a substring match (`argv.some(a => a.includes("--execute"))`)
+ * would read `--execute-later` as consent, and nothing downstream would notice.
+ */
+export function parseArgs(argv: string[]): Args {
   const execute = argv.includes("--execute");
   const afterArg = argv.find((a) => a.startsWith("--after-id="));
   const afterId = afterArg ? afterArg.slice("--after-id=".length) : undefined;
@@ -301,4 +307,10 @@ async function main(): Promise<void> {
   }
 }
 
-await main();
+// Entry-point guard, load-bearing rather than idiomatic: `main()` opens a
+// production database connection and, under `--execute`, mutates it. A bare
+// top-level `await main()` would fire on IMPORT, so the unit test beside this
+// file could not exist without connecting to prod.
+if (import.meta.main) {
+  await main();
+}
