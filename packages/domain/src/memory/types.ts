@@ -128,7 +128,19 @@ export interface MemoryUpdateInput {
   sourceAgentId?: string | null;
   sourceSessionId?: string | null;
   confidence?: number | null;
-  /** Optional structured entity associations. Replaces the map; merge is caller's responsibility. */
+  /**
+   * Optional structured entity associations. **MERGED into the stored map, not replacing it** —
+   * a present key is set, a key with an EMPTY ARRAY is removed, and a key absent from the map is
+   * left untouched.
+   *
+   * That third case is the trap: `delete obj.k` produces an absent key, so it is a silent no-op
+   * rather than a removal. Build removals with `removeAssociationKeys()` from `./associations`.
+   *
+   * This docstring previously read *"Replaces the map; merge is caller's responsibility"*, which
+   * was the exact inverse of the implementation and is the reason the trap was reachable at all:
+   * under replace semantics `delete` WOULD remove the key. Corrected by mt#4843; the incident it
+   * caused is mt#4796.
+   */
   associations?: MemoryAssociations;
 }
 

@@ -51,6 +51,7 @@ import {
   extractTaskStateAssertions,
 } from "./task-state-assertion";
 import { computeMeasurementDecay, extractMeasurement } from "./measurement-decay";
+import { planAssociationsUpdate } from "./associations";
 import { escapeLikePattern } from "./intervening-task-lookup";
 import { DEFAULT_LIST_CAP, computeListTruncation } from "../utils/list-pagination";
 import type { ListTruncationMetadata } from "../utils/list-pagination";
@@ -987,12 +988,14 @@ export class MemoryService implements MemoryServiceSurface {
     if ("confidence" in input) updateData["confidence"] = input.confidence ?? null;
 
     if (input.associations !== undefined) {
-      const entries = Object.entries(input.associations);
-      const toMerge = Object.fromEntries(entries.filter(([, v]) => v.length > 0));
-      const toRemove = entries.filter(([, v]) => v.length === 0).map(([k]) => k);
+      // The merge/remove split lives in `planAssociationsUpdate` (mt#4843) rather than inline
+      // here, so the encoding has one definition and its three cases are testable without a
+      // database. See that function for what an ABSENT key does, which is the case that cost
+      // mt#4796 five silent no-ops.
+      const plan = planAssociationsUpdate(input.associations);
 
-      let expr = sql`${memoriesTable.associations} || ${JSON.stringify(toMerge)}::jsonb`;
-      for (const key of toRemove) {
+      let expr = sql`${memoriesTable.associations} || ${JSON.stringify(plan.merge)}::jsonb`;
+      for (const key of plan.remove) {
         expr = sql`(${expr}) - ${key}`;
       }
       updateData["associations"] = expr;
