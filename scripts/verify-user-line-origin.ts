@@ -319,10 +319,27 @@ function main(): number {
     }
   }
 
-  const known = new Set([OPERATOR_ORIGIN, "compact_summary", "harness_meta"]);
+  // Everything `user-line-origin.ts` documents today: the three kinds Minsky
+  // itself produces, the dispatch brief it stamps, and the harness kinds named
+  // in that module's header table. The four `origin.kind` values were added to
+  // that table by mt#4875, which is also what made them REACHABLE — before it,
+  // `isMeta` shadowed them and they never appeared here at all.
+  const known = new Set([
+    OPERATOR_ORIGIN,
+    "compact_summary",
+    "harness_meta",
+    DISPATCH_BRIEF_ORIGIN,
+    "task_notification",
+    "peer",
+    "coordinator",
+    "auto_continuation",
+    "sdk",
+  ]);
   const novel = [...kindCounts.keys()].filter((k) => !known.has(k));
   if (novel.length > 0) {
-    console.log(`\nharness kinds beyond the documented three: ${novel.sort().join(", ")}`);
+    console.log(
+      `\nharness kinds not yet documented in user-line-origin.ts: ${novel.sort().join(", ")}`
+    );
     console.log("(not a failure — the vocabulary is partly the harness's and may have grown)");
   }
 
