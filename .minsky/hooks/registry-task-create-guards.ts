@@ -600,4 +600,44 @@ export const TASK_CREATE_GUARDS: readonly GuardRegistration[] = [
       expects: "calibration",
     },
   },
+  {
+    // mt#4769 — the REACH half of the operator-deferral family, task-spec half.
+    // The sibling registration in `registry-pr-create-guards.ts` carries the
+    // full rationale; this one exists because `registry.test.ts`'s "PreToolUse
+    // families share no matcher token" invariant requires a guard's matcher
+    // tokens to be filed under the family that OWNS them, and `tasks_spec_patch`
+    // is this family's. Same module, same function, same log — one surface, two
+    // registrations, for a registry-shape reason rather than a behavioural one.
+    //
+    // The originating incident wrote its deferral into BOTH a PR body and a task
+    // spec, so dropping this half to keep a single registration would have
+    // covered half the incident that produced the task.
+    name: "operator-deferral-artifact-surface-spec",
+    effects: [recorderEffect()],
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__tasks_spec_patch",
+    module: () =>
+      import("./operator-deferral-detector").then((m) => ({ run: m.runArtifactSurface })),
+    renderProbe: () => import("./operator-deferral-detector").then((m) => m.renderWorstCase()),
+    // 5s — see the sibling registration's note. Same work, same budget.
+    timeoutMs: 5000,
+    calibrationLog: "operator-deferral",
+    denyCapable: false,
+    needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 2100, optionCount: 1 },
+    canary: {
+      input: {
+        transcript_path: "mt4769-canary-transcript",
+        tool_name: "mcp__minsky__tasks_spec_patch",
+        tool_input: {
+          taskId: "mt#999999",
+          content:
+            "## Outcome\n\nLive verification requires Railway access, so it is deferred to the operator.\n",
+        },
+      },
+      transcriptLines: [{ type: "user", message: { role: "user", content: "first turn" } }],
+      expects: "calibration",
+    },
+  },
 ];

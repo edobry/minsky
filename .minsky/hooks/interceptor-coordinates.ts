@@ -596,6 +596,11 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ["negative-existence-claim-detector", lexicalRecorder],
   ["operator-deferral-ask-surface", lexicalRecorder],
   ["operator-deferral-detector", lexicalRecorder],
+  // mt#4769 — same coordinates as their two siblings: the same Rung-1 lexical
+  // patterns, recording only. What changed is the TEXT they are pointed at, not
+  // how they match or what they do about a match.
+  ["operator-deferral-artifact-surface-pr", lexicalRecorder],
+  ["operator-deferral-artifact-surface-spec", lexicalRecorder],
   ["pre-narration-detector", lexicalDetector],
   ["secret-request-in-chat-detector", lexicalRecorder],
   [
