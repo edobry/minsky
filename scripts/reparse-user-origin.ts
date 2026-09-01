@@ -282,16 +282,30 @@ async function main(): Promise<void> {
   const { writeTurnsForTranscript } = await import("@minsky/domain/transcripts/turn-writer");
 
   let processed = 0;
-  let errored = 0;
   let turnsWritten = 0;
-  let lastId = "";
+  const erroredIds: string[] = [];
+  /**
+   * The resume cursor: the last id such that EVERY session up to and including
+   * it succeeded — not simply the last one that did (PR #3553 R2).
+   *
+   * Sessions are processed in id order, so a naive "last success" advances PAST
+   * a failure as soon as the next session succeeds, and `--after-id=<that>`
+   * silently skips the very session that needs re-running. The recovery path is
+   * exactly where that is least likely to be noticed: the operator is following
+   * the hint the tool gave them, the resumed run reports success, and the failed
+   * session keeps its wrong `user_origin` forever.
+   *
+   * So the cursor freezes at the first error. Anything after it is re-processed
+   * on resume, which is free — the write is idempotent.
+   */
+  let resumeCursor = "";
   for (const row of affected) {
     const transcript = await loadTranscript(db, row.agent_session_id);
     try {
       const result = await writeTurnsForTranscript(db, row.agent_session_id, transcript);
       processed++;
       turnsWritten += result.written;
-      lastId = row.agent_session_id;
+      if (erroredIds.length === 0) resumeCursor = row.agent_session_id;
       if (result.nonEmptyYieldedZero) {
         console.warn(
           `    WARN ${row.agent_session_id}: non-empty transcript yielded zero turns — ` +
@@ -299,7 +313,7 @@ async function main(): Promise<void> {
         );
       }
     } catch (error) {
-      errored++;
+      erroredIds.push(row.agent_session_id);
       // Logged, never swallowed: a session that failed to re-parse keeps its
       // WRONG user_origin, and the run must not report success over it.
       console.error(`    ERROR ${row.agent_session_id}: ${String(error)}`);
@@ -307,7 +321,7 @@ async function main(): Promise<void> {
     if (processed % 25 === 0) {
       console.log(
         `    ${processed}/${affected.length} re-parsed (turnsWritten=${turnsWritten}, ` +
-          `errored=${errored}, lastId=${lastId})`
+          `errored=${erroredIds.length}, resumeCursor=${resumeCursor})`
       );
     }
   }
@@ -319,20 +333,24 @@ async function main(): Promise<void> {
       mode: "execute",
       affectedSessions: affected.length,
       processed,
-      errored,
+      errored: erroredIds.length,
+      erroredIds,
       turnsWritten,
-      lastId,
+      resumeCursor,
       before,
       after,
     })
   );
 
-  if (errored > 0) {
+  if (erroredIds.length > 0) {
     console.error(
-      `  ${errored} session(s) errored and still carry the old user_origin. ${
-        lastId
-          ? `Re-run with --after-id=${lastId} after investigating.`
-          : `No session completed, so there is no resume cursor — re-run from the start after investigating.`
+      `  ${erroredIds.length} session(s) errored and still carry the old user_origin: ${erroredIds.join(", ")}`
+    );
+    console.error(
+      `  ${
+        resumeCursor
+          ? `Re-run with --after-id=${resumeCursor} after investigating — the cursor stops at the FIRST failure, so every errored session above is re-attempted.`
+          : `The first session failed, so there is no cursor — re-run from the start after investigating.`
       }`
     );
     process.exit(1);
