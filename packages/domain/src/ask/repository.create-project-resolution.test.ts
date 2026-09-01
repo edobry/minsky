@@ -102,6 +102,25 @@ describe("DrizzleAskRepository.create — project resolution at the seam (mt#484
     expect(captured()?.projectId).toBe(PROJECT_A);
   });
 
+  // PR #3543 R1. The first cut tested `projectId === undefined`, so an explicit
+  // `null` skipped resolution and stamped NULL while the identical `undefined`
+  // resolved — a divergence from `toInsert`, which collapses both via
+  // `?? null`. Neither is reachable from a typed caller (`projectId?: string`);
+  // both are from a JS one. `""` is the same class and is worse, since it would
+  // reach a uuid column.
+  test.each([
+    ["null", null],
+    ["undefined", undefined],
+    ["empty string", ""],
+  ])("an unsupplied projectId (%s) still resolves from the parent", async (_label, supplied) => {
+    const { db, captured } = makeDb([{ id: PARENT, projectId: PROJECT_B }]);
+    const repo = new DrizzleAskRepository(db as never);
+
+    await repo.create(askInput({ parentTaskId: PARENT, projectId: supplied }));
+
+    expect(captured()?.projectId).toBe(PROJECT_B);
+  });
+
   test("no parent, no explicit project — stamps null, unchanged behaviour", async () => {
     const { db, captured } = makeDb([]);
     const repo = new DrizzleAskRepository(db as never);

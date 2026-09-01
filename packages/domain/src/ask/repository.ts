@@ -1063,8 +1063,16 @@ export class DrizzleAskRepository implements AskRepository {
     //
     // Deliberately outside the retry loop below: the answer cannot change
     // between short-id attempts, and this is a DB round trip.
+    // Falsy, not `=== undefined` (PR #3543 R1). `toInsert` collapses undefined
+    // and null to the same stored NULL (`input.projectId ?? null`), so treating
+    // them differently HERE would make the seam disagree with the mapper two
+    // lines downstream — a caller passing an explicit `null` would skip
+    // resolution and stamp NULL, while the identical `undefined` resolved. The
+    // type says `projectId?: string`, so neither null nor "" is reachable from
+    // a typed caller; both are reachable from a JS one, and "" would be a
+    // uuid-column error rather than a silent NULL.
     const input: CreateAskInput =
-      sanitized.projectId === undefined && sanitized.parentTaskId
+      !sanitized.projectId && sanitized.parentTaskId
         ? {
             ...sanitized,
             projectId: await resolveTaskProjectId(sanitized.parentTaskId, this.db),
