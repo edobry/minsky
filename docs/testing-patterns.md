@@ -640,6 +640,26 @@ the same way for the same reason (mt#3014).
 `package.json` cannot carry a comment, which is why this note exists. The standing guard against
 the hole reopening is mt#3935 (assert every test file is reachable by some suite).
 
+### `--path-ignore-patterns` does NOT take a comma-separated list — repeat the flag
+
+The script also ignores `src/cockpit/web/dist/**`, a gitignored build output the widened selection
+would otherwise scan. Getting that right needed a control, because the wrong form **fails
+silently**:
+
+```bash
+# WRONG — the second pattern is dropped, with no error and no change in the test count
+--path-ignore-patterns='services/**,src/cockpit/web/dist/**'
+
+# RIGHT — repeat the flag
+--path-ignore-patterns='services/**' --path-ignore-patterns='src/cockpit/web/dist/**'
+```
+
+Measured by planting a test-shaped file at `src/cockpit/web/dist/__bundled.test.ts`: the comma form
+picked it up **exactly as if no ignore had been passed at all**, while the repeated form excluded
+it. Both forms report the same `Ran 2781 tests across 209 files`, so the run count cannot tell them
+apart — only a file the pattern is supposed to exclude can (mem#704: a probe that returns the same
+result when the thing is broken is not verification).
+
 ## mt#4726: the clock-shifted nightly (`bun run test:clock-shifted`)
 
 A test pinned to an absolute instant and compared against a real-clock window passes until the

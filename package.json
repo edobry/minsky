@@ -72,7 +72,7 @@
     "test:slow": "bun tests/utils/test-quality-cli.ts slow",
     "test:debug": "DEBUG_TESTS=1 bun scripts/run-tests-gated.ts",
     "test:debug:integration": "DEBUG_TESTS=1 RUN_INTEGRATION_TESTS=1 bun test --preload ./tests/setup.ts --timeout=30000 tests/integration",
-    "test:components": "bun test --preload ./tests/dom-setup.ts --preload ./tests/setup.ts --timeout=15000 --path-ignore-patterns='services/**' ./src/cockpit/web",
+    "test:components": "bun test --preload ./tests/dom-setup.ts --preload ./tests/setup.ts --timeout=15000 --path-ignore-patterns='services/**' --path-ignore-patterns='src/cockpit/web/dist/**' ./src/cockpit/web",
     "test:hooks": "bun test --preload ./tests/setup.ts --timeout=15000 ./.minsky/hooks",
     "test:clock-shifted": "bun scripts/run-tests-clock-shifted.ts",
     "test:eslint-rules": "bun test --timeout=15000 eslint-rules/",
