@@ -189,8 +189,9 @@ export interface MinskyMCPServerOptions {
 /**
  * mt#3121: the canonical (dotted) protocol name of the dispatch-recover tool.
  * The request handler injects the resolved caller agentId into ONLY this tool's
- * args (matched exactly against this name and its `toClaudeDesktopName` underscore
- * alias) so its contested-check can exclude the caller's own task-grain claims.
+ * args, matched exactly against the RESOLVED `tool.name` (mt#4827) — the name this
+ * tool was REGISTERED under, which for a registry-sourced tool is this dotted
+ * constant. So its contested-check can exclude the caller's own task-grain claims.
  */
 const DISPATCH_RECOVER_TOOL_NAME = "tasks.dispatch-recover";
 
@@ -251,21 +252,41 @@ const TASKS_CREATE_TOOL_NAME = "tasks.create";
  * load rather than per request.
  *
  * Why a set rather than a second `if`: the injection is now seven tools wide and
- * the matching rule (exact, both aliases, server overwrites any caller-supplied
- * value) is the part that must not drift between them. One membership test
- * cannot disagree with itself.
+ * the matching rule (exact match on the resolved name, server overwrites any
+ * caller-supplied value) is the part that must not drift between them. One
+ * membership test cannot disagree with itself.
+ *
+ * REGISTERED NAMES ONLY (mt#4827). This Set used to flat-map each name through
+ * `toClaudeDesktopName` so it held both spellings, because the call site tested
+ * `request.params.name` — the raw wire name. The call site now tests the RESOLVED
+ * `tool.name`, so the alias entries are dead weight, and their absence is what keeps
+ * `src/mcp/` on ONE idiom instead of three.
+ *
+ * **The exact invariant, stated precisely (PR #3532 R1).** `addTool` maps BOTH the
+ * canonical name and its underscored alias to the SAME `ToolDefinition` object, whose
+ * `.name` is the name it was registered under. So `tool.name` is guaranteed to be the
+ * REGISTERED name and never the wire alias — that is what makes a dotted-only Set
+ * match an alias-calling client, and it is structural, not a convention.
+ *
+ * What is NOT guaranteed is that a registered name is DOTTED: `addTool("plain_name")`
+ * is legal and registers exactly once (see the mt#1779 suite). Every entry in this Set
+ * comes from the shared command registry, whose ids are dotted — that is a property of
+ * the SOURCE, not of the dispatch path, so do not read this Set as proof that all
+ * `tool.name` values contain a dot.
+ *
+ * Do not reintroduce the flat-map: a Set holding both spellings hides whether its call
+ * site resolved the name, which is exactly how the two enrichment allowlists sat broken
+ * and silent.
  */
-const CALLER_ACTOR_ID_TOOL_NAMES: ReadonlySet<string> = new Set(
-  [
-    DISPATCH_RECOVER_TOOL_NAME,
-    CALIBRATION_REVIEW_TOOL_NAME,
-    ASKS_CREATE_TOOL_NAME,
-    CLAIMS_RELEASE_TOOL_NAME,
-    WORK_PACKAGE_CLAIM_TOOL_NAME,
-    WORK_PACKAGE_RELEASE_TOOL_NAME,
-    TASKS_CREATE_TOOL_NAME,
-  ].flatMap((name) => [name, toClaudeDesktopName(name)])
-);
+const CALLER_ACTOR_ID_TOOL_NAMES: ReadonlySet<string> = new Set([
+  DISPATCH_RECOVER_TOOL_NAME,
+  CALIBRATION_REVIEW_TOOL_NAME,
+  ASKS_CREATE_TOOL_NAME,
+  CLAIMS_RELEASE_TOOL_NAME,
+  WORK_PACKAGE_CLAIM_TOOL_NAME,
+  WORK_PACKAGE_RELEASE_TOOL_NAME,
+  TASKS_CREATE_TOOL_NAME,
+]);
 
 const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([
   "debug.echo",
@@ -817,6 +838,29 @@ export class MinskyMCPServer {
         `exit at the next idle gap and the stdio proxy respawns it on the current build. ` +
         `Only if minsky runs WITHOUT the proxy does this need a manual /mcp reconnect.`
     );
+  }
+
+  /**
+   * Connect a fully-configured SDK `Server` to a caller-supplied transport, and
+   * return it (mt#4827).
+   *
+   * Public for the same reason {@link checkDriftGate} is: so a unit test can
+   * exercise the REAL request handlers without standing up stdio or HTTP. The
+   * difference is what it replaces — tests that need the dispatch path have been
+   * reaching into the SDK's PRIVATE `_requestHandlers` map (~20 sites across five
+   * files). That works, but it couples our suite to an SDK internal, which is
+   * exactly the brittleness PR #3532 R1 flagged as BLOCKING. Paired with the SDK's
+   * own `InMemoryTransport.createLinkedPair()`, this seam lets a test drive the
+   * server through the SUPPORTED client/transport surface instead.
+   *
+   * Pre-existing `_requestHandlers` sites are deliberately NOT migrated here —
+   * that is a test-only refactor across four files and does not belong in a
+   * bugfix diff. Tracked at mt#4844; new tests should use this seam.
+   */
+  public async connectTransport(transport: Parameters<Server["connect"]>[0]): Promise<Server> {
+    const sdkServer = this.createConfiguredServer(randomUUID());
+    await sdkServer.connect(transport);
+    return sdkServer;
   }
 
   /**
@@ -1426,10 +1470,11 @@ export class MinskyMCPServer {
           //   - observability.calibration-review takes its concurrency claim AS the caller.
           //     Without this, `resolveActorId` falls back to harness env vars the long-lived
           //     MCP server process does not have, and every MCP-invoked pass runs unclaimed.
-          // Membership is EXACT (canonical name + Claude-Desktop alias, both registered),
-          // never a substring. The server overwrites any caller-supplied value, so it
-          // cannot be spoofed here.
-          if (CALLER_ACTOR_ID_TOOL_NAMES.has(request.params.name)) {
+          // Membership is EXACT, never a substring, and is tested against the RESOLVED
+          // `tool.name` (mt#4827) — the REGISTERED name, never the wire alias — so the
+          // Set carries one spelling per tool and an alias-calling client still matches.
+          // The server overwrites any caller-supplied value, so it cannot be spoofed.
+          if (CALLER_ACTOR_ID_TOOL_NAMES.has(tool.name)) {
             const injectedArgs = (request.params.arguments ?? {}) as Record<string, unknown>;
             injectedArgs.callerActorId = agentId;
             request.params.arguments = injectedArgs;
@@ -1536,8 +1581,13 @@ export class MinskyMCPServer {
           // log after the request had already returned — the wrapper-below-inner-timeout
           // corollary in `decision-defaults.mdc §Thresholds`, which this task cites about
           // postgres-js and then nearly repeated here. Caught in PR #3301 review.
+          // mt#4827: pass the RESOLVED `tool.name` (canonical, dotted), not
+          // `request.params.name` (the raw wire name). `ENRICHMENT_ALLOWLIST` holds
+          // dotted names, and `tools/list` advertises the UNDERSCORED alias by default
+          // (`shouldEmitDesktopAliases`), so a wire-name test can never match. Same
+          // idiom as `DI_FREE_TOOL_NAMES` above.
           const enrichmentBlock = await enrichToolResponse(
-            request.params.name,
+            tool.name,
             request.params.arguments || {},
             this.memoryService
           );
@@ -1554,8 +1604,14 @@ export class MinskyMCPServer {
           // rather than only on the five that carry a session argument. Layer 1 is
           // withheld deliberately — it is a process hash, so every conversation on
           // this server would resolve the same value and drain each other's wakes.
+          // mt#4827: `tool.name`, not `request.params.name` — see the note on the
+          // memory-enrichment call above. This one was not merely latent: the
+          // session-keyed leg has never fired in production, because every recorded
+          // client calls via the underscored alias while the allowlist holds only
+          // dotted names. `pr.watch` wakes are addressed by `parentSessionId` alone
+          // (`wake-on-respond.ts` §addressing key), so this leg is their ONLY route.
           const wakeBlock = await enrichWakeResponse(
-            request.params.name,
+            tool.name,
             request.params.arguments || {},
             this.wakeService,
             this.wakeSessionResolver,

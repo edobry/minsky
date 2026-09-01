@@ -153,10 +153,12 @@ describe("the two registrations that decide whether this works over MCP", () => 
     expect(command.id).toBe("tasks.claims.release");
   });
 
-  test("the command id is in CALLER_ACTOR_ID_TOOL_NAMES under both name forms", async () => {
-    // The injection set is exact-match on the dotted name AND its Claude-Desktop
-    // underscore alias. A command missing from it resolves no identity over MCP
-    // and releases nothing, while working correctly over the CLI.
+  test("the command id is in CALLER_ACTOR_ID_TOOL_NAMES, matched on the resolved name", async () => {
+    // The injection set is exact-match on the RESOLVED `tool.name`, which is always
+    // the canonical dotted form (mt#4827) — so a Claude-Desktop alias caller still
+    // matches without the set carrying a second spelling. A command missing from it
+    // resolves no identity over MCP and releases nothing, while working correctly
+    // over the CLI.
     const source = await Bun.file(
       new URL("../../../../mcp/server.ts", import.meta.url).pathname
     ).text();
@@ -170,9 +172,12 @@ describe("the two registrations that decide whether this works over MCP", () => 
     );
     expect(setBlock).toContain("CLAIMS_RELEASE_TOOL_NAME");
     expect(source).toContain('const CLAIMS_RELEASE_TOOL_NAME = "tasks.claims.release"');
-    // Both forms come from the flatMap over toClaudeDesktopName, so membership
-    // of the constant is membership of both aliases.
-    expect(setBlock).toContain("toClaudeDesktopName(name)");
+    // The set holds canonical names ONLY; alias coverage comes from the call site
+    // resolving the name first, not from the set carrying both spellings (mt#4827).
+    // Assert the call site actually does that — without it, this set silently stops
+    // matching every underscore-calling client, which is the defect mt#4827 fixed.
+    expect(setBlock).not.toContain("toClaudeDesktopName");
+    expect(source).toContain("CALLER_ACTOR_ID_TOOL_NAMES.has(tool.name)");
   });
 
   test("the effect classification marks it as mutating, not reading", async () => {
