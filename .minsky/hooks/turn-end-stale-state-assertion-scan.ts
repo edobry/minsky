@@ -176,9 +176,15 @@ export const NOMINATION_EXEMPLARS: ExemplarSet[] = [
  * Named to match the shipped sibling's convention
  * (`MINSKY_DISABLE_RUNG2_NOMINATION` on `retrospective-trigger-scanner`) but
  * scoped to this guard, so one detector's stage can be silenced without
- * silencing the other's. NOT a new operator-override var in the
- * `hook-files.mdc` sense — `MINSKY_SKIP_STALE_STATE_ASSERTION_SCAN` still
- * disables the whole guard, and this only reaches the semantic stage.
+ * silencing the other's.
+ *
+ * Registered `operator-override` in `HOOK_ONLY_ENV_VAR_CATEGORIES` and listed
+ * in `known-override-env-vars.ts`, exactly as the sibling is. An earlier draft
+ * of this docblock claimed it was "not an operator-override var in the
+ * `hook-files.mdc` sense" because the whole-guard skip already exists — that was
+ * wrong on the registry axis: the sibling has identical semantics and identical
+ * reasoning, and IS registered. `known-override-env-vars.test.ts` fails naming
+ * the entry when it is not.
  */
 export const NOMINATION_DISABLE_ENV_VAR = "MINSKY_DISABLE_STALE_STATE_RUNG2";
 

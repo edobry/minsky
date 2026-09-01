@@ -72,6 +72,7 @@ export const KNOWN_OVERRIDE_ENV_VARS: ReadonlySet<string> = new Set([
   // override is used rather than reordering the list to dodge the heuristic.
   "MINSKY_ALLOW_SECRET_FILE_READ", // gitleaks:allow
   "MINSKY_DISABLE_RUNG2_NOMINATION",
+  "MINSKY_DISABLE_STALE_STATE_RUNG2",
   "MINSKY_DISABLE_RUNG3_CONFIRM",
   "MINSKY_FORCE_BYPASS",
   "MINSKY_FORCE_DUPLICATE_OK",
