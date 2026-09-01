@@ -189,9 +189,9 @@ export interface MinskyMCPServerOptions {
 /**
  * mt#3121: the canonical (dotted) protocol name of the dispatch-recover tool.
  * The request handler injects the resolved caller agentId into ONLY this tool's
- * args (matched exactly against the RESOLVED `tool.name`, which is always this
- * canonical form — mt#4827) so its contested-check can exclude the caller's own
- * task-grain claims.
+ * args, matched exactly against the RESOLVED `tool.name` (mt#4827) — the name this
+ * tool was REGISTERED under, which for a registry-sourced tool is this dotted
+ * constant. So its contested-check can exclude the caller's own task-grain claims.
  */
 const DISPATCH_RECOVER_TOOL_NAME = "tasks.dispatch-recover";
 
@@ -256,14 +256,27 @@ const TASKS_CREATE_TOOL_NAME = "tasks.create";
  * caller-supplied value) is the part that must not drift between them. One
  * membership test cannot disagree with itself.
  *
- * CANONICAL NAMES ONLY (mt#4827). This Set used to flat-map each name through
+ * REGISTERED NAMES ONLY (mt#4827). This Set used to flat-map each name through
  * `toClaudeDesktopName` so it held both spellings, because the call site tested
  * `request.params.name` — the raw wire name. The call site now tests the RESOLVED
- * `tool.name`, which is always canonical, so the alias entries are dead weight and
- * their absence is what keeps `src/mcp/` on ONE idiom instead of three. Do not
- * reintroduce the flat-map: a Set that holds both spellings hides whether its call
- * site resolved the name, which is exactly how the two enrichment allowlists sat
- * broken and silent.
+ * `tool.name`, so the alias entries are dead weight, and their absence is what keeps
+ * `src/mcp/` on ONE idiom instead of three.
+ *
+ * **The exact invariant, stated precisely (PR #3532 R1).** `addTool` maps BOTH the
+ * canonical name and its underscored alias to the SAME `ToolDefinition` object, whose
+ * `.name` is the name it was registered under. So `tool.name` is guaranteed to be the
+ * REGISTERED name and never the wire alias — that is what makes a dotted-only Set
+ * match an alias-calling client, and it is structural, not a convention.
+ *
+ * What is NOT guaranteed is that a registered name is DOTTED: `addTool("plain_name")`
+ * is legal and registers exactly once (see the mt#1779 suite). Every entry in this Set
+ * comes from the shared command registry, whose ids are dotted — that is a property of
+ * the SOURCE, not of the dispatch path, so do not read this Set as proof that all
+ * `tool.name` values contain a dot.
+ *
+ * Do not reintroduce the flat-map: a Set holding both spellings hides whether its call
+ * site resolved the name, which is exactly how the two enrichment allowlists sat broken
+ * and silent.
  */
 const CALLER_ACTOR_ID_TOOL_NAMES: ReadonlySet<string> = new Set([
   DISPATCH_RECOVER_TOOL_NAME,
@@ -825,6 +838,29 @@ export class MinskyMCPServer {
         `exit at the next idle gap and the stdio proxy respawns it on the current build. ` +
         `Only if minsky runs WITHOUT the proxy does this need a manual /mcp reconnect.`
     );
+  }
+
+  /**
+   * Connect a fully-configured SDK `Server` to a caller-supplied transport, and
+   * return it (mt#4827).
+   *
+   * Public for the same reason {@link checkDriftGate} is: so a unit test can
+   * exercise the REAL request handlers without standing up stdio or HTTP. The
+   * difference is what it replaces — tests that need the dispatch path have been
+   * reaching into the SDK's PRIVATE `_requestHandlers` map (~20 sites across five
+   * files). That works, but it couples our suite to an SDK internal, which is
+   * exactly the brittleness PR #3532 R1 flagged as BLOCKING. Paired with the SDK's
+   * own `InMemoryTransport.createLinkedPair()`, this seam lets a test drive the
+   * server through the SUPPORTED client/transport surface instead.
+   *
+   * Pre-existing `_requestHandlers` sites are deliberately NOT migrated here —
+   * that is a test-only refactor across four files and does not belong in a
+   * bugfix diff. Tracked at mt#4844; new tests should use this seam.
+   */
+  public async connectTransport(transport: Parameters<Server["connect"]>[0]): Promise<Server> {
+    const sdkServer = this.createConfiguredServer(randomUUID());
+    await sdkServer.connect(transport);
+    return sdkServer;
   }
 
   /**
@@ -1435,9 +1471,9 @@ export class MinskyMCPServer {
           //     Without this, `resolveActorId` falls back to harness env vars the long-lived
           //     MCP server process does not have, and every MCP-invoked pass runs unclaimed.
           // Membership is EXACT, never a substring, and is tested against the RESOLVED
-          // `tool.name` (mt#4827) — so the Set holds canonical dotted names only and a
-          // Claude-Desktop alias caller still matches. The server overwrites any
-          // caller-supplied value, so it cannot be spoofed here.
+          // `tool.name` (mt#4827) — the REGISTERED name, never the wire alias — so the
+          // Set carries one spelling per tool and an alias-calling client still matches.
+          // The server overwrites any caller-supplied value, so it cannot be spoofed.
           if (CALLER_ACTOR_ID_TOOL_NAMES.has(tool.name)) {
             const injectedArgs = (request.params.arguments ?? {}) as Record<string, unknown>;
             injectedArgs.callerActorId = agentId;

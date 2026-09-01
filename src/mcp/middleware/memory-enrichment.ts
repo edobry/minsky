@@ -40,11 +40,12 @@ import { safeTruncate } from "@minsky/shared/safe-truncate";
  * Tools the spike enriches. Hardcoded for spike scope. Production graduation
  * (if this shape is chosen) introduces an opt-in registration mechanism.
  */
-// CANONICAL (dotted) NAMES ONLY — same contract as `WAKE_ENRICHMENT_ALLOWLIST`
-// (mt#4827). `toolName` must be the RESOLVED `tool.name`, never the raw wire name,
-// which is UNDERSCORED for every client. This Set had the identical latent defect and
-// was masked only by the `MINSKY_MCP_MEMORY_ENRICHMENT` default-off gate; mt#4670
-// removes that gate, at which point a wire-name caller would surface as a new bug.
+// REGISTERED tool names — same contract as `WAKE_ENRICHMENT_ALLOWLIST` (mt#4827), and
+// see that comment for the precise invariant. `toolName` must be the RESOLVED
+// `tool.name`, never the raw wire name, which is UNDERSCORED for every client. This Set
+// had the identical latent defect and was masked only by the
+// `MINSKY_MCP_MEMORY_ENRICHMENT` default-off gate; mt#4670 removes that gate, at which
+// point a wire-name caller would surface as a new bug.
 const ENRICHMENT_ALLOWLIST = new Set<string>(["tasks.get"]);
 
 /** Top-K results returned by memory_search. */
