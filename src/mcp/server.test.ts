@@ -4,12 +4,47 @@
  * @refactored Uses project utilities and proper TypeScript imports
  */
 import { describe, test, expect, beforeEach, mock } from "bun:test";
-import { Server as SdkServer } from "@modelcontextprotocol/sdk/server/index.js";
-import { StreamableHTTPServerTransport as SdkStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { NodeStreamableHTTPServerTransport as SdkStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
+import { Server as SdkServer } from "@modelcontextprotocol/server";
 import express from "express";
 import type { AddressInfo } from "net";
 import { setupTestMocks } from "../utils/test-utils/mocking";
 import { log } from "@minsky/shared/logger";
+
+/**
+ * Retrieve the registered `tools/call` handler and wrap it with the minimal v2-shaped
+ * context the SDK now requires (mt#4854).
+ *
+ * This centralizes two things that were repeated at all eight call sites below:
+ *
+ * 1. **The reach into the SDK's PRIVATE `_requestHandlers` map.** That coupling is what
+ *    mt#4844 tracks and migrates to the supported `connectTransport` +
+ *    `InMemoryTransport` seam; collapsing eight copies into one shrinks that job to a
+ *    single edit, and keeps this file under the 1500-line `max-lines` ceiling it was
+ *    already sitting exactly on.
+ * 2. **The handler context.** SDK v2 routes every input-required-capable handler —
+ *    `tools/call` among them — through `Server._invokeInputRequiredCapableHandler`,
+ *    which reads `ctx.mcpReq.requestState()` BEFORE delegating. The bare `{}` these
+ *    tests passed as `extra` under v1 therefore throws inside the SDK now, before any
+ *    Minsky code runs. `tools/list` is NOT input-required-capable, which is why its
+ *    invocation further down still passes `{}` unchanged and needs nothing from here.
+ *
+ * `requestState: () => undefined` is the "this round carries no request state" case,
+ * which is what every test here means; the SDK skips the rest of its own wrapper once
+ * the handler returns an ordinary result.
+ */
+function getToolsCallHandler(
+  sdkServer: unknown
+): (request: unknown, ctx?: unknown) => Promise<unknown> {
+  const handlers = (sdkServer as { _requestHandlers: Map<string, Function> })._requestHandlers;
+  const handler = handlers.get("tools/call");
+  if (!handler) throw new Error("Expected tools/call handler to be registered");
+  return (request: unknown, ctx: unknown = {}) =>
+    handler(request, {
+      ...(ctx as Record<string, unknown>),
+      mcpReq: { requestState: () => undefined },
+    }) as Promise<unknown>;
+}
 
 // Shared HTTP content-type constants used across integration tests
 const CONTENT_TYPE_JSON = "application/json";
@@ -38,13 +73,13 @@ describe("MCP Server", () => {
   });
 
   test("should import official MCP SDK module successfully", async () => {
-    const { Server } = await import("@modelcontextprotocol/sdk/server/index.js");
+    const { Server } = await import("@modelcontextprotocol/server");
     expect(Server).toBeDefined();
     expect(typeof Server).toBe("function");
   });
 
   test("should import stdio transport successfully", async () => {
-    const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
+    const { StdioServerTransport } = await import("@modelcontextprotocol/server/stdio");
     expect(StdioServerTransport).toBeDefined();
     expect(typeof StdioServerTransport).toBe("function");
   });
@@ -546,10 +581,7 @@ describe("MCP Server", () => {
     });
 
     const sdkServer = (server as unknown as { server: unknown }).server;
-    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
-      ._requestHandlers;
-    const toolsCallHandler = handlers.get("tools/call");
-    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+    const toolsCallHandler = getToolsCallHandler(sdkServer);
 
     await toolsCallHandler({ method: "tools/call", params: { name: "greet", arguments: {} } }, {});
 
@@ -593,10 +625,7 @@ describe("MCP Server", () => {
     });
 
     const sdkServer = (server as unknown as { server: unknown }).server;
-    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
-      ._requestHandlers;
-    const toolsCallHandler = handlers.get("tools/call");
-    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+    const toolsCallHandler = getToolsCallHandler(sdkServer);
 
     await expect(
       toolsCallHandler({ method: "tools/call", params: { name: "fail", arguments: {} } }, {})
@@ -626,10 +655,7 @@ describe("MCP Server", () => {
     (server as unknown as { emitDispatchEvent: typeof emitSpy }).emitDispatchEvent = emitSpy;
 
     const sdkServer = (server as unknown as { server: unknown }).server;
-    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
-      ._requestHandlers;
-    const toolsCallHandler = handlers.get("tools/call");
-    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+    const toolsCallHandler = getToolsCallHandler(sdkServer);
 
     await expect(
       toolsCallHandler(
@@ -706,10 +732,7 @@ describe("MCP Server", () => {
     // _requestHandlers map (keyed by "tools/call"). This exercises the actual
     // wiring in setupRequestHandlers — the getStaleWarning() check must be present
     // for sendLoggingMessage to fire here.
-    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
-      ._requestHandlers;
-    const toolsCallHandler = handlers.get("tools/call");
-    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+    const toolsCallHandler = getToolsCallHandler(sdkServer);
 
     const syntheticRequest = {
       method: "tools/call",
@@ -797,10 +820,7 @@ describe("MCP Server", () => {
       }
     );
 
-    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
-      ._requestHandlers;
-    const toolsCallHandler = handlers.get("tools/call");
-    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+    const toolsCallHandler = getToolsCallHandler(sdkServer);
 
     const syntheticRequest = {
       method: "tools/call",
@@ -984,10 +1004,7 @@ describe("MCP Server", () => {
     const sdkServer = (server as unknown as { server: { sendLoggingMessage: unknown } }).server;
     sdkServer.sendLoggingMessage = mock(async () => {});
 
-    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
-      ._requestHandlers;
-    const toolsCallHandler = handlers.get("tools/call");
-    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+    const toolsCallHandler = getToolsCallHandler(sdkServer);
 
     const textOf = (res: unknown): string =>
       (res as { content: Array<{ type: string; text?: string }> }).content.find(
@@ -1112,10 +1129,7 @@ describe("MCP Server", () => {
     const sdkServer = (server as unknown as { server: { sendLoggingMessage: unknown } }).server;
     sdkServer.sendLoggingMessage = mock(async () => {});
 
-    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
-      ._requestHandlers;
-    const toolsCallHandler = handlers.get("tools/call");
-    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+    const toolsCallHandler = getToolsCallHandler(sdkServer);
 
     const textOf = (res: unknown): string =>
       (res as { content: Array<{ type: string; text?: string }> }).content.find(
@@ -1191,10 +1205,7 @@ describe("MCP Server", () => {
     const sdkServer = (server as unknown as { server: { sendLoggingMessage: unknown } }).server;
     sdkServer.sendLoggingMessage = mock(async () => {});
 
-    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
-      ._requestHandlers;
-    const toolsCallHandler = handlers.get("tools/call");
-    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+    const toolsCallHandler = getToolsCallHandler(sdkServer);
 
     const textOf = (res: unknown): string =>
       (res as { content: Array<{ type: string; text?: string }> }).content.find(

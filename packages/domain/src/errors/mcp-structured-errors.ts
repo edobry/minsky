@@ -13,7 +13,7 @@
  *     subprocessOutput: hookStderr,
  *   });
  */
-import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
+import { ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/server";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { type McpErrorCodeValue } from "./mcp-error-codes";
 
@@ -108,12 +108,12 @@ function buildWireMessage(payload: McpErrorPayload): string {
  * layer — there is no purpose-specific JSON-RPC code for tool failures. The
  * domain-level discrimination happens via `data.code`.
  */
-export class StructuredMcpError extends McpError {
+export class StructuredMcpError extends ProtocolError {
   /** The structured payload that callers should inspect. */
   readonly payload: McpErrorPayload;
 
   constructor(payload: McpErrorPayload) {
-    super(ErrorCode.InternalError, buildWireMessage(payload), payload);
+    super(ProtocolErrorCode.InternalError, buildWireMessage(payload), payload);
     this.payload = payload;
     this.name = "StructuredMcpError";
   }
