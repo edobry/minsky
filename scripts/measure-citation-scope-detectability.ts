@@ -41,9 +41,15 @@
  * ## Usage
  *
  *   bun scripts/measure-citation-scope-detectability.ts
+ *   bun scripts/measure-citation-scope-detectability.ts --corpus specs
  *   bun scripts/measure-citation-scope-detectability.ts --limit 80
  *   bun scripts/measure-citation-scope-detectability.ts --layer L3 --show 40
  *   bun scripts/measure-citation-scope-detectability.ts --json
+ *
+ * `--corpus` selects which of SC1's two named corpora to measure: `prs` (default, merged PR
+ * bodies via `gh`) or `specs` (task specs via the Minsky CLI). Both are measured because SC1
+ * names both, and a matcher that behaved differently across the two registers would be evidence
+ * about the register rather than about the axis.
  *
  * Exit 0 = measured. Exit 1 = the corpus could not be fetched or an argument is malformed.
  * Exit 2 = the corpus came back empty although the fetch succeeded, which means the filter is
@@ -64,21 +70,30 @@ const AT3_MINIMUM_CORPUS = 50;
 /** ADR-034's written bar for the sibling detector on this surface. */
 const PRECISION_BAR_PERCENT = 10;
 
-interface PullRequestBody {
-  number: number;
+/**
+ * One corpus item. SC1 names TWO corpora — "merged PR bodies and task specs" — and they are a
+ * genuinely different prose register: a PR body argues that a change is correct, a spec argues
+ * that a problem exists. A matcher that behaves differently across them would be evidence the
+ * measurement is register-bound rather than about the axis, so both are measured.
+ */
+interface CorpusDocument {
+  id: string;
   title: string;
   body: string;
 }
+
+type CorpusKind = "prs" | "specs";
 
 interface Args {
   limit: number;
   layer: MatchLayer;
   show: number;
   json: boolean;
+  corpus: CorpusKind;
 }
 
 function parseArgs(argv: readonly string[]): Args {
-  const args: Args = { limit: 60, layer: "L2", show: 25, json: false };
+  const args: Args = { limit: 60, layer: "L2", show: 25, json: false, corpus: "prs" };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     const value = argv[i + 1];
@@ -108,6 +123,14 @@ function parseArgs(argv: readonly string[]): Args {
         i += 1;
         break;
       }
+      case "--corpus": {
+        if (value !== "prs" && value !== "specs") {
+          fail(`--corpus must be prs or specs; got ${value}`);
+        }
+        args.corpus = value;
+        i += 1;
+        break;
+      }
       case "--json":
         args.json = true;
         break;
@@ -127,7 +150,7 @@ function fail(message: string): never {
  * Fetch merged PR bodies. `gh` is used rather than an HTTP client so the caller's existing
  * authentication applies and no credential is read, held, or passed by this process.
  */
-function fetchMergedPullRequests(limit: number): PullRequestBody[] {
+function fetchMergedPullRequests(limit: number): CorpusDocument[] {
   const result = Bun.spawnSync(
     [
       "gh",
@@ -156,12 +179,51 @@ function fetchMergedPullRequests(limit: number): PullRequestBody[] {
   }
   if (!Array.isArray(parsed)) fail("gh returned JSON that is not an array");
 
-  return (parsed as PullRequestBody[]).filter((pr) => typeof pr.body === "string");
+  return (parsed as { number: number; title: string; body: string }[])
+    .filter((pr) => typeof pr.body === "string")
+    .map((pr) => ({ id: `PR #${pr.number}`, title: pr.title, body: pr.body }));
+}
+
+/** Run the Minsky CLI and return parsed JSON, or fail with its stderr. */
+function minskyJson(args: readonly string[]): unknown {
+  const result = Bun.spawnSync(["minsky", ...args, "--json"], { stdout: "pipe", stderr: "pipe" });
+  if (result.exitCode !== 0) {
+    const stderr = result.stderr.toString().trim();
+    fail(`minsky ${args.join(" ")} exited ${result.exitCode}: ${stderr || "no stderr"}`);
+  }
+  try {
+    return JSON.parse(result.stdout.toString());
+  } catch (cause) {
+    fail(`minsky ${args.join(" ")} returned unparseable JSON: ${(cause as Error).message}`);
+  }
+}
+
+/**
+ * Fetch task specs — SC1's second named corpus.
+ *
+ * One subprocess per spec, because the CLI has no bulk spec read. That is slow and deliberately
+ * not optimised: this runs once to produce a number, not on any hot path. A spec that comes back
+ * without content is skipped rather than counted as an empty document, so the denominator is
+ * specs actually READ.
+ */
+function fetchTaskSpecs(limit: number): CorpusDocument[] {
+  const listed = minskyJson(["tasks", "list", "--limit", String(limit)]);
+  const tasks = (listed as { tasks?: { id: string; title: string }[] })?.tasks;
+  if (!Array.isArray(tasks)) fail("minsky tasks list returned no `tasks` array");
+
+  const docs: CorpusDocument[] = [];
+  for (const task of tasks) {
+    const spec = minskyJson(["tasks", "spec", "get", task.id]) as { content?: string };
+    if (typeof spec?.content === "string" && spec.content.length > 0) {
+      docs.push({ id: task.id, title: task.title, body: spec.content });
+    }
+  }
+  return docs;
 }
 
 interface FlaggedMatch extends CitationScopeMatch {
-  prNumber: number;
-  prTitle: string;
+  docId: string;
+  docTitle: string;
 }
 
 function atOrDeeper(match: CitationScopeMatch, layer: MatchLayer): boolean {
@@ -171,36 +233,40 @@ function atOrDeeper(match: CitationScopeMatch, layer: MatchLayer): boolean {
 
 function main(): void {
   const args = parseArgs(process.argv.slice(2));
-  const pullRequests = fetchMergedPullRequests(args.limit);
+  const label = args.corpus === "prs" ? "merged PR bodies" : "task specs";
+  const documents =
+    args.corpus === "prs" ? fetchMergedPullRequests(args.limit) : fetchTaskSpecs(args.limit);
 
-  if (pullRequests.length === 0) {
-    process.stderr.write("error: gh succeeded but returned no merged PRs — check the filter\n");
+  if (documents.length === 0) {
+    process.stderr.write(
+      `error: the fetch succeeded but returned no ${label} — check the filter\n`
+    );
     process.exit(2);
   }
-  if (pullRequests.length < AT3_MINIMUM_CORPUS) {
+  if (documents.length < AT3_MINIMUM_CORPUS) {
     process.stderr.write(
-      `error: corpus is ${pullRequests.length} PRs, below AT3's floor of ${AT3_MINIMUM_CORPUS}\n`
+      `error: corpus is ${documents.length} ${label}, below AT3's floor of ${AT3_MINIMUM_CORPUS}\n`
     );
     process.exit(1);
   }
 
   const flagged: FlaggedMatch[] = [];
   const totals: Record<MatchLayer, number> = { L1: 0, L2: 0, L3: 0 };
-  const prsWithHit: Record<MatchLayer, Set<number>> = {
+  const docsWithHit: Record<MatchLayer, Set<string>> = {
     L1: new Set(),
     L2: new Set(),
     L3: new Set(),
   };
 
-  for (const pr of pullRequests) {
-    const matches = findCitationScopeMatches(pr.body);
+  for (const doc of documents) {
+    const matches = findCitationScopeMatches(doc.body);
     const tally = tallyByLayer(matches);
     for (const layer of ["L1", "L2", "L3"] as const) {
       totals[layer] += tally[layer];
-      if (tally[layer] > 0) prsWithHit[layer].add(pr.number);
+      if (tally[layer] > 0) docsWithHit[layer].add(doc.id);
     }
     for (const m of matches) {
-      if (atOrDeeper(m, args.layer)) flagged.push({ ...m, prNumber: pr.number, prTitle: pr.title });
+      if (atOrDeeper(m, args.layer)) flagged.push({ ...m, docId: doc.id, docTitle: doc.title });
     }
   }
 
@@ -208,13 +274,14 @@ function main(): void {
     process.stdout.write(
       `${JSON.stringify(
         {
-          corpusSize: pullRequests.length,
+          corpus: args.corpus,
+          corpusSize: documents.length,
           precisionBarPercent: PRECISION_BAR_PERCENT,
           matchesByLayer: totals,
-          prsWithHitByLayer: {
-            L1: prsWithHit.L1.size,
-            L2: prsWithHit.L2.size,
-            L3: prsWithHit.L3.size,
+          docsWithHitByLayer: {
+            L1: docsWithHit.L1.size,
+            L2: docsWithHit.L2.size,
+            L3: docsWithHit.L3.size,
           },
           flagged: flagged.slice(0, args.show),
         },
@@ -225,13 +292,13 @@ function main(): void {
     return;
   }
 
-  const pct = (n: number): string => `${((n / pullRequests.length) * 100).toFixed(1)}%`;
+  const pct = (n: number): string => `${((n / documents.length) * 100).toFixed(1)}%`;
 
-  process.stdout.write(`Corpus: ${pullRequests.length} merged PR bodies\n\n`);
-  process.stdout.write("Layer  matches  PRs with >=1 hit  share of corpus\n");
+  process.stdout.write(`Corpus: ${documents.length} ${label}\n\n`);
+  process.stdout.write("Layer  matches  docs with >=1 hit  share of corpus\n");
   for (const layer of ["L1", "L2", "L3"] as const) {
     process.stdout.write(
-      `${layer}     ${String(totals[layer]).padStart(7)}  ${String(prsWithHit[layer].size).padStart(16)}  ${pct(prsWithHit[layer].size).padStart(14)}\n`
+      `${layer}     ${String(totals[layer]).padStart(7)}  ${String(docsWithHit[layer].size).padStart(17)}  ${pct(docsWithHit[layer].size).padStart(14)}\n`
     );
   }
 
@@ -243,7 +310,7 @@ function main(): void {
   );
 
   for (const m of flagged.slice(0, args.show)) {
-    process.stdout.write(`--- PR #${m.prNumber} [${m.layer}] ${m.prTitle}\n`);
+    process.stdout.write(`--- ${m.docId} [${m.layer}] ${m.docTitle}\n`);
     process.stdout.write(`    symbols:  ${m.citedSymbols.join(", ")}\n`);
     process.stdout.write(`    joined by: ${m.connectives.join(", ")}\n`);
     const drifting = m.scopeAssertions.filter((a) => a.subjectDrifts);
