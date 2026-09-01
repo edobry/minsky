@@ -73,6 +73,7 @@ import type { SpecTextRead } from "./authored-spec-text";
 // routine — so the calibration excerpt cannot use a bare `.slice`, which may
 // split a surrogate pair (`custom/no-unsafe-string-truncation`).
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+import { blankSameLength } from "../../packages/domain/src/text/prose-elision";
 import {
   normalizeTaskId,
   prNumbersWithFileListRead,
@@ -371,7 +372,7 @@ const CITATION_PARENTHETICAL_RE = /\(\s*same\s+file\b[^)]*\)/gi;
  * into the paragraph stays aligned.
  */
 function elideCitationParentheticals(text: string): string {
-  return text.replace(CITATION_PARENTHETICAL_RE, (m) => m.replace(/[^\n]/g, " "));
+  return text.replace(CITATION_PARENTHETICAL_RE, blankSameLength);
 }
 
 /**

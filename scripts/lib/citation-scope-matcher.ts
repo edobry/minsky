@@ -60,6 +60,7 @@ import {
   elideBlocksAndQuotes,
   symbolsNear,
 } from "../../.minsky/hooks/code-mechanism-assertion-detector";
+import { blankSameLength } from "@minsky/domain/text/prose-elision";
 
 /** Which nested layer a match reached. Strictly ordered: L3 implies L2 implies L1. */
 export type MatchLayer = "L1" | "L2" | "L3";
@@ -133,7 +134,10 @@ function normalizeForPhraseMatch(window: string): string {
   // live: PR #3528 quotes a guard's own output, *"this guard never fired."*, and the quoted
   // `never` was read as this PR's own scope assertion. Backticked spans are deliberately NOT
   // elided — a backticked symbol is the citation this matcher is keyed on.
-  const quotesElided = window.replace(/"[^"\n]*"|“[^”\n]*”/g, (m) => " ".repeat(m.length));
+  // Same-length, NON-matching filler (mt#4793). A space filler lets a caller's own `\s+` run
+  // through the blanked quote and match text that was never adjacent — the manufactured-match
+  // defect mt#4792 fixed in the shared primitive.
+  const quotesElided = window.replace(/"[^"\n]*"|“[^”\n]*”/g, blankSameLength);
   return quotesElided.replace(/[*_]/g, " ");
 }
 

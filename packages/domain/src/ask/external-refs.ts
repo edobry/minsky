@@ -39,6 +39,8 @@
  */
 
 /** A 32-hex Notion page id, dashed (canonical UUID) or bare. */
+import { blankSameLength } from "../text/prose-elision";
+
 const NOTION_ID_BODY = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32}";
 
 /**
@@ -123,7 +125,13 @@ export interface LinkifyExternalRefsResult {
  * inside a fence would corrupt the block it sits in.
  */
 export function elideCodeRegions(text: string): string {
-  const blank = (m: string): string => m.replace(/[^\n]/g, " ");
+  // Same-length AND non-matching (mt#4793). Same-length is the offset property documented above.
+  // Non-matching is the second, separately load-bearing half, and this call site genuinely needs
+  // it: `NOTION_CUE` contains `[\s:—–-]*`, a whitespace-tolerant separator, so a SPACE filler let
+  // the cue run straight through a blanked code region and bind `notion` to an id it was never
+  // adjacent to — appending a wrong URL into an ask body. `·` is in neither `\s` nor the
+  // separator class, so the cue can no longer span an elided span.
+  const blank = blankSameLength;
   return text
     .replace(/```[\s\S]*?```/g, blank)
     .replace(/~~~[\s\S]*?~~~/g, blank)
