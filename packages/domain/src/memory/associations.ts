@@ -337,6 +337,20 @@ export function planAssociationsUpdate(
  * });
  * ```
  */
+/**
+ * **`string[]`, not `AssociationType[]`, and that is deliberate (PR #3557 R1, non-blocking).**
+ *
+ * Narrowing to the closed vocabulary would catch typos, and it would break the caller this helper
+ * exists for. `normalize-memory-associations.ts` removes DIVERGENT keys — computed as
+ * `Object.keys(associations).filter((k) => !isKnownAssociationType(k))`, so they are by
+ * construction the keys the vocabulary does NOT contain. That cleanup path is what ADR-012's
+ * mt#4448 amendment created when it closed the vocabulary: 26 of 28 records carried undefined
+ * keys, and removing them is the only way out.
+ *
+ * So the loose signature is load-bearing for removal specifically. Removal must reach keys that
+ * validation rejects on WRITE; that asymmetry is the point, and `validateAssociations(..., "update")`
+ * already exempts empty-array values for exactly this reason.
+ */
 export function removeAssociationKeys(...keys: string[]): Record<string, string[]> {
   return Object.fromEntries(keys.map((k) => [k, [] as string[]]));
 }
