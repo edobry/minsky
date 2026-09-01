@@ -47,16 +47,22 @@
  *    there is minted once into structured data and is immune to every later fix (mt#4765).
  *    Trigger 3 is a sibling of trigger 2's `annotateMeasurementDecay` — read-path only — so
  *    its worst case is a transient advisory a reader dismisses, not a permanent association.
- * 2. **No quotation prefilter.** A status claim inside a code fence or a blockquote will
- *    match. That defect class is real and is owned by mt#4454 (gated on mt#4386's prose-
- *    quotation primitive); this trigger should adopt that primitive when it lands. It is
- *    tolerable here for exactly the reason in (1): the annotation is advisory and
- *    per-response, and it is NOT written back anywhere.
+ * 2. **Quotation prefilter: WIRED (mt#4785).** This paragraph used to read "No quotation
+ *    prefilter — a status claim inside a code fence or a blockquote will match", deferring the
+ *    class to mt#4454. That is discharged: `extractTaskStateAssertions` now matches the
+ *    ADR-024 Rung 1 residual via `elideQuotedAndMarkdown`, so a claim the record QUOTES no
+ *    longer reads as one it asserts. Measured over 1354 memories: 194 carry an assertion, 4
+ *    lose one, all 4 genuine false positives, 0 false negatives.
+ *
+ *    Naive composition is correct HERE and wrong for trigger 2 — `PARENTHETICAL_STATUS` is not
+ *    backtick-dependent, whereas trigger 2's cited-subject patterns require literal backticks
+ *    and need a raw/elided split. See `./measurement-decay.ts`.
  *
  * @see mt#4743 — this trigger's originating task
  * @see mt#4765 — why this stays off the write path
  * @see mt#4454 — the quotation prefilter, hoisted to `../text/prose-elision`
- * @see mt#4785 — wired it in here; the "when it exists" above is discharged
+ * @see mt#4785 — wired the prefilter in here (see limitation 2 above, now discharged)
+ * @see ./measurement-decay.ts — trigger 2, which needs a raw/elided SPLIT rather than this
  */
 
 import { elideQuotedAndMarkdown } from "../text/prose-elision";
