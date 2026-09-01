@@ -125,15 +125,37 @@ export class SessionNotFoundError extends Error {}
  * process before the topology was understood.
  *
  * - `unreachable` — nothing answered, through the whole retry window. The daemon
- *   is down or was never started.
+ *   is down, was never started, or is restarting more slowly than the window.
+ * - `connection-lost` — it ACCEPTED the request and the connection died before
+ *   the response was complete. See below; this is the common one locally.
  * - `timeout` — the daemon ACCEPTED the request and never answered it. The
  *   opposite finding: the transport is fine and the daemon is stuck or slow.
  * - `http-error` — it answered, with a failure status.
  * - `session-lost` — its session went away and re-initialization failed.
  * - `unknown` — anything else, including a shim-internal fault.
+ *
+ * `connection-lost` exists because the ONE thing an agent most often hits was
+ * the one thing this taxonomy could not express (mt#4828). The daemon exits by
+ * design whenever the repo's HEAD moves (`staleness_exit`, mt#1315), and under
+ * active merging it does so every few minutes. A call that is open at that
+ * moment has its socket torn down mid-response — and until mt#4828 that landed
+ * on `unknown`, whose rendering is the bare `daemon request failed`, because
+ * the body read in `postOnce` sat outside every `catch` (so it was never
+ * wrapped in a `DaemonRequestError` at all). The caller saw a message naming
+ * no cause for what is the single most predictable failure in the system.
+ *
+ * It is deliberately NOT called `restarted`. From the shim, a by-design
+ * staleness exit, a crash, an OOM kill and a `SIGTERM` are indistinguishable —
+ * all four sever an accepted request the same way, and the shim holds no
+ * evidence separating them. The name states what was OBSERVED (the connection
+ * died mid-response), and the rendering names the by-design restart as the
+ * LIKELY cause without asserting it. Bounding the claim to the channel actually
+ * checked is `claim-confidence.mdc`; the daemon-side cause is the disconnect
+ * log's job, not the shim's.
  */
 export type DaemonFailureKind =
   | "unreachable"
+  | "connection-lost"
   | "timeout"
   | "http-error"
   | "session-lost"
@@ -164,15 +186,32 @@ function errorMessage(err: unknown): string {
  * whose other MCP calls are probably failing too — and because "there is no
  * command for this" was true until this same task added one.
  */
+export function daemonFailureKindOf(err: unknown): DaemonFailureKind {
+  return err instanceof DaemonRequestError ? err.kind : "unknown";
+}
+
 export function describeDaemonFailure(err: unknown): { summary: string; detail: string } {
   const detail = errorMessage(err);
-  const kind: DaemonFailureKind = err instanceof DaemonRequestError ? err.kind : "unknown";
+  const kind: DaemonFailureKind = daemonFailureKindOf(err);
   switch (kind) {
     case "unreachable":
       return {
         summary:
-          "daemon unreachable (nothing answered) — it is down or was never started; " +
-          "run `minsky mcp status` via the CLI, which does not go through this transport",
+          "daemon unreachable (nothing answered through the retry window) — it is down, was " +
+          "never started, or restarted more slowly than the window; run `minsky mcp status` " +
+          "via the CLI, which does not go through this transport. To start one, use a " +
+          "harness-backgrounded `exec minsky mcp start --local-daemon` — a detached " +
+          "`nohup ... &` self-exits within seconds once its parent shell dies (mt#3764)",
+        detail,
+      };
+    case "connection-lost":
+      return {
+        summary:
+          "daemon connection lost mid-response — the request WAS accepted and may have taken " +
+          "effect, so VERIFY STATE before re-issuing (re-running a write could apply it " +
+          "twice). Most often the by-design staleness restart, which fires whenever the " +
+          "repo's HEAD moves; the daemon is usually already back, so the retry normally " +
+          "succeeds. `minsky mcp status` via the CLI confirms it is serving again",
         detail,
       };
     case "timeout":
@@ -507,7 +546,49 @@ export class DaemonClient {
     }
 
     const contentType = response.headers.get("content-type") ?? "";
-    const bodyText = await response.text();
+
+    // mt#4828: the body read is a SECOND severance point, and until this guard
+    // it was the unhandled one. `fetch()` resolves as soon as the response
+    // HEADERS arrive, so a daemon that dies while streaming the body throws
+    // HERE, not at the `fetch()` above — outside that call's `try`, and so
+    // outside every classifier this file has. The raw `Error` then fell
+    // through `sendWithRetry`'s final `throw err` and reached
+    // `describeDaemonFailure` as a non-`DaemonRequestError`, rendering as the
+    // bare `daemon request failed: The socket connection was closed
+    // unexpectedly` — a message naming no cause, for the most frequent local
+    // failure there is.
+    //
+    // Both severance points are now classified, and they are NOT the same
+    // finding, which is why they get different kinds: dying BEFORE headers
+    // means the daemon may never have received the call (`unreachable`, after
+    // the retry window); dying AFTER them means it certainly did
+    // (`connection-lost`). That difference is the whole basis of the retry
+    // decision below.
+    let bodyText: string;
+    try {
+      bodyText = await response.text();
+    } catch (err) {
+      // NOT retried, deliberately — this is the one place where retrying would
+      // be unsafe rather than merely wasteful. A pre-headers failure is safe to
+      // replay because the daemon never received the request; here it did, and
+      // it may have executed the tool completely before the socket died. The
+      // response is unrecoverable either way, so a replay cannot confirm what
+      // happened — it can only run the side effect a second time.
+      //
+      // The shim cannot narrow this by asking whether THIS tool is idempotent:
+      // that requires reading tool names and arguments, which is exactly the
+      // coupling to application schema that ADR-038's thin-shim posture rules
+      // out (the same reasoning already recorded above `REQUEST_TIMEOUT_MS`).
+      // So the honest move is to surface the ambiguity to the caller, who does
+      // know what it asked for, rather than resolve it here by guessing. The
+      // rendering in `describeDaemonFailure` tells them to verify state before
+      // re-issuing.
+      throw new DaemonRequestError(
+        `daemon connection lost while reading the response (the request was ` +
+          `accepted and may have taken effect): ${errorMessage(err)}`,
+        "connection-lost"
+      );
+    }
     if (!bodyText.trim()) return [];
 
     if (contentType.includes("text/event-stream")) {

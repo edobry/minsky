@@ -25,9 +25,23 @@ import {
 } from "./identity";
 import { stripUnsupportedCapabilities } from "./capabilities";
 import { readAuthToken, DEFAULT_TOKEN_PATH } from "./token";
-import { DaemonClient, describeDaemonFailure } from "./client";
+import { DaemonClient, daemonFailureKindOf, describeDaemonFailure } from "./client";
 import { makeErrorResponse, toolsListCount, type JsonRpcMessage } from "./protocol";
 import { boundOversizedResponse, type ResponseBoundDeps } from "./response-bound";
+import { recordClientFailure, type FailureLogDeps } from "./failure-log";
+
+/**
+ * The tool name from a `tools/call` envelope, or undefined for any other
+ * method (and for a malformed frame). Recorded — never branched on — so a
+ * failure record names WHICH tool died; see `failure-log.ts` on why reading
+ * this one fixed envelope field does not widen the shim's thin posture.
+ */
+function toolNameOf(msg: JsonRpcMessage): string | undefined {
+  const params = (msg as { params?: unknown }).params;
+  if (typeof params !== "object" || params === null) return undefined;
+  const name = (params as { name?: unknown }).name;
+  return typeof name === "string" ? name : undefined;
+}
 
 /** Fixed default daemon port per ADR-038 §Question 4. */
 export const DEFAULT_DAEMON_URL = "http://127.0.0.1:48765/mcp";
@@ -87,6 +101,8 @@ export interface ShimDeps {
   stderr?: NodeJS.WriteStream;
   /** Injected for tests — see {@link handleLine}'s `responseBoundDeps`. */
   responseBoundDeps?: ResponseBoundDeps;
+  /** Injected for tests — see {@link handleLine}'s `failureLogDeps`. */
+  failureLogDeps?: FailureLogDeps;
 }
 
 /**
@@ -170,6 +186,7 @@ export function runShim(options: ShimOptions, deps: ShimDeps = {}): DaemonClient
         stdout,
         stderr,
         responseBoundDeps: deps.responseBoundDeps,
+        failureLogDeps: deps.failureLogDeps,
       });
     }
   });
@@ -196,6 +213,11 @@ export async function handleLine(
      * is what every non-test caller (`runShim`) relies on.
      */
     responseBoundDeps?: ResponseBoundDeps;
+    /**
+     * Injected for tests — overrides `recordClientFailure`'s filesystem seam
+     * (mt#4828). Defaults to the real state dir / fs when omitted.
+     */
+    failureLogDeps?: FailureLogDeps;
   }
 ): Promise<void> {
   let msg: JsonRpcMessage;
@@ -296,6 +318,22 @@ export async function handleLine(
     // process while the actual fault was the daemon's connection pool.
     const { summary, detail } = describeDaemonFailure(err);
     ctx.stderr.write(`[shim] ${summary}: ${detail}\n`);
+
+    // mt#4828: stderr is the ONLY trace of a caller-visible failure, and it is
+    // not persisted anywhere — so while the daemon's own deaths are well
+    // instrumented, the tool calls they killed were not, and their cadence
+    // could not be measured. Record the client's half durably, keyed to the
+    // same clock as the daemon-side row. Never throws (see `failure-log.ts`),
+    // so it cannot displace the error being reported on the next lines.
+    recordClientFailure(
+      {
+        failureKind: daemonFailureKindOf(err),
+        method: typeof msg.method === "string" ? msg.method : "(none)",
+        toolName: toolNameOf(msg),
+        error: detail,
+      },
+      ctx.failureLogDeps
+    );
     if (msg.id !== undefined && msg.id !== null) {
       ctx.stdout.write(
         `${JSON.stringify(
