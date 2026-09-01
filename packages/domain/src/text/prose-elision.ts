@@ -50,7 +50,7 @@
  * 3. **Not `\w`**, so `\b` boundaries still form at the seams; a pattern anchored hard against
  *    an elided span behaves exactly as it did when the span was there.
  */
-const ELISION_FILL = "·";
+export const ELISION_FILL = "·";
 
 /**
  * Replace every non-newline character with {@link ELISION_FILL}, preserving length and line
@@ -76,7 +76,7 @@ const ELISION_FILL = "·";
  * file (`a pattern that does not match the raw text must not match the residual`) is the one
  * that will fail.
  */
-const blankSameLength = (match: string): string => match.replace(/[^\n]/g, ELISION_FILL);
+export const blankSameLength = (match: string): string => match.replace(/[^\n]/g, ELISION_FILL);
 
 /**
  * Replace markdown contexts that carry textual references (not coordination

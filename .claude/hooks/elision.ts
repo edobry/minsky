@@ -8,8 +8,21 @@
 // A detector that regex-matches natural-language trigger phrases must not
 // fire on text the assistant is DESCRIBING rather than asserting — quoted
 // rule text, pasted tool output, calibration-log excerpts. These helpers
-// blank such contexts with same-length whitespace so character offsets are
-// preserved for downstream excerpt slicing.
+// blank such contexts with a SAME-LENGTH, NON-MATCHING filler: same length so
+// character offsets are preserved for downstream excerpt slicing, non-matching
+// so a caller's own `\s+` cannot run through the hole and match text that was
+// never adjacent.
+//
+// The filler is imported, not restated (mt#4793). This module is consumed by
+// 12 hooks and is the widest-reach elision surface in the tree; when mt#4792
+// fixed the filler in `prose-elision.ts` it did not reach here, because this
+// module carried its own private copy of the character. One source of truth is
+// what stops the next filler fix from missing this module the same way.
+//
+// The REGEXES stay local deliberately — see `elideDoubleQuotedSpans`'s note on
+// the 200-char bound and the curly-quote pass. Which contexts each detector
+// elides is per-detector calibration and changing it would move fire rates;
+// this module converges on the FILLER only.
 //
 // History: `elideQuotedContexts` moved here verbatim from
 // `ask-routing-deferral-detector.ts` (mt#2471), which re-exports it for API
@@ -17,6 +30,8 @@
 // implementation (`elideMarkdownContexts`); consolidating it onto this
 // module belongs to the scanner-family unification thread (mt#2263 /
 // ADR-024 ladder), not mt#2672.
+
+import { blankSameLength } from "../../packages/domain/src/text/prose-elision";
 
 /**
  * Best-effort removal of code-span / fenced-code / blockquote contexts so a
@@ -29,12 +44,12 @@ export function elideQuotedContexts(text: string): string {
   let out = text;
   // Fenced code blocks (``` or ~~~).
   out = out.replace(/(^|\n)([ \t]{0,3})(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n[ \t]{0,3}\3[^\n]*/g, (m) =>
-    " ".repeat(m.length)
+    blankSameLength(m)
   );
   // Inline code spans (single/multi backtick).
-  out = out.replace(/`+[^`\n]+`+/g, (m) => " ".repeat(m.length));
+  out = out.replace(/`+[^`\n]+`+/g, (m) => blankSameLength(m));
   // Blockquote lines.
-  out = out.replace(/(^|\n)[ \t]{0,3}>+[^\n]*/g, (m) => " ".repeat(m.length));
+  out = out.replace(/(^|\n)[ \t]{0,3}>+[^\n]*/g, (m) => blankSameLength(m));
   return out;
 }
 
@@ -52,9 +67,9 @@ export function elideQuotedContexts(text: string): string {
 export function elideDoubleQuotedSpans(text: string): string {
   let out = text;
   // Straight double quotes.
-  out = out.replace(/"[^"\n]{1,200}"/g, (m) => " ".repeat(m.length));
+  out = out.replace(/"[^"\n]{1,200}"/g, (m) => blankSameLength(m));
   // Curly double quotes.
-  out = out.replace(/“[^”\n]{1,200}”/g, (m) => " ".repeat(m.length));
+  out = out.replace(/“[^”\n]{1,200}”/g, (m) => blankSameLength(m));
   return out;
 }
 

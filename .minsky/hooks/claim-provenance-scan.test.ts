@@ -674,3 +674,33 @@ describe("tasks_edit --spec-file recall (mt#4295, via mt#4525's shared resolver)
     expect(reads).toEqual([]);
   });
 });
+
+/**
+ * mt#4793 SC2 — the citation elision may only ever REMOVE matches, never manufacture one.
+ *
+ * `elideCitationParentheticals` blanks `(same file …)` spans so a CITATION of a collision is not
+ * read as an ASSERTION of one. `COLLISION_VERB_RE` is whitespace-tolerant
+ * (`overlaps?\s+(?:on|with)`, `touch(?:es)?\s+the\s+same`), so filling the blanked parenthetical
+ * with SPACES let `overlaps\s+with` run through the hole — re-manufacturing the very collision
+ * verb the elision had just removed, from two words that were never adjacent.
+ *
+ * Differential pair: the control proves the fixture can fire at all.
+ */
+describe("citation elision only ever removes collision verbs — it never manufactures one", () => {
+  // A real, adjacent collision verb: this must still be reported.
+  const CONTROL = "mt#1 overlaps with mt#2 on src/foo.ts";
+  // `overlaps` and `with` are separated by a citation parenthetical, so `overlaps\s+with` is NOT
+  // in this text. The only raw collision verb is the `same file` INSIDE the citation.
+  const CITED = "mt#1 overlaps (same file, per the duplicate scan) with mt#2 — see src/foo.ts";
+
+  test("the control is reported — the fixture is capable of firing", () => {
+    expect(claimsFileCollision(CONTROL)).toBe(true);
+  });
+
+  test("a collision verb split by a citation parenthetical is not manufactured", () => {
+    // The verb is absent from the RAW text outside the citation...
+    expect(/\boverlaps\s+with\b/.test(CITED)).toBe(false);
+    // ...so blanking the citation must not conjure it.
+    expect(claimsFileCollision(CITED)).toBe(false);
+  });
+});

@@ -132,3 +132,36 @@ describe("claim-window splitting", () => {
     expect(flagged).toEqual([]);
   });
 });
+
+/**
+ * mt#4793 SC2 — the quote elision may only ever REMOVE matches, never manufacture one.
+ *
+ * `normalizeForPhraseMatch` blanks prose-quoted spans, and several `SCOPE_MARKER_PATTERNS` are
+ * whitespace-tolerant (`\bis\s+the\b`, `\bare\s+the\b`, `\bnone\s+of\b`). Filling the blanked quote
+ * with SPACES let `is\s+the` run through the hole and read a scope assertion that the raw text
+ * does not contain.
+ *
+ * Written as a differential pair rather than an internals assertion: the same sentence with and
+ * without an intervening quote. The control proves the fixture can match at all, which is what
+ * makes the negative meaningful.
+ */
+describe("quote elision only ever removes scope markers — it never manufactures one", () => {
+  // `is the` is genuinely present: this must match.
+  const CONTROL =
+    "The reader `ingest-service.ts` resolves it, so this is the path for every stream.";
+  // `is` and `the` are separated by a quoted span: `is\s+the` is NOT in this text.
+  const QUOTED =
+    'The reader `ingest-service.ts` resolves it, so this is "what we discussed" the path for every stream.';
+
+  test("the control matches — the fixture is capable of firing", () => {
+    expect(findCitationScopeMatches(CONTROL).length).toBeGreaterThan(0);
+  });
+
+  test("a scope marker split by a quoted span is not manufactured by the elision", () => {
+    // The marker is absent from the RAW text...
+    expect(/\bis\s+the\b/.test(QUOTED)).toBe(false);
+    // ...so no scope assertion may be reported that depends on it.
+    const assertions = findCitationScopeMatches(QUOTED).flatMap((m) => m.scopeAssertions);
+    expect(assertions.some((a) => /\bis\s+the\b/i.test(a.marker ?? ""))).toBe(false);
+  });
+});

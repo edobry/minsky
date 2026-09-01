@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { anchorExcerpt, run, type StopHookInput } from "./turn-end-retro-scan";
 import { OVERRIDE_ENV_VAR, rungProvenance } from "./retrospective-trigger-scanner";
+import { elideQuotedAndCodeContexts } from "./elision";
 import {
   flagKey,
   readFlagged,
@@ -226,8 +227,14 @@ describe("anchorExcerpt — mt#4102", () => {
   // for six days.
   test("a phrase living only in the ELIDED text still anchors, via the fallback", () => {
     const raw = `One check before I answer, since "nothing reconciles them" is a claim I have been asserting. And more text after it.`;
-    const elidedOnlyPhrase =
-      "One check before I answer, since                           is a claim I have been asserting.";
+    // DERIVED from the elision, not hard-coded (mt#4793). This fixture used to spell the blanked
+    // span out as literal spaces, which pinned the FILLER CHARACTER into a test about ANCHORING —
+    // so changing the filler broke a test that has nothing to do with which character is used.
+    // Slicing the real residual keeps the property under test ("a phrase living only in the
+    // elided text still anchors") independent of what the elision fills with.
+    const elided = elideQuotedAndCodeContexts(raw);
+    const anchorEnd = elided.indexOf("asserting.") + "asserting.".length;
+    const elidedOnlyPhrase = elided.slice(0, anchorEnd);
     expect(raw.indexOf(elidedOnlyPhrase)).toBe(-1); // the pre-fix failure condition
 
     const result = anchorExcerpt(raw, elidedOnlyPhrase);
