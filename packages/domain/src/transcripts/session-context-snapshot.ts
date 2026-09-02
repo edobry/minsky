@@ -251,8 +251,12 @@ export function turnLineToBlock(
  * pinning on anything else would hoist an arbitrary first turn above every long
  * conversation in the cockpit.
  *
- * Exported for its own tests: the decision is pure and worth checking against
- * real line shapes, while the query around it is not reachable without a DB.
+ * @internal Exported for its own tests, NOT for use outside this module — the
+ * decision is pure and worth checking against real line shapes, while the query
+ * around it is not reachable without a DB. The windowed assembler is the only
+ * intended caller; a consumer wanting the pinned brief should read
+ * `SessionContextSnapshot.headBlock` rather than re-deriving it here, which is
+ * what keeps the classification in one place (PR #3586 R1).
  */
 export function dispatchBriefHeadBlock(
   agentSessionId: string,
@@ -726,7 +730,16 @@ async function assembleWindowedSessionContextSnapshot(
         s.raw as lines,
         s.head as head_line,
         coalesce(
-          (
+          -- PR #3586 R1 (NON-BLOCKING): an EMPTY slice must not re-send every
+          -- attachment. When hi <= lo the slice is an empty array, so the
+          -- min/max bounds below coalesce to -infinity and +infinity — and the
+          -- upper bound then stops bounding anything, so a request that selects
+          -- no turns would return the whole attachment set for the conversation.
+          -- The UI cannot reach it (TanStack halts paging on a null cursor), but
+          -- the route is public and can be called directly. Short-circuit on the
+          -- slice being empty, which is the same condition in a form this scope
+          -- can see.
+          case when jsonb_array_length(s.raw) = 0 then '[]'::jsonb else (
             select jsonb_agg(
               jsonb_build_object(
                 'lineIndex', a.line_index,
@@ -770,7 +783,7 @@ async function assembleWindowedSessionContextSnapshot(
                       'infinity'::timestamptz
                     )`
               }
-          ),
+          ) end,
           '[]'::jsonb
         ) as attachments
       from sliced s
