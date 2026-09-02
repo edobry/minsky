@@ -185,7 +185,7 @@ export interface MeasurementDetectionInput {
 export function extractMeasurement(
   record: MeasurementDetectionInput
 ): DetectedMeasurement | undefined {
-  const raw = `${record.description ?? ""}\n${record.content}`;
+  const raw = `${record.description ?? ""}\n${record.content ?? ""}`;
 
   // ADR-024 Rung 1 (mt#4785), applied as a SPLIT rather than a wholesale swap — and the split
   // is measured, not stylistic.
