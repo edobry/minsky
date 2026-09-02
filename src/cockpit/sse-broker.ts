@@ -14,7 +14,7 @@
  * callers should check `client.closed` before each write to guard against
  * clients that closed between dispatch and the actual write.
  *
- * @see src/domain/mesh/postgres-channel-listener.ts  (the underlying listener)
+ * @see packages/domain/src/mesh/postgres-channel-listener.ts  (the underlying listener)
  * @see src/cockpit/topic-filter.ts                   (pattern matching)
  * @see src/cockpit/server.ts                         (HTTP wiring)
  */

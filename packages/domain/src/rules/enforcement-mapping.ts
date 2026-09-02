@@ -741,6 +741,11 @@ export interface NonEnforcementHook {
  */
 export const NON_ENFORCEMENT_CLAUDE_HOOKS: NonEnforcementHook[] = [
   {
+    configPath: ".claude/hooks/coverage-claim-path-detector.ts",
+    reason:
+      "PreToolUse recorder (mt#4426); on a write to a TS-ish file, records comments that claim coverage/convention/precedent at a path which does not resolve. Enforces no rule: it returns null on every path, emits no hook output, and ships log-only per the ADR-024 ladder — a flip to live is a separate disposition through /calibration-review's Ask path. Its measured precision (21 of 22 corpus fires real) is the input to that decision, not a substitute for it",
+  },
+  {
     configPath: ".claude/hooks/warn-main-workspace-mutation.ts",
     reason:
       "PostToolUse observer (mt#2358); injects an advisory naming tracked MAIN-workspace files that became modified during a Bash call, and records a fire-log entry. Enforces no rule — it cannot block a write that already happened, and it ships advisory because a deliberate main-workspace edit is an unmeasured false-positive class",

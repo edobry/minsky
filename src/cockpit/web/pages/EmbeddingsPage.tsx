@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { InstanceScopeCue } from "../components/InstanceScopeCue";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { LoadingState } from "../components/LoadingState";
@@ -209,9 +210,7 @@ function CoverageTable({
                       <span className="ml-1.5 text-xs text-muted-foreground">(standalone)</span>
                     )}
                     {c.queryFailed && (
-                      <span className="ml-1.5 text-xs text-destructive">
-                        (query error)
-                      </span>
+                      <span className="ml-1.5 text-xs text-destructive">(query error)</span>
                     )}
                   </td>
                   <td className="py-2 text-right tabular-nums">{c.total}</td>
@@ -376,6 +375,12 @@ export function EmbeddingsPage() {
   return (
     <div className="p-4 max-w-5xl mx-auto w-full space-y-4">
       <h1 className="text-base font-semibold text-foreground">Embeddings Infrastructure</h1>
+      {/* Instance-level by design — the census decision lives in this file's
+          FRONTEND_SCOPE_ALLOWLIST entry (scope-census.ts), NOT here: the
+          literal marker phrase would double-declare and trip the census's
+          staleness check. The cue says so while a project filter is active
+          (mt#4773). */}
+      <InstanceScopeCue className="mt-1" />
 
       {overviewQuery.isLoading ? (
         <LoadingState message="Loading..." variant="page" />

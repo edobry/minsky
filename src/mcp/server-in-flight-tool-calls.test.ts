@@ -12,6 +12,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { getToolsCallHandler } from "./test-support/tools-call-handler";
 
 /** Stands in for an allocation-heavy path of the kind mt#3885 is hunting. */
 const SLOW_TOOL = "slow_allocating_tool";
@@ -44,9 +45,7 @@ describe("MinskyMCPServer.getInFlightToolCalls (mt#3973)", () => {
     });
 
     const sdkServer = (server as unknown as { server: unknown }).server;
-    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
-      ._requestHandlers;
-    const toolsCallHandler = handlers.get("tools/call");
+    const toolsCallHandler = getToolsCallHandler(sdkServer);
     if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
 
     expect(server.getInFlightToolCalls()).toEqual([]);

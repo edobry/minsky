@@ -238,6 +238,7 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   // --- observability / persistence -----------------------------------------
   "observability.calibration-review": "mutates", // advances + persists watermarks
   "observability.reviewer-cost": "reads", // SELECTs over review_timing; writes nothing
+  "observability.reviewer-events": "reads", // SELECTs over reviewer_webhook_events; writes nothing
   "observability.smoke-test": "mutates", // sends a live event to Braintrust
   "persistence.migrate": "mutates",
   "persistence.check": "reads",
@@ -345,6 +346,11 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   "tasks.supervise": "mutates",
   "tasks.supervise-stop": "mutates",
   "tasks.claims.release": "mutates",
+  // Work-package claim/release (ADR-046, mt#2911): both are conditional
+  // writes on the tasks row (claim also sets identity; release also appends
+  // a transfer-log row).
+  "tasks.claim": "mutates",
+  "tasks.release": "mutates",
   "tasks.available": "reads",
   "tasks.children": "reads",
   "tasks.claims.list": "reads",

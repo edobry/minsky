@@ -6,6 +6,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
+  collectNotionIdsFromUrls,
   elideCodeRegions,
   linkifyExternalRefs,
   normalizeNotionId,
@@ -144,5 +145,105 @@ describe("elideCodeRegions", () => {
 describe("notionPageUrl", () => {
   test("builds the canonical form Notion's own API returns", () => {
     expect(notionPageUrl(INCIDENT_ID_BARE)).toBe(INCIDENT_URL);
+  });
+});
+
+/**
+ * mt#4793 SC2/SC7 — eliding may only ever REMOVE matches, never manufacture one.
+ *
+ * This module is the only elision site in the family on a WRITE path: `linkifyExternalRefs`
+ * rewrites ask body text. `NOTION_CUE` contains `[\s:—–-]*`, a whitespace-tolerant separator, so
+ * blanking a code region to SPACES let the cue run through the hole and bind `notion` to an id it
+ * was never adjacent to — appending a wrong URL into someone's ask.
+ *
+ * Asserted as the property, not the filler character, so a future filler change that keeps the
+ * guarantee passes and one that breaks it fails.
+ */
+describe("elideCodeRegions only ever removes matches — it never manufactures one", () => {
+  // A cue and an id that are NOT adjacent in the raw text: a code span sits between them.
+  const RAW = "Notion `see the setup guide` 1234567890abcdef1234567890abcdef";
+
+  test("a cue separated from an id by a code span does not linkify", () => {
+    const { text, unlinkified } = linkifyExternalRefs(RAW);
+    // No URL may be appended — the cue and the id were never adjacent.
+    expect(text).toBe(RAW);
+    expect(text).not.toContain("app.notion.com");
+    expect(unlinkified).toEqual([]);
+  });
+
+  test("the filler is not in the cue's own separator class", () => {
+    const residual = elideCodeRegions(RAW);
+    // Same-length, so every offset into the residual is still valid against RAW.
+    expect(residual).toHaveLength(RAW.length);
+    // The blanked span must not read as separator characters, or the cue spans it.
+    const blanked = residual.slice(RAW.indexOf("`"), RAW.lastIndexOf("`") + 1);
+    expect(blanked).not.toMatch(/[\s:—–-]/);
+  });
+
+  test("a genuinely adjacent cue and id still linkify", () => {
+    // One-directional guarantee: elision removes matches, it must not remove real ones.
+    const adjacent = "Notion 1234567890abcdef1234567890abcdef";
+    expect(linkifyExternalRefs(adjacent).text).toContain("app.notion.com");
+  });
+});
+
+/**
+ * mt#4901 — a body citing a page by a SHORT PREFIX of its id, with the full URL
+ * in the ask's own contextRefs.
+ *
+ * ask#10647 is the incident: its question said `Notion 34f937f0` (8 hex — the
+ * malformed branch, since a valid id is 32) while its contextRefs carried the
+ * full page URL. The reference was reachable and was reported unlinkifiable.
+ */
+describe("linkifyExternalRefs — resolving a truncated cue from the ask's own refs (mt#4901)", () => {
+  const PREFIX = "34f937f0";
+  const FULL = "34f937f03cb48108a95bdf3813f5ca84";
+  const URL = `https://app.notion.com/p/${FULL}`;
+  const BODY = `That record — Notion ${PREFIX}, "Asks subsystem", locked by you 2026-04-26 — settles it.`;
+
+  test("AT2: the prefix resolves against a contextRefs URL and the URL lands in the text", () => {
+    const { text, unlinkified } = linkifyExternalRefs(BODY, { knownRefs: [URL] });
+    expect(text).toContain(URL);
+    expect(unlinkified).toEqual([]);
+  });
+
+  test("AT2 negative control: with no refs supplied, the same body still reports it", () => {
+    const { text, unlinkified } = linkifyExternalRefs(BODY);
+    expect(text).toBe(BODY);
+    expect(unlinkified).toEqual([`Notion ${PREFIX}`]);
+  });
+
+  test("idempotent across call paths: a second pass with NO options reports nothing", () => {
+    // This is what form-lint itself does — it re-runs the transform over the
+    // already-normalized question with no options at all.
+    const once = linkifyExternalRefs(BODY, { knownRefs: [URL] }).text;
+    const twice = linkifyExternalRefs(once);
+    expect(twice.text).toBe(once);
+    expect(twice.unlinkified).toEqual([]);
+  });
+
+  test("an AMBIGUOUS prefix resolves to nothing rather than guessing between two pages", () => {
+    const { text, unlinkified } = linkifyExternalRefs(BODY, {
+      knownRefs: [URL, `https://app.notion.com/p/${PREFIX}ffffffffffffffffffffffff`],
+    });
+    expect(text).toBe(BODY);
+    expect(unlinkified).toEqual([`Notion ${PREFIX}`]);
+  });
+
+  test("only a NOTION-hosted URL is a resolution source — a bare id elsewhere is not", () => {
+    // The safety property: a Notion page id and a Minsky ask/memory/workspace id
+    // are the same shape, so harvesting every id-shaped run would let a
+    // truncated cue resolve against a Minsky entity and append a dead URL.
+    const { text, unlinkified } = linkifyExternalRefs(BODY, {
+      knownRefs: [`https://github.com/edobry/minsky/pull/1 mentions ${FULL}`],
+    });
+    expect(text).toBe(BODY);
+    expect(unlinkified).toEqual([`Notion ${PREFIX}`]);
+  });
+
+  test("collectNotionIdsFromUrls reads app.notion.com and notion.so, and nothing else", () => {
+    expect(collectNotionIdsFromUrls(URL)).toEqual([FULL]);
+    expect(collectNotionIdsFromUrls(`https://www.notion.so/Some-Page-${FULL}`)).toEqual([FULL]);
+    expect(collectNotionIdsFromUrls(`https://example.com/${FULL}`)).toEqual([]);
   });
 });

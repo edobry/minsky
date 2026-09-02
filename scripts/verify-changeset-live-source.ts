@@ -31,7 +31,12 @@
 // daemon gets this from its own entry point; a standalone script must import
 // it itself (same as every other script under scripts/).
 import "reflect-metadata";
-import { getServerChangesetService, getServerChecksReader } from "../src/cockpit/db-providers";
+import {
+  getServerChangesetService,
+  getServerChecksReader,
+  getDefaultChangesetRepoRef,
+} from "../src/cockpit/db-providers";
+import { parseChangesetId } from "@minsky/shared/changeset-id";
 
 const DEFAULT_PR = "2222";
 
@@ -56,20 +61,35 @@ async function bootstrap(): Promise<void> {
 }
 
 async function main(): Promise<number> {
-  const prNumber = process.argv[2] ?? DEFAULT_PR;
+  const rawId = process.argv[2] ?? DEFAULT_PR;
 
-  if (!/^[0-9]+$/.test(prNumber)) {
-    emit({ status: "FAIL", reason: `invalid PR number: ${prNumber}` });
+  // Accepts both changeset id forms (mt#4724). Passing `owner/repo#N` is what
+  // exercises the PER-REPO binding: before mt#4724 both getters resolved one
+  // repo from static config, so this script could only ever probe that one.
+  const parsed = parseChangesetId(rawId);
+  if (!parsed) {
+    emit({ status: "FAIL", reason: `invalid changeset id: ${rawId}` });
     return 1;
   }
+  const prNumber = String(parsed.prNumber);
+  const targetRepo = parsed.repo;
 
   await bootstrap();
 
-  const reader = await getServerChangesetService();
+  // Emitted on every path below: a zero-checks or not-found result is only
+  // interpretable alongside WHICH repository was queried — querying the wrong
+  // one returns an empty check-run set rather than an error.
+  const repoLabel =
+    targetRepo?.owner && targetRepo.repo
+      ? `${targetRepo.owner}/${targetRepo.repo}`
+      : `<default project> (${(await getDefaultChangesetRepoRef()) ? "resolved" : "unresolved"})`;
+
+  const reader = await getServerChangesetService(targetRepo);
   if (!reader) {
     emit({
       status: "SKIP",
       prNumber,
+      repo: repoLabel,
       reason:
         "no changeset reader — GitHub repository backend not configured, or the credential " +
         "could not be resolved. The detail endpoint degrades to the session snapshot.",
@@ -82,7 +102,8 @@ async function main(): Promise<number> {
     emit({
       status: "FAIL",
       prNumber,
-      reason: `reader is available but PR #${prNumber} did not resolve (404 or wrong repo)`,
+      repo: repoLabel,
+      reason: `reader is available but PR #${prNumber} did not resolve in ${repoLabel} (404 or wrong repo)`,
     });
     return 1;
   }
@@ -91,6 +112,7 @@ async function main(): Promise<number> {
   const result: Record<string, unknown> = {
     status: "PASS",
     prNumber,
+    repo: repoLabel,
     title: cs.title,
     state: cs.status,
     author: cs.author?.username ?? null,
@@ -126,7 +148,7 @@ async function main(): Promise<number> {
   if (!headSha) {
     result["checks"] = { status: "SKIP", reason: "no headSha on the resolved changeset" };
   } else {
-    const checksReader = await getServerChecksReader();
+    const checksReader = await getServerChecksReader(targetRepo);
     if (!checksReader) {
       result["checks"] = { status: "SKIP", reason: "no checks reader — GitHub not configured" };
     } else {

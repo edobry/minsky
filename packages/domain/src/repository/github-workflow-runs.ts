@@ -2,23 +2,59 @@
  * GitHub Actions workflow-run operations.
  *
  * Provides:
- *   - listWorkflowRuns  — list workflow runs for a repo with optional filters
- *   - viewWorkflowRunLogs — download and decode logs for a specific run ID
- *   - rerunWorkflowRun — re-run a completed run (all jobs, or just failed jobs)
+ *   - listWorkflowRuns    — list workflow runs for a repo with optional filters
+ *   - listWorkflowRunJobs — list the jobs of a specific run (id/name/conclusion)
+ *   - viewWorkflowRunLogs — download and decode the WHOLE-RUN log ZIP for a run ID
+ *   - viewWorkflowJobLog  — download the log for a SINGLE job (GitHub's native
+ *                           per-job endpoint — bounded to that job, no ZIP)
+ *   - viewFailedJobLogs   — fetch logs only for the jobs that did not succeed
+ *   - rerunWorkflowRun    — re-run a completed run (all jobs, or just failed jobs)
  *
  * Auth goes through `gh.getToken()` (TokenProvider-aware), consistent with
  * the rest of the GitHub subinterface family.
  *
+ * ## Bounded log fetching (mt#4749)
+ *
+ * `viewWorkflowRunLogs`'s only lever used to be "the whole run's ZIP, every
+ * job included" — for the common diagnose-a-red-check case that means
+ * downloading and decompressing every OTHER job's log (including a full-suite
+ * `build` job whose own log can run into the tens of MB) just to reach the two
+ * lines that actually failed. Observed live: a ~12 MB / 11.97M-character
+ * response for a failure whose diagnostic content was ~200 bytes, and a
+ * second oversized fetch that killed the MCP connection outright.
+ *
+ * Two new entry points give callers a way to ask for less:
+ *   - `viewWorkflowJobLog(jobId)` uses GitHub's per-job log endpoint
+ *     (`GET /repos/{owner}/{repo}/actions/jobs/{job_id}/logs`), which returns
+ *     plain text for ONE job — no ZIP, no other jobs' output.
+ *   - `viewFailedJobLogs(runId)` lists the run's jobs and fetches only the
+ *     ones that did not succeed, so a caller doesn't need a separate
+ *     list-then-fetch round trip to find the failing job id.
+ *
+ * All three log-returning functions accept `ViewLogsOptions.tailLines` to keep
+ * only the last N lines, and all three run their result through
+ * `boundLogPayload` — a size cap that spools an oversized result to a
+ * server-side file (under `<minsky-state-dir>/forge-ci-logs/`) and returns a
+ * bounded pointer instead, so a caller who omits every other bound still
+ * cannot provoke an oversized MCP tool response from this surface. See
+ * `MAX_INLINE_LOG_BYTES`'s docstring for how that cap is sized.
+ *
  * GitHub API reference:
  *   https://docs.github.com/en/rest/actions/workflow-runs
  *   https://docs.github.com/en/rest/actions/workflow-runs#download-workflow-run-logs
+ *   https://docs.github.com/en/rest/actions/workflow-runs#download-job-logs-for-a-workflow-run
+ *   https://docs.github.com/en/rest/actions/workflow-runs#list-jobs-for-a-workflow-run
  *   https://docs.github.com/en/rest/actions/workflow-runs#re-run-a-workflow
  *   https://docs.github.com/en/rest/actions/workflow-runs#re-run-a-workflow-run-and-return-the-run-attempt
  *   https://docs.github.com/en/rest/actions/workflow-runs#re-run-failed-jobs-from-a-workflow-run
  */
 
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { MinskyError } from "../errors/index";
 import { log } from "@minsky/shared/logger";
+import { getMinskyStateDir } from "@minsky/shared/paths";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { handleOctokitError, classifyOctokitError } from "./github-error-handler";
 import { type GitHubContext, createOctokit } from "./github-pr-operations";
 import { inflateRawSync } from "node:zlib";
@@ -69,6 +105,43 @@ export interface ListWorkflowRunsOptions {
   status?: string;
   /** Maximum results to return (default: 30, max: 100). */
   perPage?: number;
+}
+
+/** Options bounding a log-returning call (mt#4749). */
+export interface ViewLogsOptions {
+  /**
+   * Keep only the last N lines of the returned text. Applied BEFORE the
+   * `boundLogPayload` size cap, so a caller-supplied bound is honored exactly
+   * when it fits; the cap only fires as a backstop when it doesn't (or when
+   * this is omitted entirely).
+   */
+  tailLines?: number;
+}
+
+/** One job entry from `listWorkflowRunJobs` — enough to pick a `jobId`. */
+export interface RunJobSummary {
+  /** GitHub's numeric job ID (pass to `viewWorkflowJobLog`). */
+  id: number;
+  /** Display name of the job (e.g. "build", "lint"). */
+  name: string;
+  /** Job lifecycle status, e.g. "completed" | "in_progress" | "queued". */
+  status: string | null;
+  /** Terminal outcome, e.g. "success" | "failure" | "cancelled" | null. */
+  conclusion: string | null;
+}
+
+/** One job's fetched log, as returned by `viewFailedJobLogs`. */
+export interface FailedJobLog {
+  id: number;
+  name: string;
+  conclusion: string | null;
+  logs: string;
+}
+
+/** Result of `viewFailedJobLogs`. */
+export interface ViewFailedJobLogsResult {
+  jobs: FailedJobLog[];
+  jobCount: number;
 }
 
 // Valid status values accepted by the GitHub Actions API.
@@ -187,6 +260,157 @@ export async function listWorkflowRuns(
 }
 
 /**
+ * List the jobs of a specific workflow run — id, name, status, conclusion.
+ *
+ * Used by `viewFailedJobLogs` to find which job IDs did not succeed, and
+ * exposed standalone so a caller can pick a `jobId` for `viewWorkflowJobLog`
+ * without guessing.
+ *
+ * Known limitation: fetches a single page (`per_page: 100`). GitHub Actions
+ * runs with more than 100 jobs (matrix builds at that scale) will not have
+ * every job represented — not observed in this repo's own CI, which caps out
+ * at a handful of jobs per run.
+ *
+ * @param gh    — GitHub context (owner, repo, token resolver)
+ * @param runId — numeric workflow run ID
+ * @param octokitOverride — optional DI-injected Octokit for testing
+ */
+export async function listWorkflowRunJobs(
+  gh: GitHubContext,
+  runId: number,
+  octokitOverride?: ReturnType<typeof createOctokit>
+): Promise<RunJobSummary[]> {
+  if (!runId || runId <= 0) {
+    throw new MinskyError("listWorkflowRunJobs: runId must be a positive integer");
+  }
+
+  try {
+    const octokit = octokitOverride ?? createOctokit(await gh.getToken());
+    const resp = await octokit.rest.actions.listJobsForWorkflowRun({
+      owner: gh.owner,
+      repo: gh.repo,
+      run_id: runId,
+      per_page: 100,
+    });
+    const rawJobs = (resp.data as { jobs?: unknown[] }).jobs ?? [];
+    return rawJobs.map((j) => {
+      const job = j as Record<string, unknown>;
+      return {
+        id: job["id"] as number,
+        name: (job["name"] as string | null) ?? "",
+        status: (job["status"] as string | null) ?? null,
+        conclusion: (job["conclusion"] as string | null) ?? null,
+      };
+    });
+  } catch (error) {
+    if (error instanceof MinskyError) throw error;
+    handleOctokitError(error, {
+      operation: `list jobs for workflow run ${runId}`,
+      owner: gh.owner,
+      repo: gh.repo,
+    });
+    throw error;
+  }
+}
+
+/**
+ * Convert whatever Octokit returns for a log-download response to a
+ * Uint8Array for uniform processing. Both `downloadWorkflowRunLogs` and
+ * `downloadJobLogsForWorkflowRun` return different shapes depending on the
+ * Octokit version and request adapter (Uint8Array, string, or ArrayBuffer).
+ */
+function coerceLogResponseToBytes(rawData: Uint8Array | string | ArrayBuffer | null): Uint8Array {
+  if (rawData instanceof Uint8Array) return rawData;
+  if (typeof rawData === "string") return new TextEncoder().encode(rawData);
+  if (rawData instanceof ArrayBuffer) return new Uint8Array(rawData);
+  if (rawData != null) return new TextEncoder().encode(JSON.stringify(rawData));
+  return new Uint8Array(0);
+}
+
+/**
+ * Keep only the last N lines of `text` (mt#4749).
+ *
+ * A no-op when `tailLines` is absent or non-positive, or when the text
+ * already fits within the requested line count. When it trims, the omitted
+ * count is recorded in a marker line so a caller can tell the difference
+ * between "this job produced N lines total" and "N lines were cut."
+ */
+function applyTailLines(text: string, tailLines: number | undefined): string {
+  if (!tailLines || tailLines <= 0) return text;
+  const lines = text.split("\n");
+  if (lines.length <= tailLines) return text;
+  const omitted = lines.length - tailLines;
+  const kept = lines.slice(-tailLines).join("\n");
+  return `[... ${omitted} earlier line(s) omitted (tailLines=${tailLines}) ...]\n${kept}`;
+}
+
+/** UTF-8 byte length of a string — the project's `Buffer` shim omits `Buffer.byteLength`. */
+function utf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).length;
+}
+
+/**
+ * Maximum size, in UTF-8 bytes, of a log payload this module will return
+ * inline from an MCP tool call (mt#4749).
+ *
+ * Sized well under the incident's own numbers — the fetch that killed the MCP
+ * connection was ~12 MB / ~11.97M characters — so this cap acts as a real
+ * backstop rather than a bound the incident's own payload would have cleared.
+ * 1 MB comfortably holds a `tailLines`-bounded fetch or a single ordinary
+ * job's log; the whole-run/base64 paths are exactly the ones that can still
+ * exceed it, which is what `boundLogPayload` exists to catch.
+ */
+export const MAX_INLINE_LOG_BYTES = 1_000_000;
+
+/** Subdirectory of the Minsky state dir logs are spooled to when oversized. */
+const SPOOL_SUBDIR = "forge-ci-logs";
+
+/**
+ * Write `text` to a server-side file under `<minsky-state-dir>/forge-ci-logs/`
+ * and return its path. Exists so an oversized log is never silently dropped —
+ * `boundLogPayload` spools full content here before truncating the inline
+ * return value.
+ */
+function spoolLogToFile(text: string, label: string): string {
+  const dir = join(getMinskyStateDir(), SPOOL_SUBDIR);
+  mkdirSync(dir, { recursive: true });
+  const safeLabel = label.replace(/[^a-zA-Z0-9_-]+/g, "-");
+  // A timestamp alone collides when two oversized fetches spool in the same
+  // millisecond (e.g. viewFailedJobLogs fetching several failed jobs' logs
+  // back-to-back, or two concurrent MCP calls) — the second write silently
+  // overwrites the first. The random suffix matches the collision-avoidance
+  // scheme already used at the transport layer (src/mcp/shim/response-bound.ts,
+  // src/mcp/response-size-guard.ts). PR #3478 R1.
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const fileName = `${safeLabel}-${Date.now()}-${suffix}.log`;
+  const filePath = join(dir, fileName);
+  writeFileSync(filePath, text, "utf8");
+  return filePath;
+}
+
+/**
+ * Final size backstop for every log-returning function in this module
+ * (mt#4749 SC1/SC2). Regardless of what a caller asked for — `tailLines`,
+ * `jobId`, `failedOnly` — a result that still exceeds `MAX_INLINE_LOG_BYTES`
+ * is spooled to a file and replaced with a bounded pointer, so this module
+ * can never hand an MCP response serializer a multi-megabyte string.
+ */
+function boundLogPayload(text: string, label: string): string {
+  const byteLength = utf8ByteLength(text);
+  if (byteLength <= MAX_INLINE_LOG_BYTES) return text;
+
+  const spooledPath = spoolLogToFile(text, label);
+  const preview = safeTruncate(text, 2000, "head");
+  return (
+    `[TRUNCATED: ${label} is ${byteLength} bytes, exceeding the ` +
+    `${MAX_INLINE_LOG_BYTES}-byte inline-response limit (mt#4749). ` +
+    `Full content spooled to: ${spooledPath}\n` +
+    `Narrow the fetch with jobId/failedOnly/tailLines, or read the spooled ` +
+    `file directly.]\n\n--- preview (first 2000 bytes) ---\n${preview}`
+  );
+}
+
+/**
  * Download and decode the logs for a specific workflow run.
  *
  * The GitHub API returns a redirect to a ZIP archive. This function follows
@@ -197,13 +421,22 @@ export async function listWorkflowRuns(
  * Falls back to returning the raw content as a base64-encoded string if
  * decompression fails (e.g., if the content is not actually a ZIP).
  *
- * @param gh    — GitHub context (owner, repo, token resolver)
- * @param runId — numeric workflow run ID
+ * This is the UNBOUNDED whole-run form — prefer `viewWorkflowJobLog` (a single
+ * job, via GitHub's native per-job endpoint) or `viewFailedJobLogs` (only the
+ * jobs that failed) for the common diagnose-a-red-check case (mt#4749). This
+ * function still bounds its OWN result: `options.tailLines` trims to the last
+ * N lines, and regardless of that, an oversized result is spooled to a file
+ * and replaced with a pointer rather than returned inline (`boundLogPayload`).
+ *
+ * @param gh      — GitHub context (owner, repo, token resolver)
+ * @param runId   — numeric workflow run ID
+ * @param options — optional bounds (tailLines)
  * @param octokitOverride — optional DI-injected Octokit for testing
  */
 export async function viewWorkflowRunLogs(
   gh: GitHubContext,
   runId: number,
+  options: ViewLogsOptions = {},
   octokitOverride?: ReturnType<typeof createOctokit>
 ): Promise<string> {
   if (!runId || runId <= 0) {
@@ -221,28 +454,7 @@ export async function viewWorkflowRunLogs(
       run_id: runId,
     });
 
-    // Convert whatever Octokit returns to a Uint8Array for uniform processing.
-    // The downloadWorkflowRunLogs API returns different shapes depending on
-    // the Octokit version and request adapter (Uint8Array, string, or ArrayBuffer).
-    const rawData: Uint8Array | string | ArrayBuffer | null = resp.data as
-      | Uint8Array
-      | string
-      | ArrayBuffer
-      | null;
-    let bytes: Uint8Array;
-
-    if (rawData instanceof Uint8Array) {
-      bytes = rawData;
-    } else if (typeof rawData === "string") {
-      bytes = new TextEncoder().encode(rawData);
-    } else if (rawData instanceof ArrayBuffer) {
-      bytes = new Uint8Array(rawData);
-    } else if (rawData != null) {
-      // Fallback: stringify whatever arrived
-      bytes = new TextEncoder().encode(JSON.stringify(rawData));
-    } else {
-      bytes = new Uint8Array(0);
-    }
+    const bytes = coerceLogResponseToBytes(resp.data as Uint8Array | string | ArrayBuffer | null);
 
     log.debug("Downloaded workflow run logs", {
       runId,
@@ -254,7 +466,7 @@ export async function viewWorkflowRunLogs(
     // Attempt to unzip and extract text content.
     try {
       const text = extractZipText(bytes);
-      return text;
+      return boundLogPayload(applyTailLines(text, options.tailLines), `run-${runId}`);
     } catch (unzipErr) {
       log.debug("ZIP extraction failed — returning base64 fallback", {
         runId,
@@ -266,8 +478,15 @@ export async function viewWorkflowRunLogs(
       // ("Maximum call stack size exceeded") for Uint8Arrays larger than
       // ~65k–100k bytes, and real Actions log ZIPs are routinely 200KB–10MB.
       // mt#1957 PR #1185 reviewer-bot finding.
+      //
+      // tailLines does not apply to a base64 blob (there are no meaningful
+      // "lines" of log content once binary is base64-encoded) — only the
+      // final size backstop bounds this path.
       const base64 = uint8ArrayToBase64(bytes);
-      return `[base64-encoded ZIP — decode with: Buffer.from(data, 'base64')]\n${base64}`;
+      return boundLogPayload(
+        `[base64-encoded ZIP — decode with: Buffer.from(data, 'base64')]\n${base64}`,
+        `run-${runId}-base64`
+      );
     }
   } catch (error) {
     if (error instanceof MinskyError) throw error;
@@ -278,6 +497,113 @@ export async function viewWorkflowRunLogs(
     });
     throw error;
   }
+}
+
+/**
+ * Download the log for a SINGLE job via GitHub's native per-job log endpoint
+ * (`GET /repos/{owner}/{repo}/actions/jobs/{job_id}/logs`) — plain text for
+ * that one job, no ZIP, no other jobs' output (mt#4749). This is the bounded
+ * fetch to prefer over `viewWorkflowRunLogs` for the common
+ * diagnose-a-red-check case: find the failing job id (via
+ * `forge.ci_run_list`'s run, or `listWorkflowRunJobs`/`viewFailedJobLogs`),
+ * then fetch just that job's log.
+ *
+ * Still bounded like every function in this module: `options.tailLines` trims
+ * to the last N lines, and `boundLogPayload` spools-and-truncates if the
+ * result is still oversized (a single job's own log — e.g. a full-suite
+ * `build` job — can itself run into the tens of MB).
+ *
+ * @param gh      — GitHub context (owner, repo, token resolver)
+ * @param jobId   — numeric job ID (from `forge.ci_run_list`'s run detail,
+ *                  `listWorkflowRunJobs`, or the GitHub Actions UI)
+ * @param options — optional bounds (tailLines)
+ * @param octokitOverride — optional DI-injected Octokit for testing
+ */
+export async function viewWorkflowJobLog(
+  gh: GitHubContext,
+  jobId: number,
+  options: ViewLogsOptions = {},
+  octokitOverride?: ReturnType<typeof createOctokit>
+): Promise<string> {
+  if (!jobId || jobId <= 0) {
+    throw new MinskyError("viewWorkflowJobLog: jobId must be a positive integer");
+  }
+
+  try {
+    const octokit = octokitOverride ?? createOctokit(await gh.getToken());
+    const resp = await octokit.rest.actions.downloadJobLogsForWorkflowRun({
+      owner: gh.owner,
+      repo: gh.repo,
+      job_id: jobId,
+    });
+
+    // The per-job endpoint's content-type is text/plain, so the common case
+    // is `resp.data` already being a string — but coerce defensively the same
+    // way the whole-run endpoint's response is coerced, since the shape has
+    // been observed to vary by Octokit version/request adapter.
+    const rawData = resp.data as Uint8Array | string | ArrayBuffer | null;
+    const text =
+      typeof rawData === "string"
+        ? rawData
+        : new TextDecoder("utf-8").decode(coerceLogResponseToBytes(rawData));
+
+    log.debug("Downloaded workflow job log", {
+      jobId,
+      owner: gh.owner,
+      repo: gh.repo,
+      charLength: text.length,
+    });
+
+    return boundLogPayload(applyTailLines(text, options.tailLines), `job-${jobId}`);
+  } catch (error) {
+    if (error instanceof MinskyError) throw error;
+    handleOctokitError(error, {
+      operation: `download job log ${jobId}`,
+      owner: gh.owner,
+      repo: gh.repo,
+    });
+    throw error;
+  }
+}
+
+/**
+ * Fetch logs only for the jobs of `runId` that did NOT succeed — the common
+ * diagnose-a-red-check case, without a separate list-then-fetch round trip
+ * (mt#4749). Lists the run's jobs (`listWorkflowRunJobs`), filters to those
+ * whose `conclusion` is set and is not `"success"` or `"skipped"`, and fetches
+ * each one's log via the bounded per-job endpoint (`viewWorkflowJobLog`) —
+ * `options.tailLines` applies to each job individually.
+ *
+ * @param gh      — GitHub context (owner, repo, token resolver)
+ * @param runId   — numeric workflow run ID
+ * @param options — optional bounds (tailLines, applied per job)
+ * @param octokitOverride — optional DI-injected Octokit for testing
+ */
+export async function viewFailedJobLogs(
+  gh: GitHubContext,
+  runId: number,
+  options: ViewLogsOptions = {},
+  octokitOverride?: ReturnType<typeof createOctokit>
+): Promise<ViewFailedJobLogsResult> {
+  const octokit = octokitOverride ?? createOctokit(await gh.getToken());
+  const jobs = await listWorkflowRunJobs(gh, runId, octokit);
+  const failedJobs = jobs.filter(
+    (j) => j.conclusion !== null && j.conclusion !== "success" && j.conclusion !== "skipped"
+  );
+
+  // Fetched in parallel (PR #3478 R1 non-blocking finding) rather than one at
+  // a time — a run with several failed jobs no longer pays N sequential
+  // round trips to GitHub's per-job log endpoint. `Promise.all` preserves the
+  // input order, so the returned `jobs` array still lines up with
+  // `failedJobs` positionally.
+  const results = await Promise.all(
+    failedJobs.map(async (job) => {
+      const logs = await viewWorkflowJobLog(gh, job.id, options, octokit);
+      return { id: job.id, name: job.name, conclusion: job.conclusion, logs };
+    })
+  );
+
+  return { jobs: results, jobCount: results.length };
 }
 
 // ── rerunWorkflowRun ──────────────────────────────────────────────────────

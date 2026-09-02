@@ -127,6 +127,13 @@ export function literalSpanList(line: string): string[] {
  * mistaken for syntax. Retaining the quotes keeps offsets stable so a caller
  * can still tell that a literal was present.
  */
+// Classified under mt#4793 and deliberately left space-filled: this is NOT the
+// manufactured-match class. That defect needs a caller whose pattern is `\s`-tolerant, so a
+// blanked span lets `\s+` bind tokens that were never adjacent. Both consumers here
+// (`unrendered-result-fields.ts:170,178`) only COUNT PARENS over the residual, and a space
+// cannot manufacture a `(`. The filler's sole requirement at this site is "not a bracket," which
+// whitespace satisfies. Converting it to `·` would be churn, and would read worse inside what a
+// human still sees as a string body.
 export function stripLiterals(line: string): string {
   return line.replace(LITERAL_SPAN, (_m, quote: string, body: string) =>
     body ? `${quote}${" ".repeat(body.length)}${quote}` : `${quote}${quote}`

@@ -60,6 +60,7 @@ import { fileURLToPath } from "url";
 import { cockpitWebDistDir, cockpitIndexHtml } from "./web-dist";
 import { WIDGET_REGISTRY } from "./widget-registry";
 import type { WidgetRegistry } from "./widget-registry";
+import { createProjectScopeMiddleware } from "./project-scope";
 import { setLoadedWidgetCount } from "./widgets/basic-health";
 import type { WidgetModule } from "./types";
 import { SseBroker } from "./sse-broker";
@@ -76,10 +77,12 @@ import type { ConversationRoutesOptions } from "./routes/conversations";
 import { mountConversationSearchRoutes } from "./routes/conversation-search";
 import type { ConversationSearchRouteOptions } from "./routes/conversation-search";
 import { mountChangesetRoutes } from "./routes/changesets";
+import { mountWorkPackageRoutes } from "./routes/work-packages";
 import { mountProjectRoutes, type ProjectRoutesOptions } from "./routes/projects";
 import { mountEventsRoutes } from "./routes/events";
 import { mountActivityRoutes } from "./routes/activity";
 import { mountAskRoutes } from "./routes/asks";
+import { mountMemoryRoutes } from "./routes/memories";
 import { mountEngprodProposalRoutes } from "./routes/engprod-proposals";
 import { mountCredentialRoutes } from "./routes/credentials";
 import { mountContextInspectorRoutes } from "./routes/context-inspector";
@@ -590,6 +593,15 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     });
   }
 
+  // mt#4730 — structural enforcement: resolve `?project=` to a ProjectScope
+  // ONCE per request, ahead of every route mount below, so a handler reads
+  // `req.projectScope` directly instead of each remembering to import and
+  // call `resolveCockpitProjectScope` itself. Also feeds the widget
+  // dispatcher (mountHealthRoutes' `/api/widget/:id/data`), which forwards
+  // it onto `WidgetContext.projectScope`. See ./project-scope.ts and
+  // ./scope-census.ts (the census backstop + deliberately-global allowlist).
+  app.use(createProjectScopeMiddleware());
+
   // --- API endpoints (per-domain route modules) ---
   //
   // Registration order across DIFFERENT domains does not matter here: no two
@@ -609,6 +621,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountConversationRoutes(app, opts.overrideConversationLiveTail ?? {});
   mountConversationSearchRoutes(app, opts.overrideConversationSearch ?? {});
   mountChangesetRoutes(app);
+  mountWorkPackageRoutes(app);
   mountProjectRoutes(app, opts.overrideProjectRoutes ?? {}); // mt#2418 — GET /api/projects (shell project selector)
   mountEventsRoutes(app, { sseBrokerOverride });
   mountActivityRoutes(app);
@@ -622,6 +635,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountEmbeddingsRoutes(app);
   mountSweepRoutes(app); // mt#2894 — GET /api/sweeps (per-sweep liveness registry)
   mountFollowUpRoutes(app); // mt#2322 — GET/POST /api/follow-ups (scheduled-follow-up primitive)
+  mountMemoryRoutes(app); // mt#4766 — PATCH/POST/DELETE /api/memories/* (curation write path)
 
   // Rung 2A driven-session routes (mt#2750) — LOCAL DAEMON ONLY. Spawning a
   // genuine `claude` binary with the operator's own credentials has no

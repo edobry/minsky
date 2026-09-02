@@ -50,6 +50,9 @@ import {
   type OpenAskState,
 } from "./state-machine";
 import { isAllProjects, type ProjectScope } from "../project/scope";
+// mt#4848: the parent-task project lookup, shared with tasks_create's resolver
+// (mt#4808) rather than reimplemented. Fail-open by contract — see its docblock.
+import { resolveTaskProjectId } from "../project/new-task-project";
 import { nextShortId, formatShortId, parseShortId } from "../utils/short-id";
 
 // ---------------------------------------------------------------------------
@@ -1036,7 +1039,46 @@ export class DrizzleAskRepository implements AskRepository {
     // body, its options, and its contextRefs are all agent-authored prose that
     // can carry a codepoint Postgres cannot store, and a per-site fix is one
     // refactor away from missing a path.
-    const input: CreateAskInput = sanitizeForPostgresDeep(rawInput).value;
+    const sanitized: CreateAskInput = sanitizeForPostgresDeep(rawInput).value;
+
+    // mt#4848: resolve the project from the parent task when the caller did not
+    // supply one.
+    //
+    // This lives HERE, not at a call site, because there are seven writers and
+    // four of them are in `packages/domain/**`. mt#4772 fixed the resolution at
+    // the `asks.create` adapter callsite, which left the other six writing NULL
+    // — measured: of 13 Asks created in the hour after that fix deployed, 12 had
+    // a project-carrying parent and stamped NULL anyway. `create` is the one
+    // seam every writer already passes through, so resolving here covers the
+    // writers that exist AND the ones not yet written, which a seventh
+    // per-callsite patch would not.
+    //
+    // Precedence, preserving what mt#4772 settled: an explicit `projectId` wins
+    // (that is how `asks.create` passes its filing-context fallback down, so
+    // this does not override it), else the parent task's project, else NULL.
+    // `resolveTaskProjectId` never throws — no task id, no row, a null
+    // `project_id`, a broken handle and a rejecting query all yield `undefined`
+    // — so a create cannot fail, or silently switch project, because a lookup
+    // did (ADR-021's fail-open posture).
+    //
+    // Deliberately outside the retry loop below: the answer cannot change
+    // between short-id attempts, and this is a DB round trip.
+    // Falsy, not `=== undefined` (PR #3543 R1). `toInsert` collapses undefined
+    // and null to the same stored NULL (`input.projectId ?? null`), so treating
+    // them differently HERE would make the seam disagree with the mapper two
+    // lines downstream — a caller passing an explicit `null` would skip
+    // resolution and stamp NULL, while the identical `undefined` resolved. The
+    // type says `projectId?: string`, so neither null nor "" is reachable from
+    // a typed caller; both are reachable from a JS one, and "" would be a
+    // uuid-column error rather than a silent NULL.
+    const input: CreateAskInput =
+      !sanitized.projectId && sanitized.parentTaskId
+        ? {
+            ...sanitized,
+            projectId: await resolveTaskProjectId(sanitized.parentTaskId, this.db),
+          }
+        : sanitized;
+
     // Retry loop mirroring MinskyTaskBackend.tryInsertTask (mt#2205): the
     // short-id proposal (SELECT max) and the INSERT are not atomic, so a
     // concurrent writer may claim the proposed id between the two. The

@@ -39,6 +39,7 @@
  * @see mt#3754 §"Two audiences, one data model" — the split
  */
 import { useMemo } from "react";
+import { InstanceScopeCue } from "../components/InstanceScopeCue";
 import { useInterceptors } from "../hooks/useInterceptors";
 import { useInterceptorAggregates } from "../hooks/useInterceptorAggregates";
 import {
@@ -72,11 +73,7 @@ function operatorQuestion(cls: ProtectionClassSummary): string {
   return OPERATOR_QUESTION_OVERRIDES[cls.classId] ?? cls.question;
 }
 
-function HealthBanner({
-  health,
-}: {
-  health: ProtectionSummary["health"];
-}) {
+function HealthBanner({ health }: { health: ProtectionSummary["health"] }) {
   if (health.kind === "degraded") {
     return (
       <p
@@ -99,14 +96,15 @@ function HealthBanner({
       <div className="text-[12px] font-mono text-warn-amber border border-warn-amber/40 rounded px-2 py-1.5 flex flex-col gap-1">
         {health.sourceUnavailableCount > 0 ? (
           <p className="m-0" data-testid="protection-health-source-unavailable">
-            {pluralize(health.sourceUnavailableCount, "check")} of {health.totalChecks} couldn&apos;t
-            be read on the last refresh — that history wasn&apos;t available.
+            {pluralize(health.sourceUnavailableCount, "check")} of {health.totalChecks}{" "}
+            couldn&apos;t be read on the last refresh — that history wasn&apos;t available.
           </p>
         ) : null}
         {health.neverVerifiedCount > 0 ? (
           <p className="m-0" data-testid="protection-health-never-verified">
             {pluralize(health.neverVerifiedCount, "check")} of {health.totalChecks} have never been
-            verified — nothing has ever tested that they fire, and refreshing won&apos;t change that.
+            verified — nothing has ever tested that they fire, and refreshing won&apos;t change
+            that.
           </p>
         ) : null}
         <p className="m-0">This is not the same as everything being fine.</p>
@@ -250,6 +248,7 @@ export function ProtectionPage() {
         <h1 className="text-sm font-mono font-semibold tracking-[0.04em] m-0">
           WHAT&apos;S PROTECTING YOU
         </h1>
+        <InstanceScopeCue className="mt-1" />
         <p className="text-[11px] font-mono text-muted-foreground mt-1">
           What Minsky&apos;s checks caught for you, and what they charged you in interruptions and
           time.

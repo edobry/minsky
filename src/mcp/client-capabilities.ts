@@ -10,8 +10,7 @@
  *
  * @see mt#2133 — types moved to domain package to fix Docker path resolution
  */
-
-import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import type { Server } from "@modelcontextprotocol/server";
 
 // Re-export all domain-side types and the no-op implementation
 export type {

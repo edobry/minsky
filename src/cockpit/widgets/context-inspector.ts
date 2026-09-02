@@ -41,18 +41,27 @@
  * and conversation-tab header all read this same widget) do not re-run the
  * enrichment joins or re-hit the task backend.
  *
+ * Project scope (mt#4746): `?project=<slug>` filters the picker query
+ * directly on `agentTranscriptsTable.projectId` — the same column
+ * `routes/session-film.ts`'s picker (mt#4727) already filters on. Resolved
+ * via the same `resolveCockpitProjectScope()` (mt#2418 pattern) every other
+ * cockpit project-scoped read uses; fail-open to ALL_PROJECTS on any
+ * resolution failure.
+ *
  * @see mt#2023 — this widget
  * @see mt#2022 — substrate that makes the snapshot endpoint possible
  * @see mt#2033 — canonical SessionContextSnapshot shape returned by the endpoint
  * @see mt#2021 — cockpit context-inspector umbrella
  * @see mt#2770 — conversation labeling (this file's enrichment logic)
+ * @see mt#4746 — project-scope threading (this file's `?project=` handling)
  */
 
 import { isSqlCapable } from "@minsky/domain/persistence/types";
-import { desc, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-transcripts-schema";
+import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
 import { createEpochKeyedCache, getSharedPersistenceService } from "../shared-persistence";
@@ -107,10 +116,15 @@ const ENRICHMENT_CACHE_TTL_MS = 15_000;
  *   (mirrors `widgets/agents.ts`). When omitted, task-title resolution (tier 1
  *   and part of tier 3) is skipped and labels fall through to the next tier —
  *   callers that don't need task-bound labels (most tests) can omit it.
+ * @param getProjectScopeDb  Optional test seam (mt#4746, mirrors
+ *   `memories-list.ts`'s mt#4727 `getProjectScopeDb` seam): overrides
+ *   `resolveCockpitProjectScope`'s own db-fetch for the `?project=`
+ *   resolution. Production callers never set this.
  */
 export function createContextInspectorWidget(
   getDb: () => Promise<PostgresJsDatabase>,
-  getTaskProvider?: () => Promise<TaskProviderLike>
+  getTaskProvider?: () => Promise<TaskProviderLike>,
+  getProjectScopeDb?: () => Promise<ScopeResolverDb | null>
 ): WidgetModule {
   const titleCache = getTaskProvider ? new TaskTitleCache(getTaskProvider) : null;
 
@@ -139,10 +153,34 @@ export function createContextInspectorWidget(
     id: "context-inspector",
     title: "Context",
     updateMode: { type: "polling", intervalMs: 15000 },
-    async fetch(_ctx: WidgetContext): Promise<WidgetData> {
+    async fetch(ctx: WidgetContext): Promise<WidgetData> {
       try {
         const db = await getDb();
-        const rows = await db
+
+        // Project scope (mt#4746): ?project=<slug> resolved to a project
+        // uuid, defaulting to ALL_PROJECTS when omitted/"all" — same
+        // resolution rules as every other cockpit project-scoped read
+        // (mt#2418 pattern). Filters directly on
+        // `agentTranscriptsTable.projectId`, the SAME column
+        // `routes/session-film.ts`'s picker (mt#4727) already filters on.
+        // resolveCockpitProjectScope owns its own db-fetch and never throws
+        // (fail-open to ALL_PROJECTS on any resolution failure — PR #2056
+        // R1), so a scoping problem can never take this widget down.
+        const { resolveCockpitProjectScope } = await import("../project-scope");
+        const { isAllProjects } = await import("@minsky/domain/project/scope");
+        const projectScope = await resolveCockpitProjectScope(ctx.query?.project, {
+          getDb: getProjectScopeDb,
+        });
+        const projectId = isAllProjects(projectScope) ? undefined : projectScope;
+
+        // mt#4746 reviewer round 2: build the base query first and apply
+        // `.where()` ONLY when actually scoped, rather than always calling
+        // `.where(conditions.length > 0 ? and(...) : undefined)` — Drizzle
+        // treats an `undefined` where-argument as "no filter" (verified
+        // directly against the real query builder: it renders with no WHERE
+        // clause and does not throw), but never invoking `.where()` at all in
+        // the unscoped case removes any doubt without changing behavior.
+        const baseQuery = db
           .select({
             agentSessionId: agentTranscriptsTable.agentSessionId,
             harness: agentTranscriptsTable.harness,
@@ -153,7 +191,13 @@ export function createContextInspectorWidget(
             // selected here rather than via a second enrichment query.
             title: agentTranscriptsTable.title,
           })
-          .from(agentTranscriptsTable)
+          .from(agentTranscriptsTable);
+
+        const scopedQuery = projectId
+          ? baseQuery.where(eq(agentTranscriptsTable.projectId, projectId))
+          : baseQuery;
+
+        const rows = await scopedQuery
           // mt#3342: order on a NON-NULL key. Postgres sorts NULLs FIRST under
           // `DESC`, so ordering on `started_at` alone let rows with a NULL
           // start time monopolize the window: 57 such rows existed against a

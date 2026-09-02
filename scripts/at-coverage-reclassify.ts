@@ -42,8 +42,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { execWithPath, findRepoRoot } from "../.minsky/hooks/types";
 import { fetchPrMetaByNumber } from "../.minsky/hooks/pr-context";
+import { calibrationLogPath } from "../.minsky/hooks/dispatcher";
 import {
-  AT_COVERAGE_CALIBRATION_LOG,
+  AT_COVERAGE_STREAM,
   checkAcceptanceTestCoverage,
   deriveRepoFromGit,
   fetchTaskSpecForAtCoverage,
@@ -423,7 +424,16 @@ function main() {
   const jsonMode = process.argv.includes("--json");
   const fullMode = process.argv.includes("--full");
   const repoRoot = findRepoRoot(process.cwd());
-  const logPath = `${repoRoot}/${AT_COVERAGE_CALIBRATION_LOG}`;
+  // mt#4755 (PR #3541 R1): resolve through the WRITER's own resolver, not by joining the
+  // repo-relative constant onto the repo root. Since this task routed the ladder through
+  // `logCalibrationRecord`, the records live under the state dir — a repo-rooted read finds an
+  // empty corpus and this script's own `records.length === 0` branch prints "No calibration
+  // records found" and exits 0. That is a silent zero, indistinguishable from a detector that
+  // never fired: the same shape mt#4811 found in `ask-form-lint` and mt#4784 tracks for
+  // `check-coverage-receipts`.
+  // The repo-relative constant is no longer imported here at all: it located the file, and
+  // nothing else in this script used it.
+  const logPath = calibrationLogPath(AT_COVERAGE_STREAM, { projectDir: repoRoot });
   const records = loadRecords(logPath);
 
   if (records.length === 0) {

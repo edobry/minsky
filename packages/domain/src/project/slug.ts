@@ -129,6 +129,28 @@ export function deriveRemoteUrl(repoPath: string, deps: SlugDeps = defaultDeps):
  *
  * Returns `null` if the URL is unrecognised.
  */
+/**
+ * Derive a sensible default display name from a project slug (mt#4729).
+ *
+ * `owner/repo` -> the repo segment, `-`/`_`-split, each word capitalized —
+ * e.g. `edobry/peezombie` -> `Peezombie`, `acme/my-cool-repo` -> `My Cool
+ * Repo`. A bare slug with no `/` (no observed production case, but the
+ * schema doesn't forbid it) uses the whole string the same way.
+ *
+ * This is the auto-derived default applied at project-registration time
+ * (`ensureProjectRow`/`provisionProjectRow`) when no explicit override is
+ * given — see those modules' doc comments for the full "where displayName
+ * gets set" decision (mt#4729 SC4). Pure and side-effect-free so it can be
+ * reused identically by the registration path and by a one-off backfill for
+ * a project whose row predates this default.
+ */
+export function deriveDisplayNameFromSlug(slug: string): string {
+  const repoSegment = slug.includes("/") ? (slug.split("/").pop() ?? slug) : slug;
+  const words = repoSegment.split(/[-_]+/).filter(Boolean);
+  if (words.length === 0) return repoSegment;
+  return words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
+}
+
 export function extractOwnerRepo(remoteUrl: string): string | null {
   // SSH: git@<host>:<owner>/<repo>[.git]
   const sshMatch = remoteUrl.match(/^git@[^:]+:([^/]+)\/([^/\s]+?)(?:\.git)?$/);

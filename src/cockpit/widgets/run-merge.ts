@@ -82,18 +82,88 @@
  *     out-of-scope ingest-pipeline gap — the ingest pipeline never writes
  *     it) will start rendering here automatically once fixed, with zero
  *     further plumbing changes.
+ *
+ * Project scoping (mt#4728): `mergeConversationRows` now takes the SAME
+ * `ProjectScope` the caller already resolved for `listSessions`
+ * (`./agents.ts`) and applies it to the `agent_transcripts` window query
+ * below. Prior to mt#4728 this query ran UNSCOPED, so a
+ * `principal-conversation` / `subagent-group` row from a DIFFERENT project
+ * than the one the operator filtered to still appeared (live-verified:
+ * filtering to `edobry/peezombie.me` returned a conversation whose `cwd`
+ * was this repo).
+ *
+ * Decision (filtered, not deliberately-global-but-marked): the cockpit
+ * already has a first-class "All projects" affordance (`ALL_PROJECTS_PARAM`,
+ * `../project-scope.ts`) for an operator who wants cross-project visibility
+ * -- including their own ambient conversation. A project filter's whole
+ * purpose is narrowing the view to one project's resources, so a
+ * conversation-derived row obeys it exactly like a workspace row does,
+ * rather than carving out an exception nothing asked for. Rows still carry
+ * `projectId` (see `StandaloneRunRow.projectId` below) so a consumer CAN
+ * render a badge/distinction later, even though this task does not add
+ * that rendering (frontend project-badge visibility is sibling mt#4729).
+ *
+ * NULL-attribution rule (shown under every filter, never hidden):
+ * `agent_transcripts.project_id` is resolved best-effort at ingest time and
+ * is nullable BY DESIGN (see that column's own doc comment -- ingestion
+ * must not block on resolution failing). That is a materially different
+ * nullability story than a workspace's `project_id` (set at creation
+ * time), so this module does NOT mirror
+ * `drizzle-session-repository.ts`'s strict `eq()`-only filter. When a
+ * specific project is selected, the WHERE clause is
+ * `project_id = :scope OR project_id IS NULL` -- the same "unknown must
+ * never look like excluded" posture `isWithinActiveWindow` in
+ * `./agents.ts` already documents for an unparseable activity timestamp:
+ * this filter's failure mode (an ingest-time resolution gap) must be
+ * showing a row that might not belong, never silently dropping one that
+ * does.
+ *
+ * Collapsed rendering under a narrow filter (mt#4733): a live measurement
+ * (the peezombie project, 2026-08-29) found the rule above literally
+ * correct but badly under-specified — a 45:2 ratio of NULL-attribution
+ * rows to the filtered project's own rows, every one rendered as an
+ * individual top-level peer, made a narrow filter WORSE than no filter at
+ * all for finding a project's activity. mt#4728's PR body recorded "shown
+ * under every filter, never hidden" without this live-scale evidence; this
+ * refines that decision rather than reversing it. The NULL population is
+ * still never hidden — every NULL-attribution conversation the window
+ * query returns is still represented — but under a SPECIFIC scope (not
+ * ALL_PROJECTS) they are COLLAPSED into one synthetic
+ * `"unattributed-summary"` row (see the classification loop in
+ * `mergeConversationRows`) carrying the individually-expandable list in
+ * `subagents`, instead of each becoming its own standalone row. This keeps
+ * the row COUNT bounded by construction: N NULL rows contribute at most 1
+ * row under a specific filter instead of N.
+ *
+ * The "un-merge" interaction (mt#4733, verified cause 2): the forward
+ * workspace-link query below is scoped to the CALLER'S CURRENTLY VISIBLE
+ * workspace set (`workspaceSessionIds`) — exactly the project-filtered
+ * `listSessions` result. A subagent whose parent conversation is linked to
+ * a workspace that fell OUT of view under the filter can no longer resolve
+ * via that forward link: unfiltered, it would have nested invisibly inside
+ * the parent workspace's row; filtered, this module used to manufacture a
+ * new standalone `"subagent-group"` row for it instead — the filter
+ * doesn't just admit NULLs, it un-merges rows that were previously hidden
+ * inside a row the filter has now excluded. The fix folds such an entry
+ * into the SAME `unattributed-summary` aggregate whenever the entry's OWN
+ * `agent_transcripts.project_id` is null — the query-level WHERE clause
+ * already guarantees every value present in this window is either the
+ * scoped project or null, so that partition is exhaustive. An entry whose
+ * own `project_id` DOES match the filter is confirmed, attributable data
+ * and still gets a real `subagent-group` row.
  */
-import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-transcripts-schema";
-import { agentTranscriptTurnsTable } from "@minsky/domain/storage/schemas/agent-transcript-turns-schema";
 import { agentSpawnsTable } from "@minsky/domain/storage/schemas/agent-spawns-schema";
 import { minskySessionLinksTable } from "@minsky/domain/storage/schemas/minsky-session-links-schema";
 import type { WorkspaceId } from "@minsky/domain/ids";
+import { ALL_PROJECTS, isAllProjects, type ProjectScope } from "@minsky/domain/project/scope";
 import { pickBestConversationLink } from "../session-detail";
 // mt#2818: lifted to the domain layer so both cockpit and the transcripts_list
 // shared command import the SAME mt#2770 precedence decision.
+import { fetchBoundedFirstUserTurns } from "../conversation-label-enrichment";
 import {
   computeConversationLabel,
   composeSubagentDescriptor,
@@ -114,7 +184,11 @@ export type RunKind =
   | "dispatched-agent"
   | "principal-conversation"
   | "subagent-group"
-  | "driven-session";
+  | "driven-session"
+  // mt#4733 — synthetic collapsed row aggregating NULL-attribution
+  // conversations/subagent-entries under a specific project filter. See
+  // this module's header ("Collapsed rendering under a narrow filter").
+  | "unattributed-summary";
 
 /** One nested subagent conversation, collapsed under a parent run's row. */
 export interface SubagentEntry {
@@ -147,7 +221,12 @@ export interface WorkspaceConversationAttrs {
 /** A standalone top-level row the merge produces (principal conversation or subagent group). */
 export interface StandaloneRunRow {
   sessionId: string;
-  kind: "principal-conversation" | "subagent-group";
+  /**
+   * mt#4733 — `"unattributed-summary"` is the synthetic collapsed row
+   * aggregating NULL-attribution items under a specific project filter;
+   * see this module's header.
+   */
+  kind: "principal-conversation" | "subagent-group" | "unattributed-summary";
   title: string;
   liveness: null;
   taskId: null;
@@ -161,12 +240,25 @@ export interface StandaloneRunRow {
   subagents: SubagentEntry[];
   /**
    * Model the row's own conversation ran on (mt#3070). Always `null` for a
-   * synthetic "subagent-group" row (mt#2767's collapsed-parent-not-shown
-   * case) — a group aggregates N children with potentially different
-   * models, so there is no single row-level model to report; see each
-   * child's own `subagents[].model` instead.
+   * synthetic "subagent-group" or "unattributed-summary" row (mt#2767's
+   * collapsed-parent-not-shown case, mt#4733's collapsed-NULL-attribution
+   * case) — both aggregate N children with potentially different models,
+   * so there is no single row-level model to report; see each child's own
+   * `subagents[].model` instead.
    */
   model: string | null;
+  /**
+   * Project this row's conversation is attributed to (mt#4728), sourced
+   * from `agent_transcripts.project_id`. `null` means one of several things
+   * this field deliberately does not distinguish for a consumer: ingest
+   * could not resolve a project for this conversation (see this module's
+   * NULL-attribution rule above), a synthetic "subagent-group" row
+   * aggregates children that could carry different `projectId`s (mirroring
+   * `model`'s same aggregation carve-out above), or — mt#4733 — the row is
+   * the synthetic "unattributed-summary" aggregate, whose whole point is
+   * that its members are unattributed.
+   */
+  projectId: string | null;
 }
 
 export interface RunMergeResult {
@@ -271,10 +363,17 @@ function latestTimestamp(entries: SubagentEntry[]): string {
  */
 export async function mergeConversationRows(
   db: PostgresJsDatabase,
-  workspaceSessionIds: string[]
+  workspaceSessionIds: string[],
+  /**
+   * Project scope (mt#4728) — same `ProjectScope` the caller already
+   * resolved for `listSessions`. Defaults to `ALL_PROJECTS` so every
+   * pre-mt#4728 caller (and every pre-existing test in this file) keeps its
+   * exact prior behavior without passing this argument.
+   */
+  projectScope: ProjectScope = ALL_PROJECTS
 ): Promise<RunMergeResult> {
   try {
-    const conversationRows = await db
+    const conversationRowsSelect = db
       .select({
         agentSessionId: agentTranscriptsTable.agentSessionId,
         cwd: agentTranscriptsTable.cwd,
@@ -286,12 +385,47 @@ export async function mergeConversationRows(
         model: agentTranscriptsTable.model,
         // mt#3321 — generated conversation title; feeds the label tier above.
         title: agentTranscriptsTable.title,
+        // mt#4728 — project attribution; see this module's header for the
+        // decision (filtered) and the NULL-attribution rule (shown under
+        // every filter).
+        projectId: agentTranscriptsTable.projectId,
       })
-      .from(agentTranscriptsTable)
-      .orderBy(sql`${desc(agentTranscriptsTable.startedAt)} NULLS LAST`)
-      .limit(MAX_CONVERSATION_WINDOW);
+      .from(agentTranscriptsTable);
+
+    // mt#4728: only add a WHERE clause when a specific project is scoped —
+    // the ALL_PROJECTS branch keeps the EXACT pre-mt#4728 query shape (no
+    // `.where()` step at all), so every existing unscoped caller/test is
+    // unaffected. `OR project_id IS NULL` is the NULL-attribution rule
+    // documented at the top of this file: an ingest-time resolution gap
+    // must never look like "known to be a different project."
+    const conversationRows = await (isAllProjects(projectScope)
+      ? conversationRowsSelect
+          .orderBy(sql`${desc(agentTranscriptsTable.startedAt)} NULLS LAST`)
+          .limit(MAX_CONVERSATION_WINDOW)
+      : conversationRowsSelect
+          .where(
+            or(
+              eq(agentTranscriptsTable.projectId, projectScope),
+              isNull(agentTranscriptsTable.projectId)
+            )
+          )
+          .orderBy(sql`${desc(agentTranscriptsTable.startedAt)} NULLS LAST`)
+          .limit(MAX_CONVERSATION_WINDOW));
 
     const conversationIds = conversationRows.map((r) => r.agentSessionId);
+
+    // mt#4733 — every conversationId's OWN project_id, for the fold-into-
+    // unattributed partition below. Because the WHERE clause above already
+    // constrains this window to "matches scope or NULL", the only two
+    // values this map can hold when a specific project is scoped are the
+    // scoped project id or null — so a lookup miss (undefined) never
+    // occurs for an id actually reachable from this window, but a caller
+    // reading it defensively (below) still treats a miss the same as
+    // "not confirmed null" rather than folding on an absence.
+    const projectIdByConversationId = new Map<string, string | null>();
+    for (const row of conversationRows) {
+      projectIdByConversationId.set(row.agentSessionId, row.projectId);
+    }
 
     const [workspaceLinkRows, conversationLinkRows, spawnRows, turnRows] = await Promise.all([
       workspaceSessionIds.length > 0
@@ -332,21 +466,23 @@ export async function mergeConversationRows(
             .from(agentSpawnsTable)
             .where(inArray(agentSpawnsTable.childAgentSessionId, conversationIds))
         : Promise.resolve([]),
-      conversationIds.length > 0
-        ? db
-            .select({
-              agentSessionId: agentTranscriptTurnsTable.agentSessionId,
-              turnIndex: agentTranscriptTurnsTable.turnIndex,
-              userText: agentTranscriptTurnsTable.userText,
-            })
-            .from(agentTranscriptTurnsTable)
-            .where(
-              and(
-                inArray(agentTranscriptTurnsTable.agentSessionId, conversationIds),
-                isNotNull(agentTranscriptTurnsTable.userText)
-              )
-            )
-        : Promise.resolve([]),
+      // mt#4655 — bounded to the earliest MAX_USER_TURN_CANDIDATES per session
+      // (the bound `pickSubstantiveUserText` already applies), and requested
+      // ONLY for conversations with no generated title.
+      //
+      // `labelFor` feeds `row.title` as `generatedTitle`, and
+      // `computeConversationLabel` short-circuits there (`if (generated) return
+      // generated;`) before it ever reads this text — and tier 1 is null by
+      // construction for these rows, per this module's own header. So for a
+      // titled conversation the text was fetched and discarded. 98.2% of
+      // conversations carry a title.
+      //
+      // `conversationRows` is awaited ABOVE this `Promise.all`, so the titles
+      // are already in hand here and this costs no extra round trip.
+      fetchBoundedFirstUserTurns(
+        db,
+        conversationRows.filter((r) => !r.title?.trim()).map((r) => r.agentSessionId)
+      ),
     ]);
 
     // --- (a) forward direction: best conversation link per VISIBLE workspace ---
@@ -409,6 +545,13 @@ export async function mergeConversationRows(
     const principalRowById = new Map<string, StandaloneRunRow>();
     const subagentsByParent = new Map<string, SubagentEntry[]>();
 
+    // mt#4733 — collapse target for NULL-attribution items under a specific
+    // project filter (see this module's header, "Collapsed rendering under
+    // a narrow filter"). Populated only when `collapseNulls`; folded into a
+    // single synthetic "unattributed-summary" row after both loops below.
+    const collapseNulls = !isAllProjects(projectScope);
+    const unattributedEntries: SubagentEntry[] = [];
+
     for (const row of conversationRows) {
       if (linkedConversationIds.has(row.agentSessionId)) continue; // dedup — attribute of its workspace row
 
@@ -431,6 +574,23 @@ export async function mergeConversationRows(
         continue;
       }
 
+      // mt#4733 — a NULL-attribution, non-subagent conversation never gets
+      // its own top-level row under a specific project filter; it folds
+      // into the unattributed aggregate instead (SC2). Under ALL_PROJECTS
+      // this branch never fires (`collapseNulls` is false), so the
+      // pre-mt#4733 behavior is unchanged whenever no project is scoped.
+      if (collapseNulls && row.projectId === null) {
+        unattributedEntries.push({
+          conversationId: row.agentSessionId,
+          label: labelFor(row, firstUserTextById, spawnAgentKindById),
+          cwd: row.cwd,
+          startedAt: row.startedAt?.toISOString() ?? null,
+          endedAt: row.endedAt?.toISOString() ?? null,
+          model: row.model,
+        });
+        continue;
+      }
+
       const principalRow: StandaloneRunRow = {
         sessionId: row.agentSessionId,
         kind: "principal-conversation",
@@ -446,6 +606,7 @@ export async function mergeConversationRows(
         cwd: row.cwd,
         subagents: [],
         model: row.model,
+        projectId: row.projectId,
       };
       principalRows.push(principalRow);
       principalRowById.set(row.agentSessionId, principalRow);
@@ -470,30 +631,86 @@ export async function mergeConversationRows(
       }
       // Parent not present in the current window — collapsed synthetic group row
       // (spec's documented allowance: "a collapsed group row is acceptable").
+      //
+      // mt#4733 ("un-merge" interaction, verified cause 2): this branch is
+      // reached MORE often under a specific project filter than unfiltered,
+      // because the forward workspace-link query above is scoped to the
+      // CALLER'S currently-visible workspace set — a parent conversation
+      // whose workspace fell out of view under the filter can no longer
+      // resolve here even though it would have unfiltered. Rather than
+      // manufacture a new standalone peer for an entry we cannot attribute,
+      // partition by the entry's OWN project_id (the window's WHERE clause
+      // already guarantees every present value is "matches scope" or
+      // "null" — see `projectIdByConversationId` above): a null entry folds
+      // into the same unattributed aggregate as a bare NULL principal row;
+      // an entry whose own project_id matches the filter is confirmed,
+      // attributable data and still gets a real group row.
+      let groupEntries = entries;
+      if (collapseNulls) {
+        const attributed = entries.filter(
+          (e) => projectIdByConversationId.get(e.conversationId) !== null
+        );
+        const unattributed = entries.filter(
+          (e) => projectIdByConversationId.get(e.conversationId) === null
+        );
+        unattributedEntries.push(...unattributed);
+        if (attributed.length === 0) continue; // fully folded away — no group row
+        groupEntries = attributed;
+      }
+
       standaloneGroupRows.push({
         sessionId: `group:${parentId}`,
         kind: "subagent-group",
-        title: `${entries.length} subagent run${entries.length === 1 ? "" : "s"} (parent not shown)`,
+        title: `${groupEntries.length} subagent run${groupEntries.length === 1 ? "" : "s"} (parent not shown)`,
         liveness: null,
         taskId: null,
         taskTitle: null,
         prNumber: null,
         prStatus: null,
-        lastActivityAt: latestTimestamp(entries),
+        lastActivityAt: latestTimestamp(groupEntries),
         agentId: null,
         conversationId: null,
         cwd: null,
-        subagents: entries,
+        subagents: groupEntries,
         // A collapsed group aggregates N children with potentially different
         // models — no single row-level model to report (see each child's own
         // subagents[].model instead; see the StandaloneRunRow.model doc comment).
         model: null,
+        // Same aggregation carve-out as `model` above (mt#4728) — a group's
+        // children could carry different projectIds.
+        projectId: null,
+      });
+    }
+
+    // mt#4733 — the single collapsed "unattributed-summary" row, present
+    // only when a specific project is scoped AND at least one item folded
+    // into it (either a bare NULL principal-conversation candidate, or a
+    // NULL-attributed subagent whose out-of-view parent could not be
+    // resolved — see both fold sites above).
+    const standaloneRows: StandaloneRunRow[] = [...principalRows, ...standaloneGroupRows];
+    if (collapseNulls && unattributedEntries.length > 0) {
+      standaloneRows.push({
+        sessionId: `unattributed:${projectScope}`,
+        kind: "unattributed-summary",
+        title: `${unattributedEntries.length} unattributed conversation${unattributedEntries.length === 1 ? "" : "s"}`,
+        liveness: null,
+        taskId: null,
+        taskTitle: null,
+        prNumber: null,
+        prStatus: null,
+        lastActivityAt: latestTimestamp(unattributedEntries),
+        agentId: null,
+        conversationId: null,
+        cwd: null,
+        subagents: unattributedEntries,
+        model: null,
+        projectId: null,
       });
     }
 
     return {
       workspaceAttrsBySessionId,
-      standaloneRows: [...principalRows, ...standaloneGroupRows],
+      standaloneRows,
     };
   } catch {
     // Any enrichment-query failure degrades to "workspace rows only" — never
@@ -533,7 +750,11 @@ export const DEFAULT_MERGE_CACHE_TTL_MS = 5_000;
 
 export interface CachedRunMerge {
   /** Same contract as {@link mergeConversationRows}, transparently cached. */
-  getMerge(db: PostgresJsDatabase, workspaceSessionIds: string[]): Promise<RunMergeResult>;
+  getMerge(
+    db: PostgresJsDatabase,
+    workspaceSessionIds: string[],
+    projectScope?: ProjectScope
+  ): Promise<RunMergeResult>;
 }
 
 /**
@@ -543,22 +764,30 @@ export interface CachedRunMerge {
  * module-level singleton, so tests get a fresh cache per `createAgentsWidget()`
  * call.
  *
- * Cache key is the SORTED workspace-sessionId set: membership changes (a
- * session starting or leaving the non-terminal set) invalidate correctly,
- * while polls against an unchanged fleet hit cache.
+ * Cache key is the SORTED workspace-sessionId set PLUS the project scope
+ * (mt#4728): membership changes (a session starting or leaving the
+ * non-terminal set) invalidate correctly, while polls against an unchanged
+ * fleet AND an unchanged project filter hit cache. The project scope MUST be
+ * part of the key — omitting it would let two operators (or one operator
+ * switching the `?project=` filter) within the same TTL window share a
+ * cached merge keyed only on `workspaceSessionIds`, which is IDENTICAL
+ * (often `[]`) across two different project scopes whenever neither has any
+ * workspace rows in view. That would silently serve one project's
+ * conversation-derived rows under another project's filter — the exact
+ * cross-project leak this task fixes, reintroduced through the cache.
  */
 export function createCachedRunMerge(ttlMs: number = DEFAULT_MERGE_CACHE_TTL_MS): CachedRunMerge {
   let entry: { key: string; expiresAt: number; promise: Promise<RunMergeResult> } | null = null;
 
   return {
-    async getMerge(db, workspaceSessionIds) {
-      const key = JSON.stringify([...workspaceSessionIds].sort());
+    async getMerge(db, workspaceSessionIds, projectScope = ALL_PROJECTS) {
+      const key = JSON.stringify([[...workspaceSessionIds].sort(), projectScope]);
       const now = Date.now();
       if (entry && entry.key === key && entry.expiresAt > now) {
         return entry.promise;
       }
 
-      const promise = mergeConversationRows(db, workspaceSessionIds);
+      const promise = mergeConversationRows(db, workspaceSessionIds, projectScope);
       entry = { key, expiresAt: now + ttlMs, promise };
 
       // Defense in depth: mergeConversationRows() never rejects (it catches

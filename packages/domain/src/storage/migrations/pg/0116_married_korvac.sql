@@ -1,0 +1,42 @@
+-- mt#4874: the two partial indexes the cockpit Messages page reads through.
+--
+-- The page has two halves and each was a full scan of a ~400,000-row table on
+-- every 60-second poll. Both predicates are true for a vanishing fraction of
+-- their table, so both indexes are PARTIAL and neither grows with the table.
+--
+-- 1. idx_agent_transcript_turns_peer_origin — the RECEIVER lookup.
+--    `user_origin` has no index, so selecting delivered peer messages was a
+--    parallel Seq Scan: measured against production 2026-09-02,
+--    Rows Removed by Filter 197,081 per worker (394,170 total), ~39,000
+--    buffers, 575 ms, to return 12 rows. The predicate matches 12 of 394,170.
+--
+-- 2. idx_agent_tool_call_projection_send_message — the SENDER lookup.
+--    idx_agent_tool_call_projection_timestamp is on `timestamp` alone and its
+--    own comment says it is for a "trailing-time-window scan", not a tool
+--    lookup. A newest-first query for ONE tool name therefore walks it
+--    backwards discarding everything else, and its cost tracks how recently
+--    that tool was last used rather than how many rows match. Measured on the
+--    newest-50 SendMessage query: 34,777 rows discarded in 134 ms on
+--    2026-09-01, and 36,508 rows in 2,772 ms on 2026-09-02 — a 20x regression
+--    in one day, produced by nothing but a quiet period. The predicate matches
+--    348 of ~409,000 rows; DESC so the newest-first read is a forward walk.
+--
+-- Lock note (the 0068 convention, with each table's own numbers). Plain
+-- CREATE INDEX, not CONCURRENTLY, for the reason migration 0111 records:
+-- drizzle's migrate() applies each migration inside a transaction
+-- (drizzle-orm/pg-core/dialect.js — session.transaction), where Postgres
+-- forbids CONCURRENTLY. So each build takes ACCESS EXCLUSIVE on a table that
+-- transcript ingest writes to.
+--
+-- 0068 justified the plain form on "both tables are tiny", which does not
+-- transfer here — these are 394,170 and ~411,000 rows. The replacement reason
+-- is measured, not assumed: a partial index still scans every heap row to
+-- evaluate its predicate, so each build tracks that table's full scan, and
+-- both full scans were measured against production on 2026-09-02 —
+-- agent_transcript_turns 394,170 rows / ~39,000 buffers / 575 ms, and
+-- agent_tool_call_projection 411,324 rows / 6,618 buffers / 110 ms. Both
+-- sub-second, so the plain form is the right trade. If either table's shape
+-- pushes a build into seconds, the out-of-band CONCURRENTLY path has to be
+-- reconsidered.
+CREATE INDEX "idx_agent_transcript_turns_peer_origin" ON "agent_transcript_turns" USING btree ("agent_session_id","turn_index") WHERE "agent_transcript_turns"."user_origin" = 'peer';--> statement-breakpoint
+CREATE INDEX "idx_agent_tool_call_projection_send_message" ON "agent_tool_call_projection" USING btree ("timestamp" DESC NULLS LAST) WHERE "agent_tool_call_projection"."tool_name" = 'SendMessage';

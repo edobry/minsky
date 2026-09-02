@@ -17,11 +17,31 @@
  * spec's BLOCKING section for why.
  */
 
-import { resolveConversationAgentId, injectAgentIdMeta } from "./identity";
+import {
+  injectAgentIdMeta,
+  resolveConversationAgentId,
+  resolveHarnessPid,
+  resolveLiveConversationAgentId,
+} from "./identity";
 import { stripUnsupportedCapabilities } from "./capabilities";
 import { readAuthToken, DEFAULT_TOKEN_PATH } from "./token";
-import { DaemonClient, describeDaemonFailure } from "./client";
+import { DaemonClient, daemonFailureKindOf, describeDaemonFailure } from "./client";
 import { makeErrorResponse, toolsListCount, type JsonRpcMessage } from "./protocol";
+import { boundOversizedResponse, type ResponseBoundDeps } from "./response-bound";
+import { recordClientFailure, type FailureLogDeps } from "./failure-log";
+
+/**
+ * The tool name from a `tools/call` envelope, or undefined for any other
+ * method (and for a malformed frame). Recorded — never branched on — so a
+ * failure record names WHICH tool died; see `failure-log.ts` on why reading
+ * this one fixed envelope field does not widen the shim's thin posture.
+ */
+function toolNameOf(msg: JsonRpcMessage): string | undefined {
+  const params = (msg as { params?: unknown }).params;
+  if (typeof params !== "object" || params === null) return undefined;
+  const name = (params as { name?: unknown }).name;
+  return typeof name === "string" ? name : undefined;
+}
 
 /** Fixed default daemon port per ADR-038 §Question 4. */
 export const DEFAULT_DAEMON_URL = "http://127.0.0.1:48765/mcp";
@@ -53,11 +73,36 @@ export function parseArgs(
 export interface ShimDeps {
   /** Injected for tests. */
   client?: DaemonClient;
-  /** Injected for tests — defaults to resolving CLAUDE_CODE_SESSION_ID. */
+  /**
+   * Injected for tests — defaults to resolving CLAUDE_CODE_SESSION_ID.
+   *
+   * This is the FALLBACK identity, not the stamped one: supplying it also
+   * declares that the caller is CONTROLLING identity, which suppresses the live
+   * pid-mapping lookup (see {@link ShimDeps.harnessPid}).
+   */
   conversationAgentId?: string | null;
+  /**
+   * Injected for tests — the harness-pid SEED for the live mapping lookup
+   * (mt#4440). Defaults to the ancestor walk, or to `null` when the caller
+   * supplied `conversationAgentId`.
+   */
+  harnessPid?: number | null;
+  /**
+   * Injected for tests — the PER-FRAME identity resolver (mt#4440).
+   *
+   * Exists so the property that actually broke — that the stamped id is
+   * recomputed per frame rather than frozen at startup — is observable without
+   * patching a module this file reaches itself. Defaults to the live resolver
+   * over {@link ShimDeps.harnessPid} and the spawn-time env fallback.
+   */
+  resolveAgentId?: () => string | null;
   stdin?: NodeJS.ReadStream;
   stdout?: NodeJS.WriteStream;
   stderr?: NodeJS.WriteStream;
+  /** Injected for tests — see {@link handleLine}'s `responseBoundDeps`. */
+  responseBoundDeps?: ResponseBoundDeps;
+  /** Injected for tests — see {@link handleLine}'s `failureLogDeps`. */
+  failureLogDeps?: FailureLogDeps;
 }
 
 /**
@@ -75,10 +120,40 @@ export function runShim(options: ShimOptions, deps: ShimDeps = {}): DaemonClient
   const stdout = deps.stdout ?? process.stdout;
   const stderr = deps.stderr ?? process.stderr;
 
+  // The spawn-time env value. It is the FALLBACK, never the stamped id on its
+  // own: Claude Code freezes `CLAUDE_CODE_SESSION_ID` in this process's
+  // environment when it spawns us, and a `/clear` changes the conversation
+  // WITHOUT respawning MCP servers — so a long-lived shim keeps stamping a
+  // conversation that ended days ago (mt#4440).
   const conversationAgentId =
     deps.conversationAgentId !== undefined
       ? deps.conversationAgentId
       : resolveConversationAgentId();
+
+  // mt#4440: the harness-pid SEED for the live mapping lookup. The ancestor walk
+  // shells out to `ps`, and the pid cannot change for this process's lifetime,
+  // so it is resolved ONCE here and never per frame.
+  //
+  // A caller that supplied `conversationAgentId` explicitly is CONTROLLING
+  // identity — including `null` for "identity inactive" — so the mapping must
+  // not override it. Only the default path consults the mapping. Without this,
+  // a test asking for an inactive identity would still get one from whatever
+  // mapping happens to exist on the machine running the suite. Mirrors the
+  // stdio proxy's constructor rule exactly.
+  const harnessPid =
+    deps.harnessPid !== undefined
+      ? deps.harnessPid
+      : deps.conversationAgentId !== undefined
+        ? null
+        : resolveHarnessPid();
+
+  // Resolved PER FRAME rather than once, which is the whole fix: the mapping a
+  // SessionStart hook writes is what notices a `/clear`, and a value computed at
+  // startup structurally cannot. Reads are TTL-cached inside the resolver, so a
+  // burst of frames pays one file read between them.
+  const currentConversationAgentId =
+    deps.resolveAgentId ??
+    ((): string | null => resolveLiveConversationAgentId(harnessPid, conversationAgentId));
   const authToken = readAuthToken(options.tokenPath);
   const client =
     deps.client ??
@@ -105,7 +180,14 @@ export function runShim(options: ShimOptions, deps: ShimDeps = {}): DaemonClient
     for (const rawLine of lines) {
       const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
       if (!line.trim()) continue;
-      void handleLine(line, { client, conversationAgentId, stdout, stderr });
+      void handleLine(line, {
+        client,
+        conversationAgentId: currentConversationAgentId(),
+        stdout,
+        stderr,
+        responseBoundDeps: deps.responseBoundDeps,
+        failureLogDeps: deps.failureLogDeps,
+      });
     }
   });
   stdin.on("end", shutdown);
@@ -125,6 +207,17 @@ export async function handleLine(
     conversationAgentId: string | null;
     stdout: Pick<NodeJS.WriteStream, "write">;
     stderr: Pick<NodeJS.WriteStream, "write">;
+    /**
+     * Injected for tests — overrides `boundOversizedResponse`'s filesystem
+     * seam (mt#4749). Defaults to the real state dir / fs when omitted, which
+     * is what every non-test caller (`runShim`) relies on.
+     */
+    responseBoundDeps?: ResponseBoundDeps;
+    /**
+     * Injected for tests — overrides `recordClientFailure`'s filesystem seam
+     * (mt#4828). Defaults to the real state dir / fs when omitted.
+     */
+    failureLogDeps?: FailureLogDeps;
   }
 ): Promise<void> {
   let msg: JsonRpcMessage;
@@ -200,7 +293,16 @@ export async function handleLine(
         // there is nowhere to report a failure to write a diagnostic except the
         // stream that just failed.
       }
-      ctx.stdout.write(`${JSON.stringify(resp)}\n`);
+
+      // mt#4749: the last checkpoint before the write that IS the JSON-RPC
+      // channel to the harness. A response whose serialized size runs into the
+      // tens of megabytes killed that connection outright (twice, once per
+      // server alias) in the originating incident — `boundOversizedResponse`
+      // spools an oversized frame to a file and substitutes a bounded error
+      // response instead, so this write can never itself take the transport
+      // down regardless of which tool produced the oversized result.
+      const bounded = boundOversizedResponse(resp, ctx.responseBoundDeps);
+      ctx.stdout.write(`${JSON.stringify(bounded)}\n`);
     }
   } catch (err) {
     // Never silently drop a message on HTTP failure (the named gap in the
@@ -216,6 +318,22 @@ export async function handleLine(
     // process while the actual fault was the daemon's connection pool.
     const { summary, detail } = describeDaemonFailure(err);
     ctx.stderr.write(`[shim] ${summary}: ${detail}\n`);
+
+    // mt#4828: stderr is the ONLY trace of a caller-visible failure, and it is
+    // not persisted anywhere — so while the daemon's own deaths are well
+    // instrumented, the tool calls they killed were not, and their cadence
+    // could not be measured. Record the client's half durably, keyed to the
+    // same clock as the daemon-side row. Never throws (see `failure-log.ts`),
+    // so it cannot displace the error being reported on the next lines.
+    recordClientFailure(
+      {
+        failureKind: daemonFailureKindOf(err),
+        method: typeof msg.method === "string" ? msg.method : "(none)",
+        toolName: toolNameOf(msg),
+        error: detail,
+      },
+      ctx.failureLogDeps
+    );
     if (msg.id !== undefined && msg.id !== null) {
       ctx.stdout.write(
         `${JSON.stringify(

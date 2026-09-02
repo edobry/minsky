@@ -1196,6 +1196,8 @@ When spawning subagents, use the appropriate model and type:
 
 **Capacity:** Subagents have limited context/tool budgets with no graceful degradation. Scope to 8–12 files per wave. Instruct to commit incrementally. For multi-phase work, use subtasks (`tasks_create` with `parent`). If a subagent returns incomplete work, check session `git diff`/`git status` and finish from main agent.
 
+**Bandwidth: dispatch CONTAINS a search's re-upload tail (mt#3842).** A result added to the parent at request *i* of an *N*-request session is re-sent (N − i) times — a 100 KB read early in a median 234-request session costs 22.8 MB, because caching prices the unchanged prefix rather than exempting it from transmission. Delegated, it is re-uploaded only inside a transcript that ends. Measured over 683 subagent transcripts: **10,728 Mtok contained, median 3,557-byte return.** So **dispatch exploratory or search-heavy work instead of reading widely in the parent** — the same direction mem#584's attention argument points. Containment, not free work: the subagent pays its own re-uploads at its own smaller N. Curve, compaction threshold, and the refuted quadratic: `docs/context-bandwidth.md`.
+
 **Continuation.** `SendMessage` resumes a **COMPLETED** subagent from transcript with full context — prefer it over a fresh dispatch for review-fix rounds (validated `mt#2578`; memory `6038c0a1`, whose own "pending" rule-text-correction note is stale as of mt#2865 — this citation applies it). Messaging a still-RUNNING agent ALSO works (verified mt#3128; mem#699): delivery lands at its next tool round and it STEERS, not just informs — course-correct by messaging rather than kill + re-dispatch, redirecting REMAINING work (already-executed steps can't be undone). Mid-flight steering is a recovery path, not a substitute for a well-specified initial dispatch. Full mechanics: `docs/rules-rationale/subagent-routing.md §Continuation`.
 
 **Never fork for bounded lookups from an active implementation context (mt#2865).** A `fork`
@@ -1603,10 +1605,11 @@ How to apply: `docs/rules-rationale/work-completion.md §Recovery layer spec dis
 
 When a task spec introduces an **event-driven or polling mechanism** — webhook handler, scheduled job, cron, sweeper, watcher, poller — it MUST name the **concrete invocation path**: what starts it, what calls it, how it is wired in.
 
-These fail silently in two shapes, identical from outside: the feature exists, its tests pass, it produces nothing.
+These fail silently in three shapes. The first two are identical from outside: the feature exists, its tests pass, it produces nothing. The third inverts them — the mechanism was working, and a change stops it.
 
 - **Nothing calls it.** No scheduler, no registration, no production callsite — or the only caller is a stub (mt#1618).
 - **It runs; a dependency inside it is dead.** The failure is caught and converted into the same value a legitimately empty result produces — no missing caller to grep for, no error to find (mt#3019, mt#3046).
+- **The change REMOVES the signal a consumer depended on.** The inverse of the first shape, and invisible to it: nothing new is uninvoked — an existing invoker is deleted, or newly guarded so it stops running. A process exit, an emitted event, a closed connection, a state file another process polls: each is rarely only cleanup, and something downstream is usually watching for it. So when a design stops a behavior, enumerate what CONSUMED it before calling the design complete (mt#4493).
 
 **Trigger keywords:** "fires", "triggers", "polls", "watches", "scheduled", "periodic", "on event", "listener", "handler". Never swallow a dependency failure into a "nothing to do" value — log the actual error.
 

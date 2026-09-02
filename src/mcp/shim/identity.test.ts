@@ -1,6 +1,7 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import {
   resolveConversationAgentId,
+  resolveLiveConversationAgentId,
   injectAgentIdMeta,
   conversationIdFromAgentId,
   redactAgentId,
@@ -9,9 +10,18 @@ import {
 } from "./identity";
 import {
   resolveConversationAgentId as proxyResolveConversationAgentId,
+  resolveLiveConversationAgentId as proxyResolveLiveConversationAgentId,
   injectAgentIdMeta as proxyInjectAgentIdMeta,
   redactAgentId as proxyRedactAgentId,
 } from "../stdio-proxy/conversation-identity";
+// From the SHARED module, not via the proxy file (PR #3403 R1). Reaching these
+// through a sibling writer's re-exports is the same coupling this task removed
+// from the production code, and it would break the moment that writer stopped
+// re-exporting them — which is a change with nothing to do with these tests.
+import {
+  CONVERSATION_MAPPING_TTL_MS,
+  resetConversationMappingCache,
+} from "@minsky/domain/agent-identity/live-conversation";
 import {
   GEN_AI_CONVERSATION_ID_KEY,
   MAX_BAGGAGE_MEMBERS,
@@ -312,5 +322,177 @@ describe("parity with the stdio proxy writer", () => {
     for (const id of [EXPECTED_AGENT_ID, "no-colons-at-all", "a:b:c"]) {
       expect(redactAgentId(id)).toBe(proxyRedactAgentId(id));
     }
+  });
+
+  /**
+   * The strongest form this block can take (mt#4440).
+   *
+   * Every assertion above compares two implementations and passes when they
+   * happen to agree today. For the LIVE resolution — the axis that actually
+   * drifted, and drifted for five days undetected — the two writers now share
+   * one function, so identity of reference is assertable directly. A future
+   * edit that reintroduces a per-writer copy fails HERE, at the point of
+   * divergence, rather than at whichever behavior the case list happens to
+   * cover.
+   */
+  test("resolveLiveConversationAgentId IS the proxy's, not merely equivalent", () => {
+    expect(resolveLiveConversationAgentId).toBe(proxyResolveLiveConversationAgentId);
+  });
+});
+
+/**
+ * Live conversation resolution at the shim seam (mt#4440).
+ *
+ * Every test here injects `readMapping` / `now` / `reresolvePid`, so nothing
+ * touches the real filesystem or shells out to `ps` — the resolver takes them
+ * as dependencies precisely so this layer is observable without patching a
+ * collaborator it reaches itself.
+ *
+ * The module-global TTL cache is reset before each test: it is keyed by pid and
+ * shared across the process, so a leftover entry from a sibling test would make
+ * results depend on execution order.
+ */
+describe("resolveLiveConversationAgentId at the shim seam (mt#4440)", () => {
+  const MAPPED_UUID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const MAPPED_AGENT_ID = `com.anthropic.claude-code:conv:${MAPPED_UUID}`;
+  const HARNESS_PID = 4440;
+
+  beforeEach(() => {
+    resetConversationMappingCache();
+  });
+
+  test("AT3: the mapping WINS over a disagreeing spawn-time env value", () => {
+    // The exact production shape: the env holds the conversation that was live
+    // when this process was spawned, the mapping holds the one live NOW, and
+    // they disagree because a `/clear` happened in between.
+    const resolved = resolveLiveConversationAgentId(HARNESS_PID, EXPECTED_AGENT_ID, {
+      readMapping: () => MAPPED_UUID,
+      now: () => 1_000,
+      reresolvePid: () => null,
+    });
+
+    expect(resolved).toBe(MAPPED_AGENT_ID);
+    expect(resolved).not.toBe(EXPECTED_AGENT_ID);
+  });
+
+  test("AT4: a conversation switch is picked up WITHOUT respawning the process", () => {
+    // This is the property `main.ts`'s previous resolve-once-at-startup shape
+    // structurally could not have, which is why it is the test that would have
+    // caught the defect. One process, two resolutions, different answers.
+    let mapped = MAPPED_UUID;
+    const SWITCHED_UUID = "11111111-2222-4333-8444-555555555555";
+    let clock = 1_000;
+
+    const deps = {
+      readMapping: () => mapped,
+      now: () => clock,
+      reresolvePid: () => null,
+    };
+
+    expect(resolveLiveConversationAgentId(HARNESS_PID, EXPECTED_AGENT_ID, deps)).toBe(
+      MAPPED_AGENT_ID
+    );
+
+    mapped = SWITCHED_UUID;
+    clock += CONVERSATION_MAPPING_TTL_MS + 1;
+
+    expect(resolveLiveConversationAgentId(HARNESS_PID, EXPECTED_AGENT_ID, deps)).toBe(
+      `com.anthropic.claude-code:conv:${SWITCHED_UUID}`
+    );
+  });
+
+  test("AT5: falls back to the spawn-time env value when the mapping has no entry", () => {
+    // Hookless environments and non-Claude-Code parents have no mapping at all.
+    // Regressing them to NO identity would be a worse failure than the stale one
+    // this task fixes, so the fallback is load-bearing rather than incidental.
+    const resolved = resolveLiveConversationAgentId(HARNESS_PID, EXPECTED_AGENT_ID, {
+      readMapping: () => null,
+      now: () => 1_000,
+      reresolvePid: () => null,
+    });
+
+    expect(resolved).toBe(EXPECTED_AGENT_ID);
+  });
+
+  test("returns null when neither source names a conversation", () => {
+    // Never fabricate an identity — ADR-006 Layer-3 conservatism. The caller
+    // stamps nothing and the reader falls through to Layer 1.
+    expect(
+      resolveLiveConversationAgentId(HARNESS_PID, null, {
+        readMapping: () => null,
+        now: () => 1_000,
+        reresolvePid: () => null,
+      })
+    ).toBeNull();
+  });
+
+  test("a null harness pid short-circuits to the fallback without reading anything", () => {
+    let reads = 0;
+    const resolved = resolveLiveConversationAgentId(null, EXPECTED_AGENT_ID, {
+      readMapping: () => {
+        reads++;
+        return MAPPED_UUID;
+      },
+      now: () => 1_000,
+      reresolvePid: () => null,
+    });
+
+    expect(resolved).toBe(EXPECTED_AGENT_ID);
+    expect(reads).toBe(0);
+  });
+
+  test("caches within the TTL, so a burst of frames pays one read", () => {
+    // The cost side of the fix: this runs on every `tools/call` frame, so the
+    // read has to be amortized or the shim's thinness case erodes.
+    let reads = 0;
+    const deps = {
+      readMapping: () => {
+        reads++;
+        return MAPPED_UUID;
+      },
+      now: () => 1_000,
+      reresolvePid: () => null,
+    };
+
+    for (let i = 0; i < 25; i++) {
+      expect(resolveLiveConversationAgentId(HARNESS_PID, EXPECTED_AGENT_ID, deps)).toBe(
+        MAPPED_AGENT_ID
+      );
+    }
+
+    expect(reads).toBe(1);
+  });
+
+  test("re-walks the ancestor chain on a MISS, and never on a hit (mt#4378)", () => {
+    // Carried through the move to the shared module. The seed pid can go stale
+    // because the process outlives the harness that spawned it; a miss is the
+    // only thing that pays for the `ps` walk.
+    const LIVE_PID = 9999;
+    let walks = 0;
+
+    const resolvedOnMiss = resolveLiveConversationAgentId(HARNESS_PID, EXPECTED_AGENT_ID, {
+      readMapping: (pid) => (pid === LIVE_PID ? MAPPED_UUID : null),
+      now: () => 1_000,
+      reresolvePid: () => {
+        walks++;
+        return LIVE_PID;
+      },
+    });
+    expect(resolvedOnMiss).toBe(MAPPED_AGENT_ID);
+    expect(walks).toBe(1);
+
+    resetConversationMappingCache();
+    walks = 0;
+
+    const resolvedOnHit = resolveLiveConversationAgentId(HARNESS_PID, EXPECTED_AGENT_ID, {
+      readMapping: () => MAPPED_UUID,
+      now: () => 1_000,
+      reresolvePid: () => {
+        walks++;
+        return LIVE_PID;
+      },
+    });
+    expect(resolvedOnHit).toBe(MAPPED_AGENT_ID);
+    expect(walks).toBe(0);
   });
 });

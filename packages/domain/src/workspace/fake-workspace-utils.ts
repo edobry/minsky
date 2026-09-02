@@ -2,9 +2,9 @@
  * FakeWorkspaceUtils — in-memory test double for WorkspaceUtilsInterface.
  *
  * Follows the canonical FakeX pattern established in
- * `src/domain/persistence/fake-persistence-provider.ts` and continued in
- * `src/domain/tasks/fake-task-service.ts`, `src/domain/git/fake-git-service.ts`,
- * and `src/domain/session/fake-session-provider.ts`: a real class implementing
+ * `packages/domain/src/persistence/fake-persistence-provider.ts` and continued in
+ * `packages/domain/src/tasks/fake-task-service.ts`, `packages/domain/src/git/fake-git-service.ts`,
+ * and `packages/domain/src/session/fake-session-provider.ts`: a real class implementing
  * the typed DI interface with zero external I/O.
  *
  * Hermetic by construction: no filesystem, no DB, no network.
@@ -17,8 +17,8 @@
  *   - getSessionFromWorkspace → resolves to `undefined`
  *   - resolveWorkspacePath → resolves to `/fake/workspace`
  *
- * @see src/domain/persistence/fake-persistence-provider.ts
- * @see src/domain/session/fake-session-provider.ts
+ * @see packages/domain/src/persistence/fake-persistence-provider.ts
+ * @see packages/domain/src/session/fake-session-provider.ts
  */
 
 import type { WorkspaceUtilsInterface } from "../workspace";

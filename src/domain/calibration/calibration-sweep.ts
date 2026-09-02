@@ -40,7 +40,35 @@ import { createHash } from "node:crypto";
  * operator-facing output, and the record kind (drives the parse path).
  */
 export interface CalibrationLogEntry {
-  /** Repo-relative path to the JSONL log file. */
+  /**
+   * Repo-relative path to the JSONL log file — as a NAME, not a resolvable
+   * filesystem path. **The value stays repo-relative deliberately (mt#4748
+   * R1)**: `.minsky/hooks/dispatcher.ts`'s `calibrationLogPath` — the actual
+   * write path every value here mirrors — moved from
+   * `.minsky/<name>-calibration.jsonl` (repo-rooted) to a project-keyed
+   * subdirectory of the state dir
+   * (`getMinskyStateDir()/projects/<key>/<name>-calibration.jsonl`), where
+   * `<key>` is a hash of the repo root — a value this static registry has no
+   * way to embed. Every reader translates this field at CONSUMPTION time
+   * instead: strip the `.minsky/` prefix, then re-root under
+   * `getMinskyStateDir()/projects/<key of the caller's own repo root>/`. Do
+   * NOT flip this field to an absolute path — `path.join` does not restart
+   * at an absolute second segment the way `path.resolve` does, so any
+   * consumer still doing `join(workspacePath, relPath)` would silently
+   * mis-resolve rather than error.
+   *
+   * **Three consumers, all migrated in the same change (mt#4748 R1; the
+   * initial PR wrongly named ONE and called the other two an open follow-up
+   * — corrected here after reviewer-caught omission):**
+   * `src/adapters/shared/commands/calibration.ts`'s `readContent` closure,
+   * and `.minsky/hooks/calibration-review-cadence-detector.ts`'s two
+   * (functionally identical) `readContent` closures in `run()` and
+   * `main()`. Each duplicates the state-dir/project-key translation locally
+   * rather than importing a shared helper — the established convention in
+   * this migration (see `projectStateKey` in `dispatcher.ts` /
+   * `ingest-runtime.ts` / `coverage-receipt.ts`): every module tree stays
+   * free of a dependency on the others.
+   */
   path: string;
   /** Human-readable name for display (no spaces; use kebab). */
   name: string;
@@ -816,6 +844,26 @@ export interface WallOfTextRecord {
    * it matched.
    */
   excerpt?: string;
+  /**
+   * Words in the LARGEST block of the turn — the measurement the `over-budget`
+   * leg keys on since mt#4531 (mt#4637).
+   *
+   * **Projected here because this is the surface a reviewer classifies from.**
+   * It was in the raw JSONL from mt#4531 and absent from this parsed record, so
+   * sorting a window by `wordCount` (the FINAL block) produced apparent
+   * threshold violations that are correct fires — measured at 39% of
+   * over-budget fires over the 685-record union corpus, and it inverted three
+   * consecutive calibration passes' verdicts. A field present in the log and
+   * missing from the projection is the same defect PR #2420 R1 names one line
+   * up, in the other direction.
+   *
+   * Optional: records written before mt#4531 have no such field.
+   */
+  largestBlockWords?: number;
+  /** The lead of that largest block (mt#4637). Optional; pre-mt#4637 records lack it. */
+  largestBlockExcerpt?: string;
+  /** 0-based index of that block in the turn (mt#4637). Optional; pre-mt#4637 records lack it. */
+  largestBlockIndex?: number;
 }
 
 /**
@@ -891,6 +939,22 @@ export interface SharedCalibrationFields {
    * Producers: `knowledge-acquisition` (mt#3740). Absent everywhere else.
    */
   supersedes?: string;
+  /**
+   * Whether `ask-routing-deferral` ALSO fired on this turn's prose (mt#4702).
+   *
+   * Lifted to the top level here, beside `supersedes` and `suppressionReasons`,
+   * rather than left to the `detectorFields` passthrough. Two producers write
+   * it — `untaken-action` (mt#4407) and `operator-deferral` (mt#4702) — and the
+   * whole point of the field is COMPARING them, which a value nested one level
+   * down defeats: mem#827 is the recorded incident of a reviewer reading
+   * `detectorFields` as the record and reporting present fields as missing.
+   *
+   * Absent means NOT MEASURED, never "no overlap" — every record written before
+   * its producer adopted the field is in that position, and a projection that
+   * defaulted it to `false` would manufacture a measurement (the
+   * accessor-that-synthesizes hazard in `claim-confidence.mdc`).
+   */
+  deferralOverlap?: boolean;
   /**
    * Injection-layer suppression outcome — the convention
    * `code-mechanism-assertion` introduced in mt#3113, generalized here.
@@ -1164,6 +1228,13 @@ const CONSUMED_MATCH_KEYS = new Set(["family", "class", "category", "phrase", "c
  * to anything narrower than the record's own keys — verified by making that
  * edit, which turns the four mt#3289 tests and mt#3576's `excerpt` tests red
  * together. Those are the tests that pin this; a per-field strip would not.
+ *
+ * The one thing it does NOT cover is a lift the CALLER performs after invoking
+ * this function: the key is unconsumed at the moment `consumed` is computed, so
+ * it rides through and then gets added on top, appearing twice (PR #3531 R3).
+ * `parseCalibrationRecord` therefore folds its cross-kind lifts in BEFORE
+ * calling this — a call-ordering obligation, not something this function can
+ * enforce, which is why it is written down in both places.
  */
 function parseDetectorFields(
   raw: Record<string, unknown>,
@@ -1192,6 +1263,11 @@ function parseDetectorFields(
  * since the first one. So every unconsumed key now rides through as
  * `detectorFields` — a detector author adding a field does not have to know
  * this file exists for the field to reach a reviewer.
+ *
+ * The CROSS-KIND lifts (`supersedes`, `deferralOverlap`) are folded into the
+ * record handed to `parseDetectorFields` rather than added after it — see the
+ * comment at the `lifted` binding, and PR #3531 R3 for the duplication that
+ * ordering prevents.
  */
 export function parseCalibrationRecord(
   line: string,
@@ -1206,13 +1282,31 @@ export function parseCalibrationRecord(
   const record = parseCalibrationRecordCore(raw, kind);
   if (record === null) return null;
   const suppressionReasons = parseSuppressionReasons(raw);
-  const detectorFields = parseDetectorFields(raw, record);
   // mt#3740: a non-string `supersedes` is dropped rather than coerced — a
   // malformed marker must not silently suppress a real record from the counts.
   const supersedes = typeof raw["supersedes"] === "string" ? raw["supersedes"] : undefined;
-  return {
+  // mt#4702: same cross-kind lift as `supersedes` above, and for the same
+  // reason — the field's whole purpose is comparing the two producers that
+  // write it, which `detectorFields` nesting defeats. A non-boolean is DROPPED
+  // rather than coerced: absent must keep meaning "not measured".
+  const deferralOverlap =
+    typeof raw["deferralOverlap"] === "boolean" ? raw["deferralOverlap"] : undefined;
+  // The cross-kind lifts are folded in BEFORE `parseDetectorFields` runs (PR
+  // #3531 R3). That function derives consumed-ness from the keys of the record
+  // it is HANDED, so a field lifted after the call is still unconsumed at the
+  // time it runs and rides through the passthrough too — landing in the parsed
+  // record twice, once at the top level and once under `detectorFields`, and
+  // counting twice in `assessClassifiability`'s evidence tally. Ordering is the
+  // whole fix: it keeps the invariant that function's docblock states true by
+  // construction, with no second key list to drift out of sync.
+  const lifted = {
     ...record,
     ...(supersedes === undefined ? {} : { supersedes }),
+    ...(deferralOverlap === undefined ? {} : { deferralOverlap }),
+  };
+  const detectorFields = parseDetectorFields(raw, lifted);
+  return {
+    ...lifted,
     ...(suppressionReasons === undefined ? {} : { suppressionReasons }),
     ...(detectorFields === undefined ? {} : { detectorFields }),
   };
@@ -1356,6 +1450,16 @@ function parseCalibrationRecordCore(
         // does not deliver, and every consumer keying on `excerpt` would find
         // it nested a level down instead.
         excerpt: typeof raw["excerpt"] === "string" ? raw["excerpt"] : undefined,
+        // mt#4637: same reasoning as `excerpt` above, applied to the fields the
+        // over-budget leg actually keys on. `largestBlockWords` reached the log
+        // in mt#4531 and never reached this projection, so a reviewer sorting by
+        // `wordCount` saw correct fires as threshold violations.
+        largestBlockWords:
+          typeof raw["largestBlockWords"] === "number" ? raw["largestBlockWords"] : undefined,
+        largestBlockExcerpt:
+          typeof raw["largestBlockExcerpt"] === "string" ? raw["largestBlockExcerpt"] : undefined,
+        largestBlockIndex:
+          typeof raw["largestBlockIndex"] === "number" ? raw["largestBlockIndex"] : undefined,
       } satisfies WallOfTextRecord;
     }
 
@@ -1684,7 +1788,9 @@ export function computeLogResult(
     // bar. `newRecords` above is deliberately empty below threshold; the
     // verdict must not be, because a "cannot classify" disposition is most
     // likely to be written about a log that has not reached threshold yet.
-    classifiability: assessClassifiability(newRecords),
+    // `entry.name` is what keys `JUDGED_TEXT_FIELDS` (mt#4465) — without it the
+    // judged-text derivation can only see the shared capture marker.
+    classifiability: assessClassifiability(newRecords, entry.name),
   };
 }
 
@@ -1770,9 +1876,26 @@ export type JudgedTextRecoverability = "recoverable" | "partial" | "unrecoverabl
 
 export interface JudgedTextAssessment {
   recoverability: JudgedTextRecoverability;
-  /** Records carrying the mt#3607 capture marker. */
+  /**
+   * Records carrying the mt#3607 capture marker — the ADOPTION signal.
+   *
+   * Deliberately still marker-only after mt#4465: this is what reports whether
+   * a writer uses the shared capture contract, and it is the honest home for
+   * that pressure. `recoverability` no longer derives from it alone.
+   */
   capturedRecords: number;
+  /**
+   * Records whose judged text can actually be re-read (mt#4465) — the marker,
+   * OR a mapped per-detector field. This is what `recoverability` derives from.
+   */
+  recoverableRecords: number;
   recordsAssessed: number;
+  /**
+   * Set when the verdict is `unrecoverable` AND this log has no entry in
+   * `JUDGED_TEXT_FIELDS` — so a reader can tell "the text is gone" from
+   * "nobody has told the sweep where this detector puts it" (mt#4465 SC4).
+   */
+  unmappedDetector?: string;
 }
 
 export interface ClassifiabilityAssessment {
@@ -1847,45 +1970,183 @@ export interface ClassifiabilityAssessment {
  * false rationale, so it is gone. If a future per-kind branch ever does name
  * the marker, this needs a top-level read AND a test that fails without it.
  *
- * Marker-only, deliberately. A writer that captures under its own key —
- * `wall-of-text`'s `textHash`, `retrospective-trigger`'s `transcript_excerpt` —
- * reads as unrecoverable here, and that is the intended answer rather than a
- * false negative: `judged-input-capture.ts` defines the marker as the contract
- * (`hasJudgedInputCapture` is the same one-line predicate), and its own doc
- * tells readers to treat its absence as "un-auditable". Matching a bespoke-key
- * allowlist here would be a second list to drift, and would remove the only
- * incentive to adopt the shared path.
+ * Marker-only, and that is the ADOPTION signal rather than the whole answer
+ * (corrected by mt#4465).
+ *
+ * This function is unchanged and `capturedRecords` still means exactly what it
+ * meant: how many records adopted `judged-input-capture.ts`'s shared contract.
+ * What changed is that {@link assessJudgedText} no longer derives
+ * `recoverability` from it ALONE — see that function for why.
+ *
+ * The rationale this docblock used to carry ("a writer that captures under its
+ * own key reads as unrecoverable here, and that is the intended answer rather
+ * than a false negative") is corrected rather than deleted, because it argued
+ * against the behaviour that now ships and a later reader would otherwise meet
+ * it as current. It was defensible on its own terms — an allowlist is a second
+ * list to drift, and non-adoption should cost something — but it answered a
+ * DIFFERENT question from the one the field is named for. Measured 2026-08-29:
+ * `untaken-action` carried `final_message_tail` on 390 of 390 records and
+ * reported `unrecoverable`; `negative-existence-claim` carried a populated
+ * `claims[].excerpt` on 90 of 90 and reported the same. The judged text was
+ * right there.
  */
 function hasCaptureMarker(record: CalibrationRecord): boolean {
   const passthrough = (record as SharedCalibrationFields).detectorFields;
   return typeof passthrough?.[CAPTURE_SCHEMA_KEY] === "number";
 }
 
-function assessJudgedText(records: CalibrationRecord[]): JudgedTextAssessment {
-  if (records.length === 0) {
-    return { recoverability: "no-records", capturedRecords: 0, recordsAssessed: 0 };
-  }
-  const capturedRecords = records.filter(hasCaptureMarker).length;
-  // `partial` is its own answer, not a rounding of the other two. Adoption
-  // lands mid-log — `pre-narration` sat at 133 captured of 375 the day this
-  // shipped — and a reviewer facing a partial log can rate the captured half
-  // while knowing the rest is gone. Collapsing it either way would hide that.
-  const recoverability: JudgedTextRecoverability =
-    capturedRecords === 0
-      ? "unrecoverable"
-      : capturedRecords === records.length
-        ? "recoverable"
-        : "partial";
-  return { recoverability, capturedRecords, recordsAssessed: records.length };
+/**
+ * Where each detector puts its judged text, when it does not use the shared
+ * capture marker (mt#4465).
+ *
+ * Keyed on `CalibrationLogEntry.name` — the reviewer-facing identity, and the
+ * granularity that matters, since judged text is a property of the DETECTOR
+ * rather than of the parse `kind` (two logs share the `retrospective-trigger`
+ * kind and write different fields).
+ *
+ * **A field may sit at EITHER level, so both are checked (mem#888).** A key no
+ * per-kind branch names rides into `detectorFields`, and these are genuinely
+ * split: `excerpt` and `transcript_excerpt` are consumed at the top level,
+ * while `untaken-action`'s `final_message_tail` reaches the passthrough — which
+ * is the same two-level trap that made `captureSchema` itself misbehave in
+ * mt#3607 (PR #2679 R1). Checking one level would work for some of these logs
+ * and silently fail for others.
+ *
+ * Adding an entry is the cheap, honest move when a detector writes judged text
+ * under its own key. Adopting the shared marker is still better and is still
+ * what `capturedRecords` reports.
+ */
+const JUDGED_TEXT_FIELDS: ReadonlyMap<string, readonly string[]> = new Map([
+  ["untaken-action", ["final_message_tail"]],
+  ["wall-of-text", ["excerpt"]],
+  ["retrospective-trigger", ["transcript_excerpt"]],
+  // `claims[].excerpt` names the SUB-FIELD, and that precision is load-bearing
+  // rather than cosmetic. A bare `claims` was the first implementation, and it
+  // reported `recoverable` for records whose excerpts were ALL empty — because
+  // each element also carries a non-empty `pattern`, so "any string in the
+  // element" was satisfied by the matcher's own pattern rather than by the
+  // judged text. Caught by this task's own SC3 test.
+  ["negative-existence-claim", ["claims[].excerpt"]],
+]);
+
+/**
+ * Whether a plain value carries readable judged text.
+ *
+ * Stricter than {@link isVacuousEvidence}, which counts any populated
+ * collection: reporting `recoverable` over text nobody can read is the
+ * permissive direction this whole mechanism exists to prevent.
+ */
+function carriesJudgedText(value: unknown): boolean {
+  return typeof value === "string" && value.length > 0;
 }
 
-export function assessClassifiability(records: CalibrationRecord[]): ClassifiabilityAssessment {
+/**
+ * Read one field spec off a record level. Supports a single `<array>[].<key>`
+ * hop, which is how a detector that records several claims per fire (each with
+ * its own excerpt) names the excerpt rather than the wrapper.
+ */
+function fieldCarriesJudgedText(level: unknown, spec: string): boolean {
+  if (!level || typeof level !== "object") return false;
+  const fields = level as Record<string, unknown>;
+
+  const [arrayKey, elementKey] = spec.split("[].");
+  if (elementKey === undefined) return carriesJudgedText(fields[spec]);
+
+  const array = arrayKey === undefined ? undefined : fields[arrayKey];
+  if (!Array.isArray(array)) return false;
+  return array.some((element) => carriesJudgedText(readKey(element, elementKey)));
+}
+
+/** One key off an unknown value, when that value is an object. */
+function readKey(value: unknown, key: string): unknown {
+  if (!value || typeof value !== "object") return undefined;
+  return (value as Record<string, unknown>)[key];
+}
+
+/** True when the record carries readable judged text under one of `fields`, at EITHER level. */
+function hasMappedJudgedText(record: CalibrationRecord, fields: readonly string[]): boolean {
+  const passthrough = (record as SharedCalibrationFields).detectorFields;
+  return fields.some(
+    (field) => fieldCarriesJudgedText(record, field) || fieldCarriesJudgedText(passthrough, field)
+  );
+}
+
+/**
+ * Whether the judged text can be re-read — derived from the evidence a record
+ * ACTUALLY carries, not from the capture marker alone (mt#4465).
+ *
+ * `JudgedTextRecoverability`'s own doc states the question this answers: "can I
+ * re-read what the detector was looking at?" That is a FACT about the record.
+ * Deriving it from the marker alone answered a different question — "did this
+ * writer adopt the shared contract?" — and so reported `unrecoverable` over
+ * logs whose judged text was sitting in every record. `/calibration-review`
+ * turns `unrecoverable` into a HOLD, so three logs (four, with
+ * `negative-existence-claim`) were held permanently unratable by a signal that
+ * was measurably false about them; for a calibration-first detector that also
+ * blocks the only path off calibration-first.
+ *
+ * **The adoption signal is preserved, not overridden.** `capturedRecords` still
+ * counts marker-carrying records only, and still reports 0 for those logs in
+ * the same output — which is the honest place for that signal. Nothing about
+ * this weakens the bar mt#3607 set: a record carrying neither the marker nor
+ * mapped judged text still counts as unrecoverable.
+ */
+function assessJudgedText(records: CalibrationRecord[], logName?: string): JudgedTextAssessment {
+  if (records.length === 0) {
+    return {
+      recoverability: "no-records",
+      capturedRecords: 0,
+      recoverableRecords: 0,
+      recordsAssessed: 0,
+    };
+  }
+
+  const mappedFields = logName ? JUDGED_TEXT_FIELDS.get(logName) : undefined;
+  const capturedRecords = records.filter(hasCaptureMarker).length;
+  const recoverableRecords = records.filter(
+    (record) =>
+      hasCaptureMarker(record) || (mappedFields ? hasMappedJudgedText(record, mappedFields) : false)
+  ).length;
+
+  // `partial` is its own answer, not a rounding of the other two. Adoption
+  // lands mid-log — `pre-narration` sat at 133 captured of 375 the day this
+  // shipped — and a reviewer facing a partial log can rate the recoverable half
+  // while knowing the rest is gone. Collapsing it either way would hide that.
+  const recoverability: JudgedTextRecoverability =
+    recoverableRecords === 0
+      ? "unrecoverable"
+      : recoverableRecords === records.length
+        ? "recoverable"
+        : "partial";
+
+  // Name the gap rather than reporting a bare 0 (mt#4465 SC4). A log that is
+  // unrecoverable AND has no mapping is ambiguous between "the text is gone"
+  // and "nobody told this function where to look" — a NEW detector hits the
+  // second and would otherwise look identical to the first. Only reported when
+  // the verdict is actually unrecoverable: a marker-carrying log needs no
+  // mapping and is not a gap.
+  const unmappedDetector =
+    recoverability === "unrecoverable" && !mappedFields ? (logName ?? "<unnamed log>") : undefined;
+
+  return {
+    recoverability,
+    capturedRecords,
+    recoverableRecords,
+    recordsAssessed: records.length,
+    ...(unmappedDetector ? { unmappedDetector } : {}),
+  };
+}
+
+export function assessClassifiability(
+  records: CalibrationRecord[],
+  logName?: string
+): ClassifiabilityAssessment {
   if (records.length === 0) {
     return {
       verdict: "no-records",
       evidenceFields: [],
       recordsAssessed: 0,
-      judgedText: assessJudgedText(records),
+      judgedText: assessJudgedText(records, logName),
     };
   }
 
@@ -1920,7 +2181,7 @@ export function assessClassifiability(records: CalibrationRecord[]): Classifiabi
     verdict: fields.size > 0 ? "classifiable" : "not-classifiable",
     evidenceFields: [...fields].sort(),
     recordsAssessed: records.length,
-    judgedText: assessJudgedText(records),
+    judgedText: assessJudgedText(records, logName),
   };
 }
 

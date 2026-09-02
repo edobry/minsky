@@ -578,11 +578,37 @@ function createMemoryFakeDb(
     select(_fields?: unknown) {
       return {
         from(_table: unknown) {
+          // mt#4761: MemoryService.list() now always chains
+          // `.orderBy(...).limit(...).offset(...)`. No test in this file
+          // seeds more than a handful of rows (well under DEFAULT_LIST_CAP,
+          // 500), so slicing here never changes an existing assertion — this
+          // exists purely so the chain doesn't throw "not a function".
+          function withPagination(rows: MemoryRow[]) {
+            let limitN: number | undefined;
+            let offsetN = 0;
+            const chain = {
+              limit(n: number) {
+                limitN = n;
+                return chain;
+              },
+              offset(n: number) {
+                offsetN = n;
+                return chain;
+              },
+              then(resolve: (v: MemoryRow[]) => void, reject?: (err: unknown) => void) {
+                let result = offsetN ? rows.slice(offsetN) : rows;
+                if (limitN !== undefined) result = result.slice(0, limitN);
+                Promise.resolve(result).then(resolve, reject);
+              },
+            };
+            return chain;
+          }
+
           return {
             where(cond: any) {
               return {
                 orderBy(_order: any) {
-                  return Promise.resolve(queryRows(cond));
+                  return withPagination(queryRows(cond));
                 },
                 then(resolve: (v: MemoryRow[]) => void, reject?: (err: unknown) => void) {
                   Promise.resolve(queryRows(cond)).then(resolve, reject);
@@ -590,7 +616,7 @@ function createMemoryFakeDb(
               };
             },
             orderBy(_order: any) {
-              return Promise.resolve(queryRows());
+              return withPagination(queryRows());
             },
             then(resolve: (v: MemoryRow[]) => void) {
               resolve(queryRows());

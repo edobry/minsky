@@ -145,6 +145,6 @@ The `ci` and `review` abstractions intentionally smooth over the data-model diff
 
 - [ADR-003: Project-Level Repository Backend Configuration](./adr-003-project-level-repository-backend.md) — predecessor decision
 - [docs/architecture.md §8](../architecture.md) — current architecture overview
-- `src/domain/repository/index.ts` — interface definitions
-- `src/domain/repository/github.ts` — GitHub implementation
-- `src/domain/repository/github-pr-review.ts` — submitReview implementation (mt#847)
+- `packages/domain/src/repository/index.ts` — interface definitions
+- `packages/domain/src/repository/github.ts` — GitHub implementation
+- `packages/domain/src/repository/github-pr-review.ts` — submitReview implementation (mt#847)

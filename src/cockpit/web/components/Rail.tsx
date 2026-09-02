@@ -62,6 +62,7 @@ import {
   Network,
   Bot,
   MessageCircleQuestion,
+  MessagesSquare,
   Bell,
   Cpu,
   Brain,
@@ -73,6 +74,7 @@ import {
   Menu,
   X,
   Wrench,
+  Package,
   PanelLeftClose,
   PanelLeftOpen,
   Share2,
@@ -80,7 +82,9 @@ import {
   Shield,
 } from "lucide-react";
 import { cn } from "../lib/utils";
-import { useOpenAskCount } from "../hooks/useOpenAskCount";
+import { useOpenAskCount, useUnscopedOpenAskCount } from "../hooks/useOpenAskCount";
+import { elsewhereCount } from "../lib/attention-leak";
+import { useProject } from "../lib/project-context";
 import { LoadingState } from "./LoadingState";
 import { ErrorState } from "./ErrorState";
 import { ProjectSelector } from "./ProjectSelector";
@@ -110,6 +114,9 @@ const SPINE: NavItem[] = [
 /** Flat entity entry points below the spine. */
 const BROWSE: NavItem[] = [
   { to: "/tasks", label: "Tasks", icon: Network },
+  // ADR-046 (mt#2911) — the claimable work-package pool: open + claimed
+  // bundles, claim/copy-launch affordances.
+  { to: "/work-packages", label: "Work packages", icon: Package },
   { to: "/changesets", label: "Changesets", icon: GitPullRequest },
   // mt#2767 — the standalone-transcripts nav item was removed; `/agents` is
   // now the unified agent-run browse surface (workspace sessions, harness
@@ -117,6 +124,13 @@ const BROWSE: NavItem[] = [
   // Cmd-K-findable via the CommandPalette's entity index (mt#2769), which
   // reads the context-inspector source directly rather than via this rail.
   { to: "/agents", label: "Agents", icon: Bot },
+  // mt#4874 — cross-session peer messages, sent and delivered, against each
+  // other. In the rail beside Agents rather than nested under a conversation:
+  // the question it answers ("did that message land, and what else has been
+  // passing between my sessions") is about the traffic BETWEEN conversations,
+  // so it has no single conversation to hang off. Expected to be empty for
+  // most projects, which the page states rather than hides.
+  { to: "/messages", label: "Messages", icon: MessagesSquare },
   { to: "/asks", label: "Asks", icon: MessageCircleQuestion },
   // mt#3331 — the EngProd toil-miner's curation-gate digest: filed proposal
   // tasks grouped by mining run, with accept/reject wiring.
@@ -214,6 +228,18 @@ function RailLink({
  * badge silently rendered "…" forever in production. `useOpenAskCount` reads
  * `totalPending` directly and shares its query cache with every other
  * consumer of the same widget (VitalsPage, PlantFlowPage, AttentionLoopCard).
+ *
+ * Cross-project leak (mt#4794): a project filter is a VIEW control, and it
+ * used to silence this digest completely — under a scoped filter with zero
+ * pending, the badge read "clear" even while other projects carried pending
+ * asks (verified live in the mt#4757 audit: Peezombie filter, rail "clear",
+ * 40+ Minsky asks pending). While a filter is active, a second, deliberately
+ * UNSCOPED query (`useUnscopedOpenAskCount`, distinct TanStack key, same
+ * attention widget) is compared against the scoped count via
+ * `lib/attention-leak.ts`'s `elsewhereCount`; when it leaks, a muted "+N
+ * elsewhere" secondary renders below the primary row — never louder than the
+ * scoped signal, expanded state only (collapsed already drops everything not
+ * load-bearing at a glance — see this file's header comment).
  */
 function AttentionDigest({
   pathname,
@@ -225,12 +251,24 @@ function AttentionDigest({
   collapsed?: boolean;
 }) {
   const { data: count, isLoading, isError } = useOpenAskCount();
+  const { selectedSlug, setSelectedSlug } = useProject();
+  const filterActive = selectedSlug !== null;
+  const { data: unscopedCount } = useUnscopedOpenAskCount({ enabled: filterActive });
+  const elsewhere = elsewhereCount(filterActive, count, unscopedCount);
   const active = isActive(pathname, "/asks");
 
   // The pending count is the whole point of the slot, so it rides in the
   // accessible name in BOTH states — collapsed, the compact badge below is a
   // glyph a screen reader would otherwise read as a bare number next to a bare
   // "Attention", and in the loading/error cases there is no badge at all.
+  //
+  // Deliberately does NOT fold the elsewhere count into this label (PR #3506
+  // R1 — minsky-reviewer[bot]): this link stays SCOPED (it does not clear the
+  // project filter), so an accessible name promising cross-project asks would
+  // over-promise what activating it actually does — in the collapsed state
+  // doubly so, since there is no secondary affordance there at all to reach
+  // them. The elsewhere link below carries its own accessible name and its
+  // own filter-clearing behavior, so the two stay in sync by construction.
   const state = isLoading
     ? "loading"
     : isError
@@ -276,33 +314,61 @@ function AttentionDigest({
   }
 
   return (
-    <Link
-      to="/asks"
-      aria-current={active ? "page" : undefined}
-      aria-label={label}
-      onClick={onNavigate}
-      className={cn(
-        "flex items-center justify-between gap-2 rounded-md px-2.5 py-2 text-sm transition-colors",
-        "border border-border/60",
-        active ? "bg-muted text-foreground" : "hover:bg-muted/60 text-foreground"
-      )}
-    >
-      <span className="flex items-center gap-2 font-medium">
-        <Zap aria-hidden className="h-4 w-4 text-warn-amber" />
-        Attention
-      </span>
-      {isLoading ? (
-        <LoadingState message="…" className="text-xs" />
-      ) : isError ? (
-        <ErrorState message="error" ambient className="text-xs" />
-      ) : count != null && count > 0 ? (
-        <span className="rounded-full bg-warn-amber/20 px-1.5 text-xs font-medium text-warn-amber tabular-nums">
-          {count}
+    <div className="flex flex-col gap-0.5">
+      <Link
+        to="/asks"
+        aria-current={active ? "page" : undefined}
+        aria-label={label}
+        onClick={onNavigate}
+        className={cn(
+          "flex items-center justify-between gap-2 rounded-md px-2.5 py-2 text-sm transition-colors",
+          "border border-border/60",
+          active ? "bg-muted text-foreground" : "hover:bg-muted/60 text-foreground"
+        )}
+      >
+        <span className="flex items-center gap-2 font-medium">
+          <Zap aria-hidden className="h-4 w-4 text-warn-amber" />
+          Attention
         </span>
-      ) : (
-        <span className="text-xs text-muted-foreground">clear</span>
+        {isLoading ? (
+          <LoadingState message="…" className="text-xs" />
+        ) : isError ? (
+          <ErrorState message="error" ambient className="text-xs" />
+        ) : count != null && count > 0 ? (
+          <span className="rounded-full bg-warn-amber/20 px-1.5 text-xs font-medium text-warn-amber tabular-nums">
+            {count}
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">clear</span>
+        )}
+      </Link>
+      {/* Cross-project leak (mt#4794) — a muted secondary, sibling to the row
+          above rather than nested inside it (an <a> inside an <a> is invalid
+          HTML; see widgets/Attention.tsx's DigestRow for the same fix).
+          Clears the active project filter before navigating so the click
+          target actually resolves the asks it names — ProjectSelector itself
+          is untouched (mt#4795 owns that component in parallel). */}
+      {elsewhere != null && (
+        <Link
+          to="/asks"
+          data-testid="attention-elsewhere"
+          // Explicit accessible name (PR #3506 R1): the visible "+N
+          // elsewhere" reads fine sighted, but a screen reader needs the
+          // action spelled out — this is the ONLY control that both
+          // announces the cross-project count AND actually clears the
+          // filter to reach it, so its label carries the promise the
+          // primary row above deliberately does not.
+          aria-label={`${elsewhere} more pending in other projects — view`}
+          onClick={() => {
+            setSelectedSlug(null);
+            onNavigate?.();
+          }}
+          className="rounded-md px-2.5 text-xs text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+        >
+          +{elsewhere} elsewhere
+        </Link>
       )}
-    </Link>
+    </div>
   );
 }
 

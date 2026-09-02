@@ -247,6 +247,35 @@ suppressing conjunct, so it is what a miss-rate review reads.
 Graduation threshold for surface D specifically: a `/calibration-review` pass over >=10
 classified fires, per ADR-024's ladder.
 
+### `deferralOverlap` — measuring the sibling pair's overlap (mt#4702)
+
+A prose-turn calibration record can carry `deferralOverlap: boolean` — does
+`ask-routing-deferral` fire on the SAME prose this record was written for?
+`turn-end-untaken-action-scan` has written a field of that name, with that
+derivation, since mt#4407; this one is deliberately identical in shape so the two
+producers are comparable rather than merely both instrumented.
+`src/domain/calibration/calibration-sweep.ts` lifts it to the TOP LEVEL of the
+parsed record for both producers instead of leaving it nested under
+`detectorFields` — comparing them is the field's whole purpose, and mem#827 is the
+recorded incident of a reviewer reading `detectorFields` as the whole record and
+reporting present fields as missing.
+
+**ABSENT means "not measured", never "no overlap".** That is the whole reason the
+field is optional. Absence is what every record written before mt#4702 carries,
+and what the `AskUserQuestion` surface and the standalone `main()` entrypoint
+still carry: neither holds the turn's prose to measure against, and a `false`
+written by a caller that never had the text would be a claim rather than a
+measurement.
+
+**An EMPTY string is absent too, and that case is real rather than defensive**
+(PR #3531 R2). Over empty text the derivation can only ever return `false`, so
+that `false` is a CONSTANT, not a measurement. Surface E fires off an
+`asks_create` input rather than off assistant prose, so `extractAssistantText`
+returns `""` for a turn that fired on a tool call alone — and `run()` used to
+coalesce that to a defined value, which put a fabricated negative on every
+prose-turn record. The guard now sits at the derivation inside
+`buildCalibrationRecord`, so no call site has to remember it.
+
 ## Graduation
 
 Calibration-first per the mt#2057 → mt#2216 → mt#2694 ladder: `INJECTION_ENABLED = false`

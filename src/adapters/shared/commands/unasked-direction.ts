@@ -27,6 +27,7 @@ import {
   appendSignatureSeed,
   type FindingsRecord,
   type StoredFinding,
+  resolveUnaskedDirectionRoot,
 } from "@minsky/domain/detectors/unasked-direction-store";
 
 // ---------------------------------------------------------------------------
@@ -90,14 +91,23 @@ function buildRow(record: FindingsRecord, stored: StoredFinding): ListRow {
 /**
  * Register the three `unasked-direction.*` commands.
  *
- * @param projectRoot Required: where to read/write findings + signature seed
- *                    files. CLI passes process.cwd(); tests pass tempdir.
+ * @param projectRoot Where to read/write findings + signature seed files.
+ *                    Defaults to the state-dir store root; tests pass a tempdir.
  *                    Provided as a function so the registration call stays
  *                    side-effect-light and the path is read at execute time.
+ *
+ *                    mt#4778: the default was `process.cwd()`. That made the
+ *                    READER's root depend on where the CLI happened to be
+ *                    invoked, while the WRITER (the post-merge hook) used
+ *                    `findRepoRoot(input.cwd)` — two different derivations of
+ *                    "the project", which is how 13 findings ended up in
+ *                    session clones this tool could not see. Both sides now
+ *                    resolve through `resolveUnaskedDirectionRoot()`, so the
+ *                    reader and the writer cannot disagree.
  * @param registry    Optional registry to register into (default: shared global).
  */
 export function registerUnaskedDirectionCommands(
-  projectRoot: () => string = () => process.cwd(),
+  projectRoot: () => string = () => resolveUnaskedDirectionRoot(),
   registry?: SharedCommandRegistry
 ): void {
   const targetRegistry = registry ?? sharedCommandRegistry;

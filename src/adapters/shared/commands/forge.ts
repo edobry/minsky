@@ -3,7 +3,7 @@
  *
  * Exposes ten MCP tools that route through the configured ForgeBackend:
  *   forge.ci_run_list          — list CI workflow runs (filter: workflow, branch, status)
- *   forge.ci_run_view_log      — download and decode logs for a run ID
+ *   forge.ci_run_view_log      — view CI logs, bounded by jobId/failedOnly/tailLines (mt#4749)
  *   forge.ci_run_rerun         — re-run a workflow run (failed jobs by default, or full rerun)
  *   forge.check_runs_list      — list check-runs for an arbitrary commit SHA
  *   forge.branch_protection_get — get branch protection settings
@@ -166,21 +166,68 @@ sharedCommandRegistry.registerCommand({
   category: CommandCategory.FORGE,
   name: "ci_run_view_log",
   description:
-    "Download and decode the logs for a specific CI workflow run. " +
-    "Returns the log content as text (ZIP entries are extracted inline). " +
-    "Falls back to base64 if DEFLATE-compressed entries cannot be inflated without a native ZIP library.",
+    "View CI workflow run logs, bounded by default (mt#4749). Pass `jobId` to fetch ONLY " +
+    "that job's log via GitHub's native per-job endpoint (no ZIP, no other jobs' output) — " +
+    "the preferred call once you know which job failed. Pass `failedOnly: true` to fetch " +
+    "logs for every job on the run that did NOT succeed, without a separate list-then-fetch " +
+    "round trip. `tailLines` keeps only the last N lines of each returned log. With neither " +
+    "jobId nor failedOnly, returns the WHOLE RUN's log (every job, ZIP-decoded and " +
+    "concatenated, falling back to base64 if a DEFLATE entry cannot be inflated) — this is " +
+    "the unbounded form; prefer jobId or failedOnly for the common diagnose-a-red-check case. " +
+    "Regardless of these options, an oversized result is spooled to a server-side file and " +
+    "replaced with a truncated pointer rather than returned inline.",
   parameters: {
     runId: {
       schema: z.number().int().positive(),
       description: "Numeric workflow run ID (from forge.ci_run_list).",
       required: true,
     },
+    jobId: {
+      schema: z.number().int().positive().optional(),
+      description:
+        "Numeric job ID to fetch ONLY that job's log (GitHub's native per-job log endpoint — " +
+        "bounded to that job, no ZIP). Mutually exclusive with failedOnly (jobId wins if both " +
+        "are given). Find a run's job IDs via the GitHub Actions UI or by omitting both " +
+        "jobId and failedOnly once to inspect the whole-run log's job headers.",
+      required: false,
+    },
+    failedOnly: {
+      schema: z.boolean().optional(),
+      description:
+        "When true (and jobId is not given), fetch logs only for the jobs on this run that " +
+        "did not succeed — no separate job-listing round trip needed.",
+      required: false,
+      defaultValue: false,
+    },
+    tailLines: {
+      schema: z.number().int().positive().optional(),
+      description:
+        "Keep only the last N lines of each returned log. Applies to the job log (jobId), " +
+        "each failed job's log (failedOnly), or the whole-run concatenated log — not to the " +
+        "base64 fallback, which has no meaningful line structure.",
+      required: false,
+    },
   },
   requiresSetup: true,
   execute: async (params, ctx: CommandExecutionContext) => {
     const runId = params.runId as number;
+    const jobId = params.jobId as number | undefined;
+    const failedOnly = params.failedOnly as boolean | undefined;
+    const tailLines = params.tailLines as number | undefined;
     const backend = await resolveForgeBackend(ctx);
-    const logs = await backend.workflowRuns.viewLogs(runId);
+    const options = tailLines !== undefined ? { tailLines } : {};
+
+    if (jobId !== undefined) {
+      const logs = await backend.workflowRuns.viewJobLog(jobId, options);
+      return { success: true, logs, runId, jobId };
+    }
+
+    if (failedOnly) {
+      const result = await backend.workflowRuns.viewFailedJobLogs(runId, options);
+      return { success: true, ...result, runId };
+    }
+
+    const logs = await backend.workflowRuns.viewLogs(runId, options);
     return { success: true, logs, runId };
   },
 });

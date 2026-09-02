@@ -20,19 +20,22 @@
  *     per-kind summary rows — a scrolling wall of items is unreadable at
  *     glance altitude; grouped counts are not.
  *
- * Data: GET /api/asks via the SAME ["asks"] query key AsksPage uses — one
- * cache serves the console and the radiator.
+ * Data: GET /api/asks via the SAME ["asks", selectedSlug] query key AsksPage's
+ * pending view uses — one cache serves the console and the radiator, now
+ * project-scoped in lockstep (mt#4731) so neither can show the other
+ * project's asks under the operator's current selection.
  */
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
-  fetchAsks,
+  fetchAsksScoped,
   formatRelative,
   formatDeadlineRemaining,
   KIND_PRIORITY,
   type AskItem,
   type AsksListResponse,
 } from "./AskDetail";
+import { useProject } from "../lib/project-context";
 
 // ---------------------------------------------------------------------------
 // Display tiers
@@ -194,9 +197,10 @@ function FloodRow({ group }: { group: KindGroup }) {
 // ---------------------------------------------------------------------------
 
 export function TriageBand() {
+  const { selectedSlug, queryParam } = useProject();
   const query = useQuery<AsksListResponse, Error>({
-    queryKey: ["asks"],
-    queryFn: fetchAsks,
+    queryKey: ["asks", selectedSlug],
+    queryFn: () => fetchAsksScoped(queryParam),
     staleTime: 10_000,
     refetchInterval: 10_000,
   });

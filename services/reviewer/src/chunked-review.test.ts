@@ -26,6 +26,8 @@ import {
   MAX_FILE_PATCH_TOKENS,
   MAX_FILE_PATCH_CHARS,
   FILES_PER_CHUNK,
+  capSinglePassDiff,
+  MAX_SINGLE_PASS_DIFF_CHARS,
   type ChunkInfo,
 } from "./chunked-review";
 import type { PrFileEntry } from "./github-client";
@@ -208,6 +210,19 @@ describe("buildChunkDiff — no-patch fallback paths", () => {
   });
 });
 
+/** Sum of the per-file patch lengths — what `promptDiff.length` approximates. */
+function totalChars(files: PrFileEntry[]): number {
+  return files.reduce((sum, f) => sum + (f.patch?.length ?? 0), 0);
+}
+
+/**
+ * A file whose `patch` GitHub withheld while still reporting changed lines —
+ * i.e. a text file over 1MB. This is the shape mt#4879 turns on.
+ */
+function omittedPatchFile(filename: string, changedLines: number): PrFileEntry {
+  return { filename, status: "modified", additions: changedLines, deletions: 0 };
+}
+
 describe("shouldChunkReview — token gate (mt#2243)", () => {
   test("chunks on minified single-line bloat even with low file/line counts", () => {
     // 3 files, one a ~360 kB single-line minified bundle (~120k tokens, over the
@@ -221,18 +236,99 @@ describe("shouldChunkReview — token gate (mt#2243)", () => {
     // Sanity: the bundle alone exceeds the token budget while line count is tiny.
     expect(360_000 / CHARS_PER_TOKEN).toBeGreaterThan(MAX_CHUNK_DIFF_TOKENS);
     // totalDiffLines deliberately small (minified = few lines).
-    expect(shouldChunkReview(files, 12)).toBe(true);
+    expect(shouldChunkReview(files, 12, totalChars(files))).toBe(true);
   });
 
   test("does not chunk a genuinely small PR", () => {
     const files = [makeFile("a.ts", 300), makeFile("b.ts", 300)];
-    expect(shouldChunkReview(files, 40)).toBe(false);
+    expect(shouldChunkReview(files, 40, totalChars(files))).toBe(false);
   });
 
   test("still chunks on the original file-count and line-count gates", () => {
     const manyFiles = Array.from({ length: 25 }, (_, i) => makeFile(`f-${i}.ts`, 50));
-    expect(shouldChunkReview(manyFiles, 10)).toBe(true);
-    expect(shouldChunkReview([makeFile("a.ts", 50)], 3000)).toBe(true);
+    expect(shouldChunkReview(manyFiles, 10, totalChars(manyFiles))).toBe(true);
+    const one = [makeFile("a.ts", 50)];
+    expect(shouldChunkReview(one, 3000, totalChars(one))).toBe(true);
+  });
+
+  test("per-file cap still fires when the TOTAL is under budget (mt#2243 gate, isolated)", () => {
+    // One 200 kB file among small ones: total ~67k tokens is UNDER the 100k
+    // budget, so the whole-diff guard does not fire — only the per-file cap
+    // (200k/3 ≈ 66.7k > 50k) routes this to chunked mode, where it gets
+    // truncated. Isolates mt#2243's guard from mt#4879's whole-diff guard.
+    const files = [makeFile("a.ts", 500), makeFile("big.json", 200_000), makeFile("b.ts", 500)];
+    const chars = totalChars(files);
+    expect(Math.ceil(chars / CHARS_PER_TOKEN)).toBeLessThan(MAX_CHUNK_DIFF_TOKENS);
+    expect(Math.ceil(200_000 / CHARS_PER_TOKEN)).toBeGreaterThan(MAX_FILE_PATCH_TOKENS);
+    expect(shouldChunkReview(files, 40, chars)).toBe(true);
+  });
+});
+
+describe("shouldChunkReview — whole-diff payload gate (mt#4879)", () => {
+  test("chunks a few-lines/many-megabytes diff whose per-file patches GitHub withheld", () => {
+    // peezombie.me PR #2's exact shape: ~10 files; the one carrying the volume
+    // replaced a single 4,216,869-character JSON line, so GitHub omitted its
+    // `patch` (>1MB) and the newline count stayed tiny. Every DERIVED input
+    // reads small; only the payload measurement sees 4.2MB.
+    const huge = omittedPatchFile("site/index.html", 1_000);
+    const files = [huge, ...Array.from({ length: 9 }, (_, i) => makeFile(`f-${i}.ts`, 300))];
+    const promptDiffChars = 4_216_869;
+
+    // The derived inputs are all under their thresholds — this is the premise.
+    expect(files.length).toBeLessThanOrEqual(20);
+    // Newline count is small because the change is one enormous line.
+    const totalDiffLines = 900;
+    expect(totalDiffLines).toBeLessThan(2000);
+
+    expect(shouldChunkReview(files, totalDiffLines, promptDiffChars)).toBe(true);
+  });
+
+  test("a withheld patch with changed lines is scored over the per-file cap, not at 50 chars/line", () => {
+    // The old fallback scored this at 1_000 * 50 = 50k chars ≈ 16.7k tokens,
+    // comfortably under the 50k per-file cap. GitHub only withholds a patch
+    // above 1MB, so the floor is the honest reading.
+    const files = [omittedPatchFile("site/index.html", 1_000)];
+    // Passing a SMALL totalDiffChars isolates the per-file scoring: if the fix
+    // were only the whole-diff guard, this would return false.
+    expect(shouldChunkReview(files, 10, 5_000)).toBe(true);
+  });
+
+  test("capSinglePassDiff leaves an under-cap diff byte-identical", () => {
+    // The common case must not be perturbed: no marker, no copy, same string.
+    const diff = "diff --git a/a.ts b/a.ts\n+one line\n";
+    expect(capSinglePassDiff(diff)).toBe(diff);
+  });
+
+  test("capSinglePassDiff bounds an over-cap diff and says so in the prompt", () => {
+    // SC2's floor under the routing decision: even if the router mis-sizes (or
+    // the outputToolsActive conjunct suppresses chunking), the prompt is bounded
+    // rather than 400ing. SC4: the truncation must be VISIBLE, because a review
+    // that silently saw a prefix is a quiet false-negative.
+    const oversized = "x".repeat(MAX_SINGLE_PASS_DIFF_CHARS + 50_000);
+    const capped = capSinglePassDiff(oversized);
+
+    expect(capped.length).toBeLessThan(oversized.length);
+    expect(capped).toContain("diff truncated at");
+    expect(capped).toContain(String(oversized.length));
+    // The model is told not to treat the missing tail as absence-evidence.
+    expect(capped).toContain("do not report their absence");
+  });
+
+  test("capSinglePassDiff's cap matches a single chunk's diff budget", () => {
+    // Single-pass carries the same non-diff overhead a chunk does, so it gets
+    // the same budget. Pins the relationship rather than the literal.
+    expect(MAX_SINGLE_PASS_DIFF_CHARS).toBe(MAX_CHUNK_DIFF_TOKENS * CHARS_PER_TOKEN);
+  });
+
+  test("a binary file (no patch, no changed lines) does not force chunking", () => {
+    // Binary files also arrive with `patch` omitted, but report 0 additions and
+    // 0 deletions and contribute no diff text — flooring them would over-fire
+    // chunked review on any PR touching an image.
+    const files = [
+      { filename: "site/og.png", status: "modified", additions: 0, deletions: 0 },
+      makeFile("a.ts", 300),
+    ];
+    expect(shouldChunkReview(files, 40, totalChars(files))).toBe(false);
   });
 });
 
@@ -250,7 +346,7 @@ describe("regression — PR #1478-shaped diff yields only under-limit chunks", (
     );
     const files = [...bundles, ...churn];
 
-    expect(shouldChunkReview(files, 24_205)).toBe(true);
+    expect(shouldChunkReview(files, 24_205, totalChars(files))).toBe(true);
 
     const chunks = chunkFiles(files);
     // Headers/fences/markers add a small fixed overhead per file; allow margin.

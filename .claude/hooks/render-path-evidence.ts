@@ -242,9 +242,11 @@ export function checkRenderPathEvidence(files: PrFile[], prBody: string): Render
 /** Override env var (registered in `HOOK_ONLY_ENV_VARS`) — skips the render-path check. */
 export const RENDER_PATH_SKIP_ENV_VAR = "MINSKY_SKIP_RENDER_PATH_EVIDENCE";
 
-/** Calibration log path (mt#2263 ladder) — repo-root relative. */
-export const RENDER_PATH_CALIBRATION_LOG =
-  ".minsky/execution-evidence-render-path-calibration.jsonl";
+/** Stream name — the SINGLE source of truth (mt#4755); the path below is DERIVED from it. */
+export const RENDER_PATH_STREAM = "execution-evidence-render-path";
+
+/** Calibration log path (mt#2263 ladder) — repo-root relative, derived from the stream name. */
+export const RENDER_PATH_CALIBRATION_LOG = `.minsky/${RENDER_PATH_STREAM}-calibration.jsonl`;
 
 /** True when the render-path check is skipped via env var. */
 export function isRenderPathSkipped(env: NodeJS.ProcessEnv = process.env): boolean {

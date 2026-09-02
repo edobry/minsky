@@ -33,8 +33,10 @@
 // @see scripts/check-coverage-receipts.ts — CLI entrypoint / invocation path
 // @see docs/architecture/evaluation-loop-fire-log.md — evaluation-loop writeup
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { getMinskyStateDir } from "@minsky/shared/paths";
 import { findRepoRoot } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -86,20 +88,87 @@ const REAL_FS: CoverageFsDeps = { existsSync, readFileSync };
 
 // ---------------------------------------------------------------------------
 // Path resolution — mirrors the dispatcher's D4 `calibrationLogPath`
-// (dispatcher.ts): repo-root `.minsky/<name>-calibration.jsonl`.
+// (dispatcher.ts): state dir, project-keyed (mt#4748 SC1).
 // ---------------------------------------------------------------------------
 
 /**
+ * Derive a stable, filesystem-safe key for a repo root — duplicated (not
+ * imported) from `dispatcher.ts` / `ingest-runtime.ts`'s `projectStateKey`
+ * for the same reason those two don't share one either: each module tree
+ * stays free of a dependency on the others by convention. Must compute the
+ * IDENTICAL value from the IDENTICAL input for this reader to ever find what
+ * the dispatcher wrote (mt#4748).
+ */
+function projectStateKey(repoRoot: string): string {
+  return createHash("sha256").update(repoRoot).digest("hex").slice(0, 16);
+}
+
+/**
  * Resolve the calibration JSONL path for a logical detector name (e.g.
- * `"retrospective-trigger"` -> `<repo>/.minsky/retrospective-trigger-calibration.jsonl`).
+ * `"retrospective-trigger"` ->
+ * `<state dir>/projects/<key>/retrospective-trigger-calibration.jsonl`).
  * Mirrors the exact convention the dispatcher's `calibrationLogPath` and the
  * `src/domain/calibration/calibration-sweep.ts` consumer already expect.
+ *
+ * mt#4748 (SC1): rooted on `getMinskyStateDir()`, not the repo — this was a
+ * split-brain reader waiting to happen the moment `calibrationLogPath`
+ * moved: `findRepoRoot(cwd)` alone still resolves fine, it just no longer
+ * names where the file IS.
  */
+/**
+ * The DIRECTORY holding this project's calibration streams — the same root
+ * {@link resolveCalibrationLogPath} resolves a single detector's file inside.
+ *
+ * Exported because DISCOVERY needs the directory, not one file's path, and the
+ * only other way to get it is to re-derive the state-dir + `projects/<key>`
+ * convention at the call site. mt#4784: `scripts/check-coverage-receipts.ts`
+ * did exactly that re-derivation against the REPO root
+ * (`join(findRepoRoot(cwd), ".minsky")`) and kept it through mt#4748's move, so
+ * its detector roster came from a frozen pre-migration directory while its
+ * RECORDS came from here. The two cannot drift again while both go through
+ * this function.
+ */
+export function resolveCalibrationLogDir(cwd: string = process.cwd()): string {
+  return join(getMinskyStateDir(), "projects", projectStateKey(findRepoRoot(cwd)));
+}
+
 export function resolveCalibrationLogPath(
   detectorName: string,
   cwd: string = process.cwd()
 ): string {
-  return join(findRepoRoot(cwd), ".minsky", `${detectorName}-calibration.jsonl`);
+  return join(resolveCalibrationLogDir(cwd), `${detectorName}-calibration.jsonl`);
+}
+
+/** Filename suffix every calibration stream shares. */
+export const CALIBRATION_SUFFIX = "-calibration.jsonl";
+
+/**
+ * Every detector name this project has actually written a calibration stream
+ * for, sorted. Returns `[]` when the directory does not exist — a machine that
+ * has never run a guard, which callers treat as "no telemetry to reason from"
+ * rather than as an error.
+ *
+ * mt#4784: this lives HERE, beside {@link resolveCalibrationLogDir}, rather
+ * than in `scripts/check-coverage-receipts.ts` where it used to be private.
+ * That script is a top-level-`await` module that runs `main()` on import, so a
+ * test could not reach the function to check it against the writer — and the
+ * one thing worth asserting is exactly that agreement. Keeping discovery
+ * unexported is what let it re-derive its own root and drift for a full
+ * migration without any test noticing.
+ */
+export function discoverCalibrationDetectors(cwd: string = process.cwd()): string[] {
+  let names: string[];
+  try {
+    names = readdirSync(resolveCalibrationLogDir(cwd));
+  } catch {
+    // intentional-swallow: an absent directory means no telemetry yet, which is
+    // a legitimate state (fresh machine), not a failure to report.
+    return [];
+  }
+  return names
+    .filter((n) => n.endsWith(CALIBRATION_SUFFIX))
+    .map((n) => n.slice(0, -CALIBRATION_SUFFIX.length))
+    .sort();
 }
 
 /**

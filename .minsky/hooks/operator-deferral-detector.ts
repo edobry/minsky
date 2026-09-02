@@ -57,7 +57,7 @@
 // @see mem#535 — R2/R4 incident (owned by mt#2303, pinned here as a
 //      non-duplication regression test)
 
-import { readInput, findRepoRoot } from "./types";
+import { readInput } from "./types";
 import type { ClaudeHookInput, ToolHookInput, HookOutput } from "./types";
 import {
   resolveParentTranscriptLinesForPath,
@@ -88,11 +88,18 @@ import type { KillInvocation } from "./block-bulk-process-kill";
 // one definition serving both surfaces rather than a second copy that drifts.
 // Same one-way hook-to-hook edge `turn-end-untaken-action-scan` already has on
 // that module, and the same one this file already has on the kill parse above.
-import { findOfferShape } from "./ask-routing-deferral-detector";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { findOfferShape, detectDeferralPhrases } from "./ask-routing-deferral-detector";
+// The shared authored-text resolver (mt#4525), reused rather than re-derived
+// (mt#4769). Each guard passes its OWN field map and shares only the resolution
+// — `claim-provenance-scan.ts` states that split deliberately, because a widened
+// corpus would change a guard's fire rate and confound its before/after replay.
+// The resolver also owns the by-reference `specFile` branch, which is the part
+// that is easy to get wrong and whose absence previously produced a recall hole
+// that reported itself as a clean skip.
+import { readAuthoredSpecText } from "./authored-spec-text";
+import type { SpecTextRead } from "./authored-spec-text";
 import type { DispatchContext, GuardOutcome } from "./registry";
-import { logEvaluationRecord } from "./dispatcher";
+import { logCalibrationRecord, logEvaluationRecord } from "./dispatcher";
 import { elideQuotedContexts, elideDoubleQuotedSpans } from "./elision";
 import {
   CAPTURE_SCHEMA_FIELD,
@@ -129,7 +136,7 @@ export const INJECTION_ENABLED = false;
  */
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_OPERATOR_DEFERRAL";
 
-const CALIBRATION_LOG = ".minsky/operator-deferral-calibration.jsonl";
+const CALIBRATION_LOG_NAME = "operator-deferral";
 
 export type DeferralSurface =
   | "capability-deferral-prose"
@@ -633,8 +640,20 @@ export function hasProbeEvidence(turnLines: TranscriptLine[]): boolean {
  * after 5 identical FPs in the 2026-07-08 review window); this detector shipped
  * calling only the narrower helper and re-introduced it.
  */
-export function detectCapabilityDeferral(turnLines: TranscriptLine[]): DeferralMatch[] {
-  const text = extractAssistantText(turnLines);
+/**
+ * @param scanTextOverride Text to MATCH against instead of the turn's prose
+ *   (mt#4769). `turnLines` is still read for the probe suppressor, which is the
+ *   whole reason this is an override rather than a synthesized turn: a deferral
+ *   authored into a PR body should be suppressed by a probe the agent ran IN THE
+ *   TURN, and an artifact body carries no probes of its own. Building a fake
+ *   `TranscriptLine[]` out of the body would silently lose that suppressor and
+ *   multiply the false-positive class mt#4634 already tracks.
+ */
+export function detectCapabilityDeferral(
+  turnLines: TranscriptLine[],
+  scanTextOverride?: string
+): DeferralMatch[] {
+  const text = scanTextOverride ?? extractAssistantText(turnLines);
   if (!text) return [];
   if (hasProbeEvidence(turnLines)) return [];
 
@@ -1186,8 +1205,12 @@ function isOverridden(): boolean {
  * suppression families beside it, read one sentence further back — see
  * {@link sentenceWithLead} for why the two cannot share a window.
  */
-export function detectPermissionDeferral(turnLines: TranscriptLine[]): DeferralMatch[] {
-  const text = extractAssistantText(turnLines);
+/** @param scanTextOverride See {@link detectCapabilityDeferral} (mt#4769). */
+export function detectPermissionDeferral(
+  turnLines: TranscriptLine[],
+  scanTextOverride?: string
+): DeferralMatch[] {
+  const text = scanTextOverride ?? extractAssistantText(turnLines);
   if (!text) return [];
   if (hasProbeEvidence(turnLines)) return [];
 
@@ -1351,7 +1374,7 @@ function askEvaluationText(toolInput: Record<string, unknown> | undefined): stri
  * computed over a mixed denominator would be meaningless, so anything reading
  * this log must group by `evaluated`.
  */
-export type EvaluatedUnit = "prose-turn" | "ask-tool-call";
+export type EvaluatedUnit = "prose-turn" | "ask-tool-call" | "artifact-body";
 
 /**
  * Surface E's per-turn conjunct outcomes (mt#3999).
@@ -1449,13 +1472,60 @@ export function appendEvaluationRecord(
  */
 export function buildCalibrationRecord(
   sessionId: string | undefined,
-  matches: DeferralMatch[]
+  matches: DeferralMatch[],
+  /**
+   * Which unit produced this fire (mt#4769). The EVALUATIONS log has carried
+   * `evaluated` since the ask surface shipped, and the docblock on
+   * {@link EvaluatedUnit} already tells readers to group by it — but the
+   * CALIBRATION log, which is what a false-positive review actually reads, had
+   * no such field. Three units writing one undifferentiated stream means an
+   * artifact-body fire and a chat-prose fire are the same row, and this task's
+   * SC5 asks for the artifact class's FP rate specifically.
+   *
+   * REQUIRED, not defaulted (PR #3533 R1). The first push defaulted it to
+   * `"prose-turn"` so existing callers would keep compiling — and that silently
+   * mislabeled every ask-surface fire, because `toOutcome` is shared by two
+   * surfaces evaluating different units. A field whose purpose is to
+   * disambiguate is worse than no field when it disambiguates wrongly, and a
+   * required parameter makes the compiler enumerate the call sites instead of
+   * leaving it to a grep.
+   */
+  evaluated: EvaluatedUnit,
+  /**
+   * The turn's assistant prose, for the overlap measurement (mt#4702).
+   *
+   * OPTIONAL, and absent — or EMPTY — means "not measured" rather than "no
+   * overlap" (PR #3531 R2). The distinction matters because a `false` written
+   * on a caller that never had the text would be a claim, not a measurement.
+   * Optional also keeps every existing caller valid: making it required is the
+   * contract-tightening class `/plan-task` gate (h) names, where callers break
+   * by OMISSION and a read-grep cannot see them.
+   */
+  turnText?: string
 ): Record<string, unknown> {
   return {
     timestamp: new Date().toISOString(),
     session_id: sessionId,
     injection_enabled: INJECTION_ENABLED,
     source: "live",
+    evaluated,
+    // mt#4702: does `ask-routing-deferral` fire on the same prose? Measured at
+    // 10 of 11 distinct fire-minutes in the 2026-08-31 window, and the field
+    // was ABSENT on all 12 records — so the pair's overlap was invisible to the
+    // instrumentation mt#4407 uses for the sibling pair, and the 60% figure it
+    // reports was never the whole overlap surface. Same boolean shape and same
+    // derivation as `turn-end-untaken-action-scan.ts`'s field, deliberately, so
+    // the two are comparable.
+    //
+    // EMPTY counts as not-measured too (PR #3531 R2): over an empty string
+    // `detectDeferralPhrases` can only ever return `[]`, so the `false` it
+    // yields is a CONSTANT rather than a measurement — the same fabricated
+    // negative the optional parameter exists to prevent. Guarded here, at the
+    // derivation, rather than at each call site: a turn that fires on a TOOL
+    // CALL alone (surface E) carries no prose, and `extractAssistantText`
+    // returns `""` for it, never `undefined`, so every call site that threads
+    // real extraction output has to make this same choice.
+    ...(turnText ? { deferralOverlap: detectDeferralPhrases(turnText).length > 0 } : {}),
     // mt#3781: `phrase` is the sweep's diversity axis, so it carries the PATTERN
     // hit; `context` carries the surrounding prose that used to occupy `phrase`.
     // Both, because the axis needs the first to be meaningful and a human
@@ -1470,16 +1540,14 @@ export function buildCalibrationRecord(
 }
 
 function appendCalibrationRecord(cwd: string | undefined, record: Record<string, unknown>): void {
-  try {
-    const logPath = resolve(findRepoRoot(cwd ?? process.cwd()), CALIBRATION_LOG);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    process.stderr.write(
-      `[operator-deferral-detector] Failed to write calibration log: ${err instanceof Error ? err.message : String(err)}\n`
-    );
-  }
+  // mt#4752: the shared helper derives the path from the stream NAME, so the
+  // filename cannot drift from the convention the .gitignore globs encode.
+  // `cwd` is the guard's raw input cwd — a FALLBACK, never an authoritative
+  // root. Undefined is fine: the helper falls through to `process.cwd()`,
+  // which is what the hand-rolled `cwd ?? process.cwd()` did explicitly.
+  logCalibrationRecord(CALIBRATION_LOG_NAME, record, {
+    ...(cwd !== undefined ? { fallbackCwd: cwd } : {}),
+  });
 }
 
 export function buildReminder(matches: DeferralMatch[]): string {
@@ -1573,9 +1641,110 @@ export function renderWorstCase(): string {
 // Dispatcher-compatible entry points (ADR-028 D1/D2)
 // ---------------------------------------------------------------------------
 
-function toOutcome(matches: DeferralMatch[], sessionId: string | undefined): GuardOutcome | null {
+// ---------------------------------------------------------------------------
+// Surface G — artifact-body deferral (mt#4769)
+// ---------------------------------------------------------------------------
+
+/**
+ * Deferral prose the agent authored into a DURABLE ARTIFACT this turn — a PR
+ * body, a task spec — rather than into chat.
+ *
+ * **Why this exists.** `user-preferences.mdc §Probe before deferring` names that
+ * surface FIRST: *"before writing any of the phrases below in a PR body, spec
+ * `## Outcome` section, ask, status update, or chat."* Until mt#4769 this
+ * detector evaluated two units — `prose-turn` and `ask-tool-call` — and neither
+ * reads an artifact body, so the surface the rule leads with was the one surface
+ * the detector could not observe. Measured, not inferred: during the originating
+ * incident (mt#4695 / PR #3483) the detector RAN and correctly found nothing —
+ * `{"evaluated":"prose-turn","fired":false}` at 2026-08-30T17:48:39.526Z — while
+ * the deferral sat in the PR body and the task spec.
+ *
+ * This is the family's REACH fix, which mem#707's standing threshold asks for
+ * before any rung argument: *"verify the detector in question can OBSERVE the
+ * turns it is being escalated over; a detector that cannot see the class is not
+ * made effective by being made louder."* It adds no pattern family — ADR-024's
+ * arms-race prohibition — and does not move on the ladder; it widens the INPUT
+ * to the Rung-1 patterns already shipped.
+ *
+ * **Two of surface A's five detectors, deliberately.** The capability and
+ * permission surfaces are phrase-pattern matchers over prose, so pointing them
+ * at artifact text is exactly the same question asked of different text. The
+ * other three are turn-scoped by construction and would be nonsense here:
+ * `detectDenialAnchoredDeferral` keys on a DENIED TOOL CALL, `detectActPathWorkaround`
+ * on command invocations, and `detectAskJustificationAbsence` on the turn's probe
+ * channels — none of which an artifact body contains. Running them anyway would
+ * manufacture fires rather than find them.
+ *
+ * **`turnLines` is still passed, and that is the load-bearing part.** Both
+ * detectors suppress on `hasProbeEvidence(turnLines)`, so a deferral written into
+ * a PR body is still excused by a probe the agent actually ran IN THE TURN. That
+ * is why the text arrives as an override rather than as a synthesized turn:
+ * `buildArtifactProseCorpus` output has no tool calls in it, so a fake turn would
+ * silently drop every suppressor and multiply the false-positive class mt#4634
+ * already tracks — which SC5 of this task explicitly warns against.
+ */
+/**
+ * This surface's OWN param map — deliberately not merged with
+ * `claim-provenance-scan`'s `SPEC_TEXT_FIELD_BY_TOOL`.
+ *
+ * These are the three writes `user-preferences.mdc §Probe before deferring` and
+ * `/implement-task` §7 item 3 actually name: a PR body at creation, a PR body on
+ * edit, and a task spec. The sibling map covers `tasks_create` / `tasks_edit` /
+ * `tasks_spec_search_replace` for a different question, and sharing the RESOLVER
+ * while keeping the SCOPE separate is that module's stated convention — a widened
+ * corpus changes a guard's fire rate and confounds its own replay.
+ */
+export const ARTIFACT_TEXT_FIELD_BY_TOOL: Readonly<Record<string, string>> = {
+  session_pr_create: "body",
+  session_pr_edit: "body",
+  tasks_spec_patch: "content",
+};
+
+/** The artifact prose this call is about to write, with its read outcome. */
+export function readArtifactBodyForCall(
+  toolName: string | undefined,
+  toolInput: Record<string, unknown> | undefined,
+  readFile?: (path: string) => string | null
+): SpecTextRead {
+  return readAuthoredSpecText(toolName, toolInput, ARTIFACT_TEXT_FIELD_BY_TOOL, readFile);
+}
+
+export function detectArtifactBodyDeferral(
+  turnLines: TranscriptLine[],
+  artifactText: string
+): DeferralMatch[] {
+  if (!artifactText.trim()) return [];
+  return [
+    ...detectCapabilityDeferral(turnLines, artifactText),
+    ...detectPermissionDeferral(turnLines, artifactText),
+  ];
+}
+
+/**
+ * @param evaluated Which unit produced these matches (mt#4769, PR #3533 R1).
+ *   REQUIRED at every call site rather than defaulted: this helper is shared by
+ *   two surfaces that evaluate different units, so a default silently labels one
+ *   of them wrong — which is exactly what the first push of this PR did, tagging
+ *   every ask-surface fire `prose-turn`. A field added to disambiguate three
+ *   units is worse than no field at all when it disambiguates them incorrectly.
+ */
+function toOutcome(
+  matches: DeferralMatch[],
+  sessionId: string | undefined,
+  evaluated: EvaluatedUnit,
+  /**
+   * The turn's prose, threaded through for mt#4702's `deferralOverlap`.
+   *
+   * Optional where `evaluated` is required, and the asymmetry is deliberate:
+   * every caller KNOWS which unit it evaluated, while only the prose-turn
+   * surface HAS the prose. Absent — or empty — means "not measured".
+   */
+  turnText?: string
+): GuardOutcome | null {
   if (matches.length === 0) return null;
-  const outcome: GuardOutcome = { calibration: buildCalibrationRecord(sessionId, matches) };
+  const outcome: GuardOutcome = {
+    calibration: buildCalibrationRecord(sessionId, matches, evaluated, turnText),
+  };
   if (INJECTION_ENABLED) outcome.additionalContext = buildReminder(matches);
   return outcome;
 }
@@ -1602,17 +1771,28 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     ];
     // Recorded for EVERY evaluated turn, including the no-match case — that is
     // the half the calibration log cannot provide (see buildEvaluationRecord).
+    // mt#4702: hoisted so the calibration record measures the overlap against
+    // the SAME prose the evaluation record already carries, rather than a
+    // second derivation that could drift from it.
+    // No `?? ""`: `extractAssistantText` returns `string`, so the coalesce was
+    // dead and the empty case reached `buildCalibrationRecord` as a defined
+    // value — which is how `deferralOverlap` came to be emitted on every
+    // prose-turn record (PR #3531 R2). The two consumers want different things
+    // from an empty extraction and now get them: `text_tail` takes `""` as the
+    // honest tail of a turn with no prose, and the calibration record omits the
+    // overlap field rather than fabricating a negative.
+    const turnText = extractAssistantText(turnLines);
     appendEvaluationRecord(
       input.cwd,
       buildEvaluationRecord(
         input.session_id,
         matches,
-        extractAssistantText(turnLines) ?? "",
+        turnText,
         "prose-turn",
         summarizeAskJustificationEvaluation(turnLines)
       )
     );
-    return toOutcome(matches, input.session_id);
+    return toOutcome(matches, input.session_id, "prose-turn", turnText);
   } catch (err) {
     process.stderr.write(
       `[operator-deferral-detector] Detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -1648,10 +1828,63 @@ export function runAskSurface(input: ToolHookInput, ctx: DispatchContext): Guard
         "ask-tool-call"
       )
     );
-    return toOutcome(matches, input.session_id);
+    // "ask-tool-call", not the shared default this originally inherited
+    // (PR #3533 R1) — the calibration row must name the unit that produced it.
+    return toOutcome(matches, input.session_id, "ask-tool-call");
   } catch (err) {
     process.stderr.write(
       `[operator-deferral-detector] Ask-surface detection error: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+    return null;
+  }
+}
+
+/**
+ * Surface G — PreToolUse on the artifact writes: inspect the body being written.
+ *
+ * Scans the IN-FLIGHT turn for probe evidence (`extractFinalTurn`, same as
+ * Surface B) while matching against the artifact TEXT. At PreToolUse the body is
+ * still in `tool_input`, so every probe in the transcript necessarily precedes it
+ * — "did the agent probe before writing this deferral" is answerable with no
+ * timestamp comparison, which is the same property that makes
+ * `claim-provenance-scan`'s seam work.
+ *
+ * Firing BEFORE the write is the point for a deferral class. mem#707's R12 note
+ * records the cost of the alternative: a deferral detector that fires after the
+ * message lands means "the attention it exists to save is already spent."
+ */
+export function runArtifactSurface(
+  input: ToolHookInput,
+  ctx: DispatchContext
+): GuardOutcome | null {
+  if (isOverridden()) return null;
+
+  try {
+    const read = readArtifactBodyForCall(input.tool_name, input.tool_input);
+    // A tool this surface does not cover yields no text — record nothing at all
+    // rather than an empty-denominator row, which would make the miss rate look
+    // better than it is by padding it with calls that were never in scope.
+    if (read.text === null) return null;
+
+    const { turnLines } = extractFinalTurn(ctx.transcriptLines ?? []);
+    const matches = detectArtifactBodyDeferral(turnLines, read.text);
+    // Every evaluated body, fired or not — the denominator half, exactly as
+    // Surface A has recorded since PR #2659 R1 and Surface B since its ship.
+    // Without it the artifact class would have matches and no population, and
+    // SC5's measured false-positive rate would have no divisor.
+    appendEvaluationRecord(
+      input.cwd,
+      buildEvaluationRecord(input.session_id, matches, read.text, "artifact-body")
+    );
+    if (matches.length === 0) return null;
+    const outcome: GuardOutcome = {
+      calibration: buildCalibrationRecord(input.session_id, matches, "artifact-body"),
+    };
+    if (INJECTION_ENABLED) outcome.additionalContext = buildReminder(matches);
+    return outcome;
+  } catch (err) {
+    process.stderr.write(
+      `[operator-deferral-detector] Artifact-surface detection error: ${err instanceof Error ? err.message : String(err)}\n`
     );
     return null;
   }
@@ -1688,8 +1921,14 @@ export async function main(): Promise<void> {
   if (lines.length === 0) process.exit(0);
 
   let matches: DeferralMatch[] = [];
+  // Tracked alongside `matches` so the calibration row names the unit that
+  // produced it (mt#4769, PR #3533 R1). Defaulting this at the record builder
+  // is what mislabeled the ask surface on the first push.
+  let evaluatedUnit: EvaluatedUnit = "prose-turn";
   try {
+    const artifactRead = readArtifactBodyForCall(input.tool_name, input.tool_input);
     if (input.tool_name === "AskUserQuestion") {
+      evaluatedUnit = "ask-tool-call";
       matches = detectAskDeferral(input.tool_input, extractFinalTurn(lines).turnLines);
       // Mirrors `runAskSurface` (PR #2659 R1) — both entrypoints render this
       // surface, and recording in only one leaves the denominator wrong.
@@ -1701,6 +1940,18 @@ export async function main(): Promise<void> {
           askEvaluationText(input.tool_input),
           "ask-tool-call"
         )
+      );
+    } else if (artifactRead.text !== null) {
+      // mt#4769 — mirrors `runArtifactSurface`, for the same reason the ask
+      // branch above mirrors its own guard: wiring one entrypoint and not the
+      // other is the mt#3270 R1 shape this function's next comment already
+      // names. The turn is passed for the probe suppressor; the artifact text
+      // is what gets matched.
+      evaluatedUnit = "artifact-body";
+      matches = detectArtifactBodyDeferral(extractFinalTurn(lines).turnLines, artifactRead.text);
+      appendEvaluationRecord(
+        input.cwd,
+        buildEvaluationRecord(input.session_id, matches, artifactRead.text, "artifact-body")
       );
     } else {
       const turnLines = extractLastAssistantTurn(lines);
@@ -1734,7 +1985,10 @@ export async function main(): Promise<void> {
 
   if (matches.length === 0) process.exit(0);
 
-  appendCalibrationRecord(input.cwd, buildCalibrationRecord(input.session_id, matches));
+  appendCalibrationRecord(
+    input.cwd,
+    buildCalibrationRecord(input.session_id, matches, evaluatedUnit)
+  );
 
   if (!INJECTION_ENABLED) process.exit(0);
 

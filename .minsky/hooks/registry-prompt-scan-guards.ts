@@ -262,10 +262,15 @@ export const PROMPT_SCAN_GUARDS: readonly GuardRegistration[] = [
     calibrationLog: "negative-existence-claim",
     denyCapable: false,
     needsTranscript: true,
-    // MEASURED via `renderProbe`: 1559 saturated. Claim axis posed at its bound
+    // MEASURED via `renderProbe`: 1650 saturated (was 1559 / declared 1600
+    // before mt#4362 added the scope leg — the worst case now poses a SUBTREE
+    // search rendering a path at its 60-unit cap, which the old figure did not
+    // include). Raised to match the measurement rather than trimming the render:
+    // the declaration exists to describe the real worst case, and the mt#3479
+    // ceiling test is what caught the drift. Claim axis posed at its bound
     // (7 patterns); the DONE-task-id axis is UNCAPPED, so this is a sample, not
     // a ceiling — `render-probe-sample`, and a cap is owed before injection.
-    attentionCost: { denialMessageSizeChars: 1600, optionCount: 2 },
+    attentionCost: { denialMessageSizeChars: 1700, optionCount: 2 },
     // Calibration-first: the canary asserts `calibration`, not additionalContext,
     // so a later INJECTION_ENABLED flip gains an outcome rather than breaking it.
     // It cites mt#2677 — a really-DONE task — which makes it deterministic in
@@ -945,6 +950,55 @@ export const PROMPT_SCAN_GUARDS: readonly GuardRegistration[] = [
       // silently stopping — which for this guard means the agent going blind
       // again with every test still green.
       expects: "warn",
+    },
+  },
+  // -------------------------------------------------------------------------
+  // mt#4701. Appended at the END of the family deliberately: no guard here is
+  // `denyCapable` so nothing short-circuits, but the header's ## Order note is
+  // explicit that the array order is load-bearing history. Adding at the tail
+  // leaves every existing co-firing sequence byte-identical.
+  //
+  // The falsifier RFC `3a0937f0` reserved as its Phase 3 candidate and nobody
+  // filed: `claim-confidence.mdc`'s warrant vocabulary has been in force since
+  // 2026-07-18 with no detector MATCHING on it — the tokens appear in the hook
+  // tree only as guidance text other detectors EMIT.
+  // -------------------------------------------------------------------------
+  {
+    name: "cross-turn-hedge-detector",
+    effects: [recorderEffect()],
+    tuningOwnership: "advisory",
+    event: "UserPromptSubmit",
+    module: () => import("./cross-turn-hedge-detector").then((m) => ({ run: m.run })),
+    renderProbe: () => import("./cross-turn-hedge-detector").then((m) => m.renderWorstCase()),
+    timeoutMs: 10000,
+    calibrationLog: "cross-turn-hedge",
+    denyCapable: false,
+    needsTranscript: true,
+    // MEASURED via `renderProbe`: 629 chars saturated — both excerpts posed at
+    // their 240-char cap. Declared at 700 for headroom on the marker and subject
+    // interpolations, which are short but unbounded in principle. The FINDING
+    // COUNT is uncapped, so this is a `render-probe-sample` rather than a proved
+    // ceiling; a cap is owed before any INJECTION_ENABLED flip.
+    attentionCost: { denialMessageSizeChars: 700, optionCount: 1 },
+    // Calibration-first: the canary asserts `calibration`, not additionalContext,
+    // so a later INJECTION_ENABLED flip gains an outcome rather than breaking it.
+    //
+    // The fixture is the originating incident reduced to two turns. Note there is
+    // NO tool call naming mem#1323 after the hedge — that absence is the third
+    // conjunct, and putting a lookup here would silently make the canary assert
+    // suppression instead of detection.
+    canary: {
+      input: { transcript_path: "mt4701-canary-transcript" },
+      transcriptLines: [
+        userPromptLine("who is working this handoff?"),
+        assistantTextLine(
+          "I inferred that mem#1323 was authored by that conversation from its " +
+            "presence claims. That inference may be wrong."
+        ),
+        userPromptLine("second turn"),
+        assistantTextLine("It wrote mem#1323 at 20:55 UTC and kept right on working."),
+      ],
+      expects: "calibration",
     },
   },
 ];

@@ -59,20 +59,32 @@ services/reviewer/eval/results/*
 !services/reviewer/eval/results/gpt-5.2-judge/
 *.tsbuildinfo
 
-# Hook-calibration telemetry + calibration-review state (mt#2667) — local
-# runtime data written by the UserPromptSubmit/PreToolUse detector family and
-# the calibration-review sweep. Pattern-based so a NEW detector's log is
-# ignored automatically (the per-file predecessor lines missed three newer
-# detectors for weeks). Matches at root and inside any package/service
-# workspace (hooks running with a subpackage cwd spill logs into e.g.
-# cockpit-tray/.minsky/ and infra/.minsky/).
-**/.minsky/*-calibration.jsonl
-# Same family, different suffix: detectors that record every EVALUATION rather
-# than only fires write `*-evaluations.jsonl`, which the -calibration pattern
-# above does not match. Found the way the predecessor lines were (mt#3612):
-# `silent-stretch-evaluations.jsonl` was committed as the only tracked
-# .minsky/*.jsonl before anyone noticed it was local telemetry.
-**/.minsky/*-evaluations.jsonl
+# mt#4748 SC6: the two patterns that used to live here
+# (**/.minsky/*-calibration.jsonl, **/.minsky/*-evaluations.jsonl — mt#2667)
+# are RETIRED, not merely removed. The calibration/evaluation detector family
+# no longer writes into any working tree at all — dispatcher.ts's
+# calibrationLogPath/evaluationLogPath now resolve under the state dir,
+# project-keyed (~/.local/state/minsky/projects/<key>/), so there is no
+# working-tree path left for a pattern to cover. A denylist here would be
+# permanently dead weight that a future reader could mistake for coverage
+# still in force. See docs/architecture/guard-calibration-stream-inventory.md
+# and ADR-028 §D4 (amended in the same change) for the new location.
+#
+# Backups Minsky's own MCP config writer takes before modifying .mcp.json
+# (mt#2492). Same class as the logs above — a tool writing into the working tree
+# with nothing ignoring it — but a different producer and directory, so it gets
+# its own line rather than being folded into the globs. Note .mcp.json itself is
+# gitignored with ZERO commits, so its git history is NOT a backup: these files
+# are the only prior copies of that config that exist. Ignore them; do not
+# delete them.
+#
+# ANY DEPTH, deliberately — no leading slash. `projectConfigPath()` in
+# src/mcp/setup/local-http-config.ts joins `.mcp.json` onto whatever projectRoot
+# it is handed, and a session workspace is a project root, so a backup can land
+# outside the repo root. Verified 2026-08-29: `git check-ignore -v` matches this
+# line against `tmpprobe/nested/.mcp.json.minsky-backup-<stamp>`. Do not "fix"
+# this by adding a leading slash (PR #3474 R1 read it as root-only).
+.mcp.json.minsky-backup-*
 **/.minsky/subagent-model-mismatch.jsonl
 **/.minsky/calibration-review-watermarks.json
 # Sweep-time claims on a calibration log (mt#4164) — the same class of local
@@ -180,3 +192,12 @@ supabase/
 # run and invite reading one machine's numbers as a project-wide baseline.
 /scripts/cockpit-navigation-latency-results.json
 /scripts/peek-drag-frames-results.json
+
+# Per-run measurement output from scripts/verify-supavisor-slot-reclaim.ts
+# (mt#4547). Each run records a point-in-time reading of a SHARED tenant gauge
+# whose value depends on what the rest of the fleet happens to be doing, so a
+# committed copy would go stale immediately and invite being read as a baseline.
+# The durable finding lives on the task and in the PR body instead.
+/scripts/supavisor-slot-reclaim-baseline.json
+/scripts/supavisor-slot-reclaim-arm-a.json
+/scripts/supavisor-slot-reclaim-arm-b.json

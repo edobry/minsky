@@ -36,7 +36,23 @@
         },
         {
           "name": "ci_run_view_log",
-          "description": "Download and decode the logs for a specific CI workflow run. Returns the log content as text (ZIP entries are extracted inline). Falls back to base64 if DEFLATE-compressed entries cannot be inflated without a native ZIP library.",
+          "description": "View CI workflow run logs, bounded by default (mt#4749). Pass `jobId` to fetch ONLY that job's log via GitHub's native per-job endpoint (no ZIP, no other jobs' output) — the preferred call once you know which job failed. Pass `failedOnly: true` to fetch logs for every job on the run that did NOT succeed, without a separate list-then-fetch round trip. `tailLines` keeps only the last N lines of each returned log. With neither jobId nor failedOnly, returns the WHOLE RUN's log (every job, ZIP-decoded and concatenated, falling back to base64 if a DEFLATE entry cannot be inflated) — this is the unbounded form; prefer jobId or failedOnly for the common diagnose-a-red-check case. Regardless of these options, an oversized result is spooled to a server-side file and replaced with a truncated pointer rather than returned inline.",
+          "options": [
+            {
+              "flags": ["--job-id"],
+              "description": "Numeric job ID to fetch ONLY that job's log (GitHub's native per-job log endpoint — bounded to that job, no ZIP). Mutually exclusive with failedOnly (jobId wins if both are given). Find a run's job IDs via the GitHub Actions UI or by omitting both jobId and failedOnly once to inspect the whole-run log's job headers.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--failed-only"],
+              "description": "When true (and jobId is not given), fetch logs only for the jobs on this run that did not succeed — no separate job-listing round trip needed."
+            },
+            {
+              "flags": ["--tail-lines"],
+              "description": "Keep only the last N lines of each returned log. Applies to the job log (jobId), each failed job's log (failedOnly), or the whole-run concatenated log — not to the base64 fallback, which has no meaningful line structure.",
+              "takesValue": true
+            }
+          ],
           "arguments": [
             {
               "name": "runId",
@@ -1383,9 +1399,9 @@
             },
             {
               "flags": ["--kind"],
-              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops, work-package)",
               "takesValue": true,
-              "values": ["implementation", "umbrella", "state-ops"]
+              "values": ["implementation", "umbrella", "state-ops", "work-package"]
             },
             {
               "flags": ["--tag"],
@@ -1535,9 +1551,9 @@
             },
             {
               "flags": ["--kind"],
-              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops, work-package)",
               "takesValue": true,
-              "values": ["implementation", "umbrella", "state-ops"]
+              "values": ["implementation", "umbrella", "state-ops", "work-package"]
             },
             {
               "flags": ["--repo"],
@@ -1596,9 +1612,9 @@
             },
             {
               "flags": ["--kind"],
-              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops, work-package)",
               "takesValue": true,
-              "values": ["implementation", "umbrella", "state-ops"]
+              "values": ["implementation", "umbrella", "state-ops", "work-package"]
             },
             {
               "flags": ["--execute"],
@@ -1644,9 +1660,9 @@
           "options": [
             {
               "flags": ["--kind"],
-              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops, work-package)",
               "takesValue": true,
-              "values": ["implementation", "umbrella", "state-ops"]
+              "values": ["implementation", "umbrella", "state-ops", "work-package"]
             },
             {
               "flags": ["--add-tag"],
@@ -1754,7 +1770,7 @@
             },
             {
               "flags": ["--threshold"],
-              "description": "Optional distance threshold (lower is closer)",
+              "description": "Optional similarity threshold (higher is more similar)",
               "takesValue": true
             },
             {
@@ -1782,9 +1798,9 @@
             },
             {
               "flags": ["--kind"],
-              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops, work-package)",
               "takesValue": true,
-              "values": ["implementation", "umbrella", "state-ops"]
+              "values": ["implementation", "umbrella", "state-ops", "work-package"]
             },
             {
               "flags": ["--quiet"],
@@ -1839,7 +1855,7 @@
             },
             {
               "flags": ["--threshold"],
-              "description": "Optional distance threshold (lower is closer)",
+              "description": "Optional similarity threshold (higher is more similar)",
               "takesValue": true
             },
             {
@@ -1867,9 +1883,9 @@
             },
             {
               "flags": ["--kind"],
-              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops, work-package)",
               "takesValue": true,
-              "values": ["implementation", "umbrella", "state-ops"]
+              "values": ["implementation", "umbrella", "state-ops", "work-package"]
             },
             {
               "flags": ["--quiet"],
@@ -2275,9 +2291,9 @@
             },
             {
               "flags": ["--kind"],
-              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops, work-package)",
               "takesValue": true,
-              "values": ["implementation", "umbrella", "state-ops"]
+              "values": ["implementation", "umbrella", "state-ops", "work-package"]
             },
             {
               "flags": ["--limit"],
@@ -2583,6 +2599,44 @@
               "commandId": "tasks.claims.release"
             }
           ]
+        },
+        {
+          "name": "claim",
+          "description": "Claim a READY work package: one conditional write sets IN-PROGRESS and records claimed_by/claimed_at atomically, so concurrent claims get exactly one winner. The only legal READY→IN-PROGRESS path for kind work-package.",
+          "options": [
+            {
+              "flags": ["--claimed-by"],
+              "description": "Override the recorded claimant identity. Defaults to the resolved caller (MCP identity or harness environment); pass only when claiming on behalf of another actor deliberately.",
+              "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Work-package task id (e.g. \"mt#2911\")"
+            }
+          ],
+          "commandId": "tasks.claim"
+        },
+        {
+          "name": "release",
+          "description": "Release a claimed work package back to READY, clearing claimed_by/claimed_at and appending a transfer-log entry (origin release) that re-offers it. Any caller may release — the releaser is recorded, so freeing a dead conversation's claim is auditable rather than forbidden.",
+          "options": [
+            {
+              "flags": ["--notes"],
+              "description": "Transfer notes recorded on the release entry: what is done, what remains, judgment the next claimant needs.",
+              "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "taskId",
+              "required": true,
+              "description": "Work-package task id (e.g. \"mt#2911\")"
+            }
+          ],
+          "commandId": "tasks.release"
         }
       ]
     },
@@ -2698,7 +2752,7 @@
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path",
+              "description": "Local checkout to clone FROM (a fetch source, not the repository this session is for). The session's identity — its repo URL, name and project — comes from the TASK's project, not from this argument. For a GitHub-backed project the clone's `origin` is always the forge URL, so passing a local path here only speeds the clone up. Naming a DIFFERENT repository than the task's project is refused rather than silently honored.",
               "takesValue": true
             },
             {
@@ -3692,6 +3746,10 @@
                   "flags": ["--interval-seconds"],
                   "description": "Polling interval in seconds when --wait is enabled (default: 30)",
                   "takesValue": true
+                },
+                {
+                  "flags": ["--full-body"],
+                  "description": "When true, return the full per-check breakdown instead of the default trimmed payload (mt#2656 shape, extended to this command by mt#4657: summary counts always, plus failingChecks — the failed and still-pending entries — when not all checks passed). Defaults to false. Does not affect the CLI's text output, which always renders every check."
                 }
               ],
               "commandId": "session.pr.checks"
@@ -4350,7 +4408,7 @@
           "options": [
             {
               "flags": ["--format"],
-              "description": "Rule format (cursor or generic)",
+              "description": "Format of the rule file (cursor, generic, minsky)",
               "takesValue": true
             },
             {
@@ -4390,7 +4448,7 @@
             },
             {
               "flags": ["--format"],
-              "description": "Rule format (cursor or generic)",
+              "description": "Format of the rule file (cursor, generic, minsky)",
               "takesValue": true
             },
             {
@@ -4430,7 +4488,7 @@
           "options": [
             {
               "flags": ["--format"],
-              "description": "Rule format (cursor or generic)",
+              "description": "Format of the rule file (cursor, generic, minsky)",
               "takesValue": true
             },
             {
@@ -4481,7 +4539,7 @@
             },
             {
               "flags": ["--format"],
-              "description": "Rule format for file system organization (cursor or generic)",
+              "description": "Format of the rule file (cursor, generic, minsky)",
               "takesValue": true,
               "values": ["cursor", "generic", "minsky"]
             },
@@ -4537,7 +4595,7 @@
             },
             {
               "flags": ["--format"],
-              "description": "Rule format (cursor or generic)",
+              "description": "Format of the rule file (cursor, generic, minsky)",
               "takesValue": true
             },
             {
@@ -4589,7 +4647,7 @@
             },
             {
               "flags": ["--format"],
-              "description": "Rule format (cursor or generic)",
+              "description": "Format of the rule file (cursor, generic, minsky)",
               "takesValue": true
             },
             {
@@ -6254,6 +6312,42 @@
           "commandId": "observability.reviewer-cost"
         },
         {
+          "name": "reviewer-events",
+          "description": "Read the reviewer service's per-delivery outcome record (`reviewer_webhook_events`) to distinguish 'the reviewer never ran' from 'the reviewer ran and failed'. Both look identical to session_pr_wait-for-review, which reports reviewerCheckRunState 'absent' for each — and 'absent' is a bypass-merge condition. Returns a per-PR verdict, the classified delivery rows, repo-wide failure classes in the window (systemic vs one PR), and the coverage bounds that stop an empty result being read as proof of silence. Reads through the daemon's existing database connection; no credential is passed by the caller and none appears in the output. SELECTs only.",
+          "options": [
+            {
+              "flags": ["--owner"],
+              "description": "GitHub repo owner (e.g. 'edobry'). Required to scope to a repo.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--repo"],
+              "description": "GitHub repo name (e.g. 'minsky').",
+              "takesValue": true
+            },
+            {
+              "flags": ["--pr"],
+              "description": "PR number. Matched across every event shape that carries one — pull_request, issue_comment (comment-triggered reviews), check_run and check_suite — because the PR number lives at a different JSON path in each.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--since"],
+              "description": "Lower bound on received_at (ISO 8601). Defaults to 7 days ago. A bound is always applied and the effective value is echoed in the result, so \"no record\" is never ambiguous about its window.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--limit"],
+              "description": "Maximum delivery rows to return, newest first (default 20, max 200).",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Return the structured report instead of the human-readable summary."
+            }
+          ],
+          "commandId": "observability.reviewer-events"
+        },
+        {
           "name": "smoke-test",
           "description": "Send a single test event to the configured Braintrust project to validate auth and ingestion",
           "options": [
@@ -6363,7 +6457,7 @@
             },
             {
               "flags": ["--project-id"],
-              "description": "Filter by project identifier",
+              "description": "Filter by project identifier (uuid)",
               "takesValue": true
             },
             {
@@ -6398,7 +6492,7 @@
         },
         {
           "name": "list",
-          "description": "Browse memory records with optional type/scope/project filters.",
+          "description": "Browse memory records with optional type/scope/project filters, sorted and paginated in SQL (mt#4761). Defaults to created desc when --sort is omitted. Supports --sort (created|updated|lastAccessed|accessCount|shortId|name), --dir (asc|desc), --offset, --tags (AND semantics — every listed tag must be present), and --name-contains (case-insensitive substring match).",
           "options": [
             {
               "flags": ["--type"],
@@ -6414,7 +6508,7 @@
             },
             {
               "flags": ["--project-id"],
-              "description": "Filter by project identifier",
+              "description": "Filter by project identifier (uuid)",
               "takesValue": true
             },
             {
@@ -6429,6 +6523,27 @@
               "flags": ["--staleness-days"],
               "description": "Threshold (in days) for the --stale filter; defaults to 90",
               "takesValue": true
+            },
+            {
+              "flags": ["--untagged"],
+              "description": "When true, filter to memories carrying no tags at all"
+            },
+            {
+              "flags": ["--never-accessed"],
+              "description": "When true, filter to memories never read since creation. Narrower than --stale, which also matches records that WERE read but not recently"
+            },
+            {
+              "flags": ["--cold"],
+              "description": "When true, filter to memories that were read at least once but not within --cold-days. Disjoint from --never-accessed; --stale is the union of the two"
+            },
+            {
+              "flags": ["--cold-days"],
+              "description": "Threshold (in days) for the --cold filter; defaults to 14",
+              "takesValue": true
+            },
+            {
+              "flags": ["--only-superseded"],
+              "description": "When true, return ONLY superseded memories. Not the inverse of --exclude-superseded, which can exclude them but never restrict to them"
             },
             {
               "flags": ["--limit"],
@@ -6457,6 +6572,33 @@
             {
               "flags": ["--until"],
               "description": "Only include memories created on/before this time (YYYY-MM-DD or 7d/24h/30m)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--sort"],
+              "description": "Sort field, applied in SQL. Defaults to 'created' (ignored when stale:true)",
+              "takesValue": true,
+              "values": ["created", "updated", "lastAccessed", "accessCount", "shortId", "name"]
+            },
+            {
+              "flags": ["--dir"],
+              "description": "Sort direction. Defaults to 'desc' (ignored when stale:true)",
+              "takesValue": true,
+              "values": ["asc", "desc"]
+            },
+            {
+              "flags": ["--offset"],
+              "description": "Rows to skip, applied via SQL OFFSET. Defaults to 0",
+              "takesValue": true
+            },
+            {
+              "flags": ["--tags"],
+              "description": "Filter by tags — AND semantics: a matching record must carry EVERY listed tag",
+              "takesValue": true
+            },
+            {
+              "flags": ["--name-contains"],
+              "description": "Case-insensitive substring filter over name",
               "takesValue": true
             },
             {
@@ -6493,7 +6635,7 @@
             },
             {
               "flags": ["--project-id"],
-              "description": "Project identifier (required when scope=project)",
+              "description": "Project identifier (uuid; required when scope=project)",
               "takesValue": true
             },
             {
@@ -6568,7 +6710,7 @@
             },
             {
               "flags": ["--project-id"],
-              "description": "New project identifier",
+              "description": "New project identifier (uuid)",
               "takesValue": true
             },
             {
@@ -6709,7 +6851,7 @@
             },
             {
               "flags": ["--project-id"],
-              "description": "Project identifier for the replacement",
+              "description": "Project identifier for the replacement (uuid)",
               "takesValue": true
             },
             {
@@ -8021,7 +8163,7 @@
         },
         {
           "flags": ["--rule-format"],
-          "description": "Rule format (cursor or generic)",
+          "description": "Format of the rule file (cursor, generic, minsky)",
           "takesValue": true
         },
         {

@@ -9,6 +9,7 @@ import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { setupTestMocks } from "../utils/test-utils/mocking";
 import { scanMutatingFlaggedIds } from "../utils/test-utils/command-source-scan";
 import type { MinskyMCPServer } from "./server";
+import { getToolsCallHandler } from "./test-support/tools-call-handler";
 
 // Shared import paths extracted to constants to satisfy no-magic-string-duplication
 const COMMAND_MAPPER_PATH = "./command-mapper";
@@ -384,13 +385,8 @@ describe("Drift gate — dispatcher integration (gate is wired into the request 
 
     // The SDK exposes registered request handlers via _requestHandlers (Map).
     // We pull the CallToolRequestSchema handler out by name.
-    const sdkServer = (server as unknown as { server: { _requestHandlers: Map<string, unknown> } })
-      .server;
-    const handlers = sdkServer._requestHandlers;
-    const callToolHandler = handlers.get("tools/call") as (
-      req: typeof request,
-      extra?: unknown
-    ) => Promise<unknown>;
+    const sdkServer = (server as unknown as { server: unknown }).server;
+    const callToolHandler = getToolsCallHandler(sdkServer);
     expect(callToolHandler).toBeDefined();
 
     let threw = false;
@@ -424,13 +420,8 @@ describe("Drift gate — dispatcher integration (gate is wired into the request 
       params: { name: "test.mutating.fresh.dispatch", arguments: {} },
     } as const;
 
-    const sdkServer = (server as unknown as { server: { _requestHandlers: Map<string, unknown> } })
-      .server;
-    const handlers = sdkServer._requestHandlers;
-    const callToolHandler = handlers.get("tools/call") as (
-      req: typeof request,
-      extra?: unknown
-    ) => Promise<unknown>;
+    const sdkServer = (server as unknown as { server: unknown }).server;
+    const callToolHandler = getToolsCallHandler(sdkServer);
 
     await callToolHandler(request, {});
     expect(toolHandlerCalled).toBe(true);

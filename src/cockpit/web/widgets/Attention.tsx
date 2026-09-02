@@ -28,6 +28,7 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { EntityRef } from "../components/EntityRef";
+import { useProject } from "../lib/project-context";
 
 // ---------------------------------------------------------------------------
 // Types — inline mirrors of server AttentionPayload / AttentionAsk.
@@ -399,8 +400,8 @@ function AttentionBody({ query }: AttentionBodyProps) {
 // Main widget component — self-fetching via TanStack Query (mt#2373)
 // ---------------------------------------------------------------------------
 
-async function fetchAttention(): Promise<WidgetData> {
-  return fetchWidgetData("attention");
+async function fetchAttention(queryParam?: { project: string }): Promise<WidgetData> {
+  return fetchWidgetData("attention", queryParam);
 }
 
 interface AttentionProps {
@@ -411,9 +412,14 @@ interface AttentionProps {
 }
 
 export function Attention({ variant = "card", title = "Attention" }: AttentionProps) {
+  const { selectedSlug, queryParam } = useProject();
   const query = useQuery<WidgetData, Error>({
-    queryKey: ["attention"],
-    queryFn: fetchAttention,
+    // mt#4731: selectedSlug in the key — a DIFFERENT cache entry from the
+    // bare ["attention"] key entity-labels.ts's ask-label channel reads,
+    // which stays deliberately global (a bare `ask#N` reference must
+    // linkify regardless of the selected project).
+    queryKey: ["attention", selectedSlug],
+    queryFn: () => fetchAttention(queryParam),
     staleTime: 10_000,
     refetchInterval: 10_000,
   });

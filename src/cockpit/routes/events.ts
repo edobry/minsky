@@ -405,6 +405,22 @@ export function mountEventsRoutes(app: express.Express, opts: EventsRoutesOption
    *
    * Returns 400 if topics param is malformed. Returns 503 if the SSE broker
    * is unavailable (no Postgres connection).
+   *
+   * ## Deliberately NOT project-scoped (mt#4727)
+   *
+   * This is a broker-wide push channel: every connected browser tab
+   * subscribes to the SAME `SseBroker` ring buffer of raw Postgres NOTIFY
+   * payloads, filtered only by topic (channel name), not by row content. Most
+   * publishers (attention-window open/close, dispatch events, etc.) carry no
+   * project attribution in their payload at all, so there is no field to
+   * filter on without first auditing and amending every publisher — a
+   * cross-cutting change out of scope here (this task's Scope section
+   * excludes "structural middleware enforcement", which this would be a
+   * special case of). Per-widget polling reads (attention.ts, task-list.ts,
+   * etc.) already apply `?project=` on their own payload; the SSE feed is
+   * the transport that tells them WHEN to re-poll, not a second copy of
+   * their data, so an unscoped feed does not itself leak cross-project
+   * content. See this task's spec `## Outcome` for the recorded decision.
    */
   app.get("/api/events", async (req, res) => {
     // Resolve broker (override in tests, or lazy-init the real one)

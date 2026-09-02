@@ -17,6 +17,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { TokenProvider, TokenRole } from "./token-provider";
 import { createTimeoutFetch } from "../github/octokit-timeout";
+import { trustedGitHubUrl } from "../github/trusted-url";
 
 /** Per-App credentials used by SingleAppClient. */
 export interface AppCredentials {
@@ -71,6 +72,18 @@ interface GitHubAppInfo {
 export interface GitHubAppPermissions {
   slug: string;
   permissions: Record<string, string>;
+}
+
+/** Which repositories a GitHub App installation actually covers (mt#4680). */
+export interface InstallationCoverage {
+  /** Every `owner/repo` this installation can currently access, lowercased. */
+  repositories: string[];
+  /**
+   * `"all"` when the installation was granted every repository the account
+   * owns — in which case `repositories` is still enumerated, but a repo absent
+   * from it is a repo the account does not own rather than one left ungranted.
+   */
+  selection: "all" | "selected";
 }
 
 const GITHUB_API_BASE = "https://api.github.com";
@@ -254,6 +267,111 @@ class SingleAppClient {
     return { slug: data.slug, permissions: data.permissions ?? {} };
   }
 
+  /**
+   * Enumerate the repositories this installation actually covers (mt#4680).
+   *
+   * Uses `GET /installation/repositories` authenticated with the INSTALLATION
+   * token this provider already mints — deliberately NOT
+   * `GET /user/installations/{id}/repositories`, which needs a user access
+   * token Minsky does not hold and returns 403 for the configured PAT.
+   *
+   * That distinction is the whole point: an auth requirement measured on one
+   * endpoint does not transfer to its sibling. Four separate claims that this
+   * check required operator action (web UI, user-to-server OAuth, a `read:user`
+   * scope, a classic PAT) were each falsified; this endpoint answers it with
+   * credentials already in hand.
+   *
+   * Why callers want it: without a coverage check, a missing grant first
+   * surfaces as a bare 404 from `pulls.create`, which is indistinguishable
+   * from "the repository does not exist" and arrives only after the branch has
+   * been pushed.
+   */
+  async getInstallationCoverage(): Promise<InstallationCoverage> {
+    const token = await this.getToken();
+    const repositories: string[] = [];
+    let selection: "all" | "selected" = "selected";
+
+    // Paginate explicitly rather than trusting a single page: an installation
+    // granted many repositories would otherwise be silently truncated, and a
+    // truncated list reads exactly like a missing grant.
+    for (let page = 1; ; page++) {
+      const response = await this.boundedFetch(
+        `${GITHUB_API_BASE}/installation/repositories?per_page=100&page=${page}`,
+        {
+          headers: {
+            Authorization: `token ${token}`,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to list installation repositories: ${response.status} ${response.statusText}`
+        );
+      }
+
+      const data = (await response.json()) as {
+        total_count?: number;
+        repository_selection?: string;
+        repositories?: Array<{ full_name?: string }>;
+      };
+      if (data.repository_selection === "all") selection = "all";
+
+      const batch = data.repositories ?? [];
+      for (const r of batch) {
+        if (r.full_name) repositories.push(r.full_name.toLowerCase());
+      }
+      if (batch.length < 100) break;
+    }
+
+    return { repositories, selection };
+  }
+
+  /**
+   * The installation's own settings-page URL, as GitHub reports it (mt#4764).
+   *
+   * GitHub publishes `html_url` on the installation object, and it is correct for
+   * a personal-account AND an organization installation — the two live on
+   * DIFFERENT settings pages, and constructing the path can only ever be right
+   * about one of them. Reading it here means neither case has to be verified
+   * separately, which matters because this project has no org installation to
+   * verify against.
+   *
+   * Returns `null` rather than throwing on every failure path: the caller's
+   * fallback is a constructed URL, and a link is advisory — a coverage probe
+   * must not fail because the prettier link could not be fetched.
+   */
+  async getInstallationHtmlUrl(): Promise<string | null> {
+    try {
+      const jwt = this.generateJwt();
+      const response = await this.boundedFetch(
+        `${GITHUB_API_BASE}/app/installations/${this.installationId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${jwt}`,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+        }
+      );
+      if (!response.ok) return null;
+
+      const data = (await response.json()) as { html_url?: unknown };
+      // Origin-checked, not merely type-checked (PR #3511 R1). This value
+      // crosses a trust boundary and is rendered to an operator as something to
+      // CLICK, so "is it a non-empty string" is the wrong question — "does it
+      // point at github.com" is the right one. Anything else returns null and
+      // the caller falls back to the constructed, known-safe form.
+      return trustedGitHubUrl(data.html_url);
+    } catch {
+      // intentional-swallow: advisory link only; the caller falls back to the
+      // constructed form, and a failure here must not fail the coverage probe.
+      return null;
+    }
+  }
+
   private async fetchInstallationToken(repo?: string): Promise<{ token: string; expiresAt: Date }> {
     const jwt = this.generateJwt();
 
@@ -395,6 +513,41 @@ export class GitHubAppTokenProvider implements TokenProvider {
    */
   async getAppPermissions(role?: TokenRole): Promise<GitHubAppPermissions> {
     return this.clientForRole(role).getAppPermissions();
+  }
+
+  /**
+   * Repository coverage for `role`'s installation (mt#4680). Defaults to the
+   * implementer App, matching `getAppPermissions`'s behavior above.
+   */
+  async getInstallationCoverage(role?: TokenRole): Promise<InstallationCoverage> {
+    return this.clientForRole(role).getInstallationCoverage();
+  }
+
+  /**
+   * GitHub's own settings-page URL for `role`'s installation (mt#4764), or
+   * `null` when it cannot be read. Defaults to the implementer App, matching
+   * `getInstallationCoverage`'s behavior above.
+   */
+  async getInstallationHtmlUrl(role?: TokenRole): Promise<string | null> {
+    return this.clientForRole(role).getInstallationHtmlUrl();
+  }
+
+  /**
+   * Does `role`'s installation cover `ownerRepo` (an `owner/repo` string)?
+   *
+   * Comparison is case-insensitive because GitHub treats owner and repo names
+   * that way, while echoing back whatever casing the caller used — so a
+   * case-sensitive check would report a covered repo as ungranted.
+   *
+   * **Re-fetches on every call, deliberately.** Coverage changes the moment an
+   * operator grants a repository, so a cache would answer "not covered" after
+   * the grant that was made specifically to fix it. Callers checking several
+   * repositories should call `getInstallationCoverage()` once and test against
+   * its list instead.
+   */
+  async coversRepository(ownerRepo: string, role?: TokenRole): Promise<boolean> {
+    const coverage = await this.getInstallationCoverage(role);
+    return coverage.repositories.includes(ownerRepo.toLowerCase());
   }
 
   /**

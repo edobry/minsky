@@ -104,6 +104,14 @@ export function createCompileCommand(): Command {
               `[compile] Target "${targetResult.target}": ` +
                 `${targetResult.filesWritten.length} file(s) written`
             );
+            // mt#3119: a skipped source is a FAILURE the operator must see. The target
+            // already reports it via `onSkip`, but that sink is `log.warn`, which is
+            // discarded for a one-shot command — so the reason never reached the terminal.
+            // Print `skipReasons` (failures) and NOT `definitionsSkipped`, which for the
+            // rule targets is the benign "not selected for this target" set.
+            for (const reason of targetResult.skipReasons ?? []) {
+              log.cli(`[compile] ${reason}`);
+            }
             if (opts.dryRun && targetResult.content) {
               log.cli(targetResult.content);
             }

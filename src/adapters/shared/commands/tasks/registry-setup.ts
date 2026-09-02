@@ -107,7 +107,8 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
   // unavailable" error, or `tasks.dispatch`'s Step 5 invocation-row write —
   // had no way to wait for that resolution. Confirmed live (mt#3017
   // investigation, 2026-07-22): immediately after a process restart
-  // (`debug_systemInfo` `nodejs.uptime` in the hundreds of seconds),
+  // (`debug_systemInfo` `runtime.uptime` — then `nodejs.uptime`, renamed in
+  // mt#4718 — in the hundreds of seconds),
   // `tasks.dispatch-recover` against a task with real dispatch history
   // (mt#3017 itself) succeeded once the tracker had warmed — the DB and the
   // write path were both healthy; the bug was purely the read-side timing
@@ -239,6 +240,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksClaimsListCommand,
     createTasksClaimsReleaseCommand,
   } = require("./claims-command");
+  const { createTasksClaimCommand, createTasksReleaseCommand } = require("./work-package-commands");
 
   return [
     createTasksStatusGetCommand(getPersistenceProvider, getTaskService),
@@ -258,7 +260,12 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
       getOptionalSessionProvider,
       getAskRepository
     ),
-    createTasksCreateCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
+    createTasksCreateCommand(
+      getPersistenceProvider,
+      getTaskGraphService,
+      getTaskService,
+      container
+    ),
     createTasksEditCommand(getPersistenceProvider, getTaskService),
     createTasksBulkEditCommand(getPersistenceProvider, getTaskService),
     createTasksDeleteCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
@@ -313,5 +320,8 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     // Presence/claim commands (mt#2562; release mt#4568)
     createTasksClaimsListCommand(getPersistenceProvider),
     createTasksClaimsReleaseCommand(getPersistenceProvider),
+    // Work-package claim/release (ADR-046, mt#2911)
+    createTasksClaimCommand(getPersistenceProvider),
+    createTasksReleaseCommand(getPersistenceProvider),
   ];
 }

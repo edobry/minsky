@@ -46,6 +46,21 @@ export interface MinskyCompileResult {
   /** Names of definitions skipped (e.g. validation failure) */
   definitionsSkipped: string[];
   /**
+   * Human-readable reason per skip, in the same order the skips occurred (mt#3119).
+   *
+   * `definitionsSkipped` carries NAMES, which makes a skip countable but not diagnosable — and
+   * the reasons already exist: every skip site builds a message and hands it to `SkipLogFn`.
+   * That sink defaults to `log.warn`, which the CLI discards (`resolveDiagnosticSink` returns
+   * `"discard"` for a `one-shot-command`, and `src/cli.ts` declares that role), so the reason
+   * was written and thrown away on every real invocation.
+   *
+   * Carried on the RESULT rather than fixed by re-pointing the default sink, deliberately:
+   * `log.cli` writes to the command's own stdout, which is correct for the CLI and wrong for a
+   * stdio-transport MCP process. Returning the reasons lets each renderer decide, and a caller
+   * that forgets to print them still gets `definitionsSkipped`.
+   */
+  skipReasons?: string[];
+  /**
    * Dry-run content.
    * - Single-file targets: the full file content.
    * - Multi-file targets: a concatenated summary (for display only).

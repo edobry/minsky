@@ -139,7 +139,32 @@ export function registerDebugCommands(): void {
         log.debug("Executing debug.systemInfo command", { params });
 
         // Get basic system info for diagnostics
-        const nodejsVersion = process.version;
+        //
+        // Runtime identification (mt#4718). `process.version` is NOT the running
+        // runtime: Bun shims it to the Node version it claims compatibility with,
+        // so emitting it as `nodejs.version` named a Node build that is not
+        // running and need not even be installed. Measured 2026-08-29 on the
+        // machine serving this daemon: the tool reported v24.3.0 (Bun's shim)
+        // while the installed Node was v23.4.0.
+        //
+        // `process.versions.bun` is the discriminator — present only under Bun.
+        // Verified in BOTH runtimes rather than assumed (2026-08-29):
+        //   bun 1.3.14   -> versions.bun "1.3.14", versions.node "24.3.0", version "v24.3.0"
+        //   node v23.4.0 -> versions.bun undefined, versions.node "23.4.0", version "v23.4.0"
+        //
+        // Every read below tolerates a missing field. This is a diagnostics
+        // handler: it must degrade to "unknown" rather than throw, since a
+        // caller reaching for system info is often already debugging something.
+        const versions = process.versions as Partial<Record<string, string>> | undefined;
+        const rawProcessVersion = process.version as string | undefined;
+        const bunVersion = versions?.bun;
+        const runtimeName = bunVersion ? "bun" : "node";
+        const runtimeVersion = bunVersion ?? versions?.node ?? rawProcessVersion ?? "unknown";
+        // The Node API version this runtime implements. Under Bun this is a
+        // compatibility CLAIM rather than a running binary; under Node it
+        // restates `version`. Kept so the old signal stays available under a
+        // name that does not misrepresent it.
+        const nodeCompat = rawProcessVersion ?? (versions?.node ? `v${versions.node}` : "unknown");
         const platform = process.platform;
         const arch = process.arch;
         const bunProcess = process as BunProcess;
@@ -176,8 +201,10 @@ export function registerDebugCommands(): void {
 
         // Return formatted system information
         return {
-          nodejs: {
-            version: nodejsVersion,
+          runtime: {
+            name: runtimeName,
+            version: runtimeVersion,
+            nodeCompat,
             platform,
             arch,
             uptime,

@@ -6,21 +6,96 @@
 
 import { getGitHubBackendConfig } from "@minsky/domain/tasks/githubBackendConfig";
 import type { GitHubIssuesTaskBackendOptions } from "@minsky/domain/tasks/githubIssuesTaskBackend";
-import { get, getConfiguration } from "@minsky/domain/configuration";
+import { get, getConfiguration, has } from "@minsky/domain/configuration";
 import { log } from "@minsky/shared/logger";
 
 interface StatusOptions {
   verbose?: boolean;
 }
 
-export async function showGitHubStatus(options: StatusOptions = {}): Promise<void> {
+/**
+ * Injectable dependencies (test seam — production callers use the defaults).
+ * `mock.module()` is banned repo-wide (`custom/no-global-module-mocks`), so this is the
+ * sanctioned way to test the check-aggregation/exit-code logic below without hitting the
+ * real configuration provider or filesystem.
+ */
+export interface ShowGitHubStatusDeps {
+  getConfiguration?: typeof getConfiguration;
+  get?: typeof get;
+  has?: typeof has;
+  getGitHubBackendConfig?: typeof getGitHubBackendConfig;
+}
+
+/**
+ * Runs the GitHub backend status checks and prints their results.
+ *
+ * @returns `true` when every check completed without a genuine failure (an exception during a
+ *   check); `false` when a check produced a handled failure — the caller is responsible for
+ *   translating that into a non-zero process exit code. An incomplete-but-not-broken setup (no
+ *   token configured, task backend not `github-issues`, no repository detected) is reported as
+ *   a warning in the summary and does NOT count as a failure — consistent with how `github test`
+ *   treats "not in a GitHub repository" as informational rather than fatal.
+ */
+export async function showGitHubStatus(
+  options: StatusOptions = {},
+  deps: ShowGitHubStatusDeps = {}
+): Promise<boolean> {
   const { verbose } = options;
+  const resolveConfiguration = deps.getConfiguration ?? getConfiguration;
+  const resolveGet = deps.get ?? get;
+  const resolveHas = deps.has ?? has;
+  const resolveGitHubBackendConfig = deps.getGitHubBackendConfig ?? getGitHubBackendConfig;
+  let hadFailure = false;
+
+  /**
+   * Reads the *task* backend selection (`tasks.backend` — `minsky` DB vs `github-issues`).
+   *
+   * `get("backend")` reads the deprecated top-level `backend` alias for this same value
+   * (`packages/domain/src/configuration/schemas/backend.ts`: `@deprecated Use tasks.backend
+   * instead`). Most project configs set `tasks.backend` directly and never set the deprecated
+   * top-level alias, so `get("backend")` throws `Configuration path 'backend' not found` for
+   * the common case (mt#4679). `tasks.backend` is defaulted to `"minsky"` by the configuration
+   * provider when unset, so this can never throw for a missing value the way `get("backend")`
+   * did — the `has()` guard is defense-in-depth against any other config-loading failure, not
+   * a workaround for this specific path.
+   */
+  function getTaskBackend(): string | undefined {
+    return resolveHas("tasks.backend") ? resolveGet<string>("tasks.backend") : undefined;
+  }
+
+  /**
+   * Reads the backend-specific config block (status labels etc. for the `github-issues`
+   * task backend). Guarded the same way as `getTaskBackend()` and for the same reason
+   * (mt#4679 PR #3422 R1): an absent `backendConfig` — the normal state for a project that
+   * doesn't use the `github-issues` task backend at all — must read as "nothing configured",
+   * not as a check FAILURE. `resolveGet` unguarded would throw `Configuration path
+   * 'backendConfig' not found` for that entirely ordinary case, which the Step 2 catch below
+   * would then misclassify as `hadFailure`.
+   */
+  function getBackendConfig(): Record<string, { statusLabels?: Record<string, string> }> {
+    return resolveHas("backendConfig")
+      ? (resolveGet("backendConfig") as Record<string, { statusLabels?: Record<string, string> }>)
+      : {};
+  }
+
+  /**
+   * Reads the explicit `github` config block (organization/repository/baseUrl overrides).
+   * Same guard, same reason: no explicit `github` config is the common case (most projects
+   * rely on git-remote auto-detection instead), not a failure.
+   */
+  function getExplicitGithubConfig():
+    | { organization?: string; repository?: string; baseUrl?: string }
+    | undefined {
+    return resolveHas("github")
+      ? resolveGet<{ organization?: string; repository?: string; baseUrl?: string }>("github")
+      : undefined;
+  }
 
   try {
     log.cli("📊 GitHub Backend Status\n");
 
     // Step 1: Check authentication setup
-    const config = getConfiguration();
+    const config = resolveConfiguration();
     const githubToken = config.github.token;
 
     if (githubToken) {
@@ -35,13 +110,13 @@ export async function showGitHubStatus(options: StatusOptions = {}): Promise<voi
 
     // Step 2: Check configuration
     try {
-      const config = get("backend");
-      const backendConfig = get("backendConfig");
+      const taskBackend = getTaskBackend();
+      const backendConfig = getBackendConfig();
 
       log.cli(`\n📋 Configuration:`);
-      log.cli(`   Task backend: ${config || "Not configured"}`);
+      log.cli(`   Task backend: ${taskBackend || "Not configured"}`);
 
-      if (config === "github-issues") {
+      if (taskBackend === "github-issues") {
         log.cli("✅ GitHub Issues backend is configured");
 
         if (verbose && backendConfig?.["github-issues"]) {
@@ -62,13 +137,14 @@ export async function showGitHubStatus(options: StatusOptions = {}): Promise<voi
       if (verbose) {
         log.cli(`   Error: ${(error as Error).message}`);
       }
+      hadFailure = true;
     }
 
     // Step 3: Check repository detection
     let repoConfig: Partial<GitHubIssuesTaskBackendOptions> | null = null;
     try {
       const workdir = process.cwd();
-      repoConfig = getGitHubBackendConfig(workdir);
+      repoConfig = resolveGitHubBackendConfig(workdir);
 
       log.cli(`\n🏗️  Repository Detection:`);
 
@@ -91,13 +167,12 @@ export async function showGitHubStatus(options: StatusOptions = {}): Promise<voi
       if (verbose) {
         log.cli(`   Error: ${(error as Error).message}`);
       }
+      hadFailure = true;
     }
 
     // Step 4: Check GitHub config from configuration system
     try {
-      const githubConfig = get<
-        { organization?: string; repository?: string; baseUrl?: string } | undefined
-      >("github");
+      const githubConfig = getExplicitGithubConfig();
 
       log.cli(`\n⚙️  GitHub Configuration:`);
 
@@ -140,14 +215,22 @@ export async function showGitHubStatus(options: StatusOptions = {}): Promise<voi
         log.cli("❌ GitHub configuration check failed");
         log.cli(`   Error: ${(error as Error).message}`);
       }
+      hadFailure = true;
     }
 
     // Step 5: Summary and recommendations
     log.cli(`\n📝 Summary:`);
 
     const hasToken = !!githubToken;
-    const isConfigured = get("backend") === "github-issues";
-    const hasRepo = !!getGitHubBackendConfig(process.cwd());
+    const isConfigured = getTaskBackend() === "github-issues";
+    // Reuse repoConfig from Step 3 (mt#4679 PR #3422 R2) — process.cwd() here is the exact
+    // same value as `workdir` in Step 3, so a second unguarded call was both redundant and a
+    // fresh exposure to the same class of bug this task fixes: if it ever DID throw, it would
+    // abort the whole Summary (unlike Step 3's own guarded call), landing in the outer catch
+    // instead of the informational report. repoConfig already reflects "not detected" (null)
+    // in both the ordinary case and the failure case, so reusing it is strictly safer, not
+    // just shorter.
+    const hasRepo = !!repoConfig;
 
     if (hasToken && isConfigured && hasRepo) {
       log.cli("🎉 GitHub Issues backend is ready to use!");
@@ -161,7 +244,8 @@ export async function showGitHubStatus(options: StatusOptions = {}): Promise<voi
 
       if (!isConfigured) {
         log.cli("   2. Configure backend in .minsky/config.yaml:");
-        log.cli('      backend: "github-issues"');
+        log.cli("      tasks:");
+        log.cli('        backend: "github-issues"');
       }
 
       if (!hasRepo) {
@@ -174,7 +258,16 @@ export async function showGitHubStatus(options: StatusOptions = {}): Promise<voi
     }
 
     log.cli("\nFor setup help: minsky docs github-setup");
+
+    return !hadFailure;
   } catch (error) {
+    // Reaching this outer catch means a check threw an exception that wasn't
+    // handled by one of the inner try/catch blocks above. Print a clean,
+    // purpose-built failure message and return false rather than re-throwing
+    // — a re-throw here used to propagate all the way to the CLI's generic
+    // `main().catch()` handler, producing a redundant, unhelpful "Unhandled
+    // error in CLI: ..." line on top of the message already printed below
+    // (mt#4679).
     log.cli("❌ Status check failed");
     log.cli(`Error: ${(error as Error).message}`);
 
@@ -182,6 +275,6 @@ export async function showGitHubStatus(options: StatusOptions = {}): Promise<voi
       log.cli(`Stack: ${(error as Error).stack}`);
     }
 
-    throw error;
+    return false;
   }
 }

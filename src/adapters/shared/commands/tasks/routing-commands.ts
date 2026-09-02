@@ -152,10 +152,17 @@ export function createTasksAvailableCommand(
       if (!dependencyDataAvailable) {
         const fallbackTaskService = getTaskService();
 
-        const allTasks = await fallbackTaskService.listTasks({
+        const listedTasks = await fallbackTaskService.listTasks({
           status: statusFilter.length === 1 ? statusFilter[0] : undefined,
           kind: params.kind,
         });
+
+        // ADR-046 (mt#2911): same consumer-side default-deny as the routing
+        // service path — a work package is claimed deliberately, never
+        // auto-served; an explicit kind filter includes it.
+        const allTasks = params.kind
+          ? listedTasks
+          : listedTasks.filter((task) => task.kind !== "work-package");
 
         const filteredTasks = params.backend
           ? allTasks.filter((task) => task.id.startsWith(params.backend as string))

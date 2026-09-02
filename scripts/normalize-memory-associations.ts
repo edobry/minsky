@@ -46,7 +46,8 @@ import { writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 import type { MemoryServiceSurface, MemoryServiceDb } from "@minsky/domain/memory/memory-service";
-import { isKnownAssociationType } from "@minsky/domain/memory/associations";
+import { isKnownAssociationType, removeAssociationKeys } from "@minsky/domain/memory/associations";
+import { listEveryMemory } from "./lib/list-every-memory";
 
 const TASK_ID_RE = /^(?:mt|md|gh)#\d+$/;
 
@@ -211,7 +212,9 @@ async function main() {
   const execute = process.argv.includes("--execute");
 
   const memoryService = await buildMemoryService();
-  const all = await memoryService.list({});
+  // Census, not a page: this script decides a WRITE set from what it sees, so a capped read
+  // would report a clean result over a fraction of the corpus (mt#4783). Throws on a short scan.
+  const all = await listEveryMemory(memoryService);
   console.log(`Scanned ${all.length} memories.\n`);
 
   const plans: RecordPlan[] = [];
@@ -299,10 +302,12 @@ async function main() {
         });
       }
 
-      // Step 2: only now remove the divergent keys. An empty array is the documented removal
-      // form; `validateAssociations(..., "update")` exempts it for exactly this.
-      const removal = Object.fromEntries(p.divergentKeys.map((k) => [k, [] as string[]]));
-      await memoryService.update(p.id, { associations: removal });
+      // Step 2: only now remove the divergent keys. `removeAssociationKeys` builds the empty-array
+      // removal map (mt#4843) — the encoding has one definition, and the name says at the call
+      // site what a bare `{ k: [] }` required the reader to already know.
+      await memoryService.update(p.id, {
+        associations: removeAssociationKeys(...p.divergentKeys),
+      });
 
       updated++;
     } catch (err) {

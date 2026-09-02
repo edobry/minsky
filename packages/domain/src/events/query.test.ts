@@ -1,6 +1,8 @@
 import { describe, test, expect } from "bun:test";
-import { listEvents, countEvents } from "./query";
+import { listEvents, countEvents, buildConditions } from "./query";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { PgDialect } from "drizzle-orm/pg-core";
+import { and } from "drizzle-orm";
 
 /**
  * Self-returning fluent-chain fake for the subset of the Drizzle query
@@ -83,5 +85,91 @@ describe("listEvents + countEvents together (mt#2817 loud-cap invariant)", () =>
     const total = await countEvents(countDb, {});
 
     expect(events.length).toBe(total);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Project scope (mt#4746) — documented partial-filter semantics
+// ---------------------------------------------------------------------------
+
+describe("buildConditions — project scope (mt#4746)", () => {
+  const pgDialect = new PgDialect();
+  const PROJECT_A_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+  test("no projectScope adds no condition", () => {
+    expect(buildConditions({})).toHaveLength(0);
+  });
+
+  test("projectScope adds exactly one EXISTS-subquery condition against tasks", () => {
+    const conditions = buildConditions({ projectScope: PROJECT_A_ID });
+    expect(conditions).toHaveLength(1);
+
+    const { sql: rendered, params } = pgDialect.sqlToQuery(conditions[0] as never);
+    expect(rendered).toContain("EXISTS");
+    expect(rendered.toLowerCase()).toContain("tasks");
+    expect(params).toContain(PROJECT_A_ID);
+  });
+
+  test("projectScope combines with other filters via AND (both conditions present)", () => {
+    const conditions = buildConditions({
+      projectScope: PROJECT_A_ID,
+      relatedTaskId: "mt#1",
+    });
+    // relatedTaskId contributes 2 conditions (isNotNull + eq); projectScope contributes 1.
+    expect(conditions).toHaveLength(3);
+    const combined = and(...conditions);
+    const { sql: rendered, params } = pgDialect.sqlToQuery(combined as never);
+    expect(rendered).toContain("EXISTS");
+    expect(params).toContain(PROJECT_A_ID);
+    expect(params).toContain("mt#1");
+  });
+});
+
+describe("listEvents — project scope wiring (mt#4746, two-project fixture)", () => {
+  /** Same fake-chain shape as makeFakeDb, but captures the where() argument. */
+  function makeCapturingDb(rows: unknown[]): {
+    db: PostgresJsDatabase;
+    getLastWhereArg: () => unknown;
+  } {
+    let lastWhereArg: unknown;
+    const chain = {
+      from: () => chain,
+      where: (arg: unknown) => {
+        lastWhereArg = arg;
+        return chain;
+      },
+      orderBy: () => chain,
+      limit: () => chain,
+      then: (
+        onFulfilled: (rows: unknown[]) => unknown,
+        onRejected?: (reason: unknown) => unknown
+      ) => Promise.resolve(rows).then(onFulfilled, onRejected),
+    };
+    return {
+      db: { select: () => chain } as unknown as PostgresJsDatabase,
+      getLastWhereArg: () => lastWhereArg,
+    };
+  }
+
+  const pgDialect = new PgDialect();
+  const PROJECT_A_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+  test("no projectScope: .where() is never called (unscoped, full read)", async () => {
+    const { db, getLastWhereArg } = makeCapturingDb([makeEventRow()]);
+    await listEvents(db, {});
+    expect(getLastWhereArg()).toBeUndefined();
+  });
+
+  test("projectScope: .where() receives a condition carrying the resolved project uuid", async () => {
+    const { db, getLastWhereArg } = makeCapturingDb([
+      makeEventRow({ id: "a", relatedTaskId: "mt#1" }),
+    ]);
+    await listEvents(db, { projectScope: PROJECT_A_ID });
+
+    const whereArg = getLastWhereArg();
+    expect(whereArg).toBeDefined();
+    const { sql: rendered, params } = pgDialect.sqlToQuery(whereArg as never);
+    expect(rendered).toContain("EXISTS");
+    expect(params).toContain(PROJECT_A_ID);
   });
 });

@@ -315,6 +315,80 @@ describe("GET /api/cockpit/session-film/sessions", () => {
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe("internal");
   });
+
+  // mt#4727: two-project-fixture wiring test. `overrideListSessions` receives
+  // whatever `projectId` the route resolved from `?project=` — an unresolvable
+  // slug (no live DB in this test process) fails open to ALL_PROJECTS
+  // (`undefined`), proving the route's own resolution + passthrough without
+  // needing a real Postgres connection. The underlying
+  // `eq(agentTranscriptsTable.projectId, ...)` filter this `projectId` drives
+  // in `defaultListSessions` is the identical, already project-scope-tested
+  // pattern used throughout this codebase (e.g. `asks.ts`).
+  test("?project=<unresolvable slug> fails open to ALL_PROJECTS (projectId: undefined) reaching the lister", async () => {
+    let capturedProjectId: string | undefined;
+    const { url } = await makeHarness({
+      overrideListSessions: async (projectId) => {
+        capturedProjectId = projectId;
+        return [];
+      },
+    });
+    const res = await fetch(
+      `${url}/api/cockpit/session-film/sessions?project=${encodeURIComponent("unknown/repo")}`
+    );
+    expect(res.status).toBe(200);
+    expect(capturedProjectId).toBeUndefined();
+  });
+
+  test("no ?project= resolves to ALL_PROJECTS (projectId: undefined) reaching the lister", async () => {
+    let capturedProjectId: string | undefined;
+    const { url } = await makeHarness({
+      overrideListSessions: async (projectId) => {
+        capturedProjectId = projectId;
+        return [];
+      },
+    });
+    const res = await fetch(`${url}/api/cockpit/session-film/sessions`);
+    expect(res.status).toBe(200);
+    expect(capturedProjectId).toBeUndefined();
+  });
+
+  // Two-project fixture (mt#4727): a `getProjectScopeDb` fake resolving the
+  // requested slug to a real project uuid, proving the route's ?project=
+  // resolution reaches the lister as the CORRECT uuid — not just "some
+  // truthy value" or the fail-open default.
+  test("?project=<project A slug> resolves to project A's uuid, reaching the lister verbatim", async () => {
+    const PROJECT_A_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const PROJECT_A_SLUG = "edobry/minsky";
+    let capturedProjectId: string | undefined;
+    const { url } = await makeHarness({
+      overrideListSessions: async (projectId) => {
+        capturedProjectId = projectId;
+        return [];
+      },
+      getProjectScopeDb: async () => ({
+        select() {
+          return {
+            from() {
+              return {
+                where() {
+                  return {
+                    limit() {
+                      return Promise.resolve([{ id: PROJECT_A_ID, slug: PROJECT_A_SLUG }]);
+                    },
+                  };
+                },
+              };
+            },
+          };
+        },
+      }),
+    });
+    const res = await fetch(
+      `${url}/api/cockpit/session-film/sessions?project=${encodeURIComponent(PROJECT_A_SLUG)}`
+    );
+    expect(res.status).toBe(200);
+    expect(capturedProjectId).toBe(PROJECT_A_ID);
+  });
 });
 
 // mt#3225 SC3/SC4/AT3: the picker and the events endpoint must share one

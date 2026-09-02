@@ -417,7 +417,14 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
         deadlineHandle.unref?.();
       });
       try {
-        const data = await Promise.race([widget.fetch({ id: req.params.id, query }), deadline]);
+        // mt#4730: forward the pre-resolved scope (set by
+        // createProjectScopeMiddleware in ../project-scope.ts, mounted ahead
+        // of every route in server.ts) so a widget can read ctx.projectScope
+        // directly instead of resolving `query.project` itself.
+        const data = await Promise.race([
+          widget.fetch({ id: req.params.id, query, projectScope: req.projectScope }),
+          deadline,
+        ]);
         res.json(data);
       } finally {
         if (deadlineHandle) clearTimeout(deadlineHandle);

@@ -112,6 +112,12 @@ export function registerCompileCommands(targetRegistry: {
               `[compile] Target "${targetResult.target}": ` +
                 `${targetResult.filesWritten.length} file(s) written`
             );
+            // mt#3119: surface FAILURE skips beside the file count — `onSkip` routes to
+            // `log.warn`, which a one-shot command discards. `skipReasons` only, not
+            // `definitionsSkipped` (benign "not selected" for the rule targets).
+            for (const reason of targetResult.skipReasons ?? []) {
+              log.cli(`[compile] ${reason}`);
+            }
             if (result.check && targetResult.stale) {
               const staleFile = targetResult.staleFile ?? "(unknown file)";
               log.cli(`[compile --check] Target "${targetResult.target}" is STALE`);

@@ -10,7 +10,7 @@
  *   - session.pr.merge wraps conflict errors with CONFLICT
  */
 import { describe, test, expect } from "bun:test";
-import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
+import { ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/server";
 import { McpErrorCode } from "./mcp-error-codes";
 import {
   StructuredMcpError,
@@ -39,7 +39,7 @@ describe("StructuredMcpError", () => {
       code: McpErrorCode.PRE_COMMIT_FAILED,
       summary: "hook failed",
     });
-    expect(err instanceof McpError).toBe(true);
+    expect(err instanceof ProtocolError).toBe(true);
     expect(err instanceof Error).toBe(true);
   });
 
@@ -56,7 +56,7 @@ describe("StructuredMcpError", () => {
       code: McpErrorCode.PRE_COMMIT_FAILED,
       summary: "hook failed",
     });
-    expect(err.code).toBe(ErrorCode.InternalError);
+    expect(err.code).toBe(ProtocolErrorCode.InternalError);
   });
 
   test("attaches payload as .data", () => {
@@ -207,7 +207,7 @@ describe("MCP server McpError preservation", () => {
    * McpError instances are re-thrown as-is.
    */
   function serverErrorHandler(error: unknown): never {
-    if (error instanceof McpError) {
+    if (error instanceof ProtocolError) {
       throw error;
     }
     throw new Error(

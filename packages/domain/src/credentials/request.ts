@@ -23,6 +23,12 @@ import {
 } from "@minsky/shared/credential-request";
 import type { CredentialRequestPayload } from "@minsky/shared/credential-request";
 import type { Ask, AskKind } from "../ask/types";
+import {
+  isPendingRequestState,
+  selectPendingPresenceRequests,
+  selectSatisfiedPresenceRequests,
+  type PresenceRequestShape,
+} from "../ask/presence-backed-request";
 import type { CredentialProvider } from "./types";
 
 /**
@@ -156,13 +162,22 @@ export function isPolicyResolved(ask: Pick<Ask, "routingTarget" | "response">): 
   return ask.routingTarget === "policy" || ask.response?.responder === "policy";
 }
 
-/** States in which a credential request is still awaiting the principal. */
-const PENDING_STATES: ReadonlySet<Ask["state"]> = new Set([
-  "detected",
-  "classified",
-  "routed",
-  "suspended",
-]);
+/**
+ * How a credential request maps onto the shared presence-backed request shape.
+ *
+ * The pending-state set, the selection logic and the resolver orchestration all
+ * live in `../ask/presence-backed-request` as of mt#4693 D4 — this module keeps
+ * only what is credential-SPECIFIC: which key the payload carries, and what a
+ * missing status line should say. The exported function signatures below are
+ * unchanged; they delegate rather than duplicate, so there is one implementation
+ * of the pattern and not two.
+ */
+const CREDENTIAL_REQUEST_SHAPE: PresenceRequestShape<string> = {
+  label: "credential-request",
+  readKey: (ask) => readCredentialRequest(ask)?.provider ?? null,
+  identity: (provider) => provider,
+  defaultDetail: "credential configured",
+};
 
 /** A pending request paired with the provider it is waiting on. */
 export interface PendingCredentialRequest {
@@ -177,13 +192,10 @@ export interface PendingCredentialRequest {
  * request, which is what makes the resolver safe to call on every sweep tick.
  */
 export function selectPendingCredentialRequests(asks: readonly Ask[]): PendingCredentialRequest[] {
-  const pending: PendingCredentialRequest[] = [];
-  for (const ask of asks) {
-    if (!PENDING_STATES.has(ask.state)) continue;
-    const payload = readCredentialRequest(ask);
-    if (payload) pending.push({ ask, provider: payload.provider });
-  }
-  return pending;
+  return selectPendingPresenceRequests(asks, CREDENTIAL_REQUEST_SHAPE).map(({ ask, key }) => ({
+    ask,
+    provider: key,
+  }));
 }
 
 /** One provider's presence signal, as read back from the credential listing. */
@@ -222,18 +234,15 @@ export function selectSatisfiedCredentialRequests(
   pending: readonly PendingCredentialRequest[],
   presence: readonly ProviderPresence[]
 ): SatisfiedCredentialRequest[] {
-  const configured = new Map<string, ProviderPresence>();
-  for (const entry of presence) {
-    if (entry.configured) configured.set(entry.provider, entry);
-  }
-
-  const satisfied: SatisfiedCredentialRequest[] = [];
-  for (const { ask, provider } of pending) {
-    const hit = configured.get(provider);
-    if (!hit) continue;
-    satisfied.push({ ask, provider, detail: hit.detail ?? "credential configured" });
-  }
-  return satisfied;
+  return selectSatisfiedPresenceRequests(
+    pending.map(({ ask, provider }) => ({ ask, key: provider })),
+    presence.map(({ provider, configured, detail }) => ({
+      key: provider,
+      present: configured,
+      ...(detail === undefined ? {} : { detail }),
+    })),
+    CREDENTIAL_REQUEST_SHAPE
+  ).map(({ ask, key, detail }) => ({ ask, provider: key, detail }));
 }
 
 /**
@@ -286,7 +295,7 @@ export function classifyCredentialRequest(
   if (!payload) return null;
   const { provider } = payload;
 
-  if (PENDING_STATES.has(ask.state)) return { status: "pending", provider };
+  if (isPendingRequestState(ask.state)) return { status: "pending", provider };
 
   if (ask.state === "cancelled" || ask.state === "expired") {
     return { status: "unanswered", provider, reason: ask.state };

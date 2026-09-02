@@ -49,10 +49,9 @@ import {
   type AuthorizingSource,
   type SpecCriterionClaimResult,
 } from "../../packages/domain/src/detectors/spec-criterion-claim";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { readAuthoredSpecText, readSpecFileFromDisk } from "./authored-spec-text";
 import type { SpecTextRead } from "./authored-spec-text";
-import { dirname, resolve } from "node:path";
+import { logEvaluationRecord } from "./dispatcher";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
 /**
@@ -87,7 +86,7 @@ export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_SPEC_CRITERION_CLAIM";
  * criteria, how many carried an authorizing ask — so the question "what is this
  * detector not seeing?" has data behind it (SC5).
  */
-export const EVALUATION_LOG = ".minsky/spec-criterion-claim-evaluations.jsonl";
+const EVALUATION_LOG_NAME = "spec-criterion-claim";
 
 /**
  * Tool-input key carrying the spec body INLINE, per tool.
@@ -351,17 +350,14 @@ function isOverridden(): string | undefined {
   return undefined;
 }
 
-function appendJsonl(cwd: string, relPath: string, record: Record<string, unknown>): void {
-  try {
-    const target = resolve(cwd, relPath);
-    const dir = dirname(target);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    appendFileSync(target, `${JSON.stringify(record)}\n`);
-  } catch (err) {
-    process.stderr.write(
-      `[spec-criterion-claim-detector] evaluation write failed: ${err instanceof Error ? err.message : String(err)}\n`
-    );
-  }
+// mt#4752: routed through the shared helper, which derives the filename from
+// the stream NAME. This also fixes a live instance of the bug mt#3745 removed
+// elsewhere: the previous body resolved `resolve(cwd, relPath)` with NO
+// `findRepoRoot`, so a hook running with a repo SUBDIRECTORY as its cwd wrote
+// its evaluation log into a stray nested `.minsky/` there. Every sibling
+// writer already called `findRepoRoot`; this one did not.
+function appendEvaluationRecord(cwd: string, record: Record<string, unknown>): void {
+  logEvaluationRecord(EVALUATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
 
 /**
@@ -462,7 +458,7 @@ export async function run(
   }
   if (!evaluated) return null;
 
-  appendJsonl(input.cwd ?? process.cwd(), EVALUATION_LOG, {
+  appendEvaluationRecord(input.cwd ?? process.cwd(), {
     ...evaluated.evaluation,
     session_id: input.session_id,
   });

@@ -3,6 +3,10 @@
    mt#3530, mt#3968); the file sits at the repo's line-count ceiling from legitimate coverage
    growth, not bloat, and splitting it is a separate refactor, out of scope for a review round. */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+// mt#4755: the READER's own resolver, so the location assertion below cannot drift from where
+// the writer actually writes. `tests/setup.ts` points both state-dir env vars at a temp root,
+// so this resolves inside test isolation rather than the operator's real state dir.
+import { calibrationLogPath } from "./dispatcher";
 /* eslint-disable custom/no-real-fs-in-tests -- the `runAtCoverageCalibration` /
    `appendAtCoverageCalibration` regression tests below exercise the real, unmocked
    calibration-log write path (mirrors `guard-health-write-isolation.test.ts`'s
@@ -38,6 +42,8 @@ import {
   isAtDeferred,
   checkAcceptanceTestCoverage,
   isAtCoverageSkipped,
+  // mt#4755: the stream name the writer now passes to `logCalibrationRecord`.
+  AT_COVERAGE_STREAM,
   AT_COVERAGE_SKIP_ENV_VAR,
   fetchTaskSpecForAtCoverage,
   runAtCoverageCalibration,
@@ -2134,8 +2140,12 @@ describe("runAtCoverageCalibration — never emits deny, only warns/logs", () =>
     expect(JSON.stringify(result)).not.toContain("permissionDecision");
     expect(JSON.stringify(result).toLowerCase()).not.toContain('"blocked"');
 
-    // A calibration record was appended to the log under the given repo root.
-    const logPath = join(tmpDir, ".minsky/execution-evidence-at-coverage-calibration.jsonl");
+    // mt#4755: the record now lands in the STATE DIR, not under the given repo root — that
+    // relocation is the whole task, and this assertion is what proves it rather than merely
+    // permitting it. Resolved through `calibrationLogPath`, the READER's own function, not a
+    // hand-written path: a hand-written expectation would pass just as happily while writer and
+    // reader disagreed, which is exactly the state mt#4811 found live in `ask-form-lint`.
+    const logPath = calibrationLogPath(AT_COVERAGE_STREAM, { projectDir: tmpDir });
     // eslint-disable-next-line custom/no-real-fs-in-tests -- reads back the real calibration-log file `runAtCoverageCalibration` just wrote, to verify the on-disk record shape.
     const written = readFileSync(logPath, "utf-8");
     const record = JSON.parse(written.trim().split("\n")[0] ?? "{}");

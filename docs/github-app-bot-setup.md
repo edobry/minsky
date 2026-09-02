@@ -207,11 +207,47 @@ After the script exits, skip to §4 (configure Minsky). Sections 2 and 3 are aut
 2. Choose the account (your personal account or an organization) where the target repository lives.
 3. Select **Only select repositories** and choose the specific repositories you want the bot to access. Minimal scope is recommended.
 4. Click **Install**.
-5. After installation, look at the browser URL. It will be:
+5. After installation, look at the browser URL. For an installation on a **personal account** it
+   will be:
+
    ```
    https://github.com/settings/installations/<INSTALLATION-ID>
    ```
+
    Note the numeric **Installation ID** from the URL.
+
+   This form is verified against GitHub rather than assumed: the installation object returned by
+   `GET /app/installations/{installation_id}` carries an `html_url`, and
+   `bun scripts/verify-installation-settings-url.ts` asserts that Minsky's constructed link equals
+   it. For this project's installation it does (`target_type: User`).
+
+   **For an installation on an organization, the URL is different** — GitHub configures an org
+   installation under that organization's own settings (Settings > Third-party Access > GitHub
+   Apps), and publishes no URL for either case. Take the ID from whatever URL your browser
+   actually shows.
+
+   **You do not need to tell Minsky which case you are in (mt#4764).** The links `minsky setup`
+   emits are read from GitHub's own `html_url` on the installation object, so they are correct for
+   a personal account and an organization alike. The constructed
+   `https://github.com/settings/installations/<ID>` form above is only the fallback, used when
+   that read is unavailable — and it is verified correct for the personal-account case
+   (`bun scripts/verify-installation-settings-url.ts`, which compares it against `html_url`).
+
+### What `minsky setup` does with this ID
+
+Once `github.serviceAccount.installationId` is configured, `minsky setup`'s App-coverage check
+emits the settings page as a **direct link** when a repository is not covered, rather than telling
+you to navigate there:
+
+```
+GitHub App: installation does NOT cover edobry/peezombie.me
+  Pull-request creation will fail with a 404 until this is granted.
+  Grant minsky-ai access at https://github.com/settings/installations/125403046 — pick edobry/peezombie.me under Repository access, then Save.
+```
+
+When no installation ID is configured, it falls back to the navigation path above rather than
+emitting a guessed URL. Both forms name the App slug, so a project with several configured App
+roles (implementer, reviewer) can tell the blocks apart.
 
 ## 3. Store Credentials
 

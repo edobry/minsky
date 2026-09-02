@@ -612,3 +612,252 @@ the child to lead its own group, and Bun's spawned children inherit the parent's
 group kill would signal the runner's own group. The leaf-first budget ordering above covers the
 observed chain instead. A grandchild spawned by something other than these runners is not
 covered.
+
+## mt#3496: the `./` in `test:components` is load-bearing — do not tidy it away
+
+`package.json`'s `test:components` selects `./src/cockpit/web`. **The leading `./` is not style.**
+
+Bun's positional filters are substrings, per its own docs: _"Any test file with a path that matches
+one of the filters runs. Filters are commonly file or directory names; glob patterns are not yet
+supported."_ And separately: _"To run a specific file, you must prefix the path with `./` or `/`.
+This distinction … helps the runner distinguish between a literal file path and a filter name that
+should be matched as a substring against test file paths."_
+
+So the bare form `src/cockpit/web` also selects **`src/cockpit/web-dist.test.ts`** — a file that
+lives in `src/cockpit/`, not the web tree, and is already covered by the main suite. Measured:
+
+| Positional form     | Tests / files | `web-dist` wrongly pulled in                              |
+| ------------------- | ------------- | --------------------------------------------------------- |
+| `src/cockpit/web`   | 2790 / 210    | **yes — 12 testcases, run a second time under happy-dom** |
+| `./src/cockpit/web` | 2781 / 209    | no                                                        |
+
+A trailing slash (`src/cockpit/web/`) measures identically clean today, but it is still a substring
+filter — it works only because no other path happens to contain that string. The `./` form is bun's
+documented switch to literal-path semantics, so it is correct by specification rather than by
+accident of current filenames. `scripts/run-tests-main.ts`'s `toBunTestArgs` prefixes every path
+the same way for the same reason (mt#3014).
+
+`package.json` cannot carry a comment, which is why this note exists. The standing guard against
+the hole reopening is mt#3935 (assert every test file is reachable by some suite).
+
+### `--path-ignore-patterns` does NOT take a comma-separated list — repeat the flag
+
+The script also ignores `src/cockpit/web/dist/**`, a gitignored build output the widened selection
+would otherwise scan. Getting that right needed a control, because the wrong form **fails
+silently**:
+
+```bash
+# WRONG — the second pattern is dropped, with no error and no change in the test count
+--path-ignore-patterns='services/**,src/cockpit/web/dist/**'
+
+# RIGHT — repeat the flag
+--path-ignore-patterns='services/**' --path-ignore-patterns='src/cockpit/web/dist/**'
+```
+
+Measured by planting a test-shaped file at `src/cockpit/web/dist/__bundled.test.ts`: the comma form
+picked it up **exactly as if no ignore had been passed at all**, while the repeated form excluded
+it. Both forms report the same `Ran 2781 tests across 209 files`, so the run count cannot tell them
+apart — only a file the pattern is supposed to exclude can (mem#704: a probe that returns the same
+result when the thing is broken is not verification).
+
+## mt#4726: the clock-shifted nightly (`bun run test:clock-shifted`)
+
+A test pinned to an absolute instant and compared against a real-clock window passes until the
+wall clock crosses it, then reddens CI with no warning. Three have done exactly that — mt#2491
+(a 1-day fuse), mt#3818 (14 days), mt#4721 (7 days, which took `main` red for every PR). The
+defect is undetectable when introduced: mt#4721's fixture was harmless when written and was
+armed months later by an unrelated production change that never touched the test.
+
+The remedy is temporal rather than static: **run the suite in the future.** A scheduled job
+(`.github/workflows/clock-shifted-tests.yml`, 07:37 UTC daily) runs the corpus with the clock
+moved +30 days, so a fixture that would expire in the next month expires tonight instead.
+
+The prevention half is the convention in `testing-standards.mdc §Testable Design` — inject the
+clock, never read it at the point of use. Nothing lints that; this is its backstop.
+
+### Running it
+
+```bash
+bun run test:clock-shifted              # default +30 days
+bun run test:clock-shifted -- --days=180
+bun run test:clock-shifted -- --days=-30  # backward, for a fixture valid only after some instant
+```
+
+Covers `ROOTS` **plus `./.minsky/hooks`** — the hooks tree is outside the pre-push runner's scope
+for latency, but it is where mt#4721's bomb actually lived.
+
+### Reading the exit code — three values, deliberately
+
+| Exit | Meaning                                                                                                          |
+| ---- | ---------------------------------------------------------------------------------------------------------------- |
+| `0`  | The corpus is clean at this horizon.                                                                             |
+| `1`  | A test's outcome depends on the shift. Each failure is a bomb, or an exemption candidate.                        |
+| `2`  | **The run itself is broken** — preflight failed, the exemption list is malformed, or discovery found zero files. |
+
+Collapsing `2` into `0` would defeat the whole mechanism. This is a **default-empty probe**: its
+output is a list of failures, so a shim that silently stopped working produces an empty list,
+byte-identical to a clean corpus (mem#704). Hence the runner PROVES the shift is in effect before
+every suite invocation, via a probe subprocess, and refuses to continue if it is not.
+
+### Why the horizon is 30 days
+
+From the observed **fuse** — the interval between a fixture being armed and detonating — not from
+how often detonations happen. The three instances' fuses were 1, 14 and 7 days; +30d is roughly
+twice the longest. Inter-arrival is the wrong quantity: a nightly at any positive horizon catches
+every bomb eventually, so the horizon buys **lead time**, not coverage.
+
+### Two gotchas found building it — both cost a real debugging cycle
+
+1. **A probe that uses `console.log` under `tests/setup.ts` emits nothing.** The preload replaces
+   every console method with a no-op mock, so a console-based probe reads exactly like a probe
+   that failed to run. Use `process.stdout.write`.
+2. **`class ShiftedDate extends Date` assigned to `globalThis.Date` breaks `instanceof`.** A Date
+   built inside native code (`fs.stat().mtime`) is a REAL `Date` and is not an instance of the
+   subclass, so `expect(x).toBeInstanceOf(Date)` fails on identity rather than on time. The shim
+   uses a **Proxy** over the real constructor, which forwards `prototype` to the same object and
+   keeps identity intact. Do not "simplify" it to a subclass.
+
+### What the shift does NOT move
+
+Each of these is a real coverage bound, and a shifted-run failure in one of them is not a bomb:
+
+- **Filesystem timestamps.** Real elapsed time advances a file's mtime and the clock together;
+  the shim advances only the clock, so a test that writes a file and measures its age sees a file
+  suddenly 30 days old.
+- **Subprocesses.** A test spawning the real CLI gets an unshifted child — the env var is
+  inherited, but the child never preloads the shim. In-process coverage only.
+- **Monotonic clocks** (`performance.now()`, `process.hrtime()`) and **`Date.parse`**, neither of
+  which reads the wall clock.
+
+### The exemption list
+
+`tests/clock-shift-exemptions.ts`, with **two classes that age in opposite directions**:
+
+- `intentional-time-coupling` — the test genuinely asserts an absolute date. Permanent; this is
+  the repo's inventory of deliberate time-coupling, which did not exist anywhere before.
+- `probe-artifact` — the test is fine and the shim cannot represent its world (the filesystem
+  case above). A **debt against the shim**, so every entry requires a `retiredBy` task; the
+  runner refuses to start on an entry without one.
+
+Keeping them separate is the point: one undifferentiated list would let shim defects accumulate
+inside what reads as a record of deliberate choices.
+
+## mt#3935: the test-reachability invariant (`bun run check:test-reachability`)
+
+A test file can be committed, reviewed and merged while running in **no suite at all**. Four such
+holes were found before this check existed, and every one of them was found by a person who
+happened to look while doing something else:
+
+| Hole                                             | Found by                                  | Closed by |
+| ------------------------------------------------ | ----------------------------------------- | --------- |
+| `src/cockpit/web/*.test.tsx` top level           | mt#3470, mid-implementation               | mt#3496   |
+| `scripts/**/*.test.ts` (20 files, 246 tests)     | mt#3871, placing a test beside its module | mt#1084   |
+| `tests/utils/` (2 files — **2 of them failing**) | mt#1084's planning audit                  | mt#3934   |
+| `tests/*.test.ts` top level (4 files)            | mt#4726, choosing where to put a new test | mt#4882   |
+
+Silent non-execution is worse than a failure: the file READS as coverage and provides none. The
+`tests/utils` case shows the end state — two `generateDiffSummary` assertions drifted out of
+agreement with the implementation and nothing noticed, because nothing ran them.
+
+`scripts/test-reachability.ts` is the execution-side sibling of `scripts/typecheck-coverage.ts`
+(mt#3780), and deliberately mirrors its shape: a pure comparison core, an allowlist where every
+entry must record a reason, and its own CI step.
+
+### Reached by WHAT
+
+**"Named by some `test:*` script" is not sufficient.** A file reachable only by a script nothing
+invokes is exactly as unrun as a file named by nothing — the same reasoning `typecheck-coverage`
+uses when it counts only tsconfig projects a CI step actually runs. So the covered set comes only
+from suites reachable from a workflow that triggers on `pull_request`.
+
+Two exclusions follow from that and look like bugs otherwise:
+
+- **`clock-shifted-tests.yml`** is `schedule` + `workflow_dispatch` only, so it gates no PR. It
+  would also add nothing, since it walks `ROOTS` + `GRAPH_ONLY_ROOTS` — the same lists, holes
+  included.
+- **`release.yml`** triggers on a `v*` tag push and runs a bare `bun test`, which walks nearly
+  everything. Counting it would mark almost every file covered and make the check vacuous, and a
+  suite that runs only at release time cannot stop a bad merge anyway.
+
+`scripts/check-test-changed-line-coverage.ts` (mt#4779) is recorded in `CHANGE_SCOPED_RUNNERS`
+rather than skipped: it genuinely runs tests, but only the ones a PR ADDS, so it keeps no file
+covered from one PR to the next.
+
+### A workflow triggering on a PR is not the same as its jobs RUNNING on one
+
+The check parses job and step `if:` conditions and classifies each into three verdicts, because
+crediting a job that does not run is the same failure this invariant exists to catch, one level up
+(PR #3556 R1, BLOCKING):
+
+- **`runs-on-pr`** — no condition, `always()`, `success()`, or `github.event_name != 'schedule'`
+  (which is TRUE on a pull_request). Counted as coverage.
+- **`never-on-pr`** — an expression requiring some other event and never naming `pull_request`,
+  like the docker suite's `github.event_name == 'schedule' || (workflow_dispatch && ...)`.
+  Contributes nothing.
+- **`conditional`** — anything undecidable statically: a secret probe, a `needs.*` output, an
+  input. **Fails closed.** Such a suite is real coverage sometimes and none other times, so it
+  never satisfies the invariant alone; a file reached only this way is reported under
+  `REACHED ONLY BY A CONDITIONAL JOB`, naming the guard.
+
+This was not hypothetical when it was added. `integration-tests.yml`'s `github-api` and `supabase`
+jobs are gated on secrets and both concluded **`skipped`** on the very PR that introduced this
+check, while their three test files were being counted as covered. Honouring conditions also
+revealed that the nine `*.testcontainer.integration.test.ts` files run on **no** PR at all — the
+job that runs them is nightly-and-manual only. Twelve files were being credited to jobs that had
+not run.
+
+### The allowlist, and why stale entries fail the build
+
+Every entry needs a non-empty `reason`. Beyond that an entry is one of two kinds, and the
+architecture test asserts the distinction:
+
+- **Tracked** — a hole someone intends to close. Requires `tracking: "mt#N"`, so it cannot quietly
+  become the status quo.
+- **Permanent** — an exclusion that is a design decision rather than a gap: a secret-gated job, a
+  nightly-only suite. Its `reason` must contain `PERMANENT BY DESIGN` **and cite the workflow guard
+  or trigger responsible**, so a later change to that guard is visibly a change to this entry's
+  premise. There is no task to file for these, and inventing one would be worse.
+
+**A prefix matching no unreached file fails the check as STALE.** This is deliberate and stricter
+than the sibling `typecheck-coverage` invariant, which reports stale entries without gating (PR
+#3556 R1, non-blocking). The reason: an exemption that outlives its hole is exactly how a closed
+gap keeps a live licence to reopen silently — the entry is still there, still matching nothing,
+and the day a file lands under that prefix it is exempt for a reason that stopped being true
+months earlier. Deleting a stale entry is a one-line change, and it is the same kind of bookkeeping
+the `tracking` requirement already imposes.
+
+Allowlist prefixes match with the same `pathCovers` used for suite roots, so a directory covers its
+descendants, an exact path covers only itself, and a `*` glob is honoured — which is what lets the
+nightly testcontainer suite be one entry instead of nine that go stale on the tenth file.
+
+### Three parsing traps, all of which made it green for the wrong reason
+
+Every one of these was hit during implementation, and each produced a clean report while real
+holes were open. They are the reason the unit tests exist:
+
+- **Prose is not a command.** `ci.yml`'s own error string reads `bun test did not print a
+completion summary line ("Ran N tests across M files")`. Parsed as an invocation, its word
+  `tests` became a positional root covering the entire `tests/` tree — 1669/1669 reached, four
+  real holes hidden. `bun test` must now be in COMMAND POSITION (start of segment, after a shell
+  operator, or behind `VAR=value` prefixes).
+- **A comment describing a spawn is not a spawn.** The runner-detection heuristic reads a script's
+  source; this script's own docblock quotes `["bun", script]` to explain the gated runner, so the
+  check classified ITSELF as an unregistered runner and aborted with exit 2 the moment it was
+  wired into CI. Comments are stripped before matching, and the signal requires an actual spawn of
+  `bun` — importing `ROOTS` to REASON about files is what a coverage check does, not what a runner
+  does.
+- **`run: |` matches an inline-command pattern.** Without a negative lookahead, the block-scalar
+  indicator is captured as a command whose body is the literal `|`, silently dropping every
+  multi-line step — which is where most suite invocations live.
+
+A fourth is structural rather than a bug: a value-taking flag must consume its value, or
+`--preload ./tests/setup.ts` leaves `./tests/setup.ts` looking like a positional root and every
+preloading suite appears to cover the whole `tests/` tree.
+
+### Paths are anchored prefixes, deliberately
+
+`bun test`'s positional arguments are SUBSTRING filters (see `scripts/run-tests-main.ts`'s header
+for the repro). This check models them as anchored prefixes instead, which is stricter: a
+substring model counts more files as covered, so every error it made would hide a hole. The repo
+already prefixes generated file arguments with `./` precisely to anchor the match, so the strict
+model is also the accurate one.

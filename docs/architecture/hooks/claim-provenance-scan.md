@@ -424,9 +424,121 @@ Per mt#4295, a spec written through `tasks_edit --spec-file` carries no inline t
 included.** A remaining-work claim written that way is invisible until mt#4295 lands. Named here
 rather than solved: fixing it would be solving mt#4295's problem in mt#4299's diff.
 
+## The fourth class: a causal attribution to another task (mt#4876)
+
+### The incident
+
+2026-09-01. An agent reported the reviewer bot's silence on a PR as _"consistent with mt#4753 being
+BLOCKED"_ — to the principal in chat, AND durably into mt#4864's spec via `tasks_spec_patch`.
+mt#4753's spec says close to the opposite: its premise was falsified 2026-08-29, the operator added
+the repo to the App installation on 2026-08-30, and its §Experiment concludes _"No code change is
+needed for a same-account repo."_ It is BLOCKED on a **cross-account** repo existing — a case that
+PR was not.
+
+The claim was sourced from the task's TITLE, which even carries the disclaimer _"(not the
+same-account case this was filed for)"_. The principal caught it by asking.
+
+### Why the three existing classes did not catch it
+
+Not a recall gap in a matcher — a **discharge** gap, and the sharpest one this guard has had.
+
+`check-task-spec-read.ts` grants read credit for the task a spec write TARGETS (mt#2814: _"writing
+the spec is at least as strong a signal"_), which is correct. But it resolves ONE id per call —
+`resolveTargetTaskId` reads the tool's own `taskId` — so refs cited inside the spec BODY are never
+examined. The write came back clean AND credited a read of the task it had just written.
+
+This guard DID run at that seam, and none of its three classes fits: the claim asserts no file
+collision, no absence of an owner, and no outstanding work. The nearest is the remaining-work class,
+and it is the instructive one — **its discharge is `taskIdsWithStatusRead`, whose tool set includes
+`tasks_get`.** A bare `tasks_get` returns title, status, kind and tags, which is exactly the surface
+this claim was built from. Had the causal claim been routed through that join, **the wider set would
+have discharged the very claim it exists to catch.**
+
+### What discharges it
+
+`taskIdsWithSpecRead` — deliberately a STRICT SUBSET of `taskIdsWithStatusRead`:
+
+| Call                                                                                  | Status set | Content set              |
+| ------------------------------------------------------------------------------------- | ---------- | ------------------------ |
+| `tasks_spec_get`                                                                      | ✅         | ✅                       |
+| `tasks_get` **with** `includeSpec`                                                    | ✅         | ✅                       |
+| `tasks_get` (bare)                                                                    | ✅         | ❌ — returns a TITLE     |
+| `tasks_status_get`                                                                    | ✅         | ❌                       |
+| `refs_status`                                                                         | ✅         | ❌                       |
+| `tasks_spec_patch` / `tasks_spec_search_replace` / `tasks_edit` **with a spec field** | —          | ✅ (authorship, mt#2814) |
+| `tasks_edit` metadata-only (`--kind`, `--title`)                                      | —          | ❌                       |
+
+The principle is `check-task-spec-read.ts`'s own, applied to a join: _"A status field says where a
+task sits in the lifecycle. Only its BODY says whether it is still worth doing."_
+
+**The two sets must NOT be merged.** The remaining-work class is right to accept a status read — "is
+mt#X still outstanding?" is a status question. This class is right to refuse one. Two questions, two
+joins; a shared one would be wrong for whichever it was not tuned for.
+
+### What triggers it, and what deliberately does not
+
+A causal/explanatory connective and an `mt#N` ref **in one SENTENCE**. The siblings use the
+paragraph; this is stricter, because these connectives are far commoner in ordinary spec prose than
+a collision verb, so a paragraph-wide conjunction would measure co-occurrence rather than
+attribution — the failure that cost the collision class 8 of 8 sampled fires before it narrowed.
+
+**The vocabulary is SAMPLED, not invented**, per the discipline `warn-unwired-task-relationship.ts`
+states for its own. Counted over `docs/` + `.minsky/rules/`, as sentences carrying both the
+connective and an `mt#` ref: `because` 45 · `which is why` 7 · `the reason` 5 · `explains` 2 ·
+`consistent with` 2 · `due to` 1. `caused by` measured zero here and is kept on separate evidence —
+it is one of `/create-task` §2c's five named causal triggers. **Six candidates measured zero and were
+dropped rather than carried on plausibility**: `accounts for`, `on account of`, `stems from`,
+`attributable to`, `that is why`, `explained by`. (Seven measured zero in all — `caused by` is the
+seventh, kept on the separate evidence just named.)
+
+Three suppressions, each answering one of the negative controls the task specified:
+
+- **A relationship phrase yields to mt#2264.** `blocked on` was in the proposed connective list and
+  is removed: `warn-unwired-task-relationship` runs on this same seam and carries `blocked by` /
+  `gated on` literally. Two guards firing on one claim at one seam is the collision
+  `stripDuplicateCheckRecords` already prevents for the mt#4004 sibling.
+- **A gate-report paragraph is a record, not a claim** — reusing `isAuditRecordParagraph`, the
+  largest measured false class on the sibling classes and the one that fires hardest at the most
+  careful authors (mem#719).
+- **Fenced blocks and blockquotes are elided; INLINE CODE SPANS ARE NOT.** ADR-024's Rung 1
+  prescribes eliding markdown non-prose, but `elideMarkdownNonProse`'s second pass blanks code
+  spans, and this corpus writes real refs inside backticks routinely. `check-task-spec-read.ts`
+  records the same reason for its ask regex: _a backticked `mt#4753` is a real reference, not a
+  quotation of one._ Blanking them would delete the ref half of the conjunction and drive the fire
+  rate toward zero — a result that reads as a precision win and is the guard switched off.
+
+A `## Members` list, a cross-reference list and a duplicate-check candidate list all name refs
+without explaining anything, and none fires.
+
+### Known recall gap, named rather than guessed at
+
+The CLI spellings (`minsky tasks spec get …`, `minsky tasks get --include-spec` through `Bash` or
+`session_exec`) are NOT matched. This follows `evidence-provenance-table.ts`'s own standing
+discipline for the same omission on `STATUS_READ_TOOL_NAMES`: the CLI channel is left out because it
+is UNMEASURED, and should be added _"on measured fires, not on anticipation."_
+
+The direction of error is a FALSE FIRE at an author who read the spec through the CLI — the
+dangerous direction — so this is the first thing to check when classifying calibration records.
+Recovering it needs the command-manifest resolution `check-task-spec-read.ts` performs
+(`cliSpecEngagements`), which is why it is not a one-line addition.
+
+### Posture
+
+RECORD-ONLY, like its three siblings, and for their measured reason rather than caution: the
+40-transcript replay put this guard at 16 fires over 70 claims with ONE true positive, and 12 of the
+16 were prose DISCUSSING a claim rather than asserting one — gate reports and duplicate-signature
+reconciliations. That is precisely this class's negative-control population. The task's own spec
+asked for advisory; the measurement on the host guard argues for one notch lower, graduating on this
+class's own calibration data per ADR-032.
+
 ## Cross-references
 
 - `.minsky/hooks/evidence-provenance-table.ts` — the shared discharge table
 - `.minsky/hooks/duplicate-check-search-provenance.ts` — same claim shape, `tasks_create` only
+- `.minsky/hooks/check-task-spec-read.ts` — the target-task read credit whose one-id scope leaves
+  this seam open, and the source of the status-vs-body principle
+- `.minsky/hooks/warn-unwired-task-relationship.ts` — the relationship axis this class yields to
 - `docs/architecture/adr-042-gate-battery-enforcement-shape.md` — why this is not a gate-battery row
 - mt#3806 (the prose half, DONE) · mt#4044 (the table, DONE) · mem#892 (the positive incident)
+- mt#4876 (the fourth class) · mt#4864 (the originating write) · mt#3775 (the wider citation class,
+  TODO — this delivers its spec-write-seam slice) · mt#4301 (the mechanism-causal sibling, TODO)

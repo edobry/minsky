@@ -34,8 +34,24 @@ import matter from "gray-matter";
 export const DESCRIPTION_TARGET_CHARS = 250;
 /** Hard cap per OWNED description. */
 export const DESCRIPTION_CAP_CHARS = 400;
-/** Listing total the corpus aims to stay under (mt#3476 criterion 3). */
-export const LISTING_TOTAL_TARGET_CHARS = 18_000;
+/**
+ * Listing total the corpus aims to stay under (mt#3476 criterion 3).
+ *
+ * **Raised 18_000 → 18_500 by mt#4611, on an explicit principal decision.** The prior
+ * value left 47 chars of headroom at 60 skills, so the NEXT skill of any kind overflowed
+ * it — which is what surfaced this. Three alternatives were put to the principal and this
+ * is the one selected: truncating the five vendored over-cap descriptions at compile time
+ * (~750 chars, degrades nothing owned), trimming an owned sibling to fund the new skill,
+ * or raising this number.
+ *
+ * **Read the headroom, not the number.** 18_500 buys roughly one more skill at the 250-char
+ * target, so this is a reprieve rather than a fix, and raising it again is not the reflex to
+ * reach for — every char here is paid by every agent on every turn. When it next binds, the
+ * question worth asking is whether 61 skills is the right corpus size, not whether 19_000 is
+ * the right cap. The vendored-truncation option above is the cheapest real headroom still on
+ * the table and remains unimplemented.
+ */
+export const LISTING_TOTAL_TARGET_CHARS = 18_500;
 
 /**
  * The source filenames that make a `.minsky/skills/<name>/` directory an OWNED skill.

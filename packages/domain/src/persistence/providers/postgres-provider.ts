@@ -78,6 +78,27 @@ import {
 // assumption lived in prose rather than in code. Naming the three inputs makes
 // the assumption checkable: if any of them changes, the default follows, and a
 // reader can see WHICH one to re-measure.
+//
+// HOW TO READ ACTUAL CONSUMPTION AGAINST THIS BUDGET (mt#4547). The budget caps
+// CLIENT connections to Supavisor, and **`pg_stat_activity` cannot show them** —
+// every row there carries `application_name = 'Supavisor'` because those rows are
+// the pooler's own BACKEND connections, a different quantity (Supabase's
+// Performance Tuning guide says so outright). The one channel that can:
+//
+//   GET https://api.supabase.com/v1/projects/{ref}/analytics/endpoints/metrics
+//   -> supavisor_connections_active{mode="transaction",user="postgres"}
+//
+// `scripts/verify-supavisor-slot-reclaim.ts --baseline` prints it. Observed
+// 2026-08-27: 65-88 in use against this 600, i.e. roughly 11-15% — and swinging
+// by ±23 between refreshes, at ~44-68 client joins per minute.
+//
+// TWO BOUNDS ON THAT READING, both measured, before anyone builds on it: the
+// `supavisor_*` series refresh only every ~4-5 minutes (independently of the
+// `node_*`/`pgbouncer_*` series in the SAME payload, so a fresh-looking scrape
+// says nothing about their freshness) and carry no staleness indicator; and the
+// endpoint returns HTTP 429 if polled much faster than once a minute. It is a
+// usable gauge of steady-state consumption and NOT a usable instrument for
+// resolving a small deliberate delta — see mt#4547's findings and mt#4687.
 const POOLER_CLIENT_BUDGET = 600;
 // Share of that budget this fleet's long-lived local pools may claim. The rest
 // is left for the hosted services (Railway MCP, reviewer, cockpit), ephemeral

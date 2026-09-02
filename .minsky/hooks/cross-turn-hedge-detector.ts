@@ -1,0 +1,458 @@
+#!/usr/bin/env bun
+// UserPromptSubmit hook: detect a claim the agent HEDGED in an earlier turn and
+// then RESTATED as fact in a later one, with nothing in between having resolved
+// it. Per mt#4701.
+//
+// CALIBRATION-FIRST: `INJECTION_ENABLED = false`. The hook writes an evaluation
+// record for every window it EVALUATES — fired or not — and injects nothing
+// until its own calibration review says otherwise (ADR-024's ladder).
+//
+// Detector contract:
+//   FIRES when ALL THREE hold across the trailing window:
+//     1. An earlier turn's assistant prose carries a hedge marker and a subject
+//        key in the SAME claim unit.
+//     2. The just-completed turn asserts that subject in a unit carrying no
+//        hedge marker.
+//     3. No tool call named that subject in any turn STRICTLY AFTER the hedge.
+//
+//   DOES NOT FIRE when the hedge was never restated, when the restatement
+//   re-hedges, when a post-hedge tool call named the subject, when the two
+//   turns name different subjects, or when either side sits inside a fenced
+//   block or blockquote.
+//
+// Why this detector exists at all: `claim-confidence.mdc` shipped a warrant
+// vocabulary (mt#2921) and RFC `3a0937f0` reserved a companion detector as its
+// Phase 3 candidate — "gives the vocabulary a falsifier instead of relying on
+// self-assessment alone" — which was never filed. Grepping the hook tree for
+// `verified-1a` / `strong-evidence` / `inferred` returns only guidance text the
+// detectors EMIT; nothing MATCHES on it. This is that falsifier, on the
+// labeled-uncertain-then-asserted axis.
+//
+// The matching lives in `packages/domain/src/detectors/cross-turn-hedge.ts` per
+// ADR-024's one-mechanism clause; this file is the adapter that segments the
+// transcript window and supplies the elider.
+//
+// ## Graduation contract (declared at ship time, per ADR-024 + RFC 3a0937f0)
+//
+// Both obligations bind through the `calibrationLog: "cross-turn-hedge"` field on
+// this guard's `GUARD_REGISTRY` entry — `scripts/lib/calibration-log-declarations.ts`
+// derives the producer set from that field, so nothing here needs hand-registering
+// and neither obligation can be silently skipped:
+//
+//   - **Coverage receipt** (ADR-024): at least one `source: "live"` true positive
+//     within 7 days of ship. Zero live fires in 7 days retroactively FAILS the gate
+//     and is surfaced for review — a detector that never fires is not "done".
+//     Enforced by `scripts/check-coverage-receipts.ts`.
+//   - **Disposition ask** (RFC 3a0937f0 Phase 2's contract, adopted here): flip /
+//     tune / retire is REQUIRED at whichever comes first of 25 logged fires or 30
+//     days post-ship. "Still calibrating" past that point is a failed gate, not a
+//     state. Enforced by the never-reviewed + days-since-first-fire cadence leg
+//     (mt#2896), which exists precisely so a low-volume log cannot stay invisible.
+//
+// The first review also owes two numbers this ship could not measure: the
+// `hedgeGapTurns` distribution behind the provisional `WINDOW_TURNS`, and the
+// per-leg / per-subject-kind false-positive split (`legCounts`, `subjectKinds` in
+// the evaluation record). Both are recorded on every evaluation for that reason.
+//
+// @see packages/domain/src/detectors/cross-turn-hedge.ts — the matcher
+// @see .minsky/hooks/pre-narration-detector.ts — the trailing-window precedent
+// @see .minsky/hooks/negative-existence-claim-detector.ts — sibling adapter shape
+
+import { readInput, readHostCap, deriveBudgets } from "./types";
+import type { ClaudeHookInput, HookOutput } from "./types";
+import {
+  resolveParentTranscriptLinesForPath,
+  windowSlice,
+  findRealPromptIndices,
+  extractAssistantText,
+} from "./transcript";
+import type { TranscriptLine } from "./transcript";
+import { elideBlocksAndQuotes } from "./code-mechanism-assertion-detector";
+import {
+  MAX_EXCERPT_CHARS,
+  detectCrossTurnHedgeDecay,
+  extractSubjects,
+  type CrossTurnHedgeResult,
+  type ScannedTurn,
+} from "../../packages/domain/src/detectors/cross-turn-hedge";
+import { logEvaluationRecord } from "./dispatcher";
+import type { DispatchContext, GuardOutcome } from "./registry";
+
+/** Calibration-first per ADR-024: evaluate and record, inject nothing. */
+export const INJECTION_ENABLED = false;
+
+export const OVERRIDE_ENV_VAR = "MINSKY_ACK_CROSS_TURN_HEDGE";
+
+/**
+ * Evaluation stream — every window scanned, fired or not.
+ *
+ * mt#3745: the logical stream NAME, not a path — `logEvaluationRecord` /
+ * `evaluationLogPath` derive `.minsky/<name>-evaluations.jsonl` from it, the
+ * same name/path split the registry's `calibrationLog` uses.
+ *
+ * This detector shipped with a hand-written path constant instead
+ * (`.minsky/cross-turn-hedge-evaluation.jsonl`), which cost two things and is
+ * why mt#2492 migrated it. The filename was SINGULAR where all 31 siblings are
+ * plural, so `.gitignore`'s `**` + `/.minsky/*-evaluations.jsonl` glob missed it
+ * and the log sat untracked for weeks; deriving the name makes that
+ * unspellable. And the writer rooted on a raw `cwd`, the exact pattern mt#3745
+ * removed elsewhere after it scattered 12 stray logs across 6 session
+ * workspaces — the helper resolves `findRepoRoot()` instead.
+ */
+const EVALUATION_LOG_NAME = "cross-turn-hedge";
+
+/**
+ * Trailing-window size in TURNS.
+ *
+ * **Provisional, and deliberately labelled as such.** `decision-defaults.mdc
+ * §Thresholds` wants a value grounded in observed cadence, and the observed cadence
+ * here is a single measured instance: in the originating incident (`c2027e82`,
+ * 2026-08-27) the hedge sat in turn 3 and the restatement in turn 5 — a gap of two,
+ * which is already enough to prove an adjacent-turn comparison would miss it. One
+ * data point is not a distribution, so 8 is reasoned rather than measured:
+ *
+ *   - Large enough to span a full investigation thread. That incident's whole
+ *     conversation was seven turns, and a hedge is most likely to decay while the
+ *     agent is still working the same question.
+ *   - Small enough that a hedge from an earlier, unrelated workstream cannot reach
+ *     forward and manufacture a pair — the failure mode `pre-narration`'s own window
+ *     note names when it justifies stopping at 12.
+ *
+ * Deliberately NOT copied from either shipped constant (12 and 5): those were
+ * derived for different questions — how long a tool VERDICT stays a legitimate
+ * back-reference, and how long a knowledge acquisition has to propagate. Calibration
+ * is what replaces this number; the evaluation record carries `hedgeGapTurns` on
+ * every fire precisely so the first review has the distribution to set it from.
+ *
+ * **Reconciled with the spec, not waived (PR #3419 R1).** The reviewer blocked on this value
+ * being provisional rather than measured — correct against the criterion as first written,
+ * which required a derivation from calibration data that only shipping this detector can
+ * produce. mt#4701's SC4 was amended to name that ordering defect and to move the measurement
+ * obligation onto the first calibration review, where SC6's graduation contract already binds
+ * it. Replacing this constant with a measured one is owed THERE; it is not optional.
+ */
+export const WINDOW_TURNS = 8;
+
+/**
+ * Cap on a single rendered excerpt.
+ *
+ * RE-EXPORTED from the matcher rather than redeclared (PR #3419 R2 non-blocking). The
+ * matcher already truncates to this width when it builds a finding; the adapter slices
+ * to it again on the calibration record and the reminder. Two `= 240` literals in two
+ * packages are one edit away from disagreeing, and the failure would be silent — a
+ * record whose excerpt is longer than the declared `attentionCost` budget assumes.
+ */
+export { MAX_EXCERPT_CHARS };
+
+function isOverridden(): string | undefined {
+  const raw = process.env[OVERRIDE_ENV_VAR];
+  if (!raw) return undefined;
+  const v = raw.toLowerCase();
+  return v === "1" || v === "true" || v === "yes" ? raw : undefined;
+}
+
+/**
+ * Append one evaluation record. Fail-open by way of the shared helper, which
+ * swallows its own write errors: a measurement stream must never be able to
+ * break the guard whose behavior it measures.
+ */
+function appendEvaluationRecord(cwd: string, record: Record<string, unknown>): void {
+  // mt#3745: `cwd` is the guard's raw input cwd — a FALLBACK, never a root.
+  logEvaluationRecord(EVALUATION_LOG_NAME, record, { fallbackCwd: cwd });
+}
+
+/**
+ * Split a line range into turn segments, oldest first.
+ *
+ * A segment runs from one real user prompt through everything before the next, so
+ * the LAST segment is the just-completed turn at `UserPromptSubmit` time. Anything
+ * before the first prompt (a transcript opening mid-conversation, or one whose head
+ * was compacted away) is dropped rather than treated as a turn — it has no bounding
+ * prompt, so its position in the window cannot be established.
+ */
+export function segmentTurns(lines: TranscriptLine[]): TranscriptLine[][] {
+  const promptIndices = findRealPromptIndices(lines);
+  const segments: TranscriptLine[][] = [];
+  for (let i = 0; i < promptIndices.length; i++) {
+    const start = promptIndices[i];
+    if (start === undefined) continue;
+    const end = promptIndices[i + 1] ?? lines.length;
+    segments.push(lines.slice(start, end));
+  }
+  return segments;
+}
+
+/**
+ * Subject keys named by a TOOL CALL in this segment — inputs and results both.
+ *
+ * Assistant prose is excluded on purpose: this set answers "did anything actually
+ * LOOK at the subject", and the agent talking about it again is precisely the
+ * behaviour under investigation, not evidence against it.
+ */
+export function toolSubjectsInTurn(segment: TranscriptLine[]): Set<string> {
+  const subjects = new Set<string>();
+  const absorb = (text: string): void => {
+    for (const key of extractSubjects(text).keys()) subjects.add(key);
+  };
+
+  for (const line of segment) {
+    if (line.type === "tool_use" && line.input) {
+      absorb(JSON.stringify(line.input));
+    }
+    const content = line.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      if (!block || typeof block !== "object") continue;
+      const b = block as { type?: string; input?: unknown; content?: unknown };
+      if (b.type === "tool_use" && b.input !== undefined) absorb(JSON.stringify(b.input));
+      if (b.type === "tool_result" && b.content !== undefined) absorb(JSON.stringify(b.content));
+    }
+  }
+  return subjects;
+}
+
+/**
+ * Evaluate the trailing window. Returns null when there is nothing to score —
+ * fewer than two turns, or no assistant prose in the current one.
+ */
+export function evaluateWindow(
+  lines: TranscriptLine[]
+): { result: CrossTurnHedgeResult; evaluation: Record<string, unknown> } | null {
+  const segments = segmentTurns(windowSlice(lines, WINDOW_TURNS));
+  if (segments.length < 2) return null;
+
+  const scanned: ScannedTurn[] = segments.map((segment, index) => ({
+    index,
+    prose: extractAssistantText(segment),
+  }));
+
+  const currentTurn = scanned[scanned.length - 1];
+  if (!currentTurn || !currentTurn.prose.trim()) return null;
+  const priorTurns = scanned.slice(0, -1).filter((t) => t.prose.trim().length > 0);
+  if (priorTurns.length === 0) return null;
+
+  const toolSubjectsByTurn = new Map<number, ReadonlySet<string>>();
+  segments.forEach((segment, index) => {
+    toolSubjectsByTurn.set(index, toolSubjectsInTurn(segment));
+  });
+
+  const result = detectCrossTurnHedgeDecay({
+    priorTurns,
+    currentTurn,
+    toolSubjectsByTurn,
+    // ADR-024 Rung 1. `elideBlocksAndQuotes` drops fenced blocks and quoted spans
+    // but KEEPS inline code — the sibling detectors' reasoning applies verbatim
+    // here: an agent writes `mem#1323` in backticks constantly, and eliding inline
+    // code would delete most subjects along with the quotations.
+    elide: elideBlocksAndQuotes,
+  });
+
+  const gaps = result.findings.map((f) => currentTurn.index - f.hedgeTurnIndex);
+  const evaluation: Record<string, unknown> = {
+    timestamp: new Date().toISOString(),
+    fired: result.matched,
+    turnsScanned: segments.length,
+    windowTurns: WINDOW_TURNS,
+    hedgedSubjectCount: result.hedgedSubjects.length,
+    resolvedSubjectCount: result.resolvedSubjects.length,
+    findingCount: result.findings.length,
+    // The distribution the provisional WINDOW_TURNS is waiting on.
+    hedgeGapTurns: gaps,
+    // Per-leg and per-kind counts so the two marker families and the noisier
+    // filePath subject class can be tuned or retired independently.
+    legCounts: {
+      warrantVocabulary: result.findings.filter((f) => f.hedgeLeg === "warrant-vocabulary").length,
+      naturalLanguage: result.findings.filter((f) => f.hedgeLeg === "natural-language").length,
+    },
+    subjectKinds: result.findings.map((f) => f.subjectKind),
+    currentProseChars: currentTurn.prose.length,
+  };
+
+  return { result, evaluation };
+}
+
+/** The advisory text a future INJECTION_ENABLED flip would surface. */
+export function buildInjectionReminder(result: CrossTurnHedgeResult): string {
+  const lines = [
+    "[cross-turn-hedge] A claim you HEDGED earlier is now stated as fact, with no " +
+      "intervening call that looked at it:",
+  ];
+  for (const f of result.findings) {
+    // Name the hedge's turn: the operator's next question is always "how far back",
+    // and the gap is what makes the pair legible rather than two unrelated sentences.
+    lines.push(
+      `  • ${f.subject} — hedged in turn ${f.hedgeTurnIndex} (“${f.hedgeMarker}”), ` +
+        `now asserted: “${f.assertionExcerpt.slice(0, MAX_EXCERPT_CHARS)}”`
+    );
+  }
+  lines.push(
+    "Re-hedge it, or run the discriminating probe before it becomes load-bearing. " +
+      "See `claim-confidence.mdc` — a label is not evidence, and a bundled claim " +
+      "inherits the warrant of the claim it ships with (mem#899)."
+  );
+  return lines.join("\n");
+}
+
+/**
+ * The largest message this guard can emit, for the registry's `attentionCost`
+ * declaration. Poses every axis at its bound EXCEPT the finding count, which is
+ * uncapped — so this is a `render-probe-sample`, not a ceiling.
+ */
+export function renderWorstCase(): string {
+  const wide = "x".repeat(MAX_EXCERPT_CHARS);
+  return buildInjectionReminder({
+    matched: true,
+    findings: [
+      {
+        subject: "mem#1323",
+        subjectKind: "memory",
+        hedgeTurnIndex: 0,
+        hedgeLeg: "natural-language",
+        hedgeMarker: "may be wrong",
+        hedgeExcerpt: wide,
+        assertionExcerpt: wide,
+      },
+    ],
+    hedgedSubjects: ["mem#1323"],
+    resolvedSubjects: [],
+  });
+}
+
+/** Dispatcher entry point (ADR-028 D1/D2). */
+export async function run(
+  input: ClaudeHookInput,
+  ctx: DispatchContext
+): Promise<GuardOutcome | null> {
+  const override = isOverridden();
+  if (override) {
+    return {
+      auditLines: [
+        `[cross-turn-hedge-detector] OVERRIDE: ack=${override} ` +
+          `session=${input.session_id ?? "unknown"} ts=${new Date().toISOString()}\n`,
+      ],
+    };
+  }
+
+  if (!input.transcript_path) return null;
+  const lines = ctx.transcriptLines;
+  if (lines.length === 0) return null;
+
+  let evaluated: ReturnType<typeof evaluateWindow>;
+  try {
+    evaluated = evaluateWindow(lines);
+  } catch (err) {
+    process.stderr.write(
+      `[cross-turn-hedge-detector] Detection error: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+    return null;
+  }
+  if (!evaluated) return null;
+
+  const cwd = input.cwd ?? process.cwd();
+  appendEvaluationRecord(cwd, {
+    ...evaluated.evaluation,
+    session_id: input.session_id,
+  });
+
+  if (!evaluated.result.matched) return null;
+
+  // The calibration record is RETURNED, not written here: the dispatcher owns that
+  // write for a dispatched guard (`calibrationLog` on the registration). Writing it
+  // from both places would double-count every fire, which is the shape that makes a
+  // rate un-measurable. The EVALUATION stream above is different — the dispatcher
+  // knows nothing about it, so this path owns it.
+  const outcome: GuardOutcome = {
+    calibration: {
+      timestamp: new Date().toISOString(),
+      session_id: input.session_id,
+      findings: evaluated.result.findings.map((f) => ({
+        subject: f.subject,
+        subjectKind: f.subjectKind,
+        hedgeLeg: f.hedgeLeg,
+        hedgeMarker: f.hedgeMarker,
+        hedgeTurnIndex: f.hedgeTurnIndex,
+        hedgeExcerpt: f.hedgeExcerpt.slice(0, MAX_EXCERPT_CHARS),
+        assertionExcerpt: f.assertionExcerpt.slice(0, MAX_EXCERPT_CHARS),
+      })),
+      resolvedSubjects: evaluated.result.resolvedSubjects,
+    },
+  };
+
+  if (INJECTION_ENABLED) {
+    outcome.additionalContext = buildInjectionReminder(evaluated.result);
+  }
+
+  return outcome;
+}
+
+export async function main(): Promise<void> {
+  const capInfo = readHostCap("cross-turn-hedge-detector.ts", undefined, {
+    events: ["UserPromptSubmit"],
+  });
+  if (capInfo.warning) {
+    process.stderr.write(`[cross-turn-hedge-detector] ${capInfo.warning}\n`);
+  }
+  const budgets = deriveBudgets(capInfo.hostCapSec);
+  const overallDeadline = Date.now() + budgets.overallBudgetMs;
+
+  const override = isOverridden();
+
+  let input: ClaudeHookInput;
+  try {
+    input = await readInput<ClaudeHookInput>();
+  } catch {
+    process.exit(0);
+  }
+
+  if (override) {
+    process.stderr.write(
+      `[cross-turn-hedge-detector] OVERRIDE: ack=${override} ` +
+        `session=${input.session_id ?? "unknown"} ts=${new Date().toISOString()}\n`
+    );
+    process.exit(0);
+  }
+
+  const transcriptPath = input.transcript_path;
+  if (!transcriptPath) process.exit(0);
+  if (Date.now() >= overallDeadline) {
+    process.stderr.write(
+      "[cross-turn-hedge-detector] budget exhausted before transcript read — skipping\n"
+    );
+    process.exit(0);
+  }
+
+  const lines = resolveParentTranscriptLinesForPath(transcriptPath, input.agent_id);
+  if (lines.length === 0) process.exit(0);
+
+  let evaluated: ReturnType<typeof evaluateWindow>;
+  try {
+    evaluated = evaluateWindow(lines);
+  } catch (err) {
+    process.stderr.write(
+      `[cross-turn-hedge-detector] Detection error: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+    process.exit(0);
+  }
+  if (!evaluated) process.exit(0);
+
+  const cwd = input.cwd ?? process.cwd();
+  appendEvaluationRecord(cwd, {
+    ...evaluated.evaluation,
+    session_id: input.session_id,
+  });
+
+  if (!evaluated.result.matched || !INJECTION_ENABLED) process.exit(0);
+
+  const output: HookOutput = {
+    hookSpecificOutput: {
+      hookEventName: "UserPromptSubmit",
+      additionalContext: buildInjectionReminder(evaluated.result),
+    },
+  };
+  process.stdout.write(JSON.stringify(output));
+  process.exit(0);
+}
+
+if (import.meta.main) {
+  void main();
+}

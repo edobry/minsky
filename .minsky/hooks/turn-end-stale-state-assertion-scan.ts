@@ -63,6 +63,17 @@ import type { SqlCapablePersistenceProvider } from "../../packages/domain/src/pe
 // — path resolution and declaration emit see it, and it breaks if the symbol
 // moves or is renamed.)
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+import {
+  nominate,
+  type ExemplarSet,
+} from "../../packages/domain/src/detectors/embedding-nomination";
+import { resolveNominationDeps } from "../../packages/domain/src/detectors/embedding-nomination-factory";
+import {
+  callerSessionIdFromCwd,
+  decidePeerActivity,
+  readTaskEvents,
+} from "./warn-peer-task-activity";
+import { extractFinalTurn, parseTranscript, type TranscriptLine } from "./transcript";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_STALE_STATE_ASSERTION_SCAN";
 
@@ -85,6 +96,96 @@ export const CALIBRATION_TAIL_CHARS = 600;
  * an unrelated sign-off does not capture a ref from another paragraph.
  */
 export const PROXIMITY_CHARS = 200;
+
+// ---------------------------------------------------------------------------
+// Rung 2: embedding nomination for the two shapes Rung 1 cannot reach (mt#4580)
+// ---------------------------------------------------------------------------
+
+/**
+ * Why this guard climbs, and why widening the regex would have been wrong.
+ *
+ * mt#4199 shipped Rung 1 for ONE assertion shape: "this entity awaits you",
+ * checked against terminality. Two adjacent shapes in the same family reached
+ * the principal through this same interception point and were not covered.
+ * Both occurred in a single turn on 2026-08-25 and are recorded as R19/R20 on
+ * the `assertion-without-verification` family (mem#1269):
+ *
+ *   R19 — recommending work a peer already holds. A closing message said to
+ *         START a task another session had picked up twelve minutes earlier.
+ *   R20 — a past-tense completion claim. "I've recorded this on the task", in
+ *         a turn that made zero tool calls.
+ *
+ * MEASURED against this file's own prose gate, with a known-positive control:
+ *
+ *   R19 verbatim   -> findPendingClaims: 0 claims
+ *   R20 verbatim   -> findPendingClaims: 0 claims
+ *   CONTROL        -> findPendingClaims: 1 claim (ask#8467)
+ *
+ * The control firing is what makes the two zeros evidence rather than a
+ * mis-invocation. It also locates the miss precisely: `findPendingClaims`
+ * returns early when no assertion phrase matches, so the substrate read never
+ * ran. `collectEntityRefs` would have found both refs. The gap is at
+ * RECOGNITION, not at the state check.
+ *
+ * That is a recurring paraphrase miss, which ADR-024 assigns to Rung 2 —
+ * "embedding recall-widening (only if paraphrase misses recur)" — and which its
+ * §Context names the anti-pattern for answering with another regex family:
+ * "each miss has historically been answered by adding another regex family
+ * (R1 -> R5) — an arms race". mt#4565's adopted option B' (principal-decided
+ * 2026-08-25) prescribes the same shape: "build per-detector Rung-2 nominators
+ * as each detector's evidence gate is met." This guard's gate is met.
+ *
+ * The sibling `turn-end-untaken-action-scan` has three further recorded escapes
+ * across three more grammatical forms (mt#3560, mt#3831) — five in the family
+ * altogether, which is why the answer is a semantic stage rather than a sixth
+ * pattern.
+ */
+export const NOMINATION_EXEMPLARS: ExemplarSet[] = [
+  {
+    // A recommendation that the principal PICK UP work. The defect this
+    // catches is not the recommendation — it is that the recommendation went
+    // stale, because a peer took the task while the read aged.
+    family: "recommend-start",
+    exemplars: [
+      "The next thing to pick up is that task.",
+      "That one is unblocked now and worth starting.",
+      "You could take that task next; nothing is blocking it.",
+      "The natural follow-on is to begin that piece of work.",
+      "That is the one I would start on next.",
+    ],
+  },
+  {
+    // A claim that an action ALREADY happened. Distinct from the sibling
+    // untaken-action guard, which keys on the opposite tense — a commitment to
+    // act NEXT. A false completion claim is worse than an unmet commitment: it
+    // asserts the work is done, so nothing downstream looks for it.
+    family: "past-tense-claim",
+    exemplars: [
+      "That change is already written into the task.",
+      "I updated the spec with those findings.",
+      "The correction has been saved to the record.",
+      "That has been filed and noted on the task.",
+      "I went ahead and wrote that down.",
+    ],
+  },
+];
+
+/**
+ * There is deliberately NO stage-level kill switch here.
+ *
+ * An earlier revision of this change added `MINSKY_DISABLE_STALE_STATE_RUNG2`,
+ * mirroring `MINSKY_DISABLE_RUNG2_NOMINATION` on the sibling scanner, and
+ * registered it in both registries. It was removed before this shipped: the
+ * spec's own criterion says no new override var is minted, and `hook-files.mdc`
+ * records why — that population went 34 → 99 since ADR-028 was accepted, which
+ * is the growth the consolidation exists to stop. The sibling's var predates
+ * that tightening; it is precedent for the shape, not licence to add another.
+ *
+ * `MINSKY_SKIP_STALE_STATE_ASSERTION_SCAN` already covers the new classes: it
+ * returns before any claim-finding runs, so it disables Rung 1 and Rung 2
+ * together. Per-stage granularity was a convenience nobody asked for, and it
+ * cost two registry entries to buy.
+ */
 
 /**
  * Bound on the substrate read. Past this the scan reports a skip, never a fire.
@@ -372,6 +473,357 @@ export function findPendingClaims(finalMessage: string): PendingClaim[] {
   return claims;
 }
 
+/**
+ * Rung 2. Nominate claims Rung 1's phrase set could not recognise.
+ *
+ * Runs ONLY when Rung 1 found nothing and the tail carries a resolvable ref.
+ * That ordering is the cost discipline: `collectEntityRefs` is pure string work,
+ * so a turn mentioning no task or ask still reaches no IO at all.
+ *
+ * **This does change the guard's cost profile, deliberately.** mt#4199's gate
+ * was "phrase AND ref"; a turn carrying a ref with no pending-assertion phrase
+ * did zero IO. It now reaches one batched embedding call. That is what climbing
+ * to Rung 2 costs, and it is the trade ADR-024 authorises once paraphrase misses
+ * recur — which they did, measured, twice in one turn. The call is bounded by
+ * {@link NOMINATION_TIMEOUT_MS} and degrades rather than throwing, so the
+ * worst case is a slower Stop, never a failed one.
+ *
+ * Returns synthesized {@link PendingClaim}s so the downstream state check sees
+ * one shape regardless of which rung produced the claim. The synthesized
+ * `assertion.family` carries the nominated family, which is what routes the
+ * claim to its state check — peer-activity for `recommend-start`, tool-call
+ * inspection for `past-tense-claim`.
+ */
+export interface NominationOutcome {
+  claims: PendingClaim[];
+  /** Present when the stage could not run; the reason is carried to calibration. */
+  degradedReason?: string;
+  /** Highest score per nominated family, for the calibration record. */
+  scores: { family: string; score: number }[];
+}
+
+/** Nomination is bounded well under the Stop hook's own budget. */
+export const NOMINATION_TIMEOUT_MS = 2000;
+
+/**
+ * Dependency RESOLUTION is bounded separately, and must be.
+ *
+ * `nominate`'s own `timeoutMs` covers the embedding call and nothing before it.
+ * `resolveNominationDeps` awaits `getConfiguration()` and
+ * `createEmbeddingServiceFromConfig()`, and its try/catch converts a THROW into
+ * `null` — but a HANG is not a throw. An unreachable provider endpoint or a
+ * wedged config read would therefore stall the Stop hook indefinitely, before
+ * the nomination timeout is ever armed.
+ *
+ * Caught by the reviewer on PR #3544 R1; verified at the cited location rather
+ * than taken on the finding's word. The two budgets are deliberately equal and
+ * separate — together they bound the stage at ~4s worst case, which is inside
+ * what a Stop hook can absorb.
+ */
+export const DEPS_RESOLVE_TIMEOUT_MS = 2000;
+
+/** A resolve that exceeded {@link DEPS_RESOLVE_TIMEOUT_MS}. */
+const RESOLVE_TIMED_OUT = Symbol("resolve-timed-out");
+
+/**
+ * Await `work`, or give up after `ms`.
+ *
+ * The timer is cleared on the settled path so a pending handle cannot keep the
+ * hook process alive past its own work — a Stop guard that exits late is a
+ * latency bug the operator experiences as a hung turn.
+ */
+async function withDeadline<T>(
+  work: Promise<T>,
+  ms: number
+): Promise<T | typeof RESOLVE_TIMED_OUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<typeof RESOLVE_TIMED_OUT>((resolve) => {
+        timer = setTimeout(() => resolve(RESOLVE_TIMED_OUT), ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+export async function nominatePendingClaims(
+  finalMessage: string,
+  deps?: { resolve: typeof resolveNominationDeps; run: typeof nominate }
+): Promise<NominationOutcome> {
+  const tail = finalMessage.slice(-TAIL_WINDOW_CHARS);
+  const prose = elideQuotedAndCodeContexts(tail);
+
+  // The cheap gate, unchanged in spirit: no ref, nothing to be wrong about.
+  const refs = collectEntityRefs(prose);
+  if (refs.length === 0) return { claims: [], scores: [] };
+
+  const resolve = deps?.resolve ?? resolveNominationDeps;
+  const run = deps?.run ?? nominate;
+
+  // A SYNCHRONOUS throw from `resolve` happens at the CALL SITE, outside the
+  // race, so it bypasses the deadline entirely (PR #3544 R2). The try/catch is
+  // what contains it — and containing it matters because the shipped
+  // `resolveNominationDeps` has its own try/catch but the parameter is
+  // injectable and the type does not forbid throwing. This stage exists to
+  // degrade rather than crash the Stop hook.
+  //
+  // An earlier revision ALSO deferred through `Promise.resolve().then(...)` to
+  // convert the sync throw into a rejection. The negative control removed it:
+  // with the defer reverted, the sync-throw test still passed, because the call
+  // site is already inside this try block. Two mechanisms, one of them doing
+  // nothing and untestable — so the defer is gone. That is the control earning
+  // its keep, not a cosmetic simplification.
+  let nominationDeps: Awaited<ReturnType<typeof resolveNominationDeps>> | typeof RESOLVE_TIMED_OUT;
+  try {
+    nominationDeps = await withDeadline(resolve(), DEPS_RESOLVE_TIMEOUT_MS);
+  } catch (err) {
+    return {
+      claims: [],
+      degradedReason: `nomination-deps-threw: ${err instanceof Error ? err.message : String(err)}`,
+      scores: [],
+    };
+  }
+  if (nominationDeps === RESOLVE_TIMED_OUT) {
+    // Distinct from `unavailable`: nothing is misconfigured, the resolve simply
+    // did not return. Kept separate so the calibration stream can tell a
+    // provider that is absent from one that is wedged — different remedies.
+    return { claims: [], degradedReason: "nomination-deps-timeout", scores: [] };
+  }
+  if (nominationDeps === null) {
+    return { claims: [], degradedReason: "nomination-deps-unavailable", scores: [] };
+  }
+
+  const result = await run(prose, NOMINATION_EXEMPLARS, nominationDeps, {
+    timeoutMs: NOMINATION_TIMEOUT_MS,
+  });
+  if (result.degraded) {
+    return {
+      claims: [],
+      degradedReason: result.degradedReason
+        ? `nomination-degraded: ${result.degradedReason}${result.degradedDetail ? ` (${result.degradedDetail})` : ""}`
+        : "nomination-degraded",
+      scores: [],
+    };
+  }
+  if (result.nominations.length === 0) return { claims: [], scores: [] };
+
+  // Pair every nominated family with every ref in the tail. Unlike Rung 1 there
+  // is no proximity filter: a nominated SEGMENT is a sentence, and the ref it
+  // concerns is routinely in an adjacent sentence ("2. Start mt#4556 — its arms
+  // are unmeasurable without it"). Proximity is what Rung 1 uses to bound a
+  // phrase's reach; the semantic stage already bounds itself by meaning.
+  const claims: PendingClaim[] = [];
+  for (const nomination of result.nominations) {
+    for (const entity of refs) {
+      claims.push({
+        entity,
+        assertion: {
+          family: nomination.family,
+          phrase: nomination.segment,
+          at: entity.at,
+        },
+      });
+    }
+  }
+
+  return {
+    claims,
+    scores: result.nominations.map((n) => ({ family: n.family, score: n.score })),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// State check for `recommend-start`: peer activity, not terminality (mt#4580)
+// ---------------------------------------------------------------------------
+
+/** A recommendation whose target the ledger shows someone else already holds. */
+export interface PeerHeldClaim extends PendingClaim {
+  /** The advisory text `decidePeerActivity` produced, carried for the record. */
+  peerEvidence: string;
+}
+
+export interface PeerCheckOutcome {
+  held: PeerHeldClaim[];
+  /**
+   * One entry per ref whose ledger read could not run. Never conflated with
+   * "no peer".
+   *
+   * An ARRAY rather than one joined string (PR #3544 R1): joining N failures
+   * with `"; "` produces a single free-form calibration entry that a reviewer
+   * has to re-parse to count, and that no aggregation can group by cause. One
+   * entry per failure keeps the stream countable.
+   */
+  degradedReasons: string[];
+}
+
+/**
+ * Does the ledger show another actor on a task this message recommends STARTING?
+ *
+ * The terminality check mt#4199 ships cannot answer this: a task actively being
+ * worked is NOT terminal, so it passes that test cleanly while being exactly the
+ * thing the principal must not be sent to pick up.
+ *
+ * Reuses `decidePeerActivity` and `readTaskEvents` from the PreToolUse sibling
+ * rather than reimplementing them. That guard already fires on this signal — it
+ * simply cannot see a prose recommendation, because a recommendation is not a
+ * tool call. Two mechanisms existed; neither was wired to this junction.
+ *
+ * A failed read is `degradedReason`, never an empty `held`. "The ledger says no
+ * peer" and "I could not read the ledger" must not collapse into one value: the
+ * whole failure class this guard exists for is a negative that was never
+ * actually checked.
+ */
+export async function findPeerHeldClaims(
+  claims: PendingClaim[],
+  cwd: string | undefined,
+  deps?: { read: typeof readTaskEvents; decide: typeof decidePeerActivity }
+): Promise<PeerCheckOutcome> {
+  const read = deps?.read ?? readTaskEvents;
+  const decide = deps?.decide ?? decidePeerActivity;
+
+  // Only task refs, only the family whose defect is staleness. An ask cannot be
+  // "started by a peer session", so a recommendation naming one is out of scope.
+  const targets = claims.filter(
+    (c) => c.assertion.family === "recommend-start" && c.entity.kind === "task"
+  );
+  if (targets.length === 0) return { held: [], degradedReasons: [] };
+
+  const callerSessionId = callerSessionIdFromCwd(cwd);
+  const held: PeerHeldClaim[] = [];
+  const failures: string[] = [];
+  const seen = new Set<string>();
+
+  for (const claim of targets) {
+    if (seen.has(claim.entity.id)) continue;
+    seen.add(claim.entity.id);
+
+    let events: Awaited<ReturnType<typeof readTaskEvents>>;
+    try {
+      events = await read(claim.entity.id);
+    } catch (err) {
+      failures.push(
+        `peer-read-failed ${claim.entity.ref}: ${err instanceof Error ? err.message : String(err)}`
+      );
+      continue;
+    }
+    if (events === null) {
+      failures.push(`peer-read-unavailable ${claim.entity.ref}: ledger read returned null`);
+      continue;
+    }
+
+    const decision = decide(claim.entity.id, events, Date.now(), callerSessionId);
+    if (decision.fired && decision.message) {
+      held.push({ ...claim, peerEvidence: decision.message });
+    }
+  }
+
+  return { held, degradedReasons: failures };
+}
+
+// ---------------------------------------------------------------------------
+// State check for `past-tense-claim`: the turn's own tool calls (mt#4580)
+// ---------------------------------------------------------------------------
+
+/**
+ * Every tool input in the turn, flattened to searchable text.
+ *
+ * Pure and value-in: the caller reads the transcript, this decides. Keeping the
+ * IO out is what lets the rule be tested without patching a collaborator the
+ * function reaches itself (`testing-standards.mdc §Testable Design`).
+ */
+export function toolInputHaystack(turnLines: TranscriptLine[]): string {
+  const parts: string[] = [];
+  for (const line of turnLines) {
+    if (line.type !== "tool_use") continue;
+    const input = (line as { input?: unknown }).input;
+    if (input === undefined || input === null) continue;
+    try {
+      parts.push(typeof input === "string" ? input : JSON.stringify(input));
+    } catch {
+      // intentional-swallow: a non-serialisable input contributes no searchable
+      // text. Dropping it can only make the check MORE conservative — the claim
+      // is reported unbacked — which is the safe direction for an advisory.
+    }
+  }
+  return parts.join("\n");
+}
+
+/**
+ * Which past-tense completion claims name an entity this turn never touched?
+ *
+ * The discriminator is positional and structural, borrowed verbatim from the
+ * sibling `turn-end-untaken-action-scan`'s own docblock: *"anything appearing in
+ * `last_assistant_message` had NO tool call after it by construction."* That
+ * sibling keys on the opposite TENSE — a commitment to act NEXT — so a claim
+ * that the work is ALREADY done escapes it entirely. Only the corpus differs;
+ * the reasoning transfers unchanged.
+ *
+ * A false completion claim is strictly worse than an unmet commitment: it
+ * asserts the work is done, so nothing downstream goes looking for it. R20 is
+ * the recorded case — "I've recorded this correction on the task", in a turn
+ * with zero tool calls; the write landed a turn later.
+ *
+ * Conservative by construction: a claim counts as BACKED whenever the entity id
+ * appears anywhere in any tool input this turn. That over-accepts (mentioning
+ * `mt#N` in an unrelated call clears it) and under-fires, which is the right
+ * direction for a record-only stage whose false positives cost operator trust.
+ *
+ * **The match is digit-bounded, not a bare substring (PR #3544 R1).** A plain
+ * `includes` makes every id a prefix of its own longer siblings: a claim about
+ * `mt#455` is cleared by any call carrying `mt#4555`, `mt#4556` or `mt#45550`.
+ * Those ids co-occur constantly — they are neighbours in the same task graph —
+ * so the collision is routine rather than theoretical, and it fails SILENTLY in
+ * the under-firing direction, which is the direction no test notices.
+ */
+function idIsBacked(haystack: string, id: string): boolean {
+  // Escape first: an id carries `#`, and a future id form could carry more.
+  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Trailing digit-boundary only. A LEADING boundary would be wrong: the ids
+  // appear inside JSON strings (`"taskId":"mt#4555"`), where the preceding
+  // character is a quote, not a word boundary.
+  return new RegExp(`${escaped}(?!\\d)`).test(haystack);
+}
+
+export function findUnbackedClaims(
+  claims: PendingClaim[],
+  turnLines: TranscriptLine[]
+): PendingClaim[] {
+  const targets = claims.filter((c) => c.assertion.family === "past-tense-claim");
+  if (targets.length === 0) return [];
+
+  const haystack = toolInputHaystack(turnLines);
+  const out: PendingClaim[] = [];
+  const seen = new Set<string>();
+  for (const claim of targets) {
+    const dedupe = `${claim.entity.kind}:${claim.entity.id}`;
+    if (seen.has(dedupe)) continue;
+    seen.add(dedupe);
+    if (!idIsBacked(haystack, claim.entity.id)) out.push(claim);
+  }
+  return out;
+}
+
+/**
+ * Read the turn's tool calls, or null when the transcript is unreadable.
+ *
+ * Null is NOT an empty turn: an unreadable transcript would make every claim
+ * look unbacked, which is precisely the false-positive class that erodes trust
+ * in an advisory. The caller reports it as degraded instead.
+ */
+export function readTurnLines(transcriptPath: string | undefined): TranscriptLine[] | null {
+  if (!transcriptPath) return null;
+  try {
+    return extractFinalTurn(parseTranscript(transcriptPath)).turnLines;
+  } catch {
+    // intentional-swallow: an unreadable transcript is a degraded check, not a
+    // guard failure. The caller distinguishes it from "no tool calls".
+    return null;
+  }
+}
+
 /** What the substrate returned for one ref, plus the key that identifies the ENTITY. */
 export interface ResolvedState {
   /** The entity's live state string, verbatim from the row. */
@@ -644,9 +1096,46 @@ export async function run(
   const finalMessage = input.last_assistant_message ?? "";
   if (finalMessage.length === 0) return null;
 
-  // The cheap gate. No IO past this point unless it hits.
-  const claims = findPendingClaims(finalMessage);
-  if (claims.length === 0) return null;
+  // The cheap gate. Rung 1 is pure string work and stays first — a turn with a
+  // recognised phrase never pays for the semantic stage.
+  let claims = findPendingClaims(finalMessage);
+  let rung: 1 | 2 = 1;
+  let nominationScores: { family: string; score: number }[] = [];
+  let rung2Degraded: string | undefined;
+
+  if (claims.length === 0) {
+    // Rung 2. Only reached when Rung 1 recognised nothing; itself gated on a
+    // ref being present, so a turn naming no entity still does zero IO.
+    const nominated = await nominatePendingClaims(finalMessage);
+    claims = nominated.claims;
+    nominationScores = nominated.scores;
+    rung2Degraded = nominated.degradedReason;
+    rung = 2;
+
+    if (claims.length === 0) {
+      // A degradation is worth recording — a stage that silently never runs is
+      // indistinguishable from one that runs and finds nothing, which is the
+      // exact confusion this guard exists to catch. A clean no-nomination is
+      // not worth a record.
+      if (rung2Degraded === undefined) return null;
+      return {
+        calibration: {
+          source: "live",
+          channel: "stop",
+          timestamp: new Date().toISOString(),
+          session_id: input.session_id,
+          stop_hook_active: input.stop_hook_active === true,
+          fired: false,
+          rung: 2,
+          claims: [],
+          contradicted: [],
+          resolvedCount: 0,
+          final_message_tail: safeTruncate(finalMessage, CALIBRATION_TAIL_CHARS, "tail"),
+          suppressionReasons: [rung2Degraded],
+        },
+      };
+    }
+  }
 
   const sessionId = input.session_id ?? "unknown";
   // Dedup on the claimed refs, not the turn: an advisory continuation re-enters
@@ -660,6 +1149,60 @@ export async function run(
   if (flagged.has(key)) return null;
   flagged.add(key);
   writeFlagged(sessionId, flagged, storeDir);
+
+  // Rung 2's families answer to DIFFERENT substrates than terminality, so they
+  // never reach `lookupLiveStates`. Routing by family is what makes this a
+  // widening rather than a reinterpretation of the existing check: a Rung-1
+  // claim takes exactly the path it always took.
+  if (rung === 2) {
+    const peer = await findPeerHeldClaims(claims, input.cwd);
+    const turnLines = readTurnLines(input.transcript_path);
+    const unbacked = turnLines === null ? [] : findUnbackedClaims(claims, turnLines);
+
+    const suppressionReasons: string[] = [];
+    if (rung2Degraded !== undefined) suppressionReasons.push(rung2Degraded);
+    suppressionReasons.push(...peer.degradedReasons);
+    if (turnLines === null && claims.some((c) => c.assertion.family === "past-tense-claim")) {
+      suppressionReasons.push("transcript-unreadable: past-tense claims not checked");
+    }
+    if (peer.held.length === 0 && unbacked.length === 0 && suppressionReasons.length === 0) {
+      suppressionReasons.push("nominated-but-substrate-agrees");
+    }
+
+    return {
+      calibration: {
+        source: "live",
+        channel: "stop",
+        timestamp: new Date().toISOString(),
+        session_id: input.session_id,
+        stop_hook_active: input.stop_hook_active === true,
+        fired: peer.held.length > 0 || unbacked.length > 0,
+        rung: 2,
+        nominationScores,
+        claims: claims.map((c) => ({
+          ref: c.entity.ref,
+          kind: c.entity.kind,
+          assertionFamily: c.assertion.family,
+          assertionPhrase: c.assertion.phrase,
+        })),
+        contradicted: [
+          ...peer.held.map((r) => ({
+            ref: r.entity.ref,
+            assertedPending: r.assertion.phrase,
+            liveState: "peer-activity-on-ledger",
+          })),
+          ...unbacked.map((r) => ({
+            ref: r.entity.ref,
+            assertedPending: r.assertion.phrase,
+            liveState: "no-tool-call-carried-this-ref",
+          })),
+        ],
+        resolvedCount: claims.length,
+        final_message_tail: safeTruncate(finalMessage, CALIBRATION_TAIL_CHARS, "tail"),
+        suppressionReasons,
+      },
+    };
+  }
 
   const lookup = await lookupLiveStates(claims);
   // mt#4375: two independent contradiction signals — the state column, and the
@@ -685,6 +1228,10 @@ export async function run(
       session_id: input.session_id,
       stop_hook_active: input.stop_hook_active === true,
       fired: contradicted.length > 0,
+      // Tagged so the calibration stream keeps the rungs separable. Rung 1 and
+      // Rung 2 have different precision profiles by construction, and pooling
+      // their false-positive rates would make either one unreadable.
+      rung: 1,
       claims: claims.map((c) => ({
         ref: c.entity.ref,
         kind: c.entity.kind,

@@ -139,4 +139,84 @@ describe("GuidedWizardProvisioner", () => {
     expect(fetchCalled).toBe(false);
     expect(creds.installationId).toBeUndefined();
   });
+
+  describe("mt#4815: html_url from /app is origin-checked before it is adopted", () => {
+    const HAPPY_TEXTS = ["12345", "test-app", "Iv1.abc123", "shh-secret", TEST_PEM, "98765"];
+
+    function respondWithHtmlUrl(htmlUrl: unknown): void {
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify({ html_url: htmlUrl }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })) as unknown as typeof fetch;
+    }
+
+    // AT1. Each of these is a URL a naive truthiness check would have adopted.
+    // The look-alike host is the interesting one: it contains the literal
+    // string "github.com", so a prefix or substring test passes it.
+    test.each([
+      ["look-alike host", "https://github.com.evil.com/apps/test-app"],
+      ["github.com in the path, not the host", "https://evil.com/github.com/apps/test-app"],
+      ["credentials making the host read as github.com", "https://github.com@evil.com/apps/x"],
+      ["scheme downgrade", "http://github.com/apps/test-app"],
+      ["non-http scheme", "javascript:alert(1)"],
+      ["not a URL at all", "apps/test-app"],
+    ])("does not adopt an untrusted html_url (%s)", async (_label, hostile) => {
+      const provisioner = new GuidedWizardProvisioner(
+        makePrompts({
+          texts: HAPPY_TEXTS,
+          confirms: [true],
+        })
+      );
+      respondWithHtmlUrl(hostile);
+
+      const creds = await provisioner.provision(SAMPLE_SPEC);
+
+      // Falls back to the URL the wizard constructed itself, which is what
+      // `htmlUrl` was initialised to before the /app call.
+      expect(creds.htmlUrl).toBe("https://github.com/apps/test-app");
+      expect(creds.htmlUrl).not.toBe(hostile);
+    });
+
+    test("a non-string html_url is rejected rather than coerced", async () => {
+      const provisioner = new GuidedWizardProvisioner(
+        makePrompts({
+          texts: HAPPY_TEXTS,
+          confirms: [true],
+        })
+      );
+      respondWithHtmlUrl({ href: "https://github.com/apps/test-app" });
+
+      const creds = await provisioner.provision(SAMPLE_SPEC);
+      expect(creds.htmlUrl).toBe("https://github.com/apps/test-app");
+    });
+
+    test("a genuine github.com html_url IS still adopted", async () => {
+      const provisioner = new GuidedWizardProvisioner(
+        makePrompts({
+          texts: HAPPY_TEXTS,
+          confirms: [true],
+        })
+      );
+      respondWithHtmlUrl("https://github.com/apps/renamed-by-github");
+
+      const creds = await provisioner.provision(SAMPLE_SPEC);
+      expect(creds.htmlUrl).toBe("https://github.com/apps/renamed-by-github");
+    });
+
+    // The fallback is what makes the check safe on GitHub Enterprise: a GHE
+    // `html_url` is legitimately not on github.com, so it is rejected — and
+    // the `webBaseUrl`-derived default is the right URL for that host anyway.
+    test("on GitHub Enterprise the rejected html_url falls back to the configured host", async () => {
+      const provisioner = new GuidedWizardProvisioner({
+        prompts: makePrompts({ texts: HAPPY_TEXTS, confirms: [true] }),
+        apiBaseUrl: "https://ghe.example.com/api/v3",
+        webBaseUrl: "https://ghe.example.com",
+      });
+      respondWithHtmlUrl("https://ghe.example.com/apps/test-app");
+
+      const creds = await provisioner.provision(SAMPLE_SPEC);
+      expect(creds.htmlUrl).toBe("https://ghe.example.com/apps/test-app");
+    });
+  });
 });

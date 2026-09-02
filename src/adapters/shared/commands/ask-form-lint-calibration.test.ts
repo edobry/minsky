@@ -10,7 +10,8 @@
    side effect against a unique per-test temp dir; an fs mock would not catch
    a real mkdir/append-mode bug (mirrors src/mcp/disconnect-tracker.test.ts) */
 
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, afterEach, beforeEach } from "bun:test";
+import { resolveCalibrationStatePath } from "./calibration";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -74,7 +75,25 @@ describe("isVerifiedWorkspaceRoot", () => {
 });
 
 describe("appendAskFormLintCalibrationRecord", () => {
-  test("creates the .minsky directory and appends a JSONL line", () => {
+  // mt#4811: the record now lands in the machine-local state dir, not under the
+  // workspace. `getMinskyStateDir()` is keyed on XDG_STATE_HOME ONLY — see
+  // `packages/shared/src/paths.ts:24-49`, which records why MINSKY_STATE_DIR is
+  // deliberately NOT a higher-precedence tier — so isolating these tests means
+  // overriding that one variable.
+  const XDG_STATE_HOME = "XDG_STATE_HOME";
+  let priorStateHome: string | undefined;
+
+  beforeEach(() => {
+    priorStateHome = process.env[XDG_STATE_HOME];
+    process.env[XDG_STATE_HOME] = mkdtempSync(join(tmpdir(), "ask-form-lint-state-"));
+  });
+
+  afterEach(() => {
+    if (priorStateHome === undefined) delete process.env[XDG_STATE_HOME];
+    else process.env[XDG_STATE_HOME] = priorStateHome;
+  });
+
+  test("writes where the calibration READER resolves, not under the workspace", async () => {
     const workspace = makeWorkspace();
     const record: AskFormLintCalibrationRecord = {
       timestamp: "2026-07-15T00:00:00.000Z",
@@ -83,17 +102,24 @@ describe("appendAskFormLintCalibrationRecord", () => {
       matches: [INTERNAL_TOOL_ID_MATCH],
     };
 
-    appendAskFormLintCalibrationRecord(workspace, record);
+    await appendAskFormLintCalibrationRecord(workspace, record);
 
-    const logPath = join(workspace, ASK_FORM_LINT_CALIBRATION_LOG);
+    // The assertion that matters, and the one whose absence let this ship
+    // broken: the path is computed by the SAME function `/calibration-review`
+    // uses to find the log. Asserting a hand-written path would pass while
+    // reader and writer disagreed, which is exactly the state mt#4811 fixed.
+    const logPath = await resolveCalibrationStatePath(workspace, ASK_FORM_LINT_CALIBRATION_LOG);
     expect(existsSync(logPath)).toBe(true);
     const content = readFileSync(logPath, "utf-8") as string;
     const lines = content.trim().split("\n");
     expect(lines).toHaveLength(1);
     expect(JSON.parse(lines[0] as string)).toEqual(record);
+
+    // And nothing is left in the working tree — the whole point of the move.
+    expect(existsSync(join(workspace, ASK_FORM_LINT_CALIBRATION_LOG))).toBe(false);
   });
 
-  test("appends multiple records as separate JSONL lines", () => {
+  test("appends multiple records as separate JSONL lines", async () => {
     const workspace = makeWorkspace();
     const first: AskFormLintCalibrationRecord = {
       timestamp: "2026-07-15T00:00:00.000Z",
@@ -111,17 +137,17 @@ describe("appendAskFormLintCalibrationRecord", () => {
       matches: [INTERNAL_TOOL_ID_MATCH],
     };
 
-    appendAskFormLintCalibrationRecord(workspace, first);
-    appendAskFormLintCalibrationRecord(workspace, second);
+    await appendAskFormLintCalibrationRecord(workspace, first);
+    await appendAskFormLintCalibrationRecord(workspace, second);
 
-    const logPath = join(workspace, ASK_FORM_LINT_CALIBRATION_LOG);
+    const logPath = await resolveCalibrationStatePath(workspace, ASK_FORM_LINT_CALIBRATION_LOG);
     const lines = (readFileSync(logPath, "utf-8") as string).trim().split("\n");
     expect(lines).toHaveLength(2);
     expect(JSON.parse(lines[0] as string)).toEqual(first);
     expect(JSON.parse(lines[1] as string)).toEqual(second);
   });
 
-  test("does not throw when the workspace path is unwritable (fail-open)", () => {
+  test("does not throw when the workspace path is unwritable (fail-open)", async () => {
     const record: AskFormLintCalibrationRecord = {
       timestamp: "2026-07-15T00:00:00.000Z",
       kind: AUTHORIZATION_APPROVE,
@@ -134,12 +160,12 @@ describe("appendAskFormLintCalibrationRecord", () => {
     // root, so this exercises the same "skip, don't throw" path as the test
     // below — kept as its own case since the assertion under test here is
     // specifically "never throws," regardless of which guard skipped it.
-    expect(() =>
+    await expect(
       appendAskFormLintCalibrationRecord("/dev/null/unwritable-workspace", record)
-    ).not.toThrow();
+    ).resolves.toBeUndefined();
   });
 
-  test("skips the write (no file created) when workspacePath is not a verified workspace root", () => {
+  test("skips the write (no file created) when workspacePath is not a verified workspace root", async () => {
     const workspace = makeUnverifiedWorkspace();
     const record: AskFormLintCalibrationRecord = {
       timestamp: "2026-07-15T00:00:00.000Z",
@@ -147,9 +173,12 @@ describe("appendAskFormLintCalibrationRecord", () => {
       matches: [INTERNAL_TOOL_ID_MATCH],
     };
 
-    appendAskFormLintCalibrationRecord(workspace, record);
+    await appendAskFormLintCalibrationRecord(workspace, record);
 
-    const logPath = join(workspace, ASK_FORM_LINT_CALIBRATION_LOG);
-    expect(existsSync(logPath)).toBe(false);
+    // Nothing written in EITHER location — the workspace-root guard still
+    // skips, and post-mt#4811 the state dir must not receive a record either.
+    expect(existsSync(join(workspace, ASK_FORM_LINT_CALIBRATION_LOG))).toBe(false);
+    const statePath = await resolveCalibrationStatePath(workspace, ASK_FORM_LINT_CALIBRATION_LOG);
+    expect(existsSync(statePath)).toBe(false);
   });
 });

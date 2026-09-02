@@ -19,9 +19,36 @@
  * Follows the `mcp-server-status` widget's testable-factory pattern:
  * pure logic lives in `createReviewerBotStatusWidget(deps)` with injectable IO;
  * the real-wired export `reviewerBotStatusWidget` binds the live probe + DB.
+ *
+ * ## Project scope (mt#4746) — PARTIAL, by construction
+ *
+ * `?project=<owner/repo slug>` filters the three tables that carry direct
+ * repo attribution — `reviewer_convergence_metrics` (`pr_owner`/`pr_repo`),
+ * `review_timing` (`pr_owner`/`pr_repo`), and `reviewer_inflight_reviews`
+ * (`owner`/`repo`) — via a plain equality filter on those ALREADY-PRESENT
+ * text columns, not a join: `projects.slug` IS the `owner/repo` string
+ * (mt#2416), so once `resolveCockpitProjectScope` confirms the requested
+ * slug resolves to a real project row, the same slug string (split on `/`)
+ * is the exact repo-scope filter value.
+ *
+ * `reviewer_webhook_events` carries NO owner/repo column at all (see
+ * `services/reviewer/migrations/pg/0001_webhook_events.sql`) — its only repo
+ * signal is embedded inside the raw `body` jsonb payload, which this widget
+ * has never parsed. Four fields derived from it — `reviewCount24h`,
+ * `failureCount24h`, `lastError`, and `lastWebhookReceivedAt` — therefore
+ * stay GLOBAL (all-repos) even when `?project=` is set. This is a genuine
+ * partial-filter gap, not an oversight: closing it needs either a schema
+ * migration adding owner/repo columns to that table, or parsing them out of
+ * `body` per-row, and mt#4746's own scope is threading `?project=` through
+ * existing columns, not schema work. Consequence worth knowing: A3
+ * (failure-rate spike) is computed from these two unscoped fields, so it
+ * reflects ALL repos' failure rate even in a scoped view — the other five
+ * anomalies (A1, A2, A4, A5, A6) are computed from scoped fields and are
+ * accurate per-project.
  */
 
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
+import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
 import { log } from "@minsky/shared/logger";
 import { createEpochKeyedCache, getSharedPersistenceService } from "../shared-persistence";
 import { describeWidgetDegradedReason } from "../db-providers";
@@ -272,6 +299,59 @@ export interface ReviewerBotStatusDeps {
   now: () => number;
   /** Test seam: override the DB-stats phase deadline (defaults to DB_STATS_TIMEOUT_MS). */
   dbStatsTimeoutMs?: number;
+  /**
+   * Optional test seam (mt#4746, mirrors `memories-list.ts`'s mt#4727
+   * `getProjectScopeDb` seam): overrides `resolveCockpitProjectScope`'s own
+   * db-fetch for the `?project=` resolution. Production callers never set
+   * this.
+   */
+  getProjectScopeDb?: () => Promise<ScopeResolverDb | null>;
+}
+
+// ---------------------------------------------------------------------------
+// Repo scope (mt#4746) — see the module docblock's "Project scope" section
+// for why this is a plain equality filter over already-present text columns,
+// not a join, and which fields it cannot reach.
+// ---------------------------------------------------------------------------
+
+/** A resolved, real `owner/repo` pair to filter the repo-attributed tables by. */
+export interface RepoScope {
+  owner: string;
+  repo: string;
+}
+
+/**
+ * Split a confirmed-valid `owner/repo` project slug into its two parts.
+ * Returns `null` for a malformed slug (no `/`, or an empty owner/repo half)
+ * so callers fail OPEN (no filter) rather than filtering on a garbage value
+ * — same fail-open posture as `resolveCockpitProjectScope` itself. This
+ * should only ever be called with a slug `resolveCockpitProjectScope` has
+ * already confirmed resolves to a real project row, so a malformed result
+ * here would indicate a project whose slug isn't `owner/repo`-shaped (not
+ * expected for a GitHub-backed project per ADR-021, but handled defensively
+ * rather than assumed).
+ */
+export function parseOwnerRepoSlug(slug: string): RepoScope | null {
+  const slashIndex = slug.indexOf("/");
+  if (slashIndex <= 0 || slashIndex === slug.length - 1) return null;
+  const owner = slug.slice(0, slashIndex);
+  const repo = slug.slice(slashIndex + 1);
+  return { owner, repo };
+}
+
+/**
+ * SQL fragment appending an owner/repo equality filter at placeholder
+ * positions $2/$3 — every scopable query in this file has exactly ONE base
+ * parameter (a window-start ISO timestamp or a limit), so the repo-scope
+ * params always land at the next two positions. Returns `""` when unscoped.
+ */
+function repoScopeClause(repoScope: RepoScope | null, ownerCol: string, repoCol: string): string {
+  return repoScope ? ` AND ${ownerCol} = $2 AND ${repoCol} = $3` : "";
+}
+
+/** The `[owner, repo]` params to append after a query's one base param, or `[]` when unscoped. */
+function repoScopeParams(repoScope: RepoScope | null): [] | [string, string] {
+  return repoScope ? [repoScope.owner, repoScope.repo] : [];
 }
 
 // ---------------------------------------------------------------------------
@@ -286,13 +366,16 @@ export function createReviewerBotStatusWidget(deps: ReviewerBotStatusDeps): Widg
   // endpoint permanently concurrent. Cleared on settle so sequential polls get
   // fresh data.
   //
-  // Coalescing across ALL callers is valid because this widget's fetch ignores
-  // its WidgetContext entirely (no query params affect the result). If a
-  // query-dependent variant is ever added, key the in-flight promise by
-  // (id, serialized query) instead (PR #1895 R1).
-  let inflight: Promise<WidgetData> | null = null;
+  // Coalescing is keyed by the resolved repo-scope key (mt#4746) — the raw
+  // `?project=` query param is a fine coalescing key on its own (two requests
+  // for the same literal param always want the same result), so scope
+  // RESOLUTION still happens once per fetch rather than once per key.
+  // Previously coalesced across ALL callers unconditionally (PR #1895 R1),
+  // which was valid only because the widget ignored WidgetContext entirely;
+  // that stopped being true once `?project=` started affecting the result.
+  const inflightByScope = new Map<string, Promise<WidgetData>>();
 
-  async function runFetch(): Promise<WidgetData> {
+  async function runFetch(ctx: WidgetContext): Promise<WidgetData> {
     try {
       const nowMs = deps.now();
       const nowIso = new Date(nowMs).toISOString();
@@ -301,6 +384,21 @@ export function createReviewerBotStatusWidget(deps: ReviewerBotStatusDeps): Widg
       const health = await deps.probeHealth();
 
       const a1ServiceUnreachable = !health.ok;
+
+      // Project scope (mt#4746) — see the module docblock's "Project scope"
+      // section. resolveCockpitProjectScope owns its own db-fetch and never
+      // throws (fail-open to ALL_PROJECTS — PR #2056 R1); parseOwnerRepoSlug
+      // only runs on a slug it already confirmed resolves to a real project.
+      const { resolveCockpitProjectScope } = await import("../project-scope");
+      const { isAllProjects } = await import("@minsky/domain/project/scope");
+      const rawProjectParam = ctx.query?.project;
+      const projectScope = await resolveCockpitProjectScope(rawProjectParam, {
+        getDb: deps.getProjectScopeDb,
+      });
+      const repoScope: RepoScope | null =
+        !isAllProjects(projectScope) && rawProjectParam
+          ? parseOwnerRepoSlug(rawProjectParam)
+          : null;
 
       // 2. DB-backed stats (degrade independently to null on any failure),
       //    raced against a hard deadline so a wedged pool can never hold the
@@ -313,7 +411,7 @@ export function createReviewerBotStatusWidget(deps: ReviewerBotStatusDeps): Widg
           deadlineHandle = setTimeout(() => resolve(null), timeoutMs);
           deadlineHandle.unref?.();
         });
-        db = await Promise.race([fetchDbStats(deps.queryRows, nowMs), deadline]);
+        db = await Promise.race([fetchDbStats(deps.queryRows, nowMs, repoScope), deadline]);
         if (db === null) {
           log.warn(
             `[reviewer-bot-status] DB stats timed out after ${timeoutMs}ms — returning db:null`
@@ -400,13 +498,16 @@ export function createReviewerBotStatusWidget(deps: ReviewerBotStatusDeps): Widg
     id: "reviewer-bot-status",
     title: "Reviewer Bot",
     updateMode: { type: "polling", intervalMs: 30_000 },
-    async fetch(_ctx: WidgetContext): Promise<WidgetData> {
-      if (inflight) return inflight;
-      inflight = runFetch();
+    async fetch(ctx: WidgetContext): Promise<WidgetData> {
+      const scopeKey = ctx.query?.project ?? "ALL_PROJECTS";
+      const existing = inflightByScope.get(scopeKey);
+      if (existing) return existing;
+      const promise = runFetch(ctx);
+      inflightByScope.set(scopeKey, promise);
       try {
-        return await inflight;
+        return await promise;
       } finally {
-        inflight = null;
+        inflightByScope.delete(scopeKey);
       }
     },
   };
@@ -475,7 +576,11 @@ export async function runQueriesWithLimit<T>(
  * ISO timestamps and integer constants — not user-supplied input. We
  * parameterize anyway per pg best practices and for future-proofing.
  */
-async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<ReviewerDbStats> {
+async function fetchDbStats(
+  queryRows: QueryRowsFn,
+  nowMs: number,
+  repoScope: RepoScope | null = null
+): Promise<ReviewerDbStats> {
   const window24hIso = windowStartIso(nowMs, WINDOW_24H_MS);
   const window7dIso = windowStartIso(nowMs, WINDOW_7D_MS);
   const staleThresholdIso = windowStartIso(nowMs, A2_STALE_INFLIGHT_TTL_MS);
@@ -550,12 +655,12 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
       `SELECT head_ref FROM (
          SELECT head_ref, MAX(created_at) AS last_seen
          FROM reviewer_convergence_metrics
-         WHERE head_ref IS NOT NULL AND head_ref != '' AND head_ref LIKE 'task/mt-%'
+         WHERE head_ref IS NOT NULL AND head_ref != '' AND head_ref LIKE 'task/mt-%'${repoScopeClause(repoScope, "pr_owner", "pr_repo")}
          GROUP BY head_ref
          ORDER BY last_seen DESC
          LIMIT $1
        ) subq`,
-      [RECENT_TASKS_LIMIT]
+      [RECENT_TASKS_LIMIT, ...repoScopeParams(repoScope)]
     ),
     // Latency: avg + percentile over last 24h
     countedQuery(
@@ -563,14 +668,14 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
          AVG(total_wall_clock_ms)::integer AS avg_ms,
          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY total_wall_clock_ms)::integer AS p95_ms
        FROM review_timing
-       WHERE created_at >= $1`,
-      [window24hIso]
+       WHERE created_at >= $1${repoScopeClause(repoScope, "pr_owner", "pr_repo")}`,
+      [window24hIso, ...repoScopeParams(repoScope)]
     ),
     // Stale in-flight: markers acquired more than A2_STALE_INFLIGHT_TTL_MS ago
     countedQuery(
       `SELECT COUNT(*) AS count FROM reviewer_inflight_reviews
-       WHERE acquired_at <= $1`,
-      [staleThresholdIso]
+       WHERE acquired_at <= $1${repoScopeClause(repoScope, "owner", "repo")}`,
+      [staleThresholdIso, ...repoScopeParams(repoScope)]
     ),
     // Rate-limit hits: count 'rate_limited' entries across all rows'
     // retry_outcomes (text[]) in the window, via explicit CROSS JOIN LATERAL
@@ -581,8 +686,8 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
       `SELECT COUNT(*) AS count
        FROM review_timing rt
        CROSS JOIN LATERAL unnest(rt.retry_outcomes) AS ro(outcome)
-       WHERE rt.created_at >= $1 AND ro.outcome = 'rate_limited'`,
-      [window24hIso]
+       WHERE rt.created_at >= $1 AND ro.outcome = 'rate_limited'${repoScopeClause(repoScope, "rt.pr_owner", "rt.pr_repo")}`,
+      [window24hIso, ...repoScopeParams(repoScope)]
     ),
     // Last webhook received
     countedQuery(
@@ -596,30 +701,30 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
     countedQuery(
       `SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY (input_tokens + output_tokens)) AS median_tokens
        FROM review_timing
-       WHERE created_at >= $1 AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL`,
-      [window24hIso]
+       WHERE created_at >= $1 AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL${repoScopeClause(repoScope, "pr_owner", "pr_repo")}`,
+      [window24hIso, ...repoScopeParams(repoScope)]
     ),
     // mt#2288: median total tokens per model-invoking review, 7d.
     countedQuery(
       `SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY (input_tokens + output_tokens)) AS median_tokens
        FROM review_timing
-       WHERE created_at >= $1 AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL`,
-      [window7dIso]
+       WHERE created_at >= $1 AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL${repoScopeClause(repoScope, "pr_owner", "pr_repo")}`,
+      [window7dIso, ...repoScopeParams(repoScope)]
     ),
     // mt#2288: median USD cost per priced review, 24h (cost_usd NULL when the
     // model is unpriced — excluded so the median reflects only priced reviews).
     countedQuery(
       `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cost_usd)::numeric AS median_cost
        FROM review_timing
-       WHERE created_at >= $1 AND cost_usd IS NOT NULL`,
-      [window24hIso]
+       WHERE created_at >= $1 AND cost_usd IS NOT NULL${repoScopeClause(repoScope, "pr_owner", "pr_repo")}`,
+      [window24hIso, ...repoScopeParams(repoScope)]
     ),
     // mt#2288: median USD cost per priced review, 7d.
     countedQuery(
       `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cost_usd)::numeric AS median_cost
        FROM review_timing
-       WHERE created_at >= $1 AND cost_usd IS NOT NULL`,
-      [window7dIso]
+       WHERE created_at >= $1 AND cost_usd IS NOT NULL${repoScopeClause(repoScope, "pr_owner", "pr_repo")}`,
+      [window7dIso, ...repoScopeParams(repoScope)]
     ),
     // mt#2721: aggregate cache-hit ratio (cached/input) over cache-reporting
     // reviews in 24h. SUM/SUM (not avg-of-ratios) reflects how much of the real
@@ -630,24 +735,24 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
     countedQuery(
       `SELECT SUM(cached_tokens)::float8 / NULLIF(SUM(input_tokens), 0) AS cache_hit_ratio
        FROM review_timing
-       WHERE created_at >= $1 AND input_tokens IS NOT NULL AND cached_tokens IS NOT NULL`,
-      [window24hIso]
+       WHERE created_at >= $1 AND input_tokens IS NOT NULL AND cached_tokens IS NOT NULL${repoScopeClause(repoScope, "pr_owner", "pr_repo")}`,
+      [window24hIso, ...repoScopeParams(repoScope)]
     ),
     // mt#2287: verdict distribution, 24h. Nullable `verdict` column (mt#2287
     // migration) — rows written before that migration retain NULL and are
     // excluded so the distribution reflects only reviews with a known verdict.
     countedQuery(
       `SELECT verdict, COUNT(*) AS count FROM reviewer_convergence_metrics
-       WHERE verdict IS NOT NULL AND created_at >= $1
+       WHERE verdict IS NOT NULL AND created_at >= $1${repoScopeClause(repoScope, "pr_owner", "pr_repo")}
        GROUP BY verdict`,
-      [window24hIso]
+      [window24hIso, ...repoScopeParams(repoScope)]
     ),
     // mt#2287: verdict distribution, 7d (baseline for the drift comparison).
     countedQuery(
       `SELECT verdict, COUNT(*) AS count FROM reviewer_convergence_metrics
-       WHERE verdict IS NOT NULL AND created_at >= $1
+       WHERE verdict IS NOT NULL AND created_at >= $1${repoScopeClause(repoScope, "pr_owner", "pr_repo")}
        GROUP BY verdict`,
-      [window7dIso]
+      [window7dIso, ...repoScopeParams(repoScope)]
     ),
   ];
 

@@ -53,7 +53,23 @@ export class RuleSimilarityService {
   }
 
   /**
-   * Search rules by natural language query using embeddings
+   * Search rules by natural language query using embeddings.
+   *
+   * `threshold` is a minimum SIMILARITY — higher is more similar (mt#4805).
+   *
+   * It was accepted here and silently dropped: declared on the signature, never
+   * read, so `suggestRules`' documented "Minimum similarity threshold for
+   * agent-requested rules" (`rule-suggestion-enhanced.ts`) had no effect and the
+   * `threshold: 0.1` that `workspace-rules.ts` passes did nothing. Same shape as
+   * the tasks-side defect mt#3305 fixed, on the third of the three services that
+   * share this backend — found while enumerating consumers for mt#4805.
+   *
+   * Applied on every backend. `SimilarityItem.score` guarantees DIRECTION across
+   * backends but not UNITS, so a threshold calibrated against cosine similarity
+   * over-filters `lexical-backend`'s Jaccard coefficient — but it over-filters in
+   * the right direction, keeping the best matches. Silently dropping the filter
+   * instead is the failure mt#3305 was filed for, and the degraded flag on
+   * `SimilaritySearchResponse` is what tells a caller which backend answered.
    */
   async searchByText(query: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
     const core = await createRuleSimilarityCore(this.workspacePath, {
@@ -61,7 +77,9 @@ export class RuleSimilarityService {
     });
     const response = await core.search({ queryText: query, limit });
     // Map to SearchResult shape (id/score compatible)
-    return response.items.map((i) => ({ id: i.id, score: i.score }) as SearchResult);
+    const results = response.items.map((i) => ({ id: i.id, score: i.score }) as SearchResult);
+    if (threshold === undefined) return results;
+    return results.filter((r) => r.score >= threshold);
   }
 
   /**

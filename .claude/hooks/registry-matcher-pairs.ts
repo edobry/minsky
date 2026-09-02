@@ -313,6 +313,33 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   ["flakiness-control-detector", "warn-unwired-task-relationship"],
   ["claim-provenance-scan", "warn-unwired-task-relationship"],
   ["spec-criterion-claim-detector", "warn-unwired-task-relationship"],
+
+  // mt#4213's `criterion-reconciliation-scan` is the eighth guard on this seam,
+  // and the first whose subject is the spec's INTERNAL consistency rather than
+  // its claims about the world or about the graph. Stated per overlapping
+  // sibling, since a blanket "it's different" is what this allowlist exists to
+  // prevent:
+  //
+  //   - `claim-provenance-scan` — is a collision / ownership / remaining-work
+  //     claim backed by a tool call? Its join is claim-to-CALL. This one never
+  //     looks outside the spec: both halves of its join are sections of the same
+  //     document, so a spec can satisfy that guard completely and still
+  //     contradict itself.
+  //   - `spec-criterion-claim-detector` — does a criterion ASSERT an unverified
+  //     corpus fact or invent a precondition? It reads what a criterion SAYS.
+  //     This reads whether a criterion CHANGED when another section said it was
+  //     unmet — a question about the revision, not about the assertion. The two
+  //     share `extractCriteria` precisely because they read the same section for
+  //     different reasons.
+  //   - `warn-unwired-task-relationship` — was a relationship the prose NAMED
+  //     encoded as an edge? Its second half is the task graph; this one's is the
+  //     spec's own normative text.
+  //
+  // The overlap is the TOOL, not the question — the intentional-co-registration
+  // shape this list is for.
+  ["claim-provenance-scan", "criterion-reconciliation-scan"],
+  ["spec-criterion-claim-detector", "criterion-reconciliation-scan"],
+  ["warn-unwired-task-relationship", "criterion-reconciliation-scan"],
   // mt#4544's `spec-scope-execution-check` is the sixth guard on this seam.
   // Deliberately co-resident with all five: each asks a DIFFERENT question of
   // the same PR-create moment, and this one's is the only join that reads the
@@ -325,6 +352,44 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   ["evidence-record-provenance", "spec-scope-execution-check"],
   ["new-surface-design-pass", "spec-scope-execution-check"],
   ["enumeration-scope-check", "spec-scope-execution-check"],
+  // mt#4769 — `operator-deferral-artifact-surface-{pr,spec}`. Two registrations
+  // of ONE surface, split only because this file's sibling invariant requires a
+  // guard's matcher tokens to be filed under the family that owns them; their
+  // own token sets are disjoint, so they never pair with each other.
+  //
+  // Why its QUESTION differs from every guard it sits beside, per this list's
+  // standard — a blanket "it's different" is what the allowlist exists to stop.
+  // Every co-resident guard below joins the artifact's CONTENT against something
+  // external to the agent: a diff, the task graph, a tool call, another section
+  // of the same document. This one joins the artifact's prose against the
+  // AGENT'S CONDUCT IN THE TURN — did it probe before writing that it could not
+  // do something. The subject is the author, not the artifact, which is why no
+  // amount of the others passing implies anything about this one:
+  //
+  //   - `stale-signal-sweep`, `unrendered-result-field-scan`,
+  //     `evidence-record-provenance` — do the PR body's claims match what the
+  //     run actually produced? Their join is claim-to-EVIDENCE.
+  //   - `new-surface-design-pass`, `enumeration-scope-check`,
+  //     `spec-scope-execution-check` — does the body's scope/enumeration match
+  //     the diff? Their join is claim-to-DIFF.
+  //   - `claim-provenance-scan` — is a claim backed by a tool call? The closest
+  //     neighbour, and still a different join: it asks whether a POSITIVE claim
+  //     has backing, this asks whether a NEGATIVE capability claim was probed.
+  //     A body can satisfy it completely while deferring an action it never
+  //     tried — which is exactly the incident that produced mt#4769.
+  //   - `spec-criterion-claim-detector`, `criterion-reconciliation-scan`,
+  //     `warn-unwired-task-relationship` — all read the spec's criteria or the
+  //     task graph. This reads neither; a deferral can sit in any section.
+  ["stale-signal-sweep", "operator-deferral-artifact-surface-pr"],
+  ["unrendered-result-field-scan", "operator-deferral-artifact-surface-pr"],
+  ["evidence-record-provenance", "operator-deferral-artifact-surface-pr"],
+  ["new-surface-design-pass", "operator-deferral-artifact-surface-pr"],
+  ["enumeration-scope-check", "operator-deferral-artifact-surface-pr"],
+  ["spec-scope-execution-check", "operator-deferral-artifact-surface-pr"],
+  ["claim-provenance-scan", "operator-deferral-artifact-surface-spec"],
+  ["spec-criterion-claim-detector", "operator-deferral-artifact-surface-spec"],
+  ["warn-unwired-task-relationship", "operator-deferral-artifact-surface-spec"],
+  ["criterion-reconciliation-scan", "operator-deferral-artifact-surface-spec"],
 ];
 
 /** Is this pair declared as an intentional co-registration? */

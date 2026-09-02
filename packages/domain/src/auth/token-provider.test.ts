@@ -931,3 +931,116 @@ describe("createTokenProvider", () => {
     expect(provider.isServiceAccountConfigured()).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Installation repository coverage (mt#4680)
+// ---------------------------------------------------------------------------
+
+describe("GitHubAppTokenProvider — installation coverage (mt#4680)", () => {
+  /** The originating ungranted repo (mt#4680). */
+  const UNGRANTED_REPO = "edobry/peezombie.me";
+
+  /**
+   * Serves the two calls the coverage check makes: the installation-token mint,
+   * then one or more `/installation/repositories` pages.
+   */
+  function coverageFetch(pages: Array<{ selection?: string; repos: string[] }>): FetchLike {
+    // Keyed off the `?page=` param rather than a call counter: `coversRepository`
+    // re-fetches on every call (see its docblock), so a stateful counter would
+    // be exhausted by the second assertion in a test and report false coverage.
+    return (async (url: string | URL | Request) => {
+      const href = typeof url === "string" ? url : url.toString();
+      if (href.includes("/access_tokens")) {
+        return new Response(JSON.stringify({ token: "ghs_installation", expires_at: null }), {
+          status: 200,
+        });
+      }
+      if (href.includes("/installation/repositories")) {
+        const pageMatch = /[?&]page=(\d+)/.exec(href);
+        const page = pages[(pageMatch ? Number(pageMatch[1]) : 1) - 1] ?? { repos: [] };
+        return new Response(
+          JSON.stringify({
+            total_count: page.repos.length,
+            repository_selection: page.selection ?? "selected",
+            repositories: page.repos.map((full_name) => ({ full_name })),
+          }),
+          { status: 200 }
+        );
+      }
+      throw new Error(`unexpected fetch: ${href}`);
+    }) as unknown as FetchLike;
+  }
+
+  it("enumerates the repositories the installation actually covers", async () => {
+    const provider = makeProvider({
+      fetchImpl: coverageFetch([{ repos: ["edobry/minsky"] }]) as unknown as typeof fetch,
+    });
+    const coverage = await provider.getInstallationCoverage();
+    expect(coverage.repositories).toEqual(["edobry/minsky"]);
+    expect(coverage.selection).toBe("selected");
+  });
+
+  it("coversRepository is TRUE for a granted repo and FALSE for an ungranted one", async () => {
+    // The originating case: minsky is covered, peezombie.me is not, and the
+    // second fact only surfaced as a bare 404 from pulls.create before this.
+    const provider = makeProvider({
+      fetchImpl: coverageFetch([{ repos: ["edobry/minsky"] }]) as unknown as typeof fetch,
+    });
+    expect(await provider.coversRepository("edobry/minsky")).toBe(true);
+    expect(await provider.coversRepository(UNGRANTED_REPO)).toBe(false);
+  });
+
+  it("matches case-insensitively — GitHub echoes caller casing but compares case-insensitively", async () => {
+    const provider = makeProvider({
+      fetchImpl: coverageFetch([{ repos: ["Edobry/Minsky"] }]) as unknown as typeof fetch,
+    });
+    expect(await provider.coversRepository("edobry/minsky")).toBe(true);
+    expect(await provider.coversRepository("EDOBRY/MINSKY")).toBe(true);
+  });
+
+  it("paginates — a full first page must not be mistaken for the whole coverage set", async () => {
+    // A truncated list reads exactly like a missing grant, which is the
+    // failure this test exists to prevent.
+    const firstPage = Array.from({ length: 100 }, (_, i) => `edobry/repo-${i}`);
+    const provider = makeProvider({
+      fetchImpl: coverageFetch([
+        { repos: firstPage },
+        { repos: [UNGRANTED_REPO] },
+      ]) as unknown as typeof fetch,
+    });
+    const coverage = await provider.getInstallationCoverage();
+    expect(coverage.repositories).toHaveLength(101);
+    expect(await provider.coversRepository(UNGRANTED_REPO)).toBe(true);
+  });
+
+  it('reports selection "all" when the installation was granted every repository', async () => {
+    const provider = makeProvider({
+      fetchImpl: coverageFetch([
+        { selection: "all", repos: ["edobry/minsky"] },
+      ]) as unknown as typeof fetch,
+    });
+    expect((await provider.getInstallationCoverage()).selection).toBe("all");
+  });
+
+  it("throws with the status rather than reporting empty coverage on an API failure", async () => {
+    // Silently returning [] would render every repo 'ungranted' — a false
+    // negative that is worse than the error it hides.
+    const failing = (async () =>
+      new Response("nope", {
+        status: 500,
+        statusText: "Internal Server Error",
+      })) as unknown as FetchLike;
+    const provider = makeProvider({
+      fetchImpl: (async (url: string | URL | Request) => {
+        const href = typeof url === "string" ? url : url.toString();
+        if (href.includes("/access_tokens")) {
+          return new Response(JSON.stringify({ token: "ghs_x" }), { status: 200 });
+        }
+        return (failing as unknown as (u: unknown) => Promise<Response>)(url);
+      }) as unknown as typeof fetch,
+    });
+    await expect(provider.getInstallationCoverage()).rejects.toThrow(
+      /Failed to list installation repositories: 500/
+    );
+  });
+});

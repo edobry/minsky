@@ -102,7 +102,14 @@ pub(crate) const ALERT_COOLDOWN: Duration = Duration::from_secs(900); // 15 min
 /// compiler judge whether the surface is sufficient.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DaemonLabels {
-    /// Human name used in alert prose, e.g. `"Cockpit"`.
+    /// Human name used in alert prose and as the tray's lifecycle-menu entry,
+    /// e.g. `"Cockpit daemon"`.
+    ///
+    /// **Carries the class word (mt#4233).** It was the bare product name until
+    /// then, which made exactly one of the two menu entries say "daemon" — the
+    /// MCP one — so "the daemon entry → Restart" deterministically steered the
+    /// operator to the wrong process on 2026-08-17. Callers must therefore NOT
+    /// append " daemon" themselves; doing so renders it twice.
     pub(crate) display_name: &'static str,
     /// Status line while the daemon is healthy.
     pub(crate) running: &'static str,
@@ -114,6 +121,34 @@ pub(crate) struct DaemonLabels {
     /// the sustained-outage alert so the toast is actionable.
     pub(crate) stderr_log_hint: &'static str,
 }
+
+/// Build a daemon's whole label set from ONE name literal (mt#4233).
+///
+/// Every status line is the display name plus a fixed suffix, so before this the
+/// name was written once per line — five literals for the cockpit, four for the
+/// MCP entry — and a rename had to find every one of them. That is not a
+/// hypothetical cost: it is why the two entries drifted into disagreeing about
+/// whether the class word belongs in the name at all.
+///
+/// A macro rather than a helper `const fn` because neither of the two obvious
+/// alternatives compiles: a `const` cannot call `format!` (no allocation in
+/// const context), and `concat!` takes literal TOKENS, not `const` idents — so
+/// `concat!(COCKPIT_NAME, ": running")` is rejected even though the ident names
+/// a `&'static str`. `$name:literal` supplies the literal `concat!` needs, which
+/// makes "define the name once" expressible without giving up `&'static str`.
+macro_rules! daemon_labels {
+    ($name:literal, $log:literal) => {
+        $crate::supervisor::daemon_core::DaemonLabels {
+            display_name: $name,
+            running: concat!($name, ": running"),
+            stopped: concat!($name, ": stopped"),
+            starting: concat!($name, ": starting..."),
+            stderr_log_hint: $log,
+        }
+    };
+}
+
+pub(crate) use daemon_labels;
 
 // ---------------------------------------------------------------------------
 // Pure logic (unit-tested without the Tauri runtime — mt#2226).
@@ -268,8 +303,11 @@ pub(crate) enum NoChildEffect {
 /// uptime line visible for one more poll cycle.
 ///
 /// mt#3990 made the user-visible strings arrive via `labels` instead of
-/// reading cockpit `LABEL_*` constants directly. For the cockpit daemon the
-/// emitted text is byte-identical to what the constants produced.
+/// reading cockpit `LABEL_*` constants directly — which is what let mt#4233
+/// rename the cockpit entry without touching this function. (This doc said the
+/// emitted text was byte-identical to what the constants produced; true of
+/// mt#3990's extraction, false since that rename. The seam is the point, not
+/// the byte-equality.)
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_health_down_no_child(
     counters: &mut NoChildCounters,
@@ -972,6 +1010,86 @@ pub(crate) fn kill_pid_force(pid: u32) {
     let _ = Command::new("/bin/kill")
         .args(["-KILL", &pid.to_string()])
         .output();
+}
+
+/// SIGKILL an entire process group (negative pid). The escalation pair of
+/// [`kill_group`], for a group that survived its SIGTERM (mt#4800).
+pub(crate) fn kill_group_force(pgid: u32) {
+    let _ = Command::new("/bin/kill")
+        .args(["-KILL", &format!("-{pgid}")])
+        .output();
+}
+
+/// What `do_stop` actually signalled, so a caller that needs the port BACK can
+/// verify the stop took and escalate on the SAME target rather than improvise a
+/// new one (mt#4800). The `health_confirmed` flag carries the stop-time health
+/// verdict: the port's occupant answered as this entry's own service, which is
+/// the same authority `do_stop`'s adopted-kill path already acts on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StopTarget {
+    /// SIGTERMed our spawned child's recorded process group.
+    SpawnedGroup { pgid: u32 },
+    /// SIGTERMed the child handle only — no process group was recorded.
+    SpawnedChildOnly { health_confirmed: bool },
+    /// SIGTERMed the pid lsof reported holding the port (adopted daemon).
+    PortHolder { pid: u32 },
+    /// Adopted stop was authorized, but lsof could not resolve a holder — the
+    /// silent no-op that used to end the stop attempt entirely.
+    PortHolderUnresolved,
+    /// Nothing was signalled: no child, and the holder was not ours to touch.
+    Untouched,
+}
+
+/// The one SIGKILL-tier action a failed polite stop earns, or a refusal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Escalation {
+    /// SIGKILL the already-SIGTERMed group.
+    KillGroup { pgid: u32 },
+    /// SIGKILL the already-SIGTERMed pid.
+    KillPid { pid: u32 },
+    /// The holder never received a TERM (lsof missed it at stop time): give it
+    /// one, then KILL if it still holds the port.
+    TermThenKill { pid: u32 },
+    /// No target we are authorized to signal. The caller reports the held port
+    /// instead of spawning into a bind that will refuse (mt#4800's incident).
+    Refuse,
+}
+
+/// Decide the escalation for a port still held after `do_stop`'s SIGTERM had
+/// its grace period. Pure, so the authority rules are testable without a
+/// process to kill.
+///
+/// Authority is the whole design: every SIGKILL here targets either the exact
+/// group/pid the polite stop already signalled, or — for the lsof-miss case — a
+/// holder whose stop was health-authorized at stop time. A holder that CHANGED
+/// pid since the stop is never touched: concurrent cockpit daemons in other
+/// workspaces are a supported configuration (mt#4243), and an unattributable
+/// pid on the port is not ours to kill, however inconvenient.
+pub(crate) fn escalate_unreleased_port(target: StopTarget, holder_now: Option<u32>) -> Escalation {
+    match (target, holder_now) {
+        // The group ignored its SIGTERM (a wedged or STOPped process cannot
+        // handle one — mt#4205's motivating class). Same target, harder signal.
+        (StopTarget::SpawnedGroup { pgid }, _) => Escalation::KillGroup { pgid },
+        // We TERMed this exact pid and it still holds the port.
+        (StopTarget::PortHolder { pid }, Some(now)) if now == pid => Escalation::KillPid { pid },
+        // The holder changed since the stop — not the process we signalled.
+        (StopTarget::PortHolder { .. }, _) => Escalation::Refuse,
+        // lsof missed the holder at stop time, so nothing was ever signalled;
+        // the stop itself was health-authorized, and grace has elapsed.
+        (StopTarget::PortHolderUnresolved, Some(now)) => Escalation::TermThenKill { pid: now },
+        (StopTarget::PortHolderUnresolved, None) => Escalation::Refuse,
+        // No recorded group: the child got its TERM, but the port's holder
+        // cannot be tied to it. Health-confirmed occupancy is the one warrant
+        // strong enough to act on (the adopted-kill path's own rule).
+        (
+            StopTarget::SpawnedChildOnly {
+                health_confirmed: true,
+            },
+            Some(now),
+        ) => Escalation::TermThenKill { pid: now },
+        (StopTarget::SpawnedChildOnly { .. }, _) => Escalation::Refuse,
+        (StopTarget::Untouched, _) => Escalation::Refuse,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2226,5 +2344,98 @@ mod tests {
             2,
             "both entries are recorded, so both are reachable at teardown (AT5)"
         );
+    }
+
+    // ------------------------------------------------------------------
+    // escalate_unreleased_port (mt#4800): the authority rules for a port
+    // still held after do_stop's SIGTERM grace.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn escalation_resignals_the_termed_group_regardless_of_holder() {
+        // The pgid was already SIGTERMed; SIGKILLing it targets nothing new,
+        // so the current holder pid does not gate it.
+        for holder in [Some(42), None] {
+            assert_eq!(
+                escalate_unreleased_port(StopTarget::SpawnedGroup { pgid: 7 }, holder),
+                Escalation::KillGroup { pgid: 7 }
+            );
+        }
+    }
+
+    #[test]
+    fn escalation_kills_the_termed_port_holder_only_while_it_still_holds() {
+        assert_eq!(
+            escalate_unreleased_port(StopTarget::PortHolder { pid: 42 }, Some(42)),
+            Escalation::KillPid { pid: 42 }
+        );
+        // A DIFFERENT pid on the port is not the process we signalled — a
+        // peer workspace's daemon is a supported configuration (mt#4243).
+        assert_eq!(
+            escalate_unreleased_port(StopTarget::PortHolder { pid: 42 }, Some(43)),
+            Escalation::Refuse
+        );
+        assert_eq!(
+            escalate_unreleased_port(StopTarget::PortHolder { pid: 42 }, None),
+            Escalation::Refuse
+        );
+    }
+
+    #[test]
+    fn escalation_gives_an_lsof_missed_holder_its_term_first() {
+        // The stop was health-authorized but lsof resolved nothing, so no
+        // signal was ever sent — the silent no-op that let mt#4800's stale
+        // daemon keep serving. The late-resolved holder gets TERM before KILL.
+        assert_eq!(
+            escalate_unreleased_port(StopTarget::PortHolderUnresolved, Some(42)),
+            Escalation::TermThenKill { pid: 42 }
+        );
+        assert_eq!(
+            escalate_unreleased_port(StopTarget::PortHolderUnresolved, None),
+            Escalation::Refuse
+        );
+    }
+
+    #[test]
+    fn escalation_requires_health_authority_when_no_group_was_recorded() {
+        assert_eq!(
+            escalate_unreleased_port(
+                StopTarget::SpawnedChildOnly {
+                    health_confirmed: true
+                },
+                Some(42)
+            ),
+            Escalation::TermThenKill { pid: 42 }
+        );
+        // Without the stop-time health confirmation there is no warrant tying
+        // the holder to the child we killed.
+        assert_eq!(
+            escalate_unreleased_port(
+                StopTarget::SpawnedChildOnly {
+                    health_confirmed: false
+                },
+                Some(42)
+            ),
+            Escalation::Refuse
+        );
+        assert_eq!(
+            escalate_unreleased_port(
+                StopTarget::SpawnedChildOnly {
+                    health_confirmed: true
+                },
+                None
+            ),
+            Escalation::Refuse
+        );
+    }
+
+    #[test]
+    fn escalation_never_invents_a_target_for_an_untouched_stop() {
+        for holder in [Some(42), None] {
+            assert_eq!(
+                escalate_unreleased_port(StopTarget::Untouched, holder),
+                Escalation::Refuse
+            );
+        }
     }
 }

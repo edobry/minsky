@@ -1,6 +1,7 @@
 import { execSync as defaultExecSync } from "child_process";
 import { getErrorMessage, ValidationError } from "../errors/index";
 import { isInsideGitWorkTree } from "../utils/git-exec";
+import { parseGitHubOwnerRepo } from "../uri-utils";
 import { log } from "@minsky/shared/logger";
 import {
   createRepositoryBackend,
@@ -408,20 +409,8 @@ export function extractGitHubInfoFromUrl(
   remoteUrl: string
 ): { owner: string; repo: string } | null {
   try {
-    // SSH: git@github.com:owner/repo.git
-    // HTTPS: https://github.com/owner/repo.git
-    const sshMatch = remoteUrl.match(/git@github\.com:([^/]+)\/([^.]+)/);
-    const httpsMatch = remoteUrl.match(/https:\/\/github\.com\/([^/]+)\/([^.]+)/);
-
-    const match = sshMatch || httpsMatch;
-    if (match && match[1] && match[2]) {
-      return {
-        owner: match[1] || "",
-        repo: (match[2] || "").replace(/\.git$/, ""), // Remove .git suffix
-      };
-    }
-
-    return null;
+    // mt#4671: shared parser — a GitHub repo name may contain dots.
+    return parseGitHubOwnerRepo(remoteUrl);
   } catch (error) {
     log.debug("Failed to extract GitHub info from URL", {
       remoteUrl,

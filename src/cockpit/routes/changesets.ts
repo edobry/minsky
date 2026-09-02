@@ -11,9 +11,13 @@ import {
   getServerTaskService,
   getServerChangesetService,
   getServerChecksReader,
+  getDefaultChangesetRepoRef,
+  getProjectRepoRefBySlug,
   describeServerPersistenceUnavailability,
 } from "../db-providers";
-import { resolveCockpitProjectScope } from "../project-scope";
+import { resolveCockpitProjectScope, ALL_PROJECTS_PARAM } from "../project-scope";
+import { changesetIdFor, isChangesetId } from "@minsky/shared/changeset-id";
+import { resolveChangesetRepoSource, selectSessionForChangeset } from "../changeset-resolution";
 import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
 import { getLoggableErrorSummary } from "@minsky/domain/schemas/error";
 import type { Changeset } from "@minsky/domain/changeset/types";
@@ -60,16 +64,70 @@ export function mountChangesetRoutes(app: express.Express): void {
     }
     const changesetId = decodeURIComponent(rawId);
 
-    // Canonical changeset id is a PR number (positive integer string).
-    // matchEntityRoute is permissive and accepts any path segment as :id —
-    // the server is the authoritative gate.
-    if (!/^[0-9]+$/.test(changesetId)) {
-      res.status(400).json({ error: "Invalid changeset id: expected a PR number" });
+    // A changeset id is a PR number, optionally qualified by its repository
+    // (`owner/repo#N`, mt#4724 / mt#1207's convention). matchEntityRoute is
+    // permissive and accepts any path segment as :id — the server is the
+    // authoritative gate.
+    //
+    // The digits-only alternative is deliberate and not redundant: `0` is not a
+    // valid PR number, but this route has answered 404 for it since mt#3096
+    // ("a wholly unresolvable id is a 404, not a 500") and that contract is
+    // asserted directly. Digit strings therefore stay SYNTACTICALLY acceptable
+    // here and fall through to the unresolvable branch below.
+    if (!/^[0-9]+$/.test(changesetId) && !isChangesetId(changesetId)) {
+      res.status(400).json({
+        error: "Invalid changeset id: expected a PR number or owner/repo#number",
+      });
       return;
     }
-    const prNumber = parseInt(changesetId, 10);
 
     try {
+      // WHICH repo this request names (mt#4724). A PR number is unique only
+      // per-repository, so every read below — the live PR, the session
+      // enrichment scan, and the CI check-runs — is scoped by it. A bare id
+      // with no `?project=` resolves against the DEFAULT project, which is what
+      // it has always meant and what keeps already-emitted
+      // `minsky://changeset/<n>` links resolving (ADR-029 fixes that form).
+      const projectParam = typeof req.query.project === "string" ? req.query.project : undefined;
+      const projectQualified = Boolean(projectParam) && projectParam !== ALL_PROJECTS_PARAM;
+      const projectRepo = projectQualified
+        ? await getProjectRepoRefBySlug(projectParam as string)
+        : null;
+
+      // An UNRESOLVABLE explicit qualifier must not fall through to the default
+      // project (PR #3455 R1). The fail-open posture `resolveCockpitProjectScope`
+      // takes is right for the LIST route, where degrading to ALL_PROJECTS shows
+      // MORE rows and the caller can see what it got. Here it would silently
+      // return a DIFFERENT PR — the caller asked for project X's PR N and would
+      // be handed the default project's PR N, indistinguishable from a correct
+      // answer. That is the exact substitution this task exists to remove, so
+      // this branch fails closed.
+      if (projectQualified && !projectRepo) {
+        res.status(404).json({
+          error:
+            `No repository for project "${projectParam}" — it is not a known project ` +
+            `and its slug is not an owner/repo pair, so changeset ${changesetId} cannot ` +
+            `be resolved within it.`,
+        });
+        return;
+      }
+
+      const request = resolveChangesetRepoSource({
+        changesetId,
+        projectRepo,
+        defaultRepo: await getDefaultChangesetRepoRef(),
+      });
+      if (!request) {
+        // Reached only by a digit string that is not a PR number (`0`, or a
+        // value past MAX_SAFE_INTEGER). Nothing can resolve it, and an
+        // unresolvable id is a 404 on this route (mt#3096).
+        res.status(404).json({ error: `No changeset found for ${changesetId}` });
+        return;
+      }
+      const { prNumber, repo } = request;
+      // The forge adapter is already bound to ONE repo, so it takes the bare PR
+      // number — the qualifier lives in the service construction, not the key.
+      const prKey = String(prNumber);
       const {
         buildSessionMeta,
         buildPrRef,
@@ -87,8 +145,8 @@ export function mountChangesetRoutes(app: express.Express): void {
       // ---------------------------------------------------------------
       let liveChangeset: Changeset | null = null;
       try {
-        const reader = await getServerChangesetService();
-        liveChangeset = reader ? await reader.get(changesetId) : null;
+        const reader = await getServerChangesetService(repo);
+        liveChangeset = reader ? await reader.get(prKey) : null;
         if (!reader) {
           log.debug(
             `[changeset] no live changeset reader for #${changesetId} — rendering from session snapshot`
@@ -107,8 +165,13 @@ export function mountChangesetRoutes(app: express.Express): void {
       try {
         provider = await getServerSessionProvider();
         if (provider) {
+          // Scoped by the resolved repo (mt#4724). This scan used to take the
+          // FIRST row whose `pullRequest.number` matched, over an UNSCOPED
+          // list — so two projects each holding a PR #1 collided on whichever
+          // row the store returned first. The rule now lives in
+          // `selectSessionForChangeset`, tested directly.
           const allSessions = await provider.listSessions();
-          record = allSessions.find((s) => s.pullRequest?.number === prNumber) ?? null;
+          record = selectSessionForChangeset(allSessions, prNumber, repo);
         }
       } catch (sessionErr) {
         log.debug(
@@ -193,7 +256,10 @@ export function mountChangesetRoutes(app: express.Express): void {
         checksUnavailableReason = "no-commit";
       } else {
         try {
-          const checksReader = await getServerChecksReader();
+          // Same repo the changeset was read from (mt#4724): a head SHA queried
+          // against another repository returns an EMPTY check-run set rather
+          // than an error, i.e. an unearned "no checks".
+          const checksReader = await getServerChecksReader(repo);
           if (!checksReader) {
             checksUnavailableReason = "not-configured";
           } else {
@@ -286,9 +352,19 @@ export function mountChangesetRoutes(app: express.Express): void {
         return pr !== null && (pr.state === "open" || pr.state === "draft");
       });
       const taskService = await getServerTaskService().catch(() => null);
+      // The default repo decides which rows keep a BARE changeset id (mt#4724):
+      // resolved once for the whole list rather than per row.
+      const defaultRepo = await getDefaultChangesetRepoRef();
       type ChangesetItem = {
         pr: NonNullable<ReturnType<typeof buildPrRef>>;
         session: ReturnType<typeof buildSessionMeta>;
+        /**
+         * The routable id for this changeset — bare for the default project,
+         * `owner/repo#N` otherwise. Emitted so the client links to an
+         * UNAMBIGUOUS detail route rather than re-deriving a bare PR number
+         * that two projects can both claim.
+         */
+        changesetId: string | null;
       };
       const settled = await Promise.allSettled(
         active.map(async (record): Promise<ChangesetItem> => {
@@ -302,7 +378,12 @@ export function mountChangesetRoutes(app: express.Express): void {
           }
           const pr = buildPrRef(record);
           if (!pr) throw new Error(`No PR ref for session ${record.sessionId}`);
-          return { pr, session: buildSessionMeta(record, taskTitle) };
+          return {
+            pr,
+            session: buildSessionMeta(record, taskTitle),
+            changesetId:
+              pr.number != null ? changesetIdFor(record.repoUrl, pr.number, defaultRepo) : null,
+          };
         })
       );
       const changesets = (

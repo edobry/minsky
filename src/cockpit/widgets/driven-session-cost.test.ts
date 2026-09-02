@@ -12,8 +12,20 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { aggregateDrivenSessionCost } from "./driven-session-cost";
-import type { DrivenSessionCostRecord } from "@minsky/domain/storage/schemas/driven-session-cost-schema";
+import {
+  aggregateDrivenSessionCost,
+  createDrivenSessionCostWidget,
+  filterRowsByProjectTasks,
+  type DrivenSessionCostDb,
+  type DrivenSessionCostPayload,
+} from "./driven-session-cost";
+import {
+  drivenSessionCostTable,
+  type DrivenSessionCostRecord,
+} from "@minsky/domain/storage/schemas/driven-session-cost-schema";
+import { tasksTable } from "@minsky/domain/storage/schemas/task-embeddings";
+import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
+import type { WidgetContext } from "../types";
 
 function row(overrides: Partial<DrivenSessionCostRecord> = {}): DrivenSessionCostRecord {
   return {
@@ -193,5 +205,166 @@ describe("aggregateDrivenSessionCost", () => {
     if (result.status !== "ok") return;
     // $1 total over a 5-minute span, floored at 1 day => $1/day, not $288/day.
     expect(result.projectedDailyCostUsd).toBeCloseTo(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// filterRowsByProjectTasks (mt#4746)
+// ---------------------------------------------------------------------------
+
+describe("filterRowsByProjectTasks (mt#4746)", () => {
+  test("keeps only rows whose taskId is in the allowed set", () => {
+    const rows = [
+      row({ id: "a", taskId: "mt#1" }),
+      row({ id: "b", taskId: "mt#2" }),
+      row({ id: "c", taskId: null }),
+    ];
+    const result = filterRowsByProjectTasks(rows, new Set(["mt#1"]));
+    expect(result.map((r) => r.id)).toEqual(["a"]);
+  });
+
+  test("drops a null-taskId (untasked/scratch) row even against an empty allowed set check", () => {
+    const rows = [row({ id: "a", taskId: null })];
+    expect(filterRowsByProjectTasks(rows, new Set(["mt#1"]))).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Project scope (mt#4746 — two-project fixture, mirrors mt#4727's pattern)
+// ---------------------------------------------------------------------------
+
+describe("createDrivenSessionCostWidget — project scope (mt#4746)", () => {
+  const PROJECT_A_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const PROJECT_A_SLUG = "edobry/minsky";
+
+  function ctxWithProject(slug: string): WidgetContext {
+    return { id: "driven-session-cost", query: { project: slug } } as WidgetContext;
+  }
+
+  const fakeCtx = (): WidgetContext => ({ id: "driven-session-cost" }) as WidgetContext;
+
+  /** Fake scope-resolver db, shaped `select().from().where().limit()`. */
+  function makeScopeResolverDb(rows: Array<{ id: string; slug: string }>): ScopeResolverDb {
+    return {
+      select() {
+        return {
+          from() {
+            return {
+              where() {
+                return {
+                  limit() {
+                    return Promise.resolve(rows);
+                  },
+                };
+              },
+            };
+          },
+        };
+      },
+    };
+  }
+
+  /**
+   * Two-project fixture db: routes `.from()` by table identity. The
+   * `driven_session_cost` branch answers a bare `.select().from(table)` (no
+   * `.where()`, matching production); the `tasks` branch answers
+   * `.select({id}).from(tasksTable).where(...)` with whichever task ids
+   * belong to the requested project.
+   */
+  function makeTwoProjectDb(
+    costRows: DrivenSessionCostRecord[],
+    projectATaskIds: string[]
+  ): DrivenSessionCostDb {
+    return {
+      select: () => ({
+        from: (table: unknown) => {
+          if (table === drivenSessionCostTable) {
+            return Promise.resolve(costRows);
+          }
+          if (table === tasksTable) {
+            return {
+              where: () => Promise.resolve(projectATaskIds.map((id) => ({ id }))),
+            };
+          }
+          throw new Error("makeTwoProjectDb: unexpected table in .from()");
+        },
+      }),
+    };
+  }
+
+  test("no ?project= returns rows for every task (ALL_PROJECTS, unscoped)", async () => {
+    const rows = [
+      row({ id: "a", taskId: "mt#1", totalCostUsd: "1.000000" }),
+      row({ id: "b", taskId: "mt#2", totalCostUsd: "2.000000" }),
+      row({ id: "c", taskId: null, totalCostUsd: "3.000000" }),
+    ];
+    const db = makeTwoProjectDb(rows, ["mt#1"]);
+    const widget = createDrivenSessionCostWidget(async () => db);
+
+    const result = await widget.fetch(fakeCtx());
+    expect(result.state).toBe("ok");
+    if (result.state !== "ok") return;
+    const payload = result.payload as DrivenSessionCostPayload;
+    expect(payload.status).toBe("ok");
+    if (payload.status !== "ok") return;
+    expect(payload.turnCount).toBe(3);
+  });
+
+  test("?project=<project A slug> keeps only project A's task-linked rows", async () => {
+    const rows = [
+      row({ id: "a", taskId: "mt#1", totalCostUsd: "1.000000" }), // project A
+      row({ id: "b", taskId: "mt#2", totalCostUsd: "2.000000" }), // project B
+      row({ id: "c", taskId: null, totalCostUsd: "3.000000" }), // untasked — dropped
+    ];
+    const db = makeTwoProjectDb(rows, ["mt#1"]);
+    const widget = createDrivenSessionCostWidget(
+      async () => db,
+      async () => makeScopeResolverDb([{ id: PROJECT_A_ID, slug: PROJECT_A_SLUG }])
+    );
+
+    const result = await widget.fetch(ctxWithProject(PROJECT_A_SLUG));
+    expect(result.state).toBe("ok");
+    if (result.state !== "ok") return;
+    const payload = result.payload as DrivenSessionCostPayload;
+    expect(payload.status).toBe("ok");
+    if (payload.status !== "ok") return;
+    expect(payload.turnCount).toBe(1);
+    expect(payload.sessions.map((s) => s.taskId)).toEqual(["mt#1"]);
+  });
+
+  test("?project=<unresolvable slug> fails open to ALL_PROJECTS (every row returned)", async () => {
+    const rows = [
+      row({ id: "a", taskId: "mt#1", totalCostUsd: "1.000000" }),
+      row({ id: "b", taskId: "mt#2", totalCostUsd: "2.000000" }),
+    ];
+    const db = makeTwoProjectDb(rows, ["mt#1"]);
+    const widget = createDrivenSessionCostWidget(
+      async () => db,
+      async () => null
+    );
+
+    const result = await widget.fetch(ctxWithProject("unknown/repo"));
+    expect(result.state).toBe("ok");
+    if (result.state !== "ok") return;
+    const payload = result.payload as DrivenSessionCostPayload;
+    expect(payload.status).toBe("ok");
+    if (payload.status !== "ok") return;
+    expect(payload.turnCount).toBe(2);
+  });
+
+  test("scoping to a project with no matching driven-session tasks returns 'no-data'", async () => {
+    const rows = [row({ id: "a", taskId: "mt#1", totalCostUsd: "1.000000" })];
+    // Project A owns no tasks that this widget's rows reference.
+    const db = makeTwoProjectDb(rows, []);
+    const widget = createDrivenSessionCostWidget(
+      async () => db,
+      async () => makeScopeResolverDb([{ id: PROJECT_A_ID, slug: PROJECT_A_SLUG }])
+    );
+
+    const result = await widget.fetch(ctxWithProject(PROJECT_A_SLUG));
+    expect(result.state).toBe("ok");
+    if (result.state !== "ok") return;
+    const payload = result.payload as DrivenSessionCostPayload;
+    expect(payload.status).toBe("no-data");
   });
 });

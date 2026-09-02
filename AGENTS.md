@@ -393,9 +393,83 @@ Structure source code so tests don't need complex mocking:
   shell), and the support-vs-diagnostic split for log assertions (`testing-boundaries.mdc
   §Console Output`), enforced by `custom/no-spy-patching`.
 
+### The clock is injected, never read at the point of use
+
+`Date.now()` / `new Date()` reached from inside the code under test is a **time bomb**: the test
+passes the day it is written and fails on a date nobody chose. This is a convention rather than a
+case-by-case call because the per-site tier demonstrably does not contain it — three per-site fixes
+shipped in eight weeks (mt#2654 2026-07-07, mt#2839 2026-07-15, mt#4721 2026-08-29), in three
+different files, and the class detonated again after each. Two of those detonations turned `main`
+red for **every open PR**.
+
+**1. The seam is an optional trailing parameter with a real default.**
+
+```typescript
+// ❌ Time bomb — the window is computed against whatever day the suite happens to run on
+export function pruneExpired(entries: Entry[]): Entry[] {
+  const now = Date.now();
+  // ...
+}
+
+// ✅ Injectable — production callers pass nothing, tests pass a fixed value
+export function pruneExpired(entries: Entry[], nowMs: number = Date.now()): Entry[] {
+  // ...
+}
+```
+
+Name it `nowMs` for epoch millis and `now` for a `Date`. Put it last, so no existing caller changes.
+
+**This is NOT the `deps?.x ?? createX()` fallback that [ADR-026](mdc:docs/architecture/adr-026-dependency-injection-convention.md)
+rule 3 bans.** That ban targets a fallback which CONSTRUCTS A SERVICE — it "silently connects tests
+to real infrastructure when a caller forgets to inject a fake." A clock default supplies a
+**primitive**, constructs nothing, and reaches no infrastructure.
+[ADR-036](mdc:docs/architecture/adr-036-testing-doubles-mechanism-and-patching-ban.md) §Decision
+rule 2 settles the question in as many words: *"an optional `deps` parameter with a real default
+counts as no change, per ADR-026 rule 2."* Expect to be asked this; it is the first thing that looks
+wrong about the shape.
+
+**2. Public entry points thread the parameter, or say why they do not.**
+
+A seam nothing reaches is not a seam. When a module exposes an injectable clock, every exported
+entry point above it either forwards the parameter or carries a comment saying it deliberately does
+not. This is the half mt#4721 failed on: `readAskConversationMap(mapPath, nowMs = Date.now())` was
+already injectable and its docblock already said why — *"`nowMs` is injected rather than read from
+the clock at each call site so the retention behaviour stays deterministic under test"* — but the
+test reached that subsystem through `run()`, which passes nothing. So the test got the real clock
+and took a fixed-date shortcut instead, and detonated seven days later.
+
+**3. Fixtures anchor to the SAME value the test injects.**
+
+Pinning the clock while fixtures still call the real one is a NEW bug, not a fix: a fixture meaning
+"20 days ago" lands before or after the frozen `now` unpredictably, depending on the day the suite
+runs.
+
+```typescript
+// ❌ The injected clock and the fixtures disagree
+const NOW = Date.parse("2026-01-01T00:00:00Z");
+const stale = { at: new Date(Date.now() - 20 * DAY).toISOString() }; // real clock!
+
+// ✅ One reference, used by both
+const NOW = Date.parse("2026-01-01T00:00:00Z");
+const daysAgo = (n: number) => new Date(NOW - n * DAY).toISOString();
+const stale = { at: daysAgo(20) };
+```
+
+Never anchor a fixture to an absolute literal date that a `Date.now()`-relative window will later be
+compared against — that is the `BASE_DATE` shape mt#2654 fixed.
+
+**Enforcement: none. This is discipline-tier, and saying so is the point.** No lint rule checks it
+and none is planned as a general rule: a bare `Date.now()` is usually the correct construct in
+production code, and the population is far too large for a repo-wide ban — compare
+`custom/no-silent-catch` (1462 pre-existing sites) and `custom/require-subprocess-network-timeout`
+(542), both registered `off` for exactly that reason. The backstop is **mt#4726**, a scheduled run
+with the clock shifted forward, which DETECTS violations rather than preventing them. If a lint rule
+is ever wanted, the tractable slice is the decidable one: a defaulted clock parameter that a public
+entry point in the same file fails to thread (rule 2 above).
+
 ## Test Data
 
-- Use predictable, representative test data. Avoid `new Date()`, `Math.random()`, or anything that makes tests flaky.
+- Use predictable, representative test data. Avoid `new Date()`, `Math.random()`, or anything that makes tests flaky. For dates specifically this is not just a flakiness concern — an absolute fixture compared against a real-clock window fails on a future date rather than intermittently. See §Testable Design → *The clock is injected, never read at the point of use* for the seam shape and the fixture-anchoring rule.
 - Create fixtures with helper functions; keep setup visually separate from assertions.
 - Reset state between tests — never rely on ordering or cross-test side effects.
 
@@ -2054,6 +2128,8 @@ When spawning subagents, use the appropriate model and type:
 
 **Capacity:** Subagents have limited context/tool budgets with no graceful degradation. Scope to 8–12 files per wave. Instruct to commit incrementally. For multi-phase work, use subtasks (`tasks_create` with `parent`). If a subagent returns incomplete work, check session `git diff`/`git status` and finish from main agent.
 
+**Bandwidth: dispatch CONTAINS a search's re-upload tail (mt#3842).** A result added to the parent at request *i* of an *N*-request session is re-sent (N − i) times — a 100 KB read early in a median 234-request session costs 22.8 MB, because caching prices the unchanged prefix rather than exempting it from transmission. Delegated, it is re-uploaded only inside a transcript that ends. Measured over 683 subagent transcripts: **10,728 Mtok contained, median 3,557-byte return.** So **dispatch exploratory or search-heavy work instead of reading widely in the parent** — the same direction mem#584's attention argument points. Containment, not free work: the subagent pays its own re-uploads at its own smaller N. Curve, compaction threshold, and the refuted quadratic: `docs/context-bandwidth.md`.
+
 **Continuation.** `SendMessage` resumes a **COMPLETED** subagent from transcript with full context — prefer it over a fresh dispatch for review-fix rounds (validated `mt#2578`; memory `6038c0a1`, whose own "pending" rule-text-correction note is stale as of mt#2865 — this citation applies it). Messaging a still-RUNNING agent ALSO works (verified mt#3128; mem#699): delivery lands at its next tool round and it STEERS, not just informs — course-correct by messaging rather than kill + re-dispatch, redirecting REMAINING work (already-executed steps can't be undone). Mid-flight steering is a recovery path, not a substitute for a well-specified initial dispatch. Full mechanics: `docs/rules-rationale/subagent-routing.md §Continuation`.
 
 **Never fork for bounded lookups from an active implementation context (mt#2865).** A `fork`
@@ -2329,10 +2405,11 @@ How to apply: `docs/rules-rationale/work-completion.md §Recovery layer spec dis
 
 When a task spec introduces an **event-driven or polling mechanism** — webhook handler, scheduled job, cron, sweeper, watcher, poller — it MUST name the **concrete invocation path**: what starts it, what calls it, how it is wired in.
 
-These fail silently in two shapes, identical from outside: the feature exists, its tests pass, it produces nothing.
+These fail silently in three shapes. The first two are identical from outside: the feature exists, its tests pass, it produces nothing. The third inverts them — the mechanism was working, and a change stops it.
 
 - **Nothing calls it.** No scheduler, no registration, no production callsite — or the only caller is a stub (mt#1618).
 - **It runs; a dependency inside it is dead.** The failure is caught and converted into the same value a legitimately empty result produces — no missing caller to grep for, no error to find (mt#3019, mt#3046).
+- **The change REMOVES the signal a consumer depended on.** The inverse of the first shape, and invisible to it: nothing new is uninvoked — an existing invoker is deleted, or newly guarded so it stops running. A process exit, an emitted event, a closed connection, a state file another process polls: each is rarely only cleanup, and something downstream is usually watching for it. So when a design stops a behavior, enumerate what CONSUMED it before calling the design complete (mt#4493).
 
 **Trigger keywords:** "fires", "triggers", "polls", "watches", "scheduled", "periodic", "on event", "listener", "handler". Never swallow a dependency failure into a "nothing to do" value — log the actual error.
 

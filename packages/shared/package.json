@@ -29,11 +29,14 @@
     "./array-safety": "./src/array-safety.ts",
     "./cold-start-profile": "./src/cold-start-profile.ts",
     "./ask-approval": "./src/ask-approval.ts",
+    "./changeset-id": "./src/changeset-id.ts",
     "./ask-closure": "./src/ask-closure.ts",
     "./ask-option-label": "./src/ask-option-label.ts",
     "./resolve-proposal": "./src/resolve-proposal.ts",
     "./entity-thread-types": "./src/entity-thread-types.ts",
     "./tool-effect": "./src/tool-effect.ts",
-    "./credential-request": "./src/credential-request.ts"
+    "./credential-request": "./src/credential-request.ts",
+    "./app-grant-request": "./src/app-grant-request.ts",
+    "./memory-tag-namespaces": "./src/memory-tag-namespaces.ts"
   }
 }

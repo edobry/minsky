@@ -3,10 +3,13 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import * as path from "path";
 import {
   detectAgentHarness,
   hasNativeSubagentSupport,
   detectInstalledClients,
+  resolveInitClient,
+  STANDALONE_CLIENT_PRIORITY,
 } from "./harness-detection";
 
 const CLAUDE_AND_CURSOR_ENV_VARS = [
@@ -150,6 +153,7 @@ describe("detectInstalledClients", () => {
     const validClients = new Set([
       "cursor",
       "claude-desktop",
+      "claude-code",
       "vscode",
       "windsurf",
       "junie",
@@ -160,5 +164,107 @@ describe("detectInstalledClients", () => {
     for (const c of clients) {
       expect(validClients.has(c)).toBe(true);
     }
+  });
+
+  describe("claude-code detection (mt#4676)", () => {
+    test("reports claude-code when ~/.claude/ exists", () => {
+      const clients = detectInstalledClients({
+        pathExists: (p) => p.endsWith(`${path.sep}.claude`),
+      });
+      expect(clients).toContain("claude-code");
+    });
+
+    test("does not report claude-code when ~/.claude/ is absent", () => {
+      const clients = detectInstalledClients({ pathExists: () => false });
+      expect(clients).not.toContain("claude-code");
+    });
+
+    test("ambiguous case: reports both claude-code and cursor when both directories exist", () => {
+      // mt#4676's originating repro: CLAUDECODE=1 live, ~/.cursor/ ALSO present
+      // (from a prior editor install). detectInstalledClients() itself makes no
+      // ordering claim between the two -- resolveInitClient() is what decides
+      // which one wins for `init`, and that decision is tested separately below.
+      const clients = detectInstalledClients({ pathExists: () => true });
+      expect(clients).toContain("claude-code");
+      expect(clients).toContain("cursor");
+    });
+  });
+});
+
+describe("resolveInitClient (mt#4676)", () => {
+  test("returns claude-code when the environment reports claude-code", () => {
+    expect(resolveInitClient("claude-code", [])).toBe("claude-code");
+  });
+
+  test("returns cursor when the environment reports cursor", () => {
+    expect(resolveInitClient("cursor", [])).toBe("cursor");
+  });
+
+  // The exact ambiguous case from mt#4676's repro: CLAUDECODE=1 is live AND
+  // ~/.cursor/ exists on disk (a prior editor install). The environment
+  // signal must win -- filesystem installed-ness only proves an app is
+  // present, not that it is the one driving `init`.
+  test("ambiguous case: env says claude-code, filesystem also shows cursor installed -- claude-code wins", () => {
+    expect(resolveInitClient("claude-code", ["cursor", "claude-desktop"])).toBe("claude-code");
+  });
+
+  test("no regression: env says cursor even though claude-code is also installed -- cursor wins", () => {
+    expect(resolveInitClient("cursor", ["claude-code", "cursor"])).toBe("cursor");
+  });
+
+  test("standalone: falls back to the first installed client", () => {
+    expect(resolveInitClient("standalone", ["claude-desktop", "vscode"])).toBe("claude-desktop");
+  });
+
+  test("standalone with nothing installed: defaults to cursor (preserves init's pre-mt#4676 default)", () => {
+    expect(resolveInitClient("standalone", [])).toBe("cursor");
+  });
+
+  describe("standalone fallback uses the DECLARED priority order, not array position (PR #3423 R1)", () => {
+    test("STANDALONE_CLIENT_PRIORITY is the declared, documented order", () => {
+      expect(STANDALONE_CLIENT_PRIORITY).toEqual([
+        "cursor",
+        "claude-code",
+        "claude-desktop",
+        "vscode",
+        "windsurf",
+        "junie",
+        "codex",
+      ]);
+    });
+
+    test("cursor wins even when listed SECOND in the passed array", () => {
+      // If the resolver picked installedClients[0] (the pre-R1 behavior),
+      // this would return "vscode". The declared priority ranks cursor
+      // first regardless of where it sits in the passed array.
+      expect(resolveInitClient("standalone", ["vscode", "cursor"])).toBe("cursor");
+    });
+
+    test("claude-code outranks claude-desktop and vscode even when listed last", () => {
+      expect(resolveInitClient("standalone", ["vscode", "claude-desktop", "claude-code"])).toBe(
+        "claude-code"
+      );
+    });
+
+    test("falls through to a lower-priority client when higher-priority ones are absent", () => {
+      expect(resolveInitClient("standalone", ["codex", "junie"])).toBe("junie");
+    });
+
+    test("openhands is never picked by the standalone fallback (not in the priority list)", () => {
+      // openhands is deliberately excluded from detectInstalledClients()'s
+      // auto-detection (no reliable filesystem signature); confirm the
+      // priority list agrees and the fallback still resolves via cursor.
+      expect(STANDALONE_CLIENT_PRIORITY).not.toContain("openhands");
+      expect(resolveInitClient("standalone", ["openhands"])).toBe("cursor");
+    });
+  });
+
+  test("defaults to the real detectors when called with no arguments", () => {
+    // Doesn't assert a specific value (machine-dependent) -- just that it
+    // returns a valid ManagedClient without throwing, proving the default
+    // parameters wire up to the real detectAgentHarness()/detectInstalledClients().
+    const result = resolveInitClient();
+    expect(typeof result).toBe("string");
+    expect(result.length).toBeGreaterThan(0);
   });
 });

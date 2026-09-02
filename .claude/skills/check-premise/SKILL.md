@@ -596,7 +596,8 @@ unverified premises, say "unverified — need to check X."
   asserting it" — R1–R5 incident log.
 - `.claude/hooks/causal-premise-detector.ts` — structural enforcement hook
   (mt#2216, calibration mode — logs matches to
-  `.minsky/causal-premise-calibration.jsonl`).
+  `~/.local/state/minsky/projects/*/causal-premise-calibration.jsonl`; the
+  project-keyed state dir since mt#4748, not the repo).
 - `CLAUDE.md §Professional communication` — "Verify factual claims before
   agreeing or disagreeing; use 'Let me check…' before confirming facts."
 - `feedback_confabulated_strategic_frame_to_justify_tactical_preference`

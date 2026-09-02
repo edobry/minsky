@@ -13,8 +13,9 @@ import {
 } from "@minsky/domain/errors/index";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrChecksCommandParams } from "./session-parameters";
-import { sessionPrChecks } from "@minsky/domain/session/commands/pr-subcommands";
-import type { CheckRunResult } from "@minsky/domain/repository/github-pr-checks";
+import { sessionPrChecks, trimChecksResult } from "@minsky/domain/session/commands/pr-subcommands";
+import type { TrimmedChecksResult } from "@minsky/domain/session/commands/pr-subcommands";
+import type { CheckRunResult, ChecksResult } from "@minsky/domain/repository/github-pr-checks";
 import { McpErrorCode } from "@minsky/domain/errors/mcp-error-codes";
 import { mcpStructuredError } from "@minsky/domain/errors/mcp-structured-errors";
 import { classifyOctokitOriginReadError, withOriginalMessage } from "./merge-error-classification";
@@ -78,6 +79,45 @@ export function formatChecksStatusLine(result: {
   return `${ICON_PENDING} ${summary.pending} check(s) pending`;
 }
 
+/**
+ * Choose the structured (`json`) payload: trimmed by default, full on request.
+ *
+ * **Why trimmed (mt#4657).** Measured over the 387 real results this tool
+ * produced into `agent_transcript_turns`: on the 324 all-green ones, 308
+ * consuming turns called `session_pr_merge` next and NONE referenced an
+ * individual check — the per-check array was read by nobody. On the 63
+ * non-green ones the caller drills into a failing job with
+ * `forge_ci_run_view_log`, taking its `runId` from a check URL; all 11 observed
+ * drill-downs are recoverable from the non-passing entries alone (a workflow
+ * run's id appears on its failing jobs too), so `failingChecks` preserves every
+ * one. Effect: the green case goes from ~3,437 chars to a constant 155; overall
+ * 3,497 -> 253, a 92.8% cut on a result paid 434 times in the corpus.
+ *
+ * **This reverses a deliberate earlier decision, on evidence that postdates
+ * it.** mt#2656 built {@link trimChecksResult}, applied it to `session.pr.drive`
+ * and recorded that `session.pr.checks` "keeps its existing full-detail
+ * output". The corpus measurement above did not exist until mt#4418
+ * (2026-08-26). Reusing that function rather than writing a second projection
+ * is what keeps the two commands' trimmed shape one contract.
+ *
+ * **The CLI is unaffected.** Only the structured branch routes through here;
+ * the text branch below still renders every check, so the CLI's DEFAULT path
+ * loses nothing. Per ADR-039 the suppression is also DECLARED rather than
+ * inferred — the trimmed payload names itself by carrying `failingChecks`
+ * instead of `checks`, and `fullBody: true` restores the full breakdown
+ * (the same opt-out `session_pr_wait-for-review` and `session_pr_drive` carry).
+ *
+ * Extracted as a pure function so the choice is observable without patching
+ * the domain call the command reaches itself (`testing-standards.mdc
+ * §Testable Design`), mirroring mt#4417's `shapeCommitResultForTransport`.
+ */
+export function shapeChecksResultForStructuredOutput(
+  result: ChecksResult,
+  fullBody: boolean | undefined
+): ChecksResult | TrimmedChecksResult {
+  return fullBody ? result : trimChecksResult(result);
+}
+
 // ── Command factory ──────────────────────────────────────────────────────
 
 export function createSessionPrChecksCommand(getDeps: LazySessionDeps): CommandDefinition {
@@ -105,7 +145,10 @@ export function createSessionPrChecksCommand(getDeps: LazySessionDeps): CommandD
         );
 
         if (params.json) {
-          return { success: true, ...result };
+          return {
+            success: true,
+            ...shapeChecksResultForStructuredOutput(result, params.fullBody as boolean | undefined),
+          };
         }
 
         // --- Text output ---

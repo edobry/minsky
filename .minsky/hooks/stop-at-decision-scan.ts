@@ -54,6 +54,7 @@ import { flagKey, readFlagged, writeFlagged } from "./turn-end-scan-store";
 import type { TranscriptLine } from "./transcript";
 import { extractFinalTurn, extractToolUseNames, findToolUseInputs } from "./transcript";
 import { anyStatusSetIsForwardMotion, STATUS_SET_TOOL } from "./handoff-status";
+import { detectArmedWatcherEvidence } from "./armed-watcher";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_STOP_AT_DECISION";
 
@@ -405,6 +406,15 @@ export interface DecisionStopDetection {
   specPatchCount: number;
   memoryCreateCount: number;
   boundTaskIds: string[];
+  /**
+   * Tool-call evidence that a wait is running past this turn's end (mt#4327).
+   *
+   * Written whether or not it suppressed, so a calibration pass can RATE the
+   * decision instead of inferring it — an absent field and an empty one were
+   * previously indistinguishable, and the field was absent on every record this
+   * detector had ever written.
+   */
+  armedWatcherEvidence: string[];
 }
 
 /**
@@ -458,7 +468,16 @@ export function detectDecisionStop(
   });
   const hasMarker = RECOMMENDATION_MARKERS.some((re) => re.test(lastAssistantMessage));
 
+  // A wait running past this turn's end means the turn is MID-FLIGHT, not
+  // stopped: it has nothing to mint yet, so it is not at a decision (mt#4327).
+  // Keyed on tool-call state via the shared predicate rather than on the closing
+  // message's wording — see `./armed-watcher` for why that axis is the wrong one.
+  const armedWatcherEvidence = detectArmedWatcherEvidence(turnLines);
+
   const suppressionReasons: string[] = [];
+  if (armedWatcherEvidence.length > 0) {
+    suppressionReasons.push(`armed-watcher:${armedWatcherEvidence.join(",")}`);
+  }
   if (candidateTaskIds.length === 0) suppressionReasons.push("bound-task-target");
   if (dischargeToolsSeen.length > 0) {
     suppressionReasons.push(`discharged:${dischargeToolsSeen.join(",")}`);
@@ -474,6 +493,7 @@ export function detectDecisionStop(
     specPatchCount: specPatchInputs.length,
     memoryCreateCount: findToolUseInputs(turnLines, EVIDENCE_COMPANION_TOOL).length,
     boundTaskIds: [...bound],
+    armedWatcherEvidence,
   };
 }
 
@@ -575,6 +595,7 @@ export function run(
       statusSetSeenButNotDischarging: detection.statusSetSeenButNotDischarging,
       specPatchCount: detection.specPatchCount,
       memoryCreateCount: detection.memoryCreateCount,
+      armedWatcherEvidence: detection.armedWatcherEvidence,
       targetStatuses,
     });
   }
@@ -600,6 +621,7 @@ export function run(
       boundTaskIds: detection.boundTaskIds,
       specPatchCount: detection.specPatchCount,
       memoryCreateCount: detection.memoryCreateCount,
+      armedWatcherEvidence: detection.armedWatcherEvidence,
       // Recorded so a false-positive classifier can read what the turn's
       // closing message actually said, without the guard keying on it.
       final_message_tail: (input.last_assistant_message ?? "").slice(-600),

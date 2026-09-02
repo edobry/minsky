@@ -34,7 +34,7 @@
 //      `./dispatch-userpromptsubmit.ts`; `main()` / the CLI entrypoint below
 //      is unchanged.
 
-import { readInput, findRepoRoot } from "./types";
+import { readInput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
   resolveParentTranscriptLinesForPath,
@@ -43,8 +43,7 @@ import {
   extractToolUseNames,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { logCalibrationRecord, logEvaluationRecord } from "./dispatcher";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { elideQuotedContexts, elideDoubleQuotedSpans } from "./elision";
 import {
@@ -62,6 +61,8 @@ import type {
 } from "../../packages/domain/src/detectors/embedding-nomination";
 import { resolveNominationDeps } from "../../packages/domain/src/detectors/embedding-nomination-factory";
 import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+import { locateActionablesBlock, splitUnitClauses } from "./actionables-block";
+import type { ActionablesMarkerForm } from "./actionables-block";
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -84,7 +85,7 @@ export const OVERRIDE_ENV_VAR = "MINSKY_ACK_ASK_ROUTING_DEFERRAL";
 /** The tool whose presence in the same turn suppresses a match. */
 export const ASKS_CREATE_TOOL = "mcp__minsky__asks_create";
 
-const CALIBRATION_LOG = ".minsky/ask-routing-deferral-calibration.jsonl";
+const CALIBRATION_LOG_NAME = "ask-routing-deferral";
 
 /**
  * Reason string for this detector's ONE suppression gate — the turn already
@@ -330,6 +331,25 @@ export type SettledDecisionNominator = (context: string) => Promise<SettledNomin
  * — the silent skip ADR-024 forbids — instead of degrading visibly.
  */
 export function createSettledDecisionNominator(): SettledDecisionNominator {
+  return createNominator(SETTLED_DECISION_EXEMPLAR_SET, SETTLED_DECISION_RUNG2_THRESHOLD);
+}
+
+/**
+ * The shared Rung-2 nominator, parameterized by family (mt#4807).
+ *
+ * Extracted from {@link createSettledDecisionNominator} when a SECOND family
+ * arrived — the actionables-decision detector below. Everything here is
+ * family-independent: the lazy resolve, the latch, the non-semantic-provider
+ * refusal, and the outcome mapping. Only the exemplar set and the threshold
+ * differ, and both are measured per family (see
+ * {@link SETTLED_DECISION_RUNG2_THRESHOLD}'s docblock for why inheriting a
+ * threshold across corpora is the mistake this file already made once).
+ *
+ * Each call returns its OWN closure, so the latch is per-family: a wedged
+ * provider degrades both, but a family-specific refusal does not silence the
+ * other one.
+ */
+function createNominator(exemplarSet: ExemplarSet, threshold: number): SettledDecisionNominator {
   let deps: NominationDeps | null | undefined;
   let latchedFailure: string | undefined;
 
@@ -373,9 +393,7 @@ export function createSettledDecisionNominator(): SettledDecisionNominator {
       return { kind: "degraded", reason: latchedFailure };
     }
 
-    const result = await nominate(context, [SETTLED_DECISION_EXEMPLAR_SET], deps, {
-      threshold: SETTLED_DECISION_RUNG2_THRESHOLD,
-    });
+    const result = await nominate(context, [exemplarSet], deps, { threshold });
     if (result.degraded) {
       latchedFailure = result.degradedReason ?? "unknown";
       return { kind: "degraded", reason: latchedFailure };
@@ -452,6 +470,266 @@ export async function resolveSettledDecisionRung2(
   );
   return { remaining, suppressedAll: remaining.length === 0 };
 }
+
+// ---------------------------------------------------------------------------
+// ACTIONABLES-DECISION family (mt#4807) — Rung 2, detection rather than
+// suppression, scoped to the terminal actionables block.
+// ---------------------------------------------------------------------------
+
+const ACTIONABLES_DECISION_FAMILY = "actionables-decision";
+
+/**
+ * Curated exemplars for a Tier-0 decision stated flatly in the actionables block.
+ *
+ * **Why this is Rung 2 and not another regex.** The class is defined by an ACT —
+ * the agent telling the principal that a decision is theirs — and the corpus
+ * renders that act in ways that share no phrasing. Measured over 846 transcript
+ * files / 72,356 assistant turns (`scripts/measure-actionables-decisions.ts`):
+ * of 349 units inside 120 terminal actionables blocks, the shipped patterns fire
+ * on 22, and ~21 of those are OFFER-shaped (*"Say the word and I'll…"*). A stride
+ * sample of 45 of the 327 non-firing units contains **seven** clear unrouted
+ * Tier-0 decisions — a naming call, an RFC acceptance, a status report, a bare
+ * imperative, and two requests for a value. They are paraphrases of one act with
+ * no shared phrase, which is the property a pattern list cannot span. Recall on
+ * the flat-declarative class measures ~2%.
+ *
+ * ADR-024 gates Rung 2 on *"paraphrase misses recur"* plus a measured rate;
+ * both hold. mem#1250 independently measured corpus-derived widening on this
+ * same detector as non-converging, at ~58% false-positive with five open tune
+ * tasks — so the cheap move is not merely insufficient here, it is the move the
+ * family has already tried twice.
+ *
+ * **Phrased WITHOUT task ids, and WITHOUT the surrounding bullet's furniture.**
+ * Same reasoning as {@link SETTLED_DECISION_EXEMPLARS}: seeding `mt#4682` would
+ * bias every score toward units that cite task ids, and nearly every unit in
+ * this block does.
+ *
+ * **Each exemplar hands over a PENDING decision.** That is the discrimination
+ * against the dominant expected false positive, which is not an action bullet —
+ * those are lexically distant — but a `humility.mdc §Subjective quality is not
+ * yours to certify` disclaimer: *"whether the layout reads well is your call,
+ * not something I've asserted."* That sentence also assigns judgement to the
+ * principal, and it is REQUIRED by the corpus, so firing on it would punish
+ * compliance. Every exemplar therefore names something BLOCKED or UNRESOLVED;
+ * none evaluates finished work. Whether that separates them is measured, not
+ * assumed — see {@link ACTIONABLES_DECISION_THRESHOLD}.
+ */
+export const ACTIONABLES_DECISION_EXEMPLARS: readonly string[] = [
+  // Naming / option-selection, the largest observed sub-shape.
+  "The name is the one open decision; everything downstream is blocked on it",
+  "Confirm the first option or leave the second, and that is the last thing before building",
+  "Pick the order you want these done in; my recommendation is the smallest one first",
+  // Acceptance of a pending artifact.
+  "Still a draft — accepting it releases the first phase",
+  "One yes is needed before the first change, and it should be a deliberate yes",
+  // Assignment without an imperative: a status line that hands over a decision.
+  "That one needs a call from you on what the panel should say",
+  "The direction there is still waiting on you; the candidates are enumerated and none is pre-selected",
+  "The remaining choice is yours and nothing moves until it is made",
+  // Requests for a value the agent cannot derive.
+  "Tell me which split you want and I will take the matching task",
+  "Say which of the two you prefer and I will encode it",
+  // Scope / spend calls handed over.
+  "Whether to purge that history is a separate rewrite and your decision",
+  "The spend question here is yours once you have seen the usage figures",
+];
+
+/** The exemplar set handed to `nominate`. */
+export const ACTIONABLES_DECISION_EXEMPLAR_SET: ExemplarSet = {
+  family: ACTIONABLES_DECISION_FAMILY,
+  exemplars: [...ACTIONABLES_DECISION_EXEMPLARS],
+};
+
+/**
+ * Similarity threshold for the actionables-decision family.
+ *
+ * **Measured on THIS family's corpus** (`bun scripts/measure-actionables-threshold.ts`, 10 labeled
+ * positives / 10 labeled negatives, all verbatim from the transcript store), per
+ * `decision-defaults.mdc §Thresholds` and the argument in
+ * {@link SETTLED_DECISION_RUNG2_THRESHOLD}'s docblock: a threshold inherited across corpora has
+ * already mis-fit twice in this file's lineage.
+ *
+ * **The populations do not fully separate, and this value is chosen against the split that
+ * matters rather than against the raw floor.** Measured 2026-08-31, clause-scored:
+ *
+ * - Every **corpus-MANDATED** negative — the `humility.mdc` subjective-quality disclaimer
+ *   (0.3125), the `work-completion.mdc` self-resolving-wait report (0.3386), a bullet already
+ *   citing its ask (0.3784) — sits at or below **0.3784**. That class is the one a naive widening
+ *   punishes and the one mem#1250 measured as this family's dominant false positive; 0.45 clears
+ *   its ceiling by ~0.07, an order of magnitude above the ~0.006 run-to-run embedding jitter
+ *   mt#4404 measured.
+ * - Ordinary non-decision bullets — actions, filed-work pointers, status lines, findings,
+ *   collision notes — sit at 0.2187..0.3238, further still.
+ *
+ * **Two named residuals, reported rather than designed away:**
+ *
+ * - **One known false positive.** *"A spend decision on mt#4577 is coming once the token split is
+ *   measured. Nothing to do now."* scores **0.5012** and fires. It announces a decision rather than
+ *   handing one over, so it is a miss — but it is the closest negative by construction, and no
+ *   threshold separates it from the true positive just above it (0.5092) by more than the jitter.
+ *   Reaching for one would be tuning inside the noise.
+ * - **One missed positive.** *"The mt#4678 agent needs two things from you: a yes/no on publishing
+ *   the corpus payload…"* scores **0.4008**. This is the SAME decision as the originating instance,
+ *   restated a day later — SC4's generalization floor — and the mechanism does not reach it. The
+ *   act sits in a post-colon fragment whose own words are mostly the decision's SUBJECT. **Owned by
+ *   mt#4824**, which also records why the threshold cannot simply be lowered to reach it: the
+ *   0.4008..0.5012 band is occupied by the false positive above, so P2 moves only if its SCORE
+ *   moves. mt#4807's SC4 is marked DEFERRED to that task rather than left unreconciled.
+ *
+ * So the honest claim is 9 of 10 labeled positives with 1 of 10 labeled negatives firing. That is
+ * NOT ADR-024 sign-off (b)'s bar for enforcing (`0 known-FP AND <=5% new false-negative`), which is
+ * exactly why this family ships LOG-ONLY behind {@link ACTIONABLES_NOMINATION_ENV_VAR}: the bar
+ * gates a later flip, and the log is how the evidence for that flip gets collected.
+ *
+ * Full band, the labeled fixtures, and the clause-vs-whole comparison are in mt#4807's spec under
+ * `## SC2 threshold measurement`. Read it before moving this number.
+ */
+export const ACTIONABLES_DECISION_THRESHOLD = 0.45;
+
+/**
+ * Opt-in for the actionables-decision nomination path.
+ *
+ * Ships DISABLED and LOG-ONLY, per ADR-024's calibration-first ladder and this
+ * task's SC8. Two separate properties, and both are deliberate:
+ *
+ * - **Disabled by default**, so the embedding round-trips cost nothing until an
+ *   operator opts in. With the gate off, {@link detectActionablesDecisions} is
+ *   never called.
+ * - **Log-only even when enabled.** Matches from this family are written to the
+ *   calibration record and are NEVER merged into the array that feeds
+ *   {@link buildReminder}. That is not a policy statement in a comment — it is
+ *   how `run()` is wired, and `INJECTION_ENABLED` cannot reach this family. The
+ *   file-level flag is already `true` for the two pattern classes, so adding a
+ *   pattern would have injected on day one; a separate array is what makes
+ *   "calibration-first" achievable here at all.
+ *
+ * Registered in `HOOK_ONLY_ENV_VAR_CATEGORIES` as a `tunable`.
+ */
+export const ACTIONABLES_NOMINATION_ENV_VAR = "MINSKY_ARD_ACTIONABLES_NOMINATION";
+
+/** True when the operator has opted into the actionables-decision path. */
+export function isActionablesNominationEnabled(): boolean {
+  const raw = process.env[ACTIONABLES_NOMINATION_ENV_VAR];
+  return raw === "1" || raw?.toLowerCase() === "true" || raw?.toLowerCase() === "yes";
+}
+
+/** Build the real-wired actionables-decision nominator. */
+export function createActionablesDecisionNominator(): SettledDecisionNominator {
+  return createNominator(ACTIONABLES_DECISION_EXEMPLAR_SET, ACTIONABLES_DECISION_THRESHOLD);
+}
+
+/**
+ * At most this many units are scored per turn.
+ *
+ * Measured: the 120 blocks in the corpus carry 349 units, a mean of 2.9 and a
+ * long tail. Each unit costs its own `nominate` round-trip because the finding
+ * is per-BULLET — an agent needs to know WHICH item carried the decision — so an
+ * unbounded block would put an unbounded number of round-trips on the prompt
+ * path. 8 covers the great majority; anything past it is reported rather than
+ * silently dropped (see {@link ActionablesDetection.unitsTruncated}).
+ */
+const ACTIONABLES_MAX_UNITS = 8;
+
+/** One decision-shaped unit found inside the block. */
+export interface ActionablesDecisionMatch {
+  /** The bullet's text, as the agent wrote it. */
+  unit: string;
+  /** Similarity against the exemplar set. */
+  score: number;
+}
+
+export interface ActionablesDetection {
+  markerForm: ActionablesMarkerForm;
+  unitCount: number;
+  /** Units past {@link ACTIONABLES_MAX_UNITS}, reported rather than dropped silently. */
+  unitsTruncated: number;
+  /** Units skipped because they already cite a filed ask. */
+  unitsCitingAsk: number;
+  matches: ActionablesDecisionMatch[];
+  degradedReason?: string;
+}
+
+/**
+ * Score the units of a turn's terminal actionables block against the
+ * decision-shaped exemplars.
+ *
+ * Returns null when the turn has no locatable block at all — which is the common
+ * case, and the reason this costs nothing on most turns even with the gate on.
+ *
+ * **A unit citing a filed ask is skipped, not scored.** The contract's rule is
+ * *"never a Tier-0 decision (always `asks_create`)"*, so a bullet that names an
+ * ask is the compliant shape rather than the violation — this is the same
+ * `cites-filed-ask` reasoning mt#4201 shipped for the pattern classes, applied
+ * before the round-trip is spent rather than after.
+ *
+ * Never throws. A degraded nomination returns the reason and whatever was scored
+ * before it, per ADR-024's fail-to-Rung-1 invariant — which on a LOG-ONLY
+ * surface costs a partial record rather than a missed warning.
+ */
+export async function detectActionablesDecisions(
+  text: string,
+  nominator: SettledDecisionNominator | undefined
+): Promise<ActionablesDetection | null> {
+  if (nominator === undefined) return null;
+  const block = locateActionablesBlock(text);
+  if (block === null) return null;
+
+  const detection: ActionablesDetection = {
+    markerForm: block.markerForm,
+    unitCount: block.units.length,
+    unitsTruncated: Math.max(0, block.units.length - ACTIONABLES_MAX_UNITS),
+    unitsCitingAsk: 0,
+    matches: [],
+  };
+
+  for (const unit of block.units.slice(0, ACTIONABLES_MAX_UNITS)) {
+    if (citesFiledAsk(unit.text)) {
+      detection.unitsCitingAsk += 1;
+      continue;
+    }
+    // Scored by CLAUSE, not whole. The act is a small fraction of a bullet's
+    // text and averaging over the rest buries it — measured, the originating
+    // instance reads 0.3640 whole and 0.6747 by clause. `splitUnitClauses`
+    // newline-joins them so the shared segmenter yields one segment per clause,
+    // which keeps this to ONE round-trip per unit and changes nothing for the
+    // other detectors on that segmenter.
+    const scored = splitUnitClauses(unit.text);
+    if (scored === "") continue;
+
+    let outcome: SettledNominationOutcome;
+    try {
+      outcome = await nominator(scored);
+    } catch (err) {
+      detection.degradedReason = `nominator-threw: ${err instanceof Error ? err.message : String(err)}`;
+      break;
+    }
+    if (outcome.kind === "degraded") {
+      detection.degradedReason = outcome.reason;
+      // The nominator latches, so every later unit returns the same reason.
+      break;
+    }
+    if (outcome.kind === "settled") {
+      detection.matches.push({ unit: unit.text, score: outcome.score });
+    }
+  }
+
+  return detection;
+}
+
+/**
+ * Injectable write seam for the actionables evaluation stream (PR #3519 R1).
+ *
+ * A parameter rather than a module import `run()` reaches itself, matching
+ * `causal-premise-detector`'s `EvaluationWriter`: a test can capture or fail the
+ * write by passing its own writer instead of patching `./dispatcher`, which is
+ * what the testable-design checkpoint asks for and what keeps the suite from
+ * appending to a real log on every run.
+ */
+export type ActionablesEvaluationWriter = (record: Record<string, unknown>, cwd?: string) => void;
+
+export const defaultActionablesEvaluationWriter: ActionablesEvaluationWriter = (record, cwd) => {
+  logEvaluationRecord(CALIBRATION_LOG_NAME, record, { fallbackCwd: cwd });
+};
 
 /** Short sha1, matching the Stop guard's key derivation. */
 function sha1Short(input: string): string {
@@ -907,6 +1185,153 @@ function matchAgentActionTier(line: string): AgentActionTier | null {
 const INVERTED_FIRST_PERSON = /\b(?:should|shall|can|could|would|will|may)\s+I\b/i;
 
 /**
+ * A first-person COMMITMENT: the agent saying what it is going to do (mt#4702).
+ *
+ * Deliberately NARROWER than {@link AGENT_ACTION_MATCHERS}' bare tier, and the
+ * narrowness is the safety. `can` / `could` / `should` state a CAPABILITY —
+ * *"I can take it unless you'd rather I wait"* genuinely offers a choice. Only
+ * the committing forms state a decision already made, and only those turn a
+ * following `unless` into a veto rather than an offer. A wider set here would
+ * suppress more, which is the false-positive direction on a LIVE-injecting
+ * guard — the asymmetry {@link lineAt} and {@link hasMenuShape} both record.
+ *
+ * `I'd` is deliberately EXCLUDED despite mt#4702's spec naming it. It is
+ * conditional mood and reads as a recommendation, not a decision — *"I'd start
+ * with the attribution pair; say the word and I'll dispatch"* is an offer, and
+ * it appeared as such in the 2026-08-31 window this predicate was measured on.
+ * Excluding it suppresses less, which is the safe direction.
+ */
+const FIRST_PERSON_COMMITMENT =
+  /\bI\s*['’]ll\b|\bI\s+will\b|\bI\s*(?:['’]m|\s+am)\s+going\s+to\b/gi;
+
+/**
+ * A sentence terminator, which breaks the governing relation (mt#4702).
+ *
+ * *"I'll hold off. Want me to take X or Y?"* is a commitment AND a genuine
+ * offer, in two sentences on one line. Without this bound the commitment would
+ * govern a leg it has nothing to do with, and a real deferral would be
+ * silenced — which is exactly the regression SC4's negative control exists to
+ * catch.
+ */
+const SENTENCE_BREAK = /[.!?]/;
+
+/**
+ * A commitment to STOP, which is NOT an override (mt#4702, reconciling mt#3801).
+ *
+ * The distinction this constant exists for, and it is the whole reconciliation
+ * between two tasks that appear to disagree:
+ *
+ * - *"I'll take mt#4465 next unless you'd rather I clear mt#4716"* — silence
+ *   lets a chosen default PROCEED. Nothing is deferred; the principal's answer
+ *   is an override they may decline to use, and declining costs them nothing.
+ *   This is mt#4702's measured false-positive class.
+ * - *"I'll stop here unless you want more"* — silence STOPS the work. The
+ *   principal's answer is the only thing that continues it, so the decision
+ *   genuinely is handed over. This is mt#3801's shipped case, and its test
+ *   (`mt#3801's own cases are untouched`) is what caught the first cut of this
+ *   predicate suppressing it.
+ *
+ * Both are `I'll <verb> unless you <alternative>`; the grammar cannot separate
+ * them and the DIRECTION of the committed action can. Neither task was wrong —
+ * mt#3801 measured the halting form, mt#4702 measured the continuing one, and
+ * a predicate keyed on commitment alone would have overturned a shipped,
+ * tested decision on evidence that never covered its case.
+ */
+const HALTING_COMMITMENT =
+  /^\s*(?:\w+\s+){0,2}?\b(?:stop|hold|halt|wait|pause|park|defer|leave)\b/i;
+
+/**
+ * True when a GOVERNED agent-action clause starts before `legIndex` (mt#4702).
+ *
+ * Reuses {@link AGENT_ACTION_MATCHERS}' governed tier rather than restating its
+ * patterns, so the two cannot drift; polarity is re-checked here for the same
+ * reason {@link matchAgentActionTier} checks it.
+ */
+function governedOfferIndexBefore(line: string, legIndex: number): number | null {
+  let earliest: number | null = null;
+  for (const { tier, pattern } of AGENT_ACTION_MATCHERS) {
+    if (tier !== "governed") continue;
+    const m = pattern.exec(line);
+    if (!m) continue;
+    const start = m.index ?? 0;
+    if (start >= legIndex) continue;
+    const trailing = line.slice(start + m[0].length);
+    if (/^['’]t\b/.test(trailing) || /^\s+not\b/i.test(trailing)) continue;
+    const lead = line.slice(Math.max(0, start - AGENT_ACTION_LOOKBACK_CHARS), start);
+    if (AGENT_ACTION_NEGATED_LEAD.test(lead)) continue;
+    if (earliest === null || start < earliest) earliest = start;
+  }
+  return earliest;
+}
+
+/**
+ * True when a first-person commitment precedes `index` inside the same
+ * sentence, unnegated and not a commitment to STOP (mt#4702).
+ *
+ * The raw positional test. {@link commitmentGovernsLeg} composes it TWICE —
+ * once on the leg, once on any governed clause before the leg — and that
+ * composition is what separates an offer the agent is MAKING from one it is
+ * VETOING.
+ */
+function commitmentPrecedes(line: string, index: number): boolean {
+  for (const m of line.matchAll(FIRST_PERSON_COMMITMENT)) {
+    const start = m.index ?? 0;
+    const end = start + m[0].length;
+    // A commitment at or after the position does not govern it.
+    if (end > index) break;
+    if (SENTENCE_BREAK.test(line.slice(end, index))) continue;
+    const trailing = line.slice(end);
+    if (/^\s*not\b/i.test(trailing)) continue;
+    // A commitment to STOP hands the decision over — silence ends the work
+    // rather than letting a default proceed. See HALTING_COMMITMENT.
+    if (HALTING_COMMITMENT.test(trailing)) continue;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * True when a first-person commitment GOVERNS the menu leg at `legIndex` —
+ * that is, it precedes the leg inside the same sentence (mt#4702).
+ *
+ * **This is the override-vs-precondition distinction, made structural.** A
+ * deferral makes the principal's answer a PRECONDITION: nothing happens until
+ * they reply. *"I'll take mt#4465 next unless you'd rather I clear mt#4716"*
+ * makes it an OVERRIDE: the agent proceeds either way and silence costs the
+ * principal nothing. Both carry `unless`, both name an agent action, and
+ * `findOfferShape` could not tell them apart — measured at 4 of 4 `unless`
+ * fires false in the 2026-08-30 window, and still firing on 2026-08-31 after
+ * two Rung-2 climbs shipped on this detector.
+ *
+ * It is the shape `decision-defaults.mdc §Take direct action` and
+ * `humility.mdc §Stakes filter` both PRESCRIBE — *"decide it, take a reasonable
+ * default, and say what you picked"* — so the detector was firing on the rule
+ * being obeyed.
+ *
+ * Position is the whole test, and it runs in one direction only: a commitment
+ * AFTER the leg is not a governor. *"Say the word, or I'll start on mt#4637"*
+ * offers first and commits second — a real offer, and it keeps firing.
+ *
+ * Polarity is checked for the same reason {@link namesAgentAction} checks it:
+ * *"I will not touch it unless you say so"* is a precondition, not an override.
+ */
+function commitmentGovernsLeg(line: string, legIndex: number): boolean {
+  // A GOVERNED clause BEFORE the leg already carries the offer, and no
+  // commitment elsewhere on the line can take it back (mt#4311's tier
+  // reasoning, applied positionally). *"Want me to take it, or I'll start on
+  // mt#4637?"* offers in its first clause and commits in its second — found by
+  // the negative control, not anticipated.
+  //
+  // Position is what keeps this from readmitting the false class: in
+  // *"I'll take that next unless you'd rather I clear mt#4716"* the governed
+  // clause sits INSIDE the `unless`, so it is the alternative being vetoed
+  // rather than an offer being made.
+  const governedIndex = governedOfferIndexBefore(line, legIndex);
+  if (governedIndex !== null && !commitmentPrecedes(line, governedIndex)) return false;
+  return commitmentPrecedes(line, legIndex);
+}
+
+/**
  * The OFFER shape: a menu handing the principal a choice about what the AGENT
  * does next (mt#3801) — `"Next step is X unless you'd rather I do Y"`.
  *
@@ -938,7 +1363,17 @@ export function findOfferShape(
         // keeps `"Want me to file those, or a subset?"` firing.
         if (tier === "bare" && strength !== "explicit-offer") continue;
         const m = pattern.exec(line);
-        if (m) return { index: offset + (m.index ?? 0), length: m[0].length, label };
+        if (!m) continue;
+        const legIndex = m.index ?? 0;
+        // mt#4702: a commitment GOVERNING this leg makes it a veto, not an
+        // offer. The mt#4311 tier gate above cannot reach this class, because
+        // the dominant false shape carries BOTH a bare commitment and a
+        // governed clause — "I'll take that next unless you'd rather I clear X"
+        // resolves to `governed`, so every leg was already admitted. `continue`
+        // rather than `break`: a later leg may sit outside this commitment's
+        // sentence and still be a real offer.
+        if (commitmentGovernsLeg(line, legIndex)) continue;
+        return { index: offset + legIndex, length: m[0].length, label };
       }
     }
     offset += line.length + 1;
@@ -1076,22 +1511,11 @@ function calibrationMatches(matches: DeferralMatch[]): Array<Record<string, unkn
 }
 
 function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): void {
-  try {
-    // mt#2710: resolve the actual repo ROOT, not the raw shell cwd — `cwd` is
-    // routinely a repo subdirectory, and a bare `resolve(cwd, ...)` would
-    // scatter this calibration log into a stray subdirectory `.minsky/`.
-    const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(
-      `[ask-routing-deferral-detector] Failed to write calibration log: ${msg}\n`
-    );
-  }
+  // mt#4752: the shared helper derives the path from the stream NAME, so the
+  // filename cannot drift from the convention the .gitignore globs encode.
+  // `cwd` is the guard's raw input cwd — a FALLBACK, never an authoritative
+  // root (see `calibrationLogPath`'s docblock for why the two ranks differ).
+  logCalibrationRecord(CALIBRATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
 
 // ---------------------------------------------------------------------------
@@ -1416,7 +1840,11 @@ export async function run(
   storeDir?: string,
   nominator: SettledDecisionNominator | undefined = isRung2NominationEnabled()
     ? createSettledDecisionNominator()
-    : undefined
+    : undefined,
+  actionablesNominator: SettledDecisionNominator | undefined = isActionablesNominationEnabled()
+    ? createActionablesDecisionNominator()
+    : undefined,
+  writeActionablesEvaluation: ActionablesEvaluationWriter = defaultActionablesEvaluationWriter
 ): Promise<GuardOutcome | null> {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
@@ -1460,7 +1888,61 @@ export async function run(
     return null;
   }
 
-  if (matches.length === 0) return null;
+  // mt#4807: the actionables-decision family runs on the SAME turn text and is
+  // kept in its own variable all the way to the calibration record. It never
+  // joins `matches`, so it cannot reach `buildReminder` and cannot be turned on
+  // by `INJECTION_ENABLED` — which is what makes this family log-only in the
+  // wiring rather than only in a comment. Off by default: with no opted-in
+  // operator, `actionablesNominator` is undefined and this returns immediately.
+  const actionables = await detectActionablesDecisions(assistantText, actionablesNominator);
+  const actionablesFired =
+    actionables !== null &&
+    (actionables.matches.length > 0 || actionables.degradedReason !== undefined);
+
+  // PR #3519 R1 (non-blocking): the calibration record carries actionables data
+  // only on a fire, so a sweep reading it alone sees numerators without a
+  // denominator — it cannot tell "few decisions in the block" from "few blocks".
+  // The fix is NOT to widen the calibration log: its diversity axis is keyed on
+  // fires, and ADR-024's 2026-08-03 amendment names a separate EVALUATION stream
+  // as "the measurement substrate a fire-only calibration log cannot provide,
+  // and the input that keeps both the FP rate and the false-negative rate
+  // observable post-ship". So every located block is recorded here, fired or
+  // not, and the calibration log keeps its fire-only semantics.
+  //
+  // Only runs when the family is enabled, so a disabled detector writes nothing.
+  if (actionables !== null) {
+    try {
+      writeActionablesEvaluation(
+        {
+          timestamp: new Date().toISOString(),
+          session_id: input.session_id,
+          family: "actionables-decision",
+          threshold: ACTIONABLES_DECISION_THRESHOLD,
+          markerForm: actionables.markerForm,
+          unitCount: actionables.unitCount,
+          unitsScored:
+            Math.min(actionables.unitCount, ACTIONABLES_MAX_UNITS) - actionables.unitsCitingAsk,
+          unitsCitingAsk: actionables.unitsCitingAsk,
+          unitsTruncated: actionables.unitsTruncated,
+          matchCount: actionables.matches.length,
+          scores: actionables.matches.map((m) => m.score),
+          ...(actionables.degradedReason !== undefined
+            ? { degradedReason: actionables.degradedReason }
+            : {}),
+        },
+        input.cwd
+      );
+    } catch (err) {
+      // A measurement stream must never break the guard it measures. Written to
+      // stderr rather than swallowed: this family's recurring failure mode is a
+      // broken mechanism that looks identical to a quiet one.
+      process.stderr.write(
+        `[ask-routing-deferral-detector] evaluation write failed: ${err instanceof Error ? err.message : String(err)}\n`
+      );
+    }
+  }
+
+  if (matches.length === 0 && !actionablesFired) return null;
 
   const suppressionReasons = suppressedByAsksCreate ? [SUPPRESSION_ASKS_CREATE_THIS_TURN] : [];
 
@@ -1528,10 +2010,21 @@ export async function run(
       ...(settledRung2.degradedReason !== undefined
         ? { rung2DegradedReason: settledRung2.degradedReason }
         : {}),
+      // mt#4807, under its own key rather than merged into `matches`: the sweep's
+      // diversity axis reads `matches[].phrase`, and a unit is a whole bullet, so
+      // every record would be distinct and the count that decides when this log
+      // gets reviewed would be destroyed. Same reasoning `DeferralMatch.context`
+      // records for why THAT field stayed separate from `matchedPhrase`.
+      ...(actionablesFired && actionables !== null ? { actionables } : {}),
     },
   };
 
-  if (INJECTION_ENABLED && suppressionReasons.length === 0) {
+  // `remaining.length > 0` is REQUIRED, not defensive. Since mt#4807 a turn can
+  // reach here with zero pattern matches — an actionables-only fire — and
+  // `buildReminder([])` renders its header with no findings under it, which is a
+  // warning about nothing. The two pattern classes cannot produce that state on
+  // their own, which is why the check was not needed before.
+  if (INJECTION_ENABLED && suppressionReasons.length === 0 && remaining.length > 0) {
     outcome.additionalContext = buildReminder(remaining);
   }
 

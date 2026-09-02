@@ -440,6 +440,7 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   // it graduates, its interventions gain `injectAgent` alongside `recordReview`
   // (the silent-stretch-detector shape).
   ["context-fill-gauge", structuralRecorder],
+  ["cross-turn-hedge-detector", lexicalRecorder],
   [
     "duplicate-check-search-provenance",
     { interventions: [injectAgent, recordReview], mechanism: "structural", role: "judge" },
@@ -460,6 +461,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       mechanism: "structural",
       role: "judge",
       note: "Same claim shape as `duplicate-check-search-provenance`, at the spec-WRITE seam rather than only at task creation. `structural` because the discriminating half is a join against session tool-call state — a PR number against a `pull_request_read` for THAT PR, a `tasks_search` against the transcript prefix — with no paraphrase axis. `recordReview` only, like `evidence-record-provenance` and for the same measured reason: a 40-transcript replay put it at 16 fires over 70 claims with one true positive, the dominant false class being prose that DISCUSSES a collision (gate reports, reconciliations) rather than asserting one. The join is exact; the RECOGNITION half is what is unsized, and injecting on it would fire hardest at the most careful gate-(g) work. mt#4190 owns the tune and the graduation.",
+    },
+  ],
+  [
+    "criterion-reconciliation-scan",
+    {
+      interventions: [recordReview],
+      mechanism: "lexical",
+      role: "judge",
+      note: "`lexical`, NOT `structural`, and the distinction is the whole design note. The CONFIRMING half is structural and exact — does this write carry the named criterion's own entry, answerable from the authored text because a marker patch leaves what it omits byte-identical. But the NOMINATING half is a fixed substring set, because the discharging action (editing the criterion) cannot be the trigger: every patch that does not touch a criterion would fire. A guard is placed on the ladder by the surface it MATCHES, and this one matches prose, so ADR-024 governs it and mt#4595's closed-vocabulary carve-out does not apply. Recall is therefore the live risk: planning measured mt#4038, one of its own recorded instances, as matching none of the set, and that miss ships as an asserted test rather than as a widened list.",
     },
   ],
   [
@@ -540,6 +550,16 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   [
+    "coverage-claim-path-detector",
+    {
+      ...structuralRecorder,
+      // No `trajectory` — that axis is reserved for the merge-seam
+      // interceptors (pinned by `interceptors.test.ts`), and this one fires at
+      // AUTHORING time, on the write that introduces the claim.
+      note: "Lexical on its trigger, structural on its verdict — and the split is the point. Finding a claim is a text question (a path token, a governing phrase, inside a comment); deciding whether that claim is FALSE is not, it is a filesystem resolution against the citing file's package root. So the judgment this records never rests on prose interpretation: a fire means a named path did not resolve, which is checkable by the reviewer in one command. That is why it can ship at 95.5% measured precision where the naive path-existence form sits at ~1.8% — the conjuncts do the discriminating before the filesystem is ever consulted.",
+    },
+  ],
+  [
     "gate-walk-provenance",
     {
       ...structuralRecorder,
@@ -576,6 +596,11 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ["negative-existence-claim-detector", lexicalRecorder],
   ["operator-deferral-ask-surface", lexicalRecorder],
   ["operator-deferral-detector", lexicalRecorder],
+  // mt#4769 — same coordinates as their two siblings: the same Rung-1 lexical
+  // patterns, recording only. What changed is the TEXT they are pointed at, not
+  // how they match or what they do about a match.
+  ["operator-deferral-artifact-surface-pr", lexicalRecorder],
+  ["operator-deferral-artifact-surface-spec", lexicalRecorder],
   ["pre-narration-detector", lexicalDetector],
   ["secret-request-in-chat-detector", lexicalRecorder],
   [

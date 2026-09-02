@@ -32,6 +32,7 @@ import {
   extractReportedCount,
   resolveEvidenceRegion,
   extractReferencedCriterionNumbers,
+  findAssertDeferConjunctions,
 } from "./success-criteria-coverage";
 import { buildSuccessCriteriaContext } from "./inject-success-criteria";
 
@@ -654,5 +655,89 @@ describe("mt#4214: a disagreement is a distinct finding class from unreferenced"
     expect(coverage.unaddressedCriteria.map((c) => c.number)).toEqual([1]);
     expect(coverage.disagreeingCriteria).toEqual([]);
     expect(coverage.notComparableCriteria).toEqual([]);
+  });
+});
+
+/**
+ * mt#4829 — a criterion asserted MET while its own evidence is deferred.
+ *
+ * Numbered to mt#4829's OWN acceptance tests (AT1-AT5), per the mt#3200 convention. AT1's
+ * fixture is the verbatim line from mt#4804's merged PR body (#3517), not a paraphrase: a
+ * paraphrase would be a fixture for a claim nobody actually made.
+ */
+describe("mt#4829 — assert-met-while-deferring-evidence", () => {
+  /** Verbatim, from PR #3517's `## Success criteria` section. */
+  const PR_3517_SC3 =
+    "- **SC3** — met by construction, confirmed post-merge. Registering **is** the backfill:\n" +
+    "  `ingest-service.ts` reads `hwm[source.stream]?.byteOffset`, `undefined` for a new stream, so it\n" +
+    "  reads from offset 0.";
+
+  /** The other four criteria from the same body — ordinary, sound claims. */
+  const PR_3517_OTHERS = [
+    "- **SC1** — met. All 27 declared with guard names.",
+    "- **SC2** — met. See the evidence block.",
+    "- **SC4** — met. Inventory §I. §A/§B are dated 2026-08-12 snapshots and were left intact.",
+    "- **SC5** — met vacuously, and checked rather than assumed: `RETIRED_CALIBRATION_PRODUCERS`\n" +
+      "  holds only `policy-coverage`, already declared and already in the manifest.",
+  ].join("\n");
+
+  test("AT1 — PR #3517's SC3 is flagged, and SC1/SC2/SC4/SC5 are not", () => {
+    const findings = findAssertDeferConjunctions(`${PR_3517_SC3}\n${PR_3517_OTHERS}`);
+
+    expect(findings.map((f) => f.criterionNumber)).toEqual([3]);
+    expect(findings[0]?.assertion.toLowerCase()).toBe("met");
+    expect(findings[0]?.deferral.toLowerCase()).toBe("post-merge");
+  });
+
+  test("AT2 — a body using `[sc3-deferred: mt#4826]` is NOT flagged", () => {
+    const body = "- **SC3** — met by construction. [sc3-deferred: mt#4826] pending the backfill.";
+    expect(findAssertDeferConjunctions(body)).toEqual([]);
+  });
+
+  test("AT3 — a body labeling the claim UNVERIFIED with a reason is NOT flagged", () => {
+    const body =
+      "- **SC3** — UNVERIFIED: live exercise deferred post-merge because the target is not yet " +
+      "deployed. Not confirmed working until §10 runs.";
+    expect(findAssertDeferConjunctions(body)).toEqual([]);
+  });
+
+  test("AT5 — an explicitly NEGATED assertion plus a deferral is NOT flagged", () => {
+    // Verbatim shape from PR #3519, the single false positive the 100-PR measurement produced.
+    // This is the ideal authoring form: explicit non-satisfaction plus an owned deferral.
+    const body =
+      "generalization floor. **SC4 is NOT MET**, and is now deferred to an owner rather than merely " +
+      "noted.";
+    expect(findAssertDeferConjunctions(body)).toEqual([]);
+  });
+
+  test("either half alone is ordinary and is NOT flagged", () => {
+    expect(findAssertDeferConjunctions("- **SC1** — met. All 27 declared.")).toEqual([]);
+    expect(
+      findAssertDeferConjunctions("- **SC2** — deferred to a follow-up; not claimed here.")
+    ).toEqual([]);
+  });
+
+  test("a fenced block is elided, so a quoted body cannot manufacture a finding", () => {
+    const body = ["Quoting the offending PR:", "", "```", PR_3517_SC3, "```", ""].join("\n");
+    expect(findAssertDeferConjunctions(body)).toEqual([]);
+  });
+
+  test("a BLOCKQUOTED line is elided — this check's own PR was the first instance", () => {
+    // Verbatim shape from THIS check's PR body, which quotes the offending line to explain what
+    // is being detected. With fenced-only elision the detector fired on the PR introducing it.
+    const body = [
+      "mt#4804's PR body carried this, and it merged:",
+      "",
+      `> **SC3** — met by construction, confirmed post-merge. Registering **is** the backfill: …`,
+      "",
+      "The two halves contradict.",
+    ].join("\n");
+    expect(findAssertDeferConjunctions(body)).toEqual([]);
+  });
+
+  test("a line with no criterion reference is out of scope", () => {
+    expect(
+      findAssertDeferConjunctions("The migration is met by construction, confirmed post-merge.")
+    ).toEqual([]);
   });
 });

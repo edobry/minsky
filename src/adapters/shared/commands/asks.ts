@@ -86,23 +86,18 @@ import {
   type AskWaitForResponseResult,
 } from "@minsky/domain/ask/wait-for-response";
 import { SystemOperatorNotify } from "@minsky/domain/notify/operator-notify";
-// Severity transport binding (mt#3595)
-import {
-  notifyPrincipal,
-  createRealPrincipalChannelDeps,
-} from "@minsky/domain/notify/principal-channel";
-import { resolvePersistenceProvider } from "@minsky/domain/persistence/factory";
-import { emitSystemEventFromProvider } from "@minsky/domain/events/emit-best-effort";
-import {
-  PAGE_RATE_LIMIT_MAX,
-  PAGE_RATE_LIMIT_WINDOW_MS,
-  pagePrincipalForAsk,
-  type PrincipalPageDeps,
-} from "@minsky/domain/ask/principal-page";
+// Severity transport binding (mt#3595). The production delivery seam moved to
+// the domain in mt#2719 so the reviewer service can reach it too — see that
+// module's header. `createAsk`'s behaviour is unchanged by the move.
+import { dispatchPrincipalPage } from "@minsky/domain/ask/principal-page-dispatch";
+import type { PrincipalPageDeps } from "@minsky/domain/ask/principal-page";
 import type { AskSeverity } from "@minsky/domain/ask/types";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { describeContainerPersistenceUnavailability } from "./persistence-unavailability";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+// ADR-021 project resolution for Asks — extracted by mt#4772 (see that module's
+// header for why it is not inline here).
+import { resolveCurrentProjectScope, resolveNewAskProjectId } from "./asks-project-resolution";
 import type { ClientCapabilityRegistry } from "../../../mcp/client-capabilities";
 import { makeProductionGithubReviewClient } from "./asks-github-client";
 import { emitSystemEventBestEffort } from "./system-event-emit";
@@ -1063,9 +1058,19 @@ export function validateAuthorizationApproveOptions(params: {
  * its URLs comes back unchanged, so applying this twice is a no-op rather than
  * a double-append.
  */
-export function normalizeQuestionForLint<T extends { question?: string }>(params: T): T {
+export function normalizeQuestionForLint<
+  T extends { question?: string; contextRefs?: readonly { ref?: string }[] },
+>(params: T): T {
   if (typeof params.question !== "string") return params;
-  const { text } = linkifyExternalRefs(params.question);
+  // mt#4901: the ask's own contextRefs are a resolution source. A body that
+  // cites a page by a short id prefix while carrying the full URL in
+  // contextRefs IS reachable — resolving it here makes the persisted body
+  // carry the URL (mt#2918's actual goal), and the `unlinkified-reference`
+  // warning then stops firing as a consequence rather than by exemption.
+  const knownRefs = (params.contextRefs ?? [])
+    .map((r) => r?.ref)
+    .filter((r): r is string => typeof r === "string");
+  const { text } = linkifyExternalRefs(params.question, { knownRefs });
   return text === params.question ? params : { ...params, question: text };
 }
 
@@ -1223,6 +1228,16 @@ export function validateFormLintNotViolated(params: {
   forceImmediate?: boolean;
   acknowledgeFormWarnings?: boolean;
   /**
+   * The ask's context references (mt#4901), threaded so this path normalizes
+   * with the same resolution source the create path uses.
+   *
+   * Optional because a caller that omits it gets the pre-mt#4901 behavior —
+   * un-resolved, which only ever over-reports. Both production callers supply
+   * it: `asks.create` through `normalizeQuestionForLint(params)`, and
+   * `asks.edit` from the fetched ask.
+   */
+  contextRefs?: readonly { ref?: string }[];
+  /**
    * Which command boundary is rejecting, for the error text (mt#3929). Defaults to
    * `asks.create` — the only surface that enforced this until the edit path joined it.
    */
@@ -1256,7 +1271,17 @@ export function validateFormLintNotViolated(params: {
   // consequence worth naming: `over-word-budget` now counts the appended URLs.
   // That is correct — the budget should measure the body the principal
   // actually receives.
-  const { text: normalizedQuestion } = linkifyExternalRefs(params.question);
+  // mt#4901 (PR #3571 R1): normalize through the SHARED seam rather than
+  // calling `linkifyExternalRefs` bare, so this path resolves against the ask's
+  // own `contextRefs` exactly as the create path does. Calling the transform
+  // directly here left the EDIT surface judging an un-normalized body — the
+  // same false positive this change removes, reintroduced one call site over,
+  // and invisible from the create path because its caller normalizes first.
+  //
+  // `?? params.question` is a type narrowing, not a fallback: the guard above
+  // has already established `params.question` is a non-empty string, but that
+  // narrowing does not flow through the generic's return type.
+  const normalizedQuestion = normalizeQuestionForLint(params).question ?? params.question;
 
   const matches = computeFormLintMatches({
     kind: params.kind,
@@ -1566,125 +1591,6 @@ export async function createAsk(
     routedAt: persisted.routedAt ?? routed.routedAt,
     closedAt: persisted.closedAt ?? routed.closedAt,
   };
-}
-
-// ---------------------------------------------------------------------------
-// Severity → principal page (mt#3595)
-// ---------------------------------------------------------------------------
-
-/**
- * Build the production delivery seam for the severity page.
- *
- * A factory rather than a constant so each dispatch gets a fresh closure and
- * tests can substitute the whole object at the `createAsk` seam.
- */
-function makeProductionPageDeps(): PrincipalPageDeps {
-  return {
-    async send(message) {
-      // Never reach the live channel from a test run (mt#3557 / mt#3538 class).
-      // `notifyPrincipal` resolves credentials from the Pulumi stack when env
-      // vars are absent, so an un-injected call here would spawn `pulumi` and
-      // message the principal for real. That hazard is NEW with this dispatch:
-      // it fires from `createAsk`, which is on far more test paths than the
-      // `principal.notify` command those two tasks were about — no current test
-      // creates a severity ask, but nothing stops the next one.
-      //
-      // Reported as a LOUD non-delivery rather than a silent success: the
-      // caller records it, so a test that genuinely expects delivery fails
-      // visibly instead of passing against a no-op. A test that wants the real
-      // decision path injects `pageDeps` at the `createAsk` seam.
-      if (process.env.NODE_ENV === "test") {
-        return {
-          delivered: false,
-          error:
-            "suppressed-in-test: production page deps were used without injection — " +
-            "pass pageDeps to createAsk to exercise this path",
-        };
-      }
-      try {
-        const result = await notifyPrincipal({
-          message: message.message,
-          title: message.title,
-          ...(message.taskId === undefined ? {} : { taskId: message.taskId }),
-          // Explicit production wiring (ADR-026, mt#3609). This is the second
-          // production caller of `notifyPrincipal`; the spec's original
-          // enumeration named only the `principal.notify` command, which is
-          // why the required-deps change had to re-derive its consumers.
-          deps: createRealPrincipalChannelDeps(),
-        });
-        return result.delivered
-          ? { delivered: true }
-          : // notifyPrincipal reports a structured failure (`reason` +
-            // `detail`) rather than an `error` string — flatten both so the
-            // recorded failure says WHICH failure it was, not just that one
-            // happened. "not-configured" and "send-failed" want very different
-            // operator responses.
-            { delivered: false, error: `${result.reason}: ${result.detail}` };
-      } catch (err: unknown) {
-        return { delivered: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    },
-
-    async recordFailure(ask, error) {
-      // Log FIRST and unconditionally. The event row is best-effort by nature
-      // (it needs a live DB, which may be the very thing that is broken), so it
-      // cannot be the only record — a page failure that leaves no trace at all
-      // is indistinguishable from an incident nobody reported.
-      log.error("ask.page_failed: could not page the principal about a severity ask", {
-        askId: ask.id,
-        shortId: ask.shortId,
-        error,
-      });
-      try {
-        const provider = await resolvePersistenceProvider();
-        await emitSystemEventFromProvider(provider ?? undefined, {
-          eventType: "ask.page_failed",
-          payload: { askId: ask.id, shortId: ask.shortId, error },
-          ...(ask.parentTaskId === undefined ? {} : { relatedTaskId: ask.parentTaskId }),
-        });
-      } catch (err: unknown) {
-        log.warn("ask.page_failed: event emission also failed (already logged above)", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    },
-
-    now: () => new Date(),
-  };
-}
-
-/**
- * Run the severity-page dispatch for a just-routed Ask.
- *
- * Swallow-by-design at this boundary, and the ONE place in this flow where that
- * is correct: `pagePrincipalForAsk` already records its own failures durably,
- * so anything escaping here is a defect in the page path itself — and failing
- * ask creation because a notification broke would destroy the decision record
- * to protect the reminder about it.
- */
-async function dispatchPrincipalPage(
-  repo: AskRepository,
-  ask: Ask,
-  deps?: PrincipalPageDeps
-): Promise<void> {
-  try {
-    const outcome = await pagePrincipalForAsk(ask, repo, deps ?? makeProductionPageDeps());
-    if (outcome.reason === "rate-limited") {
-      // Never a silent cap (`work-completion.mdc`): a suppressed page must say
-      // so, with the count, or the ceiling reads as "nothing needed sending".
-      log.warn("ask page suppressed by rate limit", {
-        askId: ask.id,
-        recentPageCount: outcome.recentPageCount,
-        windowHours: PAGE_RATE_LIMIT_WINDOW_MS / (60 * 60 * 1000),
-        max: PAGE_RATE_LIMIT_MAX,
-      });
-    }
-  } catch (err: unknown) {
-    log.error("ask page dispatch threw; ask creation is unaffected", {
-      askId: ask.id,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2158,6 +2064,11 @@ export async function validateEditFormLintAgainstExistingAsk(
     // it off the ask keeps a check that consults it (severity/transport shape)
     // judging the real record rather than a default.
     forceImmediate: existing.forceImmediate,
+    // mt#4901 (PR #3571 R1): the existing ask's refs are the resolution source
+    // for a truncated artifact id in the edited body. `contextRefs` is not
+    // editable through this surface, so the stored value governs — and it was
+    // already fetched above, which is what made omitting it easy to miss.
+    contextRefs: existing.contextRefs,
     surface: "asks.edit",
   });
 }
@@ -2182,40 +2093,6 @@ export type AsksCreateResult = (RoutedAsk | SuspendedAsk | ElicitationClosedAsk)
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
-
-/**
- * Resolve the current project's uuid for project-scoped Ask reads and writes
- * (ADR-021 — mt#2416 read-side, mt#2563 write-side). Single source of truth so
- * `asks.create` stamps the SAME project the `asks.list` default filter reads by:
- * create/list scope parity. Returns the project uuid, or `undefined` when
- * persistence is unavailable, the project is unidentified (hosted server /
- * cockpit daemon with no single-repo cwd), or resolution fails — fail-open to an
- * unscoped read/write, never a throw.
- */
-async function resolveCurrentProjectScope(
-  container: AppContainerInterface | undefined,
-  caller: string
-): Promise<string | undefined> {
-  if (!container?.has("persistence")) return undefined;
-  try {
-    const persistenceProvider = container.get("persistence") as SqlCapablePersistenceProvider;
-    if (!persistenceProvider.getDatabaseConnection) return undefined;
-    const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
-    const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
-    const { isAllProjects } = await import("@minsky/domain/project/scope");
-    const identity = resolveProjectIdentity({ repoPath: process.cwd() });
-    if (identity.kind !== "resolved") return undefined;
-    const rawDb = await persistenceProvider.getDatabaseConnection();
-    if (!rawDb) return undefined;
-    const scope = await resolveProjectScope(identity, rawDb, caller);
-    return isAllProjects(scope) ? undefined : scope;
-  } catch (err: unknown) {
-    log.debug(`[${caller}] Project scope resolution failed; defaulting to unscoped`, {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return undefined;
-  }
-}
 
 /**
  * Register the asks commands in the shared command registry.
@@ -2489,12 +2366,20 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       execute: async (params, ctx: CommandExecutionContext): Promise<AsksCreateResult> => {
         const repo = await requireAskRepository(container, "asks.create");
 
-        // ADR-021 / mt#2563: resolve the current project and stamp it on the new
-        // Ask so it is visible to the default project-scoped asks.list — completes
-        // the Phase-1.3b write-stamping deferred by mt#2416. Shares
-        // resolveCurrentProjectScope with asks.list, so create and the default
-        // read filter agree on the same project_id (create/list scope parity).
-        const resolvedProjectId = await resolveCurrentProjectScope(container, "asks.create");
+        // ADR-021 / mt#2563: resolve the project and stamp it on the new Ask so
+        // it is visible to the default project-scoped asks.list — completes the
+        // Phase-1.3b write-stamping deferred by mt#2416.
+        //
+        // mt#4772: the PARENT TASK's project wins when there is one; the filing
+        // context is the fallback. Create/list scope parity is unchanged for the
+        // no-parent case (both still go through resolveCurrentProjectScope), and
+        // a parented Ask now agrees with its own activity event, which keys on
+        // `relatedTaskId` and was already rendering under the parent's project.
+        const resolvedProjectId = await resolveNewAskProjectId(
+          container,
+          params.parentTaskId as string | undefined,
+          "asks.create"
+        );
 
         // mt#1457: pull the capability registry from the container so the
         // mt#1457 pulled a capability registry from the container so the router
@@ -2604,7 +2489,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           // check, which has nothing to acknowledge. Gate on whether a
           // BLOCKING match was actually present.
           const hasBlockingMatch = filterBlockingFormLintMatches(formLintMatches).length > 0;
-          appendAskFormLintCalibrationRecord(ctx?.workspacePath ?? process.cwd(), {
+          await appendAskFormLintCalibrationRecord(ctx?.workspacePath ?? process.cwd(), {
             timestamp: new Date().toISOString(),
             askId: result.id,
             kind: result.kind,

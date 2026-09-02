@@ -266,6 +266,10 @@ describe("mt#4531 — collectTurnProse", () => {
     const asProse = measureWallOfText({
       finalText: text,
       largestBlockWords: 350,
+      // mt#4637: a single-block turn IS its own largest block, which is what
+      // makes the two paths comparable at all.
+      largestBlockText: text,
+      largestBlockIndex: 0,
       totalWords: 350,
       blockCount: 1,
     });
@@ -378,6 +382,84 @@ describe("mt#4531 — the communication rules are in the shipped rule text (AT4)
     expect(source).toContain("mt#4531 SC5 — the precedence rule is NOT rendered here");
     expect(source).toContain("denialMessageSizeChars");
     expect(source).toContain("A message about how you are communicating");
+  });
+});
+
+describe("mt#4637 — the record carries the block that fired", () => {
+  /**
+   * AT1. The shape the whole task exists for: a wall in an EARLY block behind a
+   * short closing one. Before this change the record's only text field
+   * described the 13-word block while a 400-word block fired, and three
+   * calibration passes read it as a false positive.
+   */
+  test("AT1: a [400, 13] turn records the 400-word block, and leaves excerpt on the final one", () => {
+    const big = words(400);
+    const small = words(13);
+    const prose = collectTurnProse([assistantTextLine(1, big), assistantTextLine(2, small)], small);
+
+    expect(prose.largestBlockWords).toBe(400);
+    expect(prose.largestBlockIndex).toBe(0);
+
+    const m = measureWallOfText(prose);
+
+    expect(m.trigger).toBe("over-budget");
+    // The new field describes what fired...
+    expect(m.largestBlockExcerpt.startsWith(big.slice(0, 40))).toBe(true);
+    expect(m.largestBlockIndex).toBe(0);
+    // ...while the pre-existing fields keep describing the FINAL block, which is
+    // the compatibility mt#4531's record note relies on.
+    expect(m.wordCount).toBe(13);
+    expect(m.excerpt.startsWith(small.slice(0, 40))).toBe(true);
+    expect(m.largestBlockExcerpt).not.toBe(m.excerpt);
+  });
+
+  /**
+   * AT2 / SC2. The common case costs a duplicate, not a divergence — and the
+   * identity is structural (one shared `truncateExcerpt`), not coincidental.
+   */
+  test("AT2: a single-block turn makes the new field identical to excerpt", () => {
+    const text = words(350);
+    const prose = collectTurnProse([assistantTextLine(1, text)], text);
+    const m = measureWallOfText(prose);
+
+    expect(prose.blockCount).toBe(1);
+    expect(m.largestBlockWords).toBe(m.wordCount);
+    expect(m.largestBlockExcerpt).toBe(m.excerpt);
+    expect(m.largestBlockIndex).toBe(0);
+  });
+
+  test("the identity also holds when the largest block IS the final one of several", () => {
+    // Not a single-block turn, but still the case SC2 describes: nothing about
+    // "one block" is what makes the two fields agree — being the same block is.
+    const small = words(20);
+    const big = words(400);
+    const prose = collectTurnProse([assistantTextLine(1, small), assistantTextLine(2, big)], big);
+    const m = measureWallOfText(prose);
+
+    expect(m.largestBlockIndex).toBe(1);
+    expect(m.largestBlockExcerpt).toBe(m.excerpt);
+  });
+
+  test("an unflushed recorded final block is still reachable as the largest", () => {
+    // The ADR-031 lag case `collectTurnProse` handles: the recorded final block
+    // is not in the transcript yet, so it is an ADDITIONAL candidate. It must be
+    // reachable by text, not just counted.
+    const early = words(50);
+    const recordedFinal = words(400);
+    const prose = collectTurnProse([assistantTextLine(1, early)], recordedFinal);
+
+    expect(prose.blockCount).toBe(2);
+    expect(prose.largestBlockWords).toBe(400);
+    expect(prose.largestBlockIndex).toBe(1);
+    expect(prose.largestBlockText).toBe(recordedFinal);
+  });
+
+  test("a turn with no assistant text at all measures zero without throwing", () => {
+    const prose = collectTurnProse([], "");
+
+    expect(prose.largestBlockWords).toBe(0);
+    expect(prose.largestBlockText).toBe("");
+    expect(measureWallOfText(prose).largestBlockExcerpt).toBe("");
   });
 });
 /* eslint-enable custom/no-real-fs-in-tests */

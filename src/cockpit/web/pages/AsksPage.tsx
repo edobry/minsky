@@ -59,7 +59,7 @@ import {
 import { cn } from "../lib/utils";
 import { stripOptionLetterPrefix } from "@minsky/shared/ask-option-label";
 import {
-  fetchAsks,
+  fetchAsksScoped,
   fetchTerminalAsks,
   resolveAsk,
   deferAsk,
@@ -71,6 +71,13 @@ import {
   type AskItem,
   type AsksListResponse,
 } from "../widgets/AskDetail";
+import {
+  useProject,
+  useOptionalProject,
+  projectLabelById,
+  shouldShowProjectIndicator,
+} from "../lib/project-context";
+import { ProjectBadge } from "../components/ProjectBadge";
 import {
   Select,
   SelectContent,
@@ -380,6 +387,14 @@ function AskRow({
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
   const ks = kindStyle(ask.kind);
+  // Project identity in the all-projects view (mt#4773) — same affordance and
+  // when-to-show rule as task/changeset/agent rows. Optional context: a row
+  // rendered outside the provider has no selection to indicate.
+  const projectCtx = useOptionalProject();
+  const projectLabel =
+    projectCtx && shouldShowProjectIndicator(projectCtx.projects, projectCtx.selectedSlug)
+      ? projectLabelById(projectCtx.projects, ask.projectId ?? null)
+      : null;
   const deadlineStr = resolved ? null : formatDeadlineRemaining(ask.deadline);
   const isOverdue = deadlineStr === "overdue";
   const standing = !resolved && isStanding(ask);
@@ -425,6 +440,9 @@ function AskRow({
             {ask.title}
           </span>
         </button>
+
+        {/* Project identity (mt#4773) — all-projects view only. */}
+        {projectLabel && <ProjectBadge label={projectLabel} className="flex-shrink-0" />}
 
         <RequestorCell requestor={ask.requestor} parentTaskId={ask.parentTaskId ?? null} />
 
@@ -611,12 +629,17 @@ export function AsksPage() {
    */
   const [view, setView] = useState<AskView>("pending");
   const resolvedView = view === "resolved";
+  const { selectedSlug, queryParam } = useProject();
 
   const query = useQuery<AsksListResponse, Error>({
-    // A SEPARATE cache key from ["asks"] — that one is shared with the home
-    // TriageBand, which must keep seeing only pending asks.
-    queryKey: resolvedView ? ["asks", "terminal"] : ["asks"],
-    queryFn: () => (resolvedView ? fetchTerminalAsks() : fetchAsks()),
+    // The pending-view key is ["asks", selectedSlug] — the SAME key
+    // TriageBand.tsx's home band uses, so the console and the radiator
+    // always agree (mt#4092's original invariant, now project-scoped in
+    // lockstep per mt#4731). The resolved/terminal view gets its OWN key so
+    // the home band can never be poisoned with closed asks.
+    queryKey: resolvedView ? ["asks", "terminal", selectedSlug] : ["asks", selectedSlug],
+    queryFn: () =>
+      resolvedView ? fetchTerminalAsks(undefined, queryParam) : fetchAsksScoped(queryParam),
     staleTime: resolvedView ? 60_000 : 10_000,
     // A record does not change under you; polling it every 10s buys nothing.
     refetchInterval: resolvedView ? false : 10_000,

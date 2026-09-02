@@ -243,6 +243,39 @@ this class. A turn that already matches a literal pattern keeps that pattern's
 phrase, so no pre-existing record changes shape — _"I'll stop here unless you
 want more"_ satisfies both and still reports `I'll stop here`.
 
+### A commitment governing the leg is an override, not an offer (mt#4702)
+
+`findOfferShape` suppresses a leg that a first-person commitment already governs —
+_"I'll take mt#4465 next unless you'd rather I clear mt#4716 first."_ Nothing is
+deferred there. The agent states what it is doing and appends a cheap veto, which
+is the shape `decision-defaults.mdc §Take direct action` and `humility.mdc §Stakes
+filter` both PRESCRIBE: a deferral makes the principal's answer a **precondition**,
+while this makes it an **override** they may decline to use at no cost. Both
+deferral detectors fired hardest on that shape — the rule being obeyed.
+
+`commitmentGovernsLeg` composes two positional tests: a first-person commitment
+preceding the menu leg inside the same sentence, and a governed offer (`want me
+to`) preceding the leg, which EXEMPTS it — unless that governed clause is itself
+commitment-governed. **The second test was found by a negative control, not
+designed.** Without it, _"Want me to take it, or I'll start on mt#4637?"_ — a
+genuine offer that commits in its second clause — was suppressed. With it naive,
+the false class came back: in _"I'll take that next unless you'd rather I clear
+mt#4716 or mt#4640 first"_ the governed clause sits INSIDE the `unless`, so it is
+the alternative being **vetoed** rather than an offer being **made**.
+
+**The carve-out is the DIRECTION of the committed action, not its grammar.**
+mt#3801 shipped _"I'll stop here unless you want more"_ as a genuine offer, pinned
+by a test. Identical grammar, opposite meaning: silence that lets a chosen default
+PROCEED hands nothing over, while silence that STOPS the work hands the decision
+to the principal. `HALTING_COMMITMENT` encodes that direction, and mt#3801's own
+tests are what caught the first cut collapsing the two. mt#4702's spec proposed
+keying on commitment alone; that predicate would have overturned a shipped, tested
+decision on evidence that never covered its case.
+
+`operator-deferral-detector`'s Surface C imports this same function, so both
+detectors take the suppression from ONE implementation rather than a duplicated
+predicate that could drift.
+
 ### Known miss: a comma before `or`
 
 `hasMenuShape`'s disjunction leg needs a bare space before `or`, so

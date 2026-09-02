@@ -125,7 +125,8 @@ Configure your repository to use the GitHub Issues backend:
 version: 1
 
 # Task Backend Configuration
-backend: "github-issues"
+tasks:
+  backend: "github-issues"
 
 # Persistence Configuration (Postgres is the only supported backend — mt#2339)
 persistence:
@@ -145,6 +146,12 @@ minsky github test
 # List existing issues (should work if authentication is correct)
 minsky tasks list
 ```
+
+`minsky github test` and `minsky github status` exit non-zero (`1`) when a check genuinely
+fails — a repository-access error, an unexpected configuration-load failure — so scripts and CI
+can branch on the exit code directly, without parsing output. Exit `0` covers both "every check
+passed" (the 🎉/✅ banner) and an informational "not yet configured" state (⚠️, e.g. the task
+backend isn't `github-issues` yet) — neither is a failure, so neither exits non-zero.
 
 ## Usage Examples
 
@@ -188,7 +195,8 @@ minsky session pr approve
 # .minsky/config.yaml
 version: 1
 
-backend: "github-issues"
+tasks:
+  backend: "github-issues"
 
 # Custom label configuration (optional)
 backendConfig:

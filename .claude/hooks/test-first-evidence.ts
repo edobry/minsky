@@ -545,8 +545,11 @@ export function checkTestFirstEvidence(
 /** Documented escape hatch. Registered in `HOOK_ONLY_ENV_VARS` per mt#1788. */
 export const TEST_FIRST_SKIP_ENV_VAR = "MINSKY_SKIP_TEST_FIRST_EVIDENCE";
 
-/** Calibration log, sibling of the AT- and SC-coverage logs. */
-export const TEST_FIRST_CALIBRATION_LOG = ".minsky/execution-evidence-test-first-calibration.jsonl";
+/** Stream name — the SINGLE source of truth (mt#4755); the path below is DERIVED from it. */
+export const TEST_FIRST_STREAM = "execution-evidence-test-first";
+
+/** Calibration log, sibling of the AT- and SC-coverage logs. Derived from the stream name. */
+export const TEST_FIRST_CALIBRATION_LOG = `.minsky/${TEST_FIRST_STREAM}-calibration.jsonl`;
 
 export function isTestFirstSkipped(env: NodeJS.ProcessEnv = process.env): boolean {
   const v = env[TEST_FIRST_SKIP_ENV_VAR];

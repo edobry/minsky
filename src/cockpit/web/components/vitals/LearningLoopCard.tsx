@@ -13,6 +13,7 @@
  */
 import { useEventFrequency } from "../../hooks/useEventFrequency";
 import { LoopCardShell } from "./LoopCardShell";
+import { InstanceScopeCue } from "../InstanceScopeCue";
 import { RingGauge } from "./RingGauge";
 import { Sparkline } from "./Sparkline";
 
@@ -43,6 +44,7 @@ export function LearningLoopCard() {
   return (
     <LoopCardShell
       label="Learning"
+      headerExtra={<InstanceScopeCue compact />}
       ring={
         <RingGauge
           fraction={fraction}
