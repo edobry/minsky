@@ -40,9 +40,14 @@ import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import {
   assessWindowCoverage,
   buildSearchResponse,
-  type TranscriptSearchResponse,
+  type TranscriptSearchCommandResponse,
 } from "@minsky/domain/transcripts/transcript-search-filters";
+import {
+  parseSearchProjection,
+  projectTurnResults,
+} from "@minsky/domain/transcripts/transcript-search-projection";
 import { resolveTranscriptProjectScope } from "./resolve-transcript-project-scope";
+import { projectionParam, PROJECTION_TOOL_DESCRIPTION_SUFFIX } from "./projection-param";
 
 // ── Registration ──────────────────────────────────────────────────────────────
 
@@ -64,15 +69,19 @@ export function registerTranscriptSearchCommand(
     category: CommandCategory.TRANSCRIPTS,
     name: "search",
     description:
-      "Search agent transcript turns by semantic similarity. " +
-      "Embeds the query text and returns the nearest-neighbor turns " +
-      "ranked by vector distance (pgvector). " +
-      "Optionally filter by role (user/assistant), date range, or session UUID. " +
-      "Date filters bind the turn's own timestamp, so turns from long-running " +
-      "sessions are matched by when the turn happened, not when the session started. " +
-      "Returns { results, coverage }: when a date window contains sessions not yet " +
-      "indexed into searchable turns, `coverage` reports the gap instead of a silent " +
-      "empty result (those turns become searchable after `transcripts index-embeddings`).",
+      `Search agent transcript turns by semantic similarity. ` +
+      `Embeds the query text and returns the nearest-neighbor turns ` +
+      `ranked by vector distance (pgvector). ` +
+      `Each result carries a \`snippet\` — the turn's leading text, stripped and truncated. ` +
+      `Unlike full-text search it marks no matched spans, because a vector match has no ` +
+      `matched terms to cut around. ${
+        PROJECTION_TOOL_DESCRIPTION_SUFFIX
+      }Optionally filter by role (user/assistant), date range, or session UUID. ` +
+      `Date filters bind the turn's own timestamp, so turns from long-running ` +
+      `sessions are matched by when the turn happened, not when the session started. ` +
+      `Returns { results, coverage }: when a date window contains sessions not yet ` +
+      `indexed into searchable turns, \`coverage\` reports the gap instead of a silent ` +
+      `empty result (those turns become searchable after \`transcripts index-embeddings\`).`,
     parameters: {
       query: {
         schema: z.string(),
@@ -122,11 +131,13 @@ export function registerTranscriptSearchCommand(
         required: false,
         defaultValue: false,
       },
+      projection: projectionParam(),
     },
 
-    async execute(params, context): Promise<TranscriptSearchResponse> {
+    async execute(params, context): Promise<TranscriptSearchCommandResponse> {
       const query = params.query as string;
       const limit = (params.limit as number | undefined) ?? 10;
+      const projection = parseSearchProjection(params.projection);
       const role = params.role as "user" | "assistant" | undefined;
       const originKind = params.originKind as string | undefined;
       const from = params.from as string | undefined;
@@ -207,10 +218,13 @@ export function registerTranscriptSearchCommand(
       log.debug("transcripts.search complete", {
         query,
         resultCount: results.length,
+        projection,
         unindexedSessionsInWindow: coverage.unindexedSessionsInWindow,
       });
 
-      return buildSearchResponse(results, coverage);
+      // mt#4917: project at the COMMAND layer only — the cockpit calls the
+      // service directly and must keep receiving full turns.
+      return buildSearchResponse(projectTurnResults(results, projection), coverage);
     },
   });
 
