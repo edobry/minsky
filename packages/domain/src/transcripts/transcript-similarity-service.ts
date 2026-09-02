@@ -86,6 +86,16 @@ import { buildTurnDateRangeConditions } from "./transcript-search-filters";
 import { toDisplaySnippet } from "./text-snippet";
 import type { AgentSessionId } from "./transcript-source";
 
+/**
+ * The handle drizzle hands a `db.transaction()` callback (mt#4919).
+ *
+ * Derived from `PostgresJsDatabase` rather than imported, because drizzle does
+ * not export the transaction type under a stable public name — deriving it
+ * keeps this correct across drizzle upgrades instead of pinning a path into its
+ * internals.
+ */
+type TransactionScope = Parameters<Parameters<PostgresJsDatabase["transaction"]>[0]>[0];
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -350,6 +360,69 @@ export class TranscriptSimilarityService {
   ) {}
 
   /**
+   * Run a vector-ordered query with pgvector's iterative index scan enabled
+   * (mt#4919).
+   *
+   * ## The defect this fixes
+   *
+   * pgvector applies a `WHERE` filter AFTER the HNSW index is scanned, and the
+   * scan yields only `hnsw.ef_search` candidates (default 40). A selective
+   * filter therefore removes most of them and the query returns FEWER rows than
+   * the `LIMIT` asked for — silently, with nothing in the result to distinguish
+   * that from a genuinely small corpus. pgvector's README states it directly:
+   * "If a condition matches 10% of rows, with HNSW and the default
+   * `hnsw.ef_search` of 40, only 4 rows will match on average."
+   *
+   * Measured against prod 2026-09-02, `LIMIT 20` on the repo project:
+   * `role: "user"` (~12.7% selective) returned **10**, and adding
+   * `originKind: "human"` (~6%) returned **7**. Deterministic, not flaky.
+   *
+   * ## Why iterative_scan and not a bigger ef_search
+   *
+   * Both were measured. `ef_search = 100` returns the full 20 at 12.7%
+   * selectivity but only **15** at 6% — a fixed budget is a guess against an
+   * unknown selectivity, and the next filter combination is another guess.
+   * `iterative_scan` returned the full 20 at both, at no cost worth naming
+   * (83-95 ms against 158 ms for the default).
+   *
+   * `strict_order` rather than `relaxed_order`: both returned the full page,
+   * and strict preserves exact distance ordering, which a ranked search surface
+   * should not silently give up.
+   *
+   * ## Why this DEVIATES from ADR-013, deliberately
+   *
+   * ADR-013 prescribes an application-layer adaptive over-fetch for filtered
+   * vector search, implemented in `TaskSimilarityService.searchByText`. **Do
+   * not "restore consistency" by reproducing that here.** ADR-013's own text
+   * describes its widen as "the application-layer equivalent of pgvector 0.8's
+   * bounded iterative scan" — an emulation of exactly this setting. It needed
+   * the emulation because its filter was a MUTABLE DENORMALIZED column
+   * (`tasks_embeddings.status`) that had drifted from its source of truth, so
+   * the filter had to move out of the index for correctness and the recall fix
+   * rode along. No such constraint exists here: `role`, `project_id`,
+   * `user_origin` and `started_at` are real columns on the joined tables, with
+   * no denormalized copy to drift. The database ships the mechanism ADR-013 was
+   * imitating (`pg_extension` reports vector **0.8.0**, the release that
+   * introduced it), so the emulation buys nothing.
+   *
+   * ## Why a transaction
+   *
+   * `SET LOCAL` is scoped to the surrounding transaction and reverts on commit,
+   * so it cannot leak to another caller sharing this pooled connection. A bare
+   * `SET` would; a database- or role-level default would additionally change
+   * every OTHER vector search in the system, including the `tasks_embeddings`
+   * path that deliberately does its own thing.
+   */
+  private async withIterativeScan<T>(
+    run: (tx: TransactionScope) => Promise<T> | PromiseLike<T>
+  ): Promise<T> {
+    return this.db.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL hnsw.iterative_scan = strict_order`);
+      return run(tx);
+    });
+  }
+
+  /**
    * Embed the query text and return the nearest-neighbor turns by L2 distance
    * (`<->`, matching the table's vector_l2_ops index — see module header).
    *
@@ -416,31 +489,35 @@ export class TranscriptSimilarityService {
 
     // Query: JOIN agent_transcript_turns to agent_transcripts, ORDER BY L2 distance.
     try {
-      const rows = await this.db
-        .select({
-          agentSessionId: agentTranscriptTurnsTable.agentSessionId,
-          turnIndex: agentTranscriptTurnsTable.turnIndex,
-          userText: agentTranscriptTurnsTable.userText,
-          userOrigin: agentTranscriptTurnsTable.userOrigin,
-          assistantText: agentTranscriptTurnsTable.assistantText,
-          startedAt: agentTranscriptTurnsTable.startedAt,
-          endedAt: agentTranscriptTurnsTable.endedAt,
-          isSpawnBoundary: agentTranscriptTurnsTable.isSpawnBoundary,
-          score: distanceExpr,
-          sessionStartedAt: agentTranscriptsTable.startedAt,
-          sessionModel: agentTranscriptsTable.model,
-          sessionCwd: agentTranscriptsTable.cwd,
-          relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
-          relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
-        })
-        .from(agentTranscriptTurnsTable)
-        .innerJoin(
-          agentTranscriptsTable,
-          eq(agentTranscriptTurnsTable.agentSessionId, agentTranscriptsTable.agentSessionId)
-        )
-        .where(conditions.length > 0 ? and(...conditions) : undefined)
-        .orderBy(distanceExpr)
-        .limit(limit);
+      // mt#4919: iterative scan, or a selective filter silently returns fewer
+      // rows than `limit`. See withIterativeScan for the measurements.
+      const rows = await this.withIterativeScan((tx) =>
+        tx
+          .select({
+            agentSessionId: agentTranscriptTurnsTable.agentSessionId,
+            turnIndex: agentTranscriptTurnsTable.turnIndex,
+            userText: agentTranscriptTurnsTable.userText,
+            userOrigin: agentTranscriptTurnsTable.userOrigin,
+            assistantText: agentTranscriptTurnsTable.assistantText,
+            startedAt: agentTranscriptTurnsTable.startedAt,
+            endedAt: agentTranscriptTurnsTable.endedAt,
+            isSpawnBoundary: agentTranscriptTurnsTable.isSpawnBoundary,
+            score: distanceExpr,
+            sessionStartedAt: agentTranscriptsTable.startedAt,
+            sessionModel: agentTranscriptsTable.model,
+            sessionCwd: agentTranscriptsTable.cwd,
+            relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
+            relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
+          })
+          .from(agentTranscriptTurnsTable)
+          .innerJoin(
+            agentTranscriptsTable,
+            eq(agentTranscriptTurnsTable.agentSessionId, agentTranscriptsTable.agentSessionId)
+          )
+          .where(conditions.length > 0 ? and(...conditions) : undefined)
+          .orderBy(distanceExpr)
+          .limit(limit)
+      );
 
       // Fetch per-session message counts in bulk.
       const sessionIds = [...new Set(rows.map((r) => r.agentSessionId))];
@@ -556,31 +633,35 @@ export class TranscriptSimilarityService {
     }
 
     try {
-      const rows = await this.db
-        .select({
-          agentSessionId: agentTranscriptTurnsTable.agentSessionId,
-          turnIndex: agentTranscriptTurnsTable.turnIndex,
-          userText: agentTranscriptTurnsTable.userText,
-          userOrigin: agentTranscriptTurnsTable.userOrigin,
-          assistantText: agentTranscriptTurnsTable.assistantText,
-          startedAt: agentTranscriptTurnsTable.startedAt,
-          endedAt: agentTranscriptTurnsTable.endedAt,
-          isSpawnBoundary: agentTranscriptTurnsTable.isSpawnBoundary,
-          score: distanceExpr,
-          sessionStartedAt: agentTranscriptsTable.startedAt,
-          sessionModel: agentTranscriptsTable.model,
-          sessionCwd: agentTranscriptsTable.cwd,
-          relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
-          relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
-        })
-        .from(agentTranscriptTurnsTable)
-        .innerJoin(
-          agentTranscriptsTable,
-          eq(agentTranscriptTurnsTable.agentSessionId, agentTranscriptsTable.agentSessionId)
-        )
-        .where(and(...conditions))
-        .orderBy(distanceExpr)
-        .limit(limit);
+      // mt#4919: same reason as search() — this method filters too (session
+      // exclusion, role, originKind), so it has the same recall exposure.
+      const rows = await this.withIterativeScan((tx) =>
+        tx
+          .select({
+            agentSessionId: agentTranscriptTurnsTable.agentSessionId,
+            turnIndex: agentTranscriptTurnsTable.turnIndex,
+            userText: agentTranscriptTurnsTable.userText,
+            userOrigin: agentTranscriptTurnsTable.userOrigin,
+            assistantText: agentTranscriptTurnsTable.assistantText,
+            startedAt: agentTranscriptTurnsTable.startedAt,
+            endedAt: agentTranscriptTurnsTable.endedAt,
+            isSpawnBoundary: agentTranscriptTurnsTable.isSpawnBoundary,
+            score: distanceExpr,
+            sessionStartedAt: agentTranscriptsTable.startedAt,
+            sessionModel: agentTranscriptsTable.model,
+            sessionCwd: agentTranscriptsTable.cwd,
+            relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
+            relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
+          })
+          .from(agentTranscriptTurnsTable)
+          .innerJoin(
+            agentTranscriptsTable,
+            eq(agentTranscriptTurnsTable.agentSessionId, agentTranscriptsTable.agentSessionId)
+          )
+          .where(and(...conditions))
+          .orderBy(distanceExpr)
+          .limit(limit)
+      );
 
       const sessionIds = [...new Set(rows.map((r) => r.agentSessionId))];
       const messageCounts = await this.getMessageCounts(sessionIds);
@@ -657,6 +738,13 @@ export class TranscriptSimilarityService {
     // fixed here). `<->` regardless, so the whole file speaks one metric and
     // the alignment check has a single expectation per file.
     const embeddingLiteral = `'[${(seedRow.summaryEmbedding as number[]).join(",")}]'`;
+    // NOT wrapped in withIterativeScan, and that is a checked finding rather
+    // than an oversight (mt#4919): `agent_transcripts.summary_embedding` has NO
+    // ANN index — verified against prod, the only HNSW index on this cluster is
+    // `idx_agent_transcript_turns_embedding`. This ORDER BY is therefore an
+    // exact sequential scan, which cannot under-return, and `iterative_scan`
+    // would have nothing to act on. If a summary-embedding HNSW index is ever
+    // added, this call site needs the wrapper.
     const distanceExpr = sql`${agentTranscriptsTable.summaryEmbedding} <-> ${sql.raw(embeddingLiteral)}::vector`;
 
     // Project scoping (mt#2417, Phase 1.4) — see search()'s equivalent filter.

@@ -61,6 +61,26 @@ type FakeSelectResult = Record<string, unknown>;
  */
 let capturedWhereConditions: unknown[] = [];
 
+/**
+ * Raw statements the service issued via `execute()` (mt#4919) — today just the
+ * `SET LOCAL hnsw.iterative_scan` that `withIterativeScan` emits. Rendered to a
+ * string so a test can assert on the SQL text rather than on drizzle's internal
+ * chunk representation.
+ */
+let capturedStatements: string[] = [];
+
+/** Flatten a drizzle SQL template into something assertable. */
+function renderSql(statement: unknown): string {
+  const chunks = (statement as { queryChunks?: unknown[] })?.queryChunks;
+  if (!Array.isArray(chunks)) return String(statement);
+  return chunks
+    .map((chunk) => {
+      const value = (chunk as { value?: unknown })?.value;
+      return Array.isArray(value) ? value.join("") : "";
+    })
+    .join("");
+}
+
 const SKIP_KEYS = new Set(["table"]);
 
 function whereTreeFiltersOn(trees: unknown[], columnName: string): boolean {
@@ -82,6 +102,12 @@ function whereTreeFiltersOn(trees: unknown[], columnName: string): boolean {
 function makeFakeDb(rows: FakeSelectResult[], countRows: FakeSelectResult[] = []) {
   let callCount = 0;
   capturedWhereConditions = [];
+  capturedStatements = [];
+
+  const executeFn = (statement: unknown) => {
+    capturedStatements.push(renderSql(statement));
+    return Promise.resolve([]);
+  };
 
   const limitFn = (n: number) => {
     // The first call is the main query; subsequent calls are getMessageCounts.
@@ -113,7 +139,16 @@ function makeFakeDb(rows: FakeSelectResult[], countRows: FakeSelectResult[] = []
 
   const selectFn = (_fields: unknown) => ({ from: fromFn });
 
-  return { select: selectFn };
+  const scope = { select: selectFn, execute: executeFn };
+
+  // mt#4919: the vector-ordered queries now run inside a transaction that
+  // issues `SET LOCAL hnsw.iterative_scan`. The fake runs the callback against
+  // the same scope so query behaviour is unchanged, and records the statements
+  // so a test can assert the setting was actually issued.
+  const transactionFn = async <T>(run: (tx: typeof scope) => Promise<T> | PromiseLike<T>) =>
+    run(scope);
+
+  return { ...scope, transaction: transactionFn };
 }
 
 // ── Turn result rows ─────────────────────────────────────────────────────────
@@ -498,5 +533,73 @@ describe("TranscriptSimilarityService — originKind (mt#4289)", () => {
     );
     await svc2.search("anything", { role: "user", originKind: "human" });
     expect(whereTreeFiltersOn(capturedWhereConditions, "user_origin")).toBe(true);
+  });
+});
+
+/**
+ * mt#4919 — the iterative-scan setting.
+ *
+ * **What these tests prove, and what they do NOT.** The defect is a property of
+ * the LIVE pgvector index — a filter applied after a bounded HNSW scan — so no
+ * fake can reproduce it, and none of these assert that recall is actually
+ * fixed. They assert the narrower thing a unit test CAN own: that the service
+ * issues the setting, on the right statements, with the right value. The recall
+ * claim itself is verified against prod and recorded in the PR body and in
+ * mt#4919's spec; treat that as the evidence, not this file.
+ */
+describe("TranscriptSimilarityService — iterative scan (mt#4919)", () => {
+  test("search() issues SET LOCAL hnsw.iterative_scan around the vector query", async () => {
+    const svc = new TranscriptSimilarityService(
+      makeFakeDb([makeTurnRow()]) as never,
+      new FakeEmbeddingService() as never
+    );
+
+    await svc.search("anything", { limit: 20, role: "user" });
+
+    expect(capturedStatements).toHaveLength(1);
+    expect(capturedStatements[0]).toContain("hnsw.iterative_scan");
+  });
+
+  test("it is SET LOCAL, not a bare SET — the setting must not outlive the transaction", async () => {
+    // A bare SET persists on a POOLED connection and would silently change
+    // every later query issued by any other caller that happens to get it.
+    const svc = new TranscriptSimilarityService(
+      makeFakeDb([makeTurnRow()]) as never,
+      new FakeEmbeddingService() as never
+    );
+
+    await svc.search("anything", {});
+
+    expect(capturedStatements[0]).toContain("SET LOCAL");
+  });
+
+  test("it is strict_order — relaxed_order would give up exact distance ordering", async () => {
+    // Both values fix the recall problem (measured); strict_order is chosen so a
+    // ranked surface keeps its ranking. Pinned so a later edit has to be
+    // deliberate rather than incidental.
+    const svc = new TranscriptSimilarityService(
+      makeFakeDb([makeTurnRow()]) as never,
+      new FakeEmbeddingService() as never
+    );
+
+    await svc.search("anything", {});
+
+    expect(capturedStatements[0]).toContain("strict_order");
+    expect(capturedStatements[0]).not.toContain("relaxed_order");
+  });
+
+  test("the setting is issued even with no filters — the scan saturates regardless", async () => {
+    // Measured: unfiltered, limits [5,10,15,20,30,50] returned
+    // [5,10,15,20,30,41]. The ANN candidate budget caps a large-limit query
+    // whether or not a filter is present, so this is not conditional on opts.
+    const svc = new TranscriptSimilarityService(
+      makeFakeDb([makeTurnRow()]) as never,
+      new FakeEmbeddingService() as never
+    );
+
+    await svc.search("anything", { limit: 50 });
+
+    expect(capturedStatements).toHaveLength(1);
+    expect(capturedStatements[0]).toContain("hnsw.iterative_scan");
   });
 });
