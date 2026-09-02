@@ -309,3 +309,78 @@ describe("mergeSnapshotPages (mt#4263)", () => {
     });
   });
 });
+
+describe("mergeSnapshotPages — pinned head block (mt#4909)", () => {
+  const brief: SessionContextSnapshot["blocks"][0] = {
+    ...turn("brief", "2026-08-18T00:00:00.000Z", 0),
+    userOrigin: "dispatch_brief",
+  };
+
+  test("the head block comes from the OLDEST page, like the rest of the paging state", () => {
+    // The newest page carries one and the oldest does not — which is exactly the
+    // state a second fetch produces, because the server stops sending the head
+    // block once a slice reaches index 0. Taking the newest page's value would
+    // pin a brief that is now also present in `blocks`, rendering it twice.
+    const newest = page({
+      blocks: [turn("b2", "2026-08-18T00:00:02.000Z", 2)],
+      headBlock: brief,
+      window: { totalTurns: 3, returnedTurns: 1, oldestTurnIndex: 2, nextBefore: 2, hasMore: true },
+    });
+    const older = page({
+      blocks: [brief, turn("b1", "2026-08-18T00:00:01.000Z", 1)],
+      window: {
+        totalTurns: 3,
+        returnedTurns: 2,
+        oldestTurnIndex: 0,
+        nextBefore: null,
+        hasMore: false,
+      },
+    });
+
+    const merged = mergeSnapshotPages([newest, older]);
+
+    expect(merged.headBlock).toBeUndefined();
+    // The real turn 0 is in the merged blocks — so the brief is reachable by
+    // scrolling, and the pin correctly stood down rather than duplicating it.
+    expect(merged.blocks.filter((b) => b.turnIndex === 0)).toHaveLength(1);
+    expect(merged.window?.nextBefore).toBeNull();
+  });
+
+  test("it survives the merge while the oldest page still has history in front of it", () => {
+    const newest = page({
+      blocks: [turn("b2", "2026-08-18T00:00:02.000Z", 96)],
+      headBlock: brief,
+      window: {
+        totalTurns: 97,
+        returnedTurns: 1,
+        oldestTurnIndex: 96,
+        nextBefore: 96,
+        hasMore: true,
+      },
+    });
+    const older = page({
+      blocks: [turn("b1", "2026-08-18T00:00:01.000Z", 50)],
+      headBlock: brief,
+      window: {
+        totalTurns: 97,
+        returnedTurns: 1,
+        oldestTurnIndex: 50,
+        nextBefore: 50,
+        hasMore: true,
+      },
+    });
+
+    const merged = mergeSnapshotPages([newest, older]);
+
+    // Paging back one page has not reached turn 0, so the pin must stay.
+    expect(merged.headBlock?.id).toBe("brief");
+    expect(merged.window?.nextBefore).toBe(50);
+  });
+
+  test("an unwindowed merge carries no head block", () => {
+    const newest = page({ blocks: [turn("b2", "2026-08-18T00:00:02.000Z", 1)] });
+    const older = page({ blocks: [turn("b1", "2026-08-18T00:00:01.000Z", 0)] });
+
+    expect(mergeSnapshotPages([newest, older]).headBlock).toBeUndefined();
+  });
+});

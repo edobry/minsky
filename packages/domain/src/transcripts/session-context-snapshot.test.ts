@@ -11,10 +11,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   assistantContentKind,
+  dispatchBriefHeadBlock,
   mapAttachmentTypeToBlockType,
   mapTurnTypeToBlockType,
   turnLineToBlock,
 } from "./session-context-snapshot";
+import { PROMPT_WATERMARK } from "../session/prompt-generation";
 
 describe("mapTurnTypeToBlockType (mt#2022)", () => {
   test("user line → user-prompt", () => {
@@ -191,5 +193,85 @@ describe("turnLineToBlock — compaction + model extraction (mt#3260)", () => {
     });
 
     expect(Object.hasOwn(block as object, "model")).toBe(false);
+  });
+});
+
+describe("dispatchBriefHeadBlock — the pinned turn 0 (mt#4909)", () => {
+  /**
+   * A subagent transcript's opening line, in the shape the real one has.
+   *
+   * Modeled on `subagents/agent-a335fb8b0e7586511.jsonl` line 1 — the record the
+   * defect was found on: `content` is a bare STRING (not a block array), and the
+   * line carries `isSidechain` with no `isMeta` / `isCompactSummary` / `origin`.
+   * Both conjuncts the classifier requires are present: the watermark, and the
+   * structural corroboration that this record IS a dispatch.
+   */
+  function dispatchLine(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      type: "user",
+      timestamp: "2026-08-19T12:00:00.000Z",
+      uuid: "u-0",
+      isSidechain: true,
+      agentId: "a335fb8b0e7586511",
+      message: {
+        role: "user",
+        content: `Implement mt#4909 in the session workspace.\n\n${PROMPT_WATERMARK}`,
+      },
+      ...overrides,
+    };
+  }
+
+  test("a real dispatch line pins, at turn index 0", () => {
+    const block = dispatchBriefHeadBlock("agent-x", dispatchLine());
+
+    expect(block).toBeDefined();
+    expect(block?.userOrigin).toBe("dispatch_brief");
+    // The ORIGINAL transcript index, not a position in the page — block ids
+    // embed it and a deep link into this turn has to keep resolving.
+    expect(block?.turnIndex).toBe(0);
+    expect(block?.id).toBe("agent-x:turn:0");
+  });
+
+  test("null in — the slice already reached turn 0, so nothing pins", () => {
+    // The common case on a short conversation: the SQL sends no head line
+    // because the brief is already in the page, and pinning it would duplicate.
+    expect(dispatchBriefHeadBlock("agent-x", null)).toBeUndefined();
+    expect(dispatchBriefHeadBlock("agent-x", undefined)).toBeUndefined();
+  });
+
+  test("an ordinary operator turn 0 does NOT pin", () => {
+    // A root conversation. `classifyUserLineOrigin` fails OPEN to "human" here,
+    // so this asserts the guard is on `dispatch_brief` specifically rather than
+    // on "the classifier returned something".
+    const block = dispatchBriefHeadBlock("agent-x", {
+      type: "user",
+      timestamp: "2026-08-19T12:00:00.000Z",
+      message: { role: "user", content: "hey, can you look at the reviewer service?" },
+    });
+
+    expect(block).toBeUndefined();
+  });
+
+  test("prose merely QUOTING a watermark does not pin", () => {
+    // The mt#3405 false-positive shape: the marker is present and the
+    // structural corroboration is not, so this is an operator talking ABOUT a
+    // dispatch rather than a dispatch. Pinning it would hoist an arbitrary
+    // message to the top of the conversation.
+    const block = dispatchBriefHeadBlock("agent-x", {
+      type: "user",
+      timestamp: "2026-08-19T12:00:00.000Z",
+      message: { role: "user", content: `why does the prompt end with ${PROMPT_WATERMARK}?` },
+    });
+
+    expect(block).toBeUndefined();
+  });
+
+  test("a non-renderable entry 0 pins nothing rather than throwing", () => {
+    // `turnLineToBlock` rejects anything that is not a timestamped
+    // user/assistant line. Routing through it means those cases are already
+    // handled here, and a malformed row degrades to "no pin".
+    expect(dispatchBriefHeadBlock("agent-x", { type: "summary" })).toBeUndefined();
+    expect(dispatchBriefHeadBlock("agent-x", dispatchLine({ timestamp: 0 }))).toBeUndefined();
+    expect(dispatchBriefHeadBlock("agent-x", "not an object")).toBeUndefined();
   });
 });

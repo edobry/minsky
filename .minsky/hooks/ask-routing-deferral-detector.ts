@@ -256,7 +256,16 @@ const RUNG2_MAX_CONTEXTS = 4;
  * already — a constant that has now mis-fit two corpora it was not measured on.
  * `decision-defaults.mdc §Thresholds` asks for observed cadence rather than an
  * inherited round number; `scripts/replay-settled-decision.ts --rung2` is the
- * measurement, and its output is recorded in mt#4404's spec.
+ * measurement, and its output is recorded BELOW, in this docblock.
+ *
+ * **Corrected by mt#4649 (SC8).** This line read "recorded in mt#4404's spec"
+ * until 2026-09-02, and that was false: mt#4404 has no `## Outcome` section —
+ * its spec ends at the gap report — so anyone re-checking the sufficiency bar by
+ * reading the task found nothing and could reasonably conclude the bar was never
+ * measured. The measurement has only ever lived here. Found while mt#4649 became
+ * the first consumer of this claim, which is the shape worth noting: a provenance
+ * pointer is not exercised by the code it sits in, so it goes stale silently and
+ * is falsified only when someone follows it.
  *
  * The value must separate two populations that SHARE most of their vocabulary:
  * AT1 (a decision taken, with an offer attached — must suppress) and AT2 (an
@@ -265,7 +274,8 @@ const RUNG2_MAX_CONTEXTS = 4;
  * and the measurement matters more, not less.
  *
  * **Measured 2026-08-26** (`bun scripts/replay-settled-decision.ts --rung2`,
- * openai provider, full output in mt#4404's spec):
+ * openai provider; the full output is the three bullets that follow — this is
+ * the record, not a pointer to one):
  *
  * - AT2 ceiling — the highest-scoring GENUINE deferral: **0.4387** (AT2.1).
  * - AT1 floor among what a floor-safe threshold reaches: **0.5901** (AT1.11).
@@ -349,7 +359,10 @@ export function createSettledDecisionNominator(): SettledDecisionNominator {
  * provider degrades both, but a family-specific refusal does not silence the
  * other one.
  */
-function createNominator(exemplarSet: ExemplarSet, threshold: number): SettledDecisionNominator {
+export function createNominator(
+  exemplarSet: ExemplarSet,
+  threshold: number
+): SettledDecisionNominator {
   let deps: NominationDeps | null | undefined;
   let latchedFailure: string | undefined;
 

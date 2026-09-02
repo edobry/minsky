@@ -137,6 +137,20 @@ function makeTurnRow(overrides: Partial<FakeSelectResult> = {}): FakeSelectResul
   };
 }
 
+/**
+ * The first result's snippet, failing loudly rather than comparing against
+ * `undefined` — `snippet` is optional on the shared result type, so an
+ * `expect(undefined).toContain(...)` would otherwise report a confusing
+ * mismatch instead of "the field was never populated".
+ */
+function results0(results: TranscriptTurnResult[]): string {
+  const snippet = results[0]?.snippet;
+  if (snippet === undefined) {
+    throw new Error("expected the first result to carry a snippet, got undefined");
+  }
+  return snippet;
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("TranscriptSimilarityService", () => {
@@ -169,6 +183,69 @@ describe("TranscriptSimilarityService", () => {
       expect(first.sessionMetadata).toBeDefined();
       expect(first.sessionMetadata.agentSessionId).toBe("session-a");
       expect(first.sessionMetadata.model).toBe("claude-3-5-sonnet");
+    });
+
+    describe("snippet (mt#4917)", () => {
+      test("every semantic hit carries a snippet — it carried none at all before", async () => {
+        const db = makeFakeDb([makeTurnRow({ userText: "the pooler question" })], []);
+        const svc = new TranscriptSimilarityService(db as unknown as DrizzlePgDb, embeddingService);
+
+        const results = await svc.search("test query", { limit: 5 });
+
+        expect(results[0]?.snippet).toBe("the pooler question");
+      });
+
+      test("prefers the user side, matching the full-text surface's convention", async () => {
+        const db = makeFakeDb(
+          [makeTurnRow({ userText: "asked this", assistantText: "answered that" })],
+          []
+        );
+        const svc = new TranscriptSimilarityService(db as unknown as DrizzlePgDb, embeddingService);
+
+        expect((await svc.search("q", {}))[0]?.snippet).toBe("asked this");
+      });
+
+      test("falls through to the assistant side when the user side is null or empty", async () => {
+        for (const userText of [null, ""]) {
+          const db = makeFakeDb([makeTurnRow({ userText, assistantText: "answered that" })], []);
+          const svc = new TranscriptSimilarityService(
+            db as unknown as DrizzlePgDb,
+            embeddingService
+          );
+          expect((await svc.search("q", {}))[0]?.snippet).toBe("answered that");
+        }
+      });
+
+      test("is bounded — a huge turn does not become a huge snippet", async () => {
+        // The reason the field exists: a transcript turn runs to hundreds of
+        // kilobytes, and the whole point is that a hit can be read without it.
+        const db = makeFakeDb([makeTurnRow({ userText: "word ".repeat(50_000) })], []);
+        const svc = new TranscriptSimilarityService(db as unknown as DrizzlePgDb, embeddingService);
+
+        const snippet = results0(await svc.search("q", {}));
+        // 400 chars of text plus the single ellipsis truncateSnippet appends.
+        expect(snippet.length).toBeLessThanOrEqual(401);
+        expect(snippet.endsWith("…")).toBe(true);
+      });
+
+      test("strips harness markup rather than quoting it back", async () => {
+        const db = makeFakeDb(
+          [makeTurnRow({ userText: "<system-reminder>ignore me</system-reminder>real prose" })],
+          []
+        );
+        const svc = new TranscriptSimilarityService(db as unknown as DrizzlePgDb, embeddingService);
+
+        const snippet = results0(await svc.search("q", {}));
+        expect(snippet).not.toContain("system-reminder");
+        expect(snippet).toContain("real prose");
+      });
+
+      test("a turn with no text at all yields an empty snippet, not undefined", async () => {
+        const db = makeFakeDb([makeTurnRow({ userText: null, assistantText: null })], []);
+        const svc = new TranscriptSimilarityService(db as unknown as DrizzlePgDb, embeddingService);
+
+        expect((await svc.search("q", {}))[0]?.snippet).toBe("");
+      });
     });
 
     test("resumeHint (mt#2523, mt#3440): each result carries a directory-pinned resume hint", async () => {

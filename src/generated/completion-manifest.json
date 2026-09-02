@@ -7056,7 +7056,7 @@
         },
         {
           "name": "search",
-          "description": "Search agent transcript turns by semantic similarity. Embeds the query text and returns the nearest-neighbor turns ranked by vector distance (pgvector). Optionally filter by role (user/assistant), date range, or session UUID. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
+          "description": "Search agent transcript turns by semantic similarity. Embeds the query text and returns the nearest-neighbor turns ranked by vector distance (pgvector). Each result carries a `snippet` — the turn's leading text, stripped and truncated. Unlike full-text search it marks no matched spans, because a vector match has no matched terms to cut around. By default each hit returns its `snippet` and coordinates WITHOUT the full turn text (`projection: \"full\"` restores it); to read one hit in full, pass its `agentSessionId` to transcripts_get as `conversationId`, with `turnRange` set to its `turnIndex`. Optionally filter by role (user/assistant), date range, or session UUID. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
           "options": [
             {
               "flags": ["--limit"],
@@ -7097,6 +7097,12 @@
             {
               "flags": ["--all-projects"],
               "description": "Return results across all projects (default: scoped to the resolved current project, mt#2417)"
+            },
+            {
+              "flags": ["--projection"],
+              "description": "How much of each matching turn to return. 'snippet' (the DEFAULT) returns the bounded excerpt plus the turn's coordinates (agentSessionId, turnIndex, role, timestamps, score) and OMITS the full userText/assistantText, reporting how many characters it dropped as `omittedTextChars`. 'full' additionally returns the complete turn text. Prefer the default: a transcript turn can run to hundreds of kilobytes, so a full-projection search of ~10 hits routinely exceeds the MCP response limit and spools to disk. To read one hit in full, call transcripts_get passing the hit's `agentSessionId` as its `conversationId` (the two name the same harness conversation — the result field and the parameter simply differ per ADR-022), with `turnRange` set to the hit's `turnIndex`.",
+              "takesValue": true,
+              "values": ["snippet", "full"]
             }
           ],
           "arguments": [
@@ -7162,7 +7168,7 @@
         },
         {
           "name": "search-text",
-          "description": "Search agent transcript turns by full-text search (FTS) against the fts_text column. Set mode to control matching: \"websearch\" (default) supports \"quoted phrases\" (matched by adjacency), or, and -negation; \"plain\" ANDs the words with no adjacency; \"exact\" matches a literal substring with no stemming, for identifiers and punctuation-bearing strings. Results are ranked by ts_rank (higher = more relevant), except in exact mode which orders by recency. Each result carries a `snippet` — a bounded excerpt with matched spans in [brackets] — so a hit can be read without pulling the whole turn. Optionally filter by role (user/assistant), date range, or session UUID. Scoped to the current project by default; pass allProjects to search every project. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
+          "description": "Search agent transcript turns by full-text search (FTS) against the fts_text column. Set mode to control matching: \"websearch\" (default) supports \"quoted phrases\" (matched by adjacency), or, and -negation; \"plain\" ANDs the words with no adjacency; \"exact\" matches a literal substring with no stemming, for identifiers and punctuation-bearing strings. Results are ranked by ts_rank (higher = more relevant), except in exact mode which orders by recency. Each result carries a `snippet` — a bounded excerpt with matched spans in [brackets] — so a hit can be read without pulling the whole turn. By default each hit returns its `snippet` and coordinates WITHOUT the full turn text (`projection: \"full\"` restores it); to read one hit in full, pass its `agentSessionId` to transcripts_get as `conversationId`, with `turnRange` set to its `turnIndex`. Optionally filter by role (user/assistant), date range, or session UUID. Scoped to the current project by default; pass allProjects to search every project. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
           "options": [
             {
               "flags": ["--limit"],
@@ -7209,6 +7215,12 @@
             {
               "flags": ["--all-projects"],
               "description": "Return results across all projects (default: scoped to the resolved current project, mt#2417)"
+            },
+            {
+              "flags": ["--projection"],
+              "description": "How much of each matching turn to return. 'snippet' (the DEFAULT) returns the bounded excerpt plus the turn's coordinates (agentSessionId, turnIndex, role, timestamps, score) and OMITS the full userText/assistantText, reporting how many characters it dropped as `omittedTextChars`. 'full' additionally returns the complete turn text. Prefer the default: a transcript turn can run to hundreds of kilobytes, so a full-projection search of ~10 hits routinely exceeds the MCP response limit and spools to disk. To read one hit in full, call transcripts_get passing the hit's `agentSessionId` as its `conversationId` (the two name the same harness conversation — the result field and the parameter simply differ per ADR-022), with `turnRange` set to the hit's `turnIndex`.",
+              "takesValue": true,
+              "values": ["snippet", "full"]
             }
           ],
           "arguments": [

@@ -679,7 +679,11 @@ export const NEVER_REVIEWED_DAYS_MS = NEVER_REVIEWED_DAYS * 24 * 60 * 60 * 1000;
 
 /**
  * Watermark record for a single log. Keyed by log path → watermark state.
- * Written to `.minsky/calibration-review-watermarks.json`.
+ * Written to `calibration-review-watermarks.json` under
+ * `getMinskyStateDir()/projects/<key>/` (mt#4880; it was `.minsky/` until then).
+ * The KEY is still a repo-relative log NAME — see `CalibrationLogEntry.path`
+ * above for why that form is deliberate — and it is precisely because those keys
+ * are identical across projects that the FILE has to be project-keyed.
  */
 export interface LogWatermark {
   /**

@@ -80,6 +80,11 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { getMinskyStateDir } from "@minsky/shared/paths";
+import {
+  calibrationReviewStorePath,
+  WATERMARK_STORE_FILENAME,
+  LAST_WARNED_STORE_FILENAME,
+} from "@minsky/shared/calibration-review-store-paths";
 import { readInput, writeOutput, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 // mt#3744 deliberately removed the `./domain-bootstrap` import: this hook no longer resolves
@@ -110,16 +115,25 @@ import type { DispatchContext, GuardOutcome } from "./registry";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_CALIBRATION_CADENCE";
 
-const WATERMARK_STORE_PATH = ".minsky/calibration-review-watermarks.json";
-const LAST_WARNED_STORE_PATH = ".minsky/calibration-review-cadence-last-warned.json";
-
+// ---------------------------------------------------------------------------
+// mt#4880 — the watermark / last-warned stores are state-dir, project-keyed
+// ---------------------------------------------------------------------------
+//
+// The two repo-rooted `.minsky/calibration-review-*.json` constants that stood
+// here are gone; both stores resolve through
+// `@minsky/shared/calibration-review-store-paths`, which every writer AND the
+// cockpit READER (`src/cockpit/ask-state-cache.ts`) now share.
+//
+// The comment below used to say they "stay repo-rooted … still correctly
+// gitignored." That justification was a minsky-repo-only property — the exact
+// premise mt#4748 exists to retire — and mt#4816 allowlisted these three modules
+// as `DELIBERATE, AND UNDECIDED` pending the decision mt#4880 records.
+//
 // ---------------------------------------------------------------------------
 // mt#4748 R1 — calibration/evaluation log READ path (state-dir, project-keyed)
 // ---------------------------------------------------------------------------
 //
-// The watermark/last-warned stores above stay repo-rooted (a different
-// producer than the calibration/evaluation logs themselves, and out of
-// mt#4748's scope — still correctly gitignored). The LOGS this hook reads via
+// The LOGS this hook reads via
 // `readContent` below moved: `.minsky/hooks/dispatcher.ts`'s
 // `calibrationLogPath`/`evaluationLogPath` now resolve under
 // `getMinskyStateDir()/projects/<key>/`, not `<repoRoot>/.minsky/`. This
@@ -724,8 +738,8 @@ export async function run(
   // nearest `.git` so the watermark/last-warned state files land in
   // `<repo>/.minsky/`, not a stray subdirectory `.minsky/`.
   const repoRoot = findRepoRoot(input.cwd ?? process.cwd());
-  const watermarkPath = join(repoRoot, WATERMARK_STORE_PATH);
-  const lastWarnedPath = join(repoRoot, LAST_WARNED_STORE_PATH);
+  const watermarkPath = calibrationReviewStorePath(WATERMARK_STORE_FILENAME, repoRoot);
+  const lastWarnedPath = calibrationReviewStorePath(LAST_WARNED_STORE_FILENAME, repoRoot);
 
   try {
     const watermarks = readJsonOrDefault<WatermarkStore>(watermarkPath, {});
@@ -818,8 +832,8 @@ export async function main(): Promise<void> {
   // nearest `.git` so the watermark/last-warned state files land in
   // `<repo>/.minsky/`, not a stray subdirectory `.minsky/`.
   const repoRoot = findRepoRoot(input.cwd ?? process.cwd());
-  const watermarkPath = join(repoRoot, WATERMARK_STORE_PATH);
-  const lastWarnedPath = join(repoRoot, LAST_WARNED_STORE_PATH);
+  const watermarkPath = calibrationReviewStorePath(WATERMARK_STORE_FILENAME, repoRoot);
+  const lastWarnedPath = calibrationReviewStorePath(LAST_WARNED_STORE_FILENAME, repoRoot);
 
   try {
     const watermarks = readJsonOrDefault<WatermarkStore>(watermarkPath, {});
