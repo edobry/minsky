@@ -19,7 +19,10 @@ import type { SessionRecord } from "@minsky/domain/session/session-db";
 import { getMinskyStateDir } from "@minsky/shared/paths";
 import { runSchemaMigrationsForConfiguredBackend } from "@minsky/domain/persistence/migration-operations";
 import { validatePostgresBackend } from "@minsky/domain/persistence/validation-operations";
-import { getEffectivePersistenceConfig } from "@minsky/domain/configuration/persistence-config";
+import {
+  getEffectivePersistenceConfig,
+  resolvePersistenceTargetHost,
+} from "@minsky/domain/configuration/persistence-config";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 /**
@@ -427,6 +430,12 @@ export function registerPersistenceCommands(
         }
 
         log.cli(`🔍 Persistence Check - ${sourceInfo}`);
+
+        // mt#4789: "which database am I about to talk to?" is the question whose
+        // silent wrong answer is production. HOST only — the connection string
+        // carries the password, and this output is persisted and ingested.
+        const targetHost = resolvePersistenceTargetHost(getConfiguration());
+        log.cli(`🎯 Resolved target host: ${targetHost ?? "(none configured)"}`);
 
         const { persistence: persistenceProvider } = getPersistenceDeps();
         if (!persistenceProvider) {
