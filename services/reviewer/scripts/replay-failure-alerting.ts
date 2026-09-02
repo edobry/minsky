@@ -38,7 +38,7 @@
  */
 
 import { and, eq, gt, isNotNull } from "drizzle-orm";
-import { createDb } from "../src/db/client";
+import { createDb, findConnectionStringEnvVar, CONNECTION_STRING_ENV_VARS } from "../src/db/client";
 import { webhookEventsTable } from "../src/db/schemas/webhook-events-schema";
 import {
   aggregatePriorFailures,
@@ -84,14 +84,20 @@ async function loadRows(argv: string[]): Promise<{ rows: SourceRow[]; source: st
     return { rows: parsed as SourceRow[], source: `fixture:${fixture}` };
   }
 
-  const hasUrl =
-    process.env.MINSKY_PERSISTENCE_POSTGRES_URL ||
-    process.env.MINSKY_SESSIONDB_POSTGRES_URL ||
-    process.env.MINSKY_POSTGRES_URL;
-  if (!hasUrl) {
+  // Ask the SERVICE which env vars carry a connection string rather than
+  // re-listing them here — a hand-copied list drifts, and the drift is silent
+  // because the failure mode is a plausible-looking SKIP. Notably `DATABASE_URL`
+  // is NOT accepted: this service has never read it, so honoring it here would
+  // connect where the service would not (PR #3561 R1).
+  if (findConnectionStringEnvVar() === undefined) {
     // Skip gracefully so the script is safe to invoke from an environment
-    // without credentials (per /implement-task §7a).
-    console.log("SKIP: no Postgres URL in env (MINSKY_PERSISTENCE_POSTGRES_URL).");
+    // without credentials (per /implement-task §7a). Name every accepted var, so
+    // a skip is diagnosable instead of just puzzling.
+    console.log(
+      `SKIP: no Postgres URL in env. Set one of: ${CONNECTION_STRING_ENV_VARS.join(", ")}. ` +
+        `(DATABASE_URL is not read by this service.) ` +
+        `Or replay an exported row set with --fixture <path>.`
+    );
     return null;
   }
 
