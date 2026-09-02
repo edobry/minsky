@@ -131,3 +131,77 @@ describe("createAskWithFormLint — external references (mt#2918)", () => {
     expect(blocking.map((m) => m.check)).toEqual(["over-word-budget"]);
   });
 });
+
+/**
+ * mt#4901 — the ask's own contextRefs are a resolution source.
+ *
+ * ask#10647 cited `Notion 34f937f0` in its body (8 hex — the malformed branch;
+ * a valid id is 32) while carrying the full page URL in contextRefs. The
+ * reference was reachable and the lint reported it unreachable.
+ *
+ * These assertions read the PERSISTED question, not the return value: the point
+ * is that a downstream reader — the cockpit inbox, the CLI, a notification
+ * payload — gets the URL. The warning falling silent is the consequence, not
+ * the deliverable (mt#2918's stated goal, and why the fix is at the text rather
+ * than at the check).
+ */
+describe("createAskWithFormLint — contextRefs as a resolution source (mt#4901)", () => {
+  const PREFIX = "34f937f0";
+  const FULL_URL = "https://app.notion.com/p/34f937f03cb48108a95bdf3813f5ca84";
+  const TITLE = "Re-decide the ask-routing split";
+  const BODY = `That record — Notion ${PREFIX}, locked by you 2026-04-26 — settles this.`;
+
+  test("a short id prefix in the body resolves against a contextRefs URL", async () => {
+    const repo = new FakeAskRepository();
+
+    const { ask, formLintMatches } = await createAskWithFormLint(
+      repo,
+      {
+        kind: KIND_AUTHORIZATION_APPROVE,
+        title: TITLE,
+        question: BODY,
+        contextRefs: [
+          { kind: "url", ref: FULL_URL, description: "The locked doc whose table settles this" },
+        ],
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    expect((await repo.getById(ask.id))?.question).toContain(FULL_URL);
+    expect(formLintMatches.map((m) => m.check)).not.toContain(UNLINKIFIED);
+  });
+
+  test("negative control: the same body with NO contextRefs still warns", async () => {
+    const repo = new FakeAskRepository();
+
+    const { ask, formLintMatches } = await createAskWithFormLint(
+      repo,
+      {
+        kind: KIND_AUTHORIZATION_APPROVE,
+        title: TITLE,
+        question: BODY,
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    expect((await repo.getById(ask.id))?.question).not.toContain(FULL_URL);
+    expect(formLintMatches.map((m) => m.check)).toContain(UNLINKIFIED);
+  });
+
+  test("a contextRef that is not a Notion URL is not a resolution source", async () => {
+    const repo = new FakeAskRepository();
+
+    const { formLintMatches } = await createAskWithFormLint(
+      repo,
+      {
+        kind: KIND_AUTHORIZATION_APPROVE,
+        title: TITLE,
+        question: BODY,
+        contextRefs: [{ kind: "task", ref: "mt#4656", description: "The re-bind task" }],
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    expect(formLintMatches.map((m) => m.check)).toContain(UNLINKIFIED);
+  });
+});

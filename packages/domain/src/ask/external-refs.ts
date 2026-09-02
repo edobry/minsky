@@ -113,6 +113,49 @@ export interface LinkifyExternalRefsResult {
   unlinkified: string[];
 }
 
+export interface LinkifyExternalRefsOptions {
+  /**
+   * Additional strings that may carry a full Notion page URL — in practice the
+   * ask's own `contextRefs` (mt#4901).
+   *
+   * A body routinely cites a page by a SHORT PREFIX of its id while the full
+   * URL sits in `contextRefs`, where nothing looked. That reference is
+   * reachable — the ask is carrying its own index — and reporting it as
+   * unlinkifiable was the false positive this option closes.
+   */
+  knownRefs?: readonly string[];
+}
+
+/**
+ * A Notion URL token — the host plus the rest of the non-whitespace run.
+ *
+ * Harvesting is deliberately scoped to a Notion HOST rather than to any
+ * id-shaped run, and that narrowing is the whole safety argument for the
+ * prefix resolution below. A bare UUID is indistinguishable from a Minsky ask
+ * / memory / workspace id (see `NOTION_CUE`'s note), so a candidate set built
+ * from every id in the text could resolve a truncated Notion cue against a
+ * Minsky entity's id and append a Notion URL that points at nothing. Only an
+ * id that already appears inside a Notion URL is admitted.
+ */
+const NOTION_URL_TOKEN_RE = /(?:app\.notion\.com|(?:www\.)?notion\.so)\/\S*/gi;
+
+const NOTION_ID_ANYWHERE_RE = new RegExp(NOTION_ID_BODY, "gi");
+
+/** Normalized 32-hex ids appearing inside a Notion URL in `source`. */
+export function collectNotionIdsFromUrls(source: string): string[] {
+  const ids: string[] = [];
+  NOTION_URL_TOKEN_RE.lastIndex = 0;
+  let urlMatch: RegExpExecArray | null;
+  while ((urlMatch = NOTION_URL_TOKEN_RE.exec(source)) !== null) {
+    NOTION_ID_ANYWHERE_RE.lastIndex = 0;
+    let idMatch: RegExpExecArray | null;
+    while ((idMatch = NOTION_ID_ANYWHERE_RE.exec(urlMatch[0])) !== null) {
+      ids.push(normalizeNotionId(idMatch[0]));
+    }
+  }
+  return ids;
+}
+
 /**
  * Replace fenced blocks and inline code spans with same-length filler.
  *
@@ -145,7 +188,10 @@ export function elideCodeRegions(text: string): string {
  * Idempotent: a reference whose URL is already present anywhere in the text is
  * left alone, so re-running over an already-transformed body is a no-op.
  */
-export function linkifyExternalRefs(text: string): LinkifyExternalRefsResult {
+export function linkifyExternalRefs(
+  text: string,
+  options: LinkifyExternalRefsOptions = {}
+): LinkifyExternalRefsResult {
   const elided = elideCodeRegions(text);
 
   interface Insertion {
@@ -168,6 +214,21 @@ export function linkifyExternalRefs(text: string): LinkifyExternalRefsResult {
     insertions.push({ at: m.index + m[0].length, url });
   }
 
+  // Candidate ids a truncated cue may be a prefix OF (mt#4901). Two sources,
+  // and the second is what makes this idempotent across the two call paths:
+  //
+  //  - `knownRefs` — the ask's own contextRefs, at normalization time.
+  //  - `text` itself — because normalization APPENDS the resolved URL, so on
+  //    any later pass the id is present in the body. `computeFormLintMatches`
+  //    calls this function with no options at all, over the already-normalized
+  //    question; without this second source it would re-report a reference the
+  //    normalization step had already made reachable, and the warning would
+  //    survive its own fix.
+  const candidateIds = [
+    ...collectNotionIdsFromUrls(text),
+    ...(options.knownRefs ?? []).flatMap(collectNotionIdsFromUrls),
+  ];
+
   const unlinkified: string[] = [];
   NOTION_CUED_MALFORMED_RE.lastIndex = 0;
   while ((m = NOTION_CUED_MALFORMED_RE.exec(elided)) !== null) {
@@ -175,6 +236,20 @@ export function linkifyExternalRefs(text: string): LinkifyExternalRefsResult {
     // Skip anything the valid-id pass already claimed — the malformed pattern
     // is deliberately looser and overlaps it.
     if (resolvedSpans.some(([s, e]) => start >= s && start < e)) continue;
+
+    const truncated = m[1] ? normalizeNotionId(m[1]) : "";
+    const matches = truncated
+      ? [...new Set(candidateIds.filter((id) => id.startsWith(truncated)))]
+      : [];
+    // Exactly one, deliberately: an ambiguous prefix resolves to nothing and is
+    // reported, rather than guessing between two pages the ask cites.
+    const resolved = matches.length === 1 ? matches[0] : undefined;
+    if (resolved) {
+      const url = notionPageUrl(resolved);
+      if (!text.includes(url)) insertions.push({ at: m.index + m[0].length, url });
+      continue;
+    }
+
     unlinkified.push(text.slice(m.index, m.index + m[0].length).trim());
   }
 
