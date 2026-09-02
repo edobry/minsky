@@ -8,6 +8,10 @@
  * Postgres, drive real signed webhook POSTs, and assert on a STRUCTURED STDOUT
  * LOG LINE rather than on full pipeline correctness.
  *
+ * The logic that DECIDES anything lives in `./inflight-skip-harness`, which the
+ * suite covers directly (`inflight-skip-harness.test.ts`). This file is the
+ * imperative shell — spawn, post, poll, clean up.
+ *
  * ## Why a real target PR IS required here — unlike `kill-test.ts`
  *
  * `kill-test.ts` needs no real PR because `boot_recovery.dispatch` is emitted
@@ -86,26 +90,43 @@ import postgres from "postgres";
 import { join } from "node:path";
 import { Octokit } from "@octokit/rest";
 import { createAppAuth } from "@octokit/auth-app";
+import {
+  collectStdoutLines,
+  deriveVerdict,
+  findEvents,
+  type HarnessMode,
+} from "./inflight-skip-harness";
 
 const NEGATIVE_CONTROL = process.argv.includes("--negative-control");
 
 const SKIP_EVENT = "runReview.skipped_concurrent_inflight";
 const PUBLISH_FAILED_EVENT = "review_skip_check_run_failed";
 const CHECK_RUN_NAME = "minsky-reviewer/findings";
-const EXPECTED_REASON = "concurrent_inflight";
 
 function skip(reason: string): never {
   console.log(`SKIP: ${reason}`);
   process.exit(0);
 }
 
-function fail(reason: string): never {
-  console.error(`FAIL: ${reason}`);
-  process.exit(1);
+/**
+ * Abort the run from INSIDE `main`'s try block.
+ *
+ * Deliberately a throw rather than `process.exit` (PR #3566 R1): `process.exit`
+ * terminates immediately and the `finally` never runs, orphaning the spawned
+ * reviewer server and leaving the Postgres connection open. Throwing lets the
+ * cleanup run first; the top-level handler then sets the exit code.
+ */
+class HarnessFailure extends Error {}
+
+function bail(reason: string): never {
+  throw new HarnessFailure(reason);
 }
 
 // ---------------------------------------------------------------------------
 // Environment resolution & skip gate
+//
+// `process.exit` IS correct in this section: it runs before anything is
+// spawned or connected, so there is no cleanup to bypass.
 // ---------------------------------------------------------------------------
 
 const REQUIRED_PRESENT_ENV_VARS = [
@@ -148,7 +169,10 @@ const OWNER = process.env["INFLIGHT_TEST_OWNER"] as string;
 const REPO = process.env["INFLIGHT_TEST_REPO"] as string;
 const PR_NUMBER = Number(process.env["INFLIGHT_TEST_PR"]);
 if (!Number.isInteger(PR_NUMBER) || PR_NUMBER <= 0) {
-  fail(`INFLIGHT_TEST_PR must be a positive integer (got "${process.env["INFLIGHT_TEST_PR"]}")`);
+  console.error(
+    `FAIL: INFLIGHT_TEST_PR must be a positive integer (got "${process.env["INFLIGHT_TEST_PR"]}")`
+  );
+  process.exit(1);
 }
 
 const PORT = Number(process.env["INFLIGHT_TEST_PORT"] ?? "34601");
@@ -163,7 +187,7 @@ const SERVER_ENTRY = join(import.meta.dir, "..", "src", "server.ts");
 
 interface StructuredResult {
   pass: boolean;
-  mode: "contention" | "negative-control";
+  mode: HarnessMode;
   owner: string;
   repo: string;
   prNumber: number;
@@ -209,53 +233,6 @@ async function waitForHealth(port: number, timeoutMs: number): Promise<boolean> 
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   return false;
-}
-
-/**
- * Accumulate a spawned process's stdout. Lines are kept whole so the caller can
- * JSON-parse each one — the reviewer's winston logger emits one JSON object per
- * line, and the assertions below are on FIELDS (delivery_id, reason), not on a
- * substring of the raw text.
- */
-function collectStdoutLines(stdout: ReadableStream<Uint8Array> | null): { lines: string[] } {
-  const lines: string[] = [];
-  if (!stdout) return { lines };
-
-  void (async () => {
-    try {
-      const reader = stdout.getReader();
-      const decoder = new TextDecoder();
-      let carry = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const parts = (carry + decoder.decode(value)).split("\n");
-        carry = parts.pop() ?? "";
-        for (const line of parts) {
-          const trimmed = line.trim();
-          if (trimmed) lines.push(trimmed);
-        }
-      }
-      if (carry.trim()) lines.push(carry.trim());
-    } catch {
-      // Best-effort background reader — a read error must not crash the script.
-    }
-  })();
-
-  return { lines };
-}
-
-function findEvents(lines: string[], eventName: string): Record<string, unknown>[] {
-  const out: Record<string, unknown>[] = [];
-  for (const line of lines) {
-    try {
-      const parsed = JSON.parse(line) as Record<string, unknown>;
-      if (parsed["event"] === eventName) out.push(parsed);
-    } catch {
-      // Not JSON — skip.
-    }
-  }
-  return out;
 }
 
 async function terminateWithGrace(
@@ -358,8 +335,7 @@ async function readSkipCheckRunConclusion(headSha: string): Promise<string | nul
       check_name: CHECK_RUN_NAME,
       per_page: 20,
     });
-    const runs = res.data.check_runs;
-    const latest = runs[0];
+    const latest = res.data.check_runs[0];
     return latest?.conclusion ?? null;
   } catch (err: unknown) {
     console.warn(
@@ -378,7 +354,7 @@ async function main(): Promise<void> {
   const stamp = Date.now();
   const deliveryA = `inflight-skip-a-${stamp}`;
   const deliveryB = `inflight-skip-b-${stamp}`;
-  const mode = NEGATIVE_CONTROL ? "negative-control" : "contention";
+  const mode: HarnessMode = NEGATIVE_CONTROL ? "negative-control" : "contention";
 
   console.log(
     `inflight-skip: mode=${mode} owner=${OWNER} repo=${REPO} pr=${PR_NUMBER} port=${PORT}`
@@ -391,25 +367,25 @@ async function main(): Promise<void> {
     stdout: "pipe",
     stderr: "pipe",
   });
-  const { lines } = collectStdoutLines(proc.stdout);
+  const { lines, done } = collectStdoutLines(proc.stdout);
 
   let headSha: string | null = null;
-  let skipCheckRunConclusion: string | null = null;
+  let checkRunConclusion: string | null = null;
 
   try {
-    if (!(await waitForHealth(PORT, 20_000))) fail("server did not become healthy within 20s");
+    if (!(await waitForHealth(PORT, 20_000))) bail("server did not become healthy within 20s");
     console.log("inflight-skip: server healthy — firing delivery A...");
 
     // Delivery A's payload carries a placeholder sha; `runReview` keys the
     // marker on the sha it FETCHES from GitHub, which is the authoritative one
     // and the one we then read back out of the marker row.
     const statusA = await postWebhook(signedWebhookBody("0".repeat(40)), deliveryA);
-    if (statusA !== 200) fail(`delivery A did not return 200 (got ${statusA})`);
+    if (statusA !== 200) bail(`delivery A did not return 200 (got ${statusA})`);
 
     console.log("inflight-skip: waiting for delivery A's marker row...");
     headSha = await waitForLiveMarker(sql, MARKER_TIMEOUT_MS);
     if (headSha === null) {
-      fail(
+      bail(
         `no live marker row appeared for ${OWNER}/${REPO}#${PR_NUMBER} within ${MARKER_TIMEOUT_MS}ms. ` +
           `Delivery A never reached acquireMarker — most likely the App credentials cannot read ` +
           `that PR, which is a prerequisite (see this file's header).`
@@ -419,7 +395,7 @@ async function main(): Promise<void> {
 
     if (NEGATIVE_CONTROL) {
       const removed = await deleteMarker(sql, headSha);
-      if (removed === 0) fail("negative control could not delete the marker row it just observed");
+      if (removed === 0) bail("negative control could not delete the marker row it just observed");
       console.log(
         `inflight-skip: [negative control] deleted the marker row (${removed}) — B should NOT skip`
       );
@@ -427,45 +403,41 @@ async function main(): Promise<void> {
 
     console.log("inflight-skip: firing delivery B against the same PR+sha...");
     const statusB = await postWebhook(signedWebhookBody(headSha), deliveryB);
-    if (statusB !== 200) fail(`delivery B did not return 200 (got ${statusB})`);
+    if (statusB !== 200) bail(`delivery B did not return 200 (got ${statusB})`);
 
     // Wait for B's verdict. In contention mode the skip should appear quickly;
-    // in negative-control mode we wait the same budget to give a (wrong) skip
+    // in negative-control mode we wait the SAME budget to give a (wrong) skip
     // every chance to show up — a control that waits less than the positive case
     // could pass merely by not looking long enough.
     const deadline = Date.now() + SKIP_TIMEOUT_MS;
     while (Date.now() < deadline) {
-      const seen = findEvents(lines, SKIP_EVENT).some((e) => e["delivery_id"] === deliveryB);
-      if (seen) break;
+      if (findEvents(lines, SKIP_EVENT).some((e) => e["delivery_id"] === deliveryB)) break;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
 
-    if (!NEGATIVE_CONTROL && headSha !== null) {
-      skipCheckRunConclusion = await readSkipCheckRunConclusion(headSha);
+    if (!NEGATIVE_CONTROL) {
+      checkRunConclusion = await readSkipCheckRunConclusion(headSha);
     }
   } finally {
     await terminateWithGrace(proc, 10_000);
+    // Drain the reader BEFORE anything reads `lines` (PR #3566 R1): the process
+    // has exited, but buffered output may still be in flight, and a terminal
+    // event is exactly what arrives last.
+    await done;
     await sql.end().catch(() => {});
   }
 
   const skipEvents = findEvents(lines, SKIP_EVENT);
-  const skipForB = skipEvents.some((e) => e["delivery_id"] === deliveryB);
-  const skipForA = skipEvents.some((e) => e["delivery_id"] === deliveryA);
-  const publishFailed = findEvents(lines, PUBLISH_FAILED_EVENT).length > 0;
-
-  // SC3: "attempted" is true whether the publish succeeded (a conclusion is
-  // readable on the sha) or failed (the warn fired). Both are evidence the skip
-  // branch ran through the publish call rather than returning before it.
-  const skipCheckRunAttempted = NEGATIVE_CONTROL
-    ? null
-    : publishFailed || skipCheckRunConclusion !== null;
-
-  const pass = NEGATIVE_CONTROL
-    ? !skipForB
-    : skipForB && !skipForA && skipCheckRunAttempted === true;
+  const verdict = deriveVerdict({
+    mode,
+    skipForB: skipEvents.some((e) => e["delivery_id"] === deliveryB),
+    skipForA: skipEvents.some((e) => e["delivery_id"] === deliveryA),
+    publishFailed: findEvents(lines, PUBLISH_FAILED_EVENT).length > 0,
+    checkRunConclusion,
+  });
 
   const result: StructuredResult = {
-    pass,
+    pass: verdict.pass,
     mode,
     owner: OWNER,
     repo: REPO,
@@ -473,35 +445,30 @@ async function main(): Promise<void> {
     headSha,
     deliveryA,
     deliveryB,
-    skipObservedForDeliveryB: skipForB,
-    skipObservedForDeliveryA: skipForA,
-    skipCheckRunAttempted,
-    skipCheckRunConclusion,
-    reason: NEGATIVE_CONTROL
-      ? skipForB
-        ? `negative control FAILED: delivery B reported ${EXPECTED_REASON} even though the marker was released first — the script cannot distinguish contention from an unconditional skip`
-        : "negative control passed: with the marker released, delivery B did NOT skip"
-      : skipForB && !skipForA && skipCheckRunAttempted === true
-        ? `delivery B skipped with ${EXPECTED_REASON} (delivery A did not), and the skip check-run publish was attempted${
-            skipCheckRunConclusion !== null
-              ? ` (conclusion: ${skipCheckRunConclusion})`
-              : " (publish failed — warn observed)"
-          }`
-        : `expected exactly delivery B to skip with a publish attempt; ` +
-          `skipForB=${skipForB} skipForA=${skipForA} publishAttempted=${String(skipCheckRunAttempted)}`,
+    skipObservedForDeliveryB: skipEvents.some((e) => e["delivery_id"] === deliveryB),
+    skipObservedForDeliveryA: skipEvents.some((e) => e["delivery_id"] === deliveryA),
+    skipCheckRunAttempted: verdict.skipCheckRunAttempted,
+    skipCheckRunConclusion: checkRunConclusion,
+    reason: verdict.reason,
   };
 
   console.log(JSON.stringify(result, null, 2));
 
-  if (!pass) {
-    console.error(`FAIL: ${result.reason}`);
+  if (!verdict.pass) {
+    console.error(`FAIL: ${verdict.reason}`);
     console.error("--- server stdout tail ---");
     console.error(lines.slice(-40).join("\n"));
   } else {
-    console.log(`PASS: ${result.reason}`);
+    console.log(`PASS: ${verdict.reason}`);
   }
 
-  process.exitCode = pass ? 0 : 1;
+  process.exitCode = verdict.pass ? 0 : 1;
 }
 
-await main();
+try {
+  await main();
+} catch (err: unknown) {
+  // Cleanup has already run in `main`'s finally by the time we get here.
+  console.error(`FAIL: ${err instanceof HarnessFailure ? err.message : String(err)}`);
+  process.exitCode = 1;
+}
