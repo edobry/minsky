@@ -601,8 +601,8 @@ export function registerCalibrationCommands(): void {
         schema: z.boolean(),
         description:
           "Advance the watermark for every review-due log — any reason: past-threshold, " +
-          "time-stale, never-reviewed or never-fired — marking them as reviewed (mt#2878). " +
-          "Without this flag the command is read-only.",
+          "time-stale, never-reviewed, never-fired or watermark-stranded — marking them as " +
+          "reviewed (mt#2878, mt#4904). Without this flag the command is read-only.",
         required: false,
         defaultValue: false,
       },
@@ -829,9 +829,10 @@ export function registerCalibrationCommands(): void {
         //
         // mt#2878: this path used to re-derive its own, narrower selection
         // (`results.filter((r) => r.pastThreshold)`) rather than consuming the
-        // `reviewDue` set computed just above. `computeReviewDueLogs` has FOUR
-        // legs — past-threshold, time-stale, never-reviewed (mt#2896) and
-        // never-fired (mt#3078) — and only the first was ackable, so a log
+        // `reviewDue` set computed just above. `computeReviewDueLogs` has FIVE
+        // legs — past-threshold, time-stale, never-reviewed (mt#2896),
+        // never-fired (mt#3078) and watermark-stranded (mt#4904) — and only the
+        // first was ackable, so a log
         // flagged by any other leg could be reviewed but never MARKED reviewed.
         // The cadence hook then re-warned on it every turn with no operator
         // action able to stop it: `pre-narration` sat time-stale-and-unackable

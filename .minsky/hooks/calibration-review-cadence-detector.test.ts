@@ -108,6 +108,11 @@ function makeResult(
     injectedFiresSinceLastReview:
       overrides.injectedFiresSinceLastReview ??
       merged.firesSinceLastReview - merged.suppressedSinceLastReview,
+    // mt#4904: DERIVED from the same comparison production uses, not defaulted
+    // to false. A fixture that sets a watermark above its record count IS
+    // stranded, and hardcoding false here would let such a fixture assert a
+    // review-due reason the real sweep would never produce for it.
+    watermarkStranded: overrides.watermarkStranded ?? merged.watermarkCount > merged.totalFires,
   };
 }
 
