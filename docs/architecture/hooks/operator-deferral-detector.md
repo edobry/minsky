@@ -276,6 +276,54 @@ coalesce that to a defined value, which put a fabricated negative on every
 prose-turn record. The guard now sits at the derivation inside
 `buildCalibrationRecord`, so no call site has to remember it.
 
+### Rung 2 for the settled-decision suppressor (mt#4649)
+
+`SETTLED_DECISION_PATTERNS` is one of the five clauses in `isPermissionAskSuppressed`, and like its
+sibling in `ask-routing-deferral` it reaches only a finite-past first-person declarative — so every
+other grammatical rendering of a decision the agent already TOOK still fires as a permission ask.
+Three consecutive calibration windows answered that by widening the array, which ADR-024 §Context
+names as the arms race the ladder exists to end. mt#4404 climbed the sibling to **Rung 2**
+(embedding recall-widening); this is the same climb on this detector, which ADR-024 gates
+separately because it gates each rung climb **per detector on that detector's own evidence**.
+
+**It is a POST-PASS, not a sixth clause.** `resolvePermissionSettledRung2` runs over the matches
+Rung 1 LEFT, filtered to the `permission-deferral-prose` surface, and drops those whose context the
+nominator calls settled. Rung 1 and the other four clauses are untouched and run first. The shape
+follows phase 1 rather than the literal reading of mt#4649's own criterion, for three reasons
+recorded in that task: `nominate` is async while `isPermissionAskSuppressed` is a synchronous
+predicate inside a synchronous chain; phase 1 shipped exactly this shape; and coverage is identical,
+because that predicate's only two call sites both produce `permission-deferral-prose`.
+
+**Surface eligibility is guarded twice, independently** — once when the contexts to score are
+collected, and again when the surviving matches are filtered. Either check alone is sufficient;
+a negative control had to remove BOTH before the tests pinning it would fail.
+
+**Degrading suppresses nothing.** ADR-024's fail-to-Rung-1 invariant says a degraded rung falls back
+to the deterministic result and still injects. On a SUPPRESSOR that lands on the safe side without
+modification: no suppression means the false positive returns, rather than a genuine permission ask
+being silenced. A provider that is unconfigured, non-semantic, times out, or throws all reach the
+same path, and a degradation part-way through a turn DISCARDS its partial verdict — otherwise the
+outcome would depend on which match happened to be scored first.
+
+**Ships inert, in two independent ways.** `MINSKY_ODD_RUNG2_NOMINATION` is opt-in and off by
+default — a separate flag from phase 1's `MINSKY_ARD_RUNG2_NOMINATION`, deliberately, since one
+switch across two detectors would make either one's residual unattributable. And
+`PERMISSION_SETTLED_RUNG2_THRESHOLD` is `NaN`, so every comparison is false and nothing is nominated
+even with the flag on.
+
+**The threshold is UNMEASURED and mt#4920 owns it.** Replaying this detector's calibration log
+through its current code (mem#1125 — a log records what the detector did at fire time and spans
+versions) reduced the must-suppress corpus from the "4 of ~5" mt#4649 was filed on to **three**
+records; the principal chose to pause rather than fit a band to three points, for a number that
+decides whether to silence a permission ask. Note the three that dropped out are NOT explained by
+mt#4702: the `I'll` control for `unless you redirect` is silent too, so that form yields no offer
+shape at all where `unless you'd rather` does.
+
+Records suppressed by this rung carry `suppressionReasons: ["permission-settled-decision-rung2"]` —
+its own string, so a `/calibration-review` pass can separate a Rung-1 suppression from a Rung-2 one.
+A degraded rung records `rung2DegradedReason` instead, which means the rung did NOT run: the absence
+of a Rung-2 suppression on such a record is "not measured", never "measured and found not settled".
+
 ## Graduation
 
 Calibration-first per the mt#2057 → mt#2216 → mt#2694 ladder: `INJECTION_ENABLED = false`
