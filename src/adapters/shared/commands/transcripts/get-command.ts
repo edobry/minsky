@@ -13,7 +13,8 @@
  *   role           Optional (mt#2818). Filter to turns by role: 'user' or 'assistant'.
  *   projection     Optional (mt#2818). 'full' (default) returns the structured
  *                  TranscriptTurnResult[] shape; 'text' returns a lean array of
- *                  { turnIndex, role, text, injected } — see the projection section below.
+ *                  { turnIndex, role, text, injected, userOrigin? } — see the projection
+ *                  section below. `userOrigin` is present on USER entries only (mt#4072).
  *
  * DI pattern mirrors search-command.ts: persistence provider resolved from
  * `context.container` at execute time (not at registration time).
@@ -162,7 +163,14 @@ export function projectTurnsToText(
       // input unchanged when there is nothing to strip, and deliberately spares
       // `minsky:task-prompt:v1`, which marks a prompt generated for a HUMAN to
       // paste and is therefore genuinely the operator speaking.
-      const text = stripPromptMarkers(stripped).trim();
+      //
+      // USER role ONLY (PR #3589 R1, BLOCKING). Minsky writes these watermarks
+      // into PROMPTS, which are user turns — so the assistant side has nothing
+      // to gain and something to lose: an assistant that QUOTES a watermark
+      // while explaining the dispatch format would have the quote silently
+      // deleted from its own words. Stripping only where the marker can
+      // legitimately occur keeps that from being possible at all.
+      const text = (candidate.role === "user" ? stripPromptMarkers(stripped) : stripped).trim();
       if (text.length === 0) continue; // entirely injected markup — excluded
       entries.push({
         turnIndex: turn.turnIndex,
@@ -202,6 +210,9 @@ export function registerTranscriptGetCommand(
       "text-only projection (projection: 'text') that excludes tool-call payloads (already " +
       "excluded from userText/assistantText by construction) and strips/flags detectable " +
       "harness-injected markup (system-reminder / command wrappers — heuristic, see docs). " +
+      "On USER entries it additionally strips Minsky's own prompt watermarks and reports " +
+      "`userOrigin`, so a generated dispatch prompt is not returned as operator prose " +
+      "(mt#4072); the human-paste watermark is deliberately left in place. " +
       "Throws if the conversation is not found. " +
       "Coverage: conversations are auto-ingested on MCP server boot; " +
       "if a conversation is missing, run `transcripts_ingest --all` to force a full sweep.",
@@ -236,8 +247,10 @@ export function registerTranscriptGetCommand(
         description:
           "'full' (default) returns the structured TranscriptTurnResult[] shape " +
           "(session metadata, timestamps, spawn-boundary flag). 'text' returns a lean " +
-          "{ turnIndex, role, text, injected }[] — see the command description for the " +
-          "injected-markup heuristic and its documented limits.",
+          "{ turnIndex, role, text, injected, userOrigin? }[] — see the command description " +
+          "for the injected-markup heuristic and its documented limits. `userOrigin` is " +
+          "present on USER entries only and names who authored the text (mt#4072); " +
+          "'human' is a fail-open default, so only a non-'human' value carries information.",
         required: false,
         defaultValue: "full",
       },

@@ -321,6 +321,22 @@ describe("projectTurnsToText", () => {
     expect(entry.injected).toBe(false);
   });
 
+  test("an ASSISTANT entry keeps a quoted watermark — stripping is user-only", () => {
+    // PR #3589 R1, BLOCKING. The first cut applied `stripPromptMarkers` to both
+    // roles. Minsky writes these into PROMPTS, which are user turns, so the
+    // assistant side had nothing to gain — and an assistant EXPLAINING the
+    // dispatch format would have had its own quotation silently deleted.
+    const explanation = `Dispatch prompts end with ${PROMPT_WATERMARK} so the classifier can see them.`;
+    const entries = projectTurnsToText([
+      turnRow({ turnIndex: 0, userText: null, assistantText: explanation }),
+    ]);
+
+    const entry = entries[0] as TranscriptTextProjectionEntry;
+    expect(entry.role).toBe("assistant");
+    expect(entry.text).toBe(explanation);
+    expect(entry.text).toContain("minsky:prompt:v1");
+  });
+
   test("an assistant entry carries no userOrigin", () => {
     const entries = projectTurnsToText([
       turnRow({
