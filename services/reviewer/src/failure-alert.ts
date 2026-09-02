@@ -281,6 +281,23 @@ export interface FailureAggregation {
   readonly distinctPrsWithClass: number;
   /** True when the condition looks repo-wide rather than specific to this PR. */
   readonly systemic: boolean;
+  /**
+   * True when the condition was ALREADY systemic before this failure — i.e. the
+   * priors alone cross the threshold.
+   *
+   * This is the discriminator that makes the dedup key adaptive, and it exists
+   * because a per-PR key is the wrong key for a repo-wide condition. Replaying
+   * the real 30-day population (`scripts/replay-failure-alerting.ts`) showed a
+   * per-PR-only rule collapsing 88 failures to **60** asks — barely a
+   * reduction, because a repo-wide outage fails each PR once and a per-PR key
+   * therefore dedups nothing. 30 of those 60 were already flagged systemic.
+   *
+   * With this flag the failure that TIPS the condition over the threshold still
+   * alerts (carrying `systemic: true`, which is the "this is repo-wide" signal
+   * the operator needs), and every later PR hit by the same condition inside the
+   * window is suppressed.
+   */
+  readonly alreadySystemic: boolean;
 }
 
 /**
@@ -298,13 +315,15 @@ export function aggregatePriorFailures(
     (p) => p.owner === current.owner && p.repo === current.repo && p.prNumber === current.prNumber
   ).length;
 
-  const prKeys = new Set(sameClass.map((p) => `${p.owner}/${p.repo}#${p.prNumber}`));
+  const priorPrKeys = new Set(sameClass.map((p) => `${p.owner}/${p.repo}#${p.prNumber}`));
+  const prKeys = new Set(priorPrKeys);
   prKeys.add(`${current.owner}/${current.repo}#${current.prNumber}`);
 
   return {
     priorOccurrencesOnPr,
     distinctPrsWithClass: prKeys.size,
     systemic: prKeys.size >= SYSTEMIC_DISTINCT_PR_THRESHOLD,
+    alreadySystemic: priorPrKeys.size >= SYSTEMIC_DISTINCT_PR_THRESHOLD,
   };
 }
 
@@ -457,12 +476,23 @@ export async function recordReviewFailure(
     const priors = await fetchPriorFailures(db, ctx.deliveryId, nowMs);
     const aggregation = aggregatePriorFailures(priors, { ...coords, errorClass });
 
-    if (aggregation.priorOccurrencesOnPr > 0) {
+    // Two suppression rules, because one key does not fit both shapes:
+    //   - a burst on ONE PR    → key on (PR, class); the repeat adds nothing.
+    //   - a repo-wide outage   → key on (class); one ask already said "this is
+    //                            hitting everything", and N more per-PR asks
+    //                            are noise on top of it.
+    // Measured on the real 30-day population: per-PR alone leaves 60 asks for
+    // 88 failures; adding the systemic rule leaves 37 (~1.2/day). Production is
+    // lower still — the replay cannot see the circuit-breaker check above, which
+    // removes another 9. See `scripts/replay-failure-alerting.ts`.
+    if (aggregation.priorOccurrencesOnPr > 0 || aggregation.alreadySystemic) {
       log.info("review_failure_alert.suppressed_duplicate", {
         event: "review_failure_alert.suppressed_duplicate",
         pr: ctx.prNumber,
         errorClass,
+        reason: aggregation.alreadySystemic ? "already_systemic" : "prior_on_pr",
         priorOccurrencesOnPr: aggregation.priorOccurrencesOnPr,
+        distinctPrsWithClass: aggregation.distinctPrsWithClass,
         windowMinutes: SUPPRESSION_WINDOW_MS / 60_000,
       });
       return "suppressed_duplicate";

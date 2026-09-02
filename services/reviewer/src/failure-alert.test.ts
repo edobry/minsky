@@ -38,6 +38,8 @@ const CLASS_TIMEOUT: ReviewFailureClass = "provider_timeout";
 const CLASS_CREDITS: ReviewFailureClass = "provider_credits_exhausted";
 const MSG_TOOLLOOP_TIMEOUT = "Operation timed out after 120000ms: toolloop.retry";
 const MSG_SELF_SIGNED = "self signed certificate";
+const MSG_NO_CREDITS = "429 You have no credits remaining";
+const SUPPRESSED_DUP = "suppressed_duplicate";
 
 // ---------------------------------------------------------------------------
 // Stub DB
@@ -284,6 +286,30 @@ describe("aggregatePriorFailures", () => {
     expect(result.systemic).toBe(true);
   });
 
+  test("alreadySystemic is false on the failure that TIPS the condition over", () => {
+    // The tipping failure must still alert — it is the one carrying the
+    // "this is repo-wide" signal to the operator.
+    const priors = Array.from({ length: SYSTEMIC_DISTINCT_PR_THRESHOLD - 1 }, (_, i) => ({
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 200 + i,
+      errorClass: CLASS_TIMEOUT,
+    }));
+    const result = aggregatePriorFailures(priors, current);
+    expect(result.systemic).toBe(true);
+    expect(result.alreadySystemic).toBe(false);
+  });
+
+  test("alreadySystemic is true once the PRIORS alone cross the threshold", () => {
+    const priors = Array.from({ length: SYSTEMIC_DISTINCT_PR_THRESHOLD }, (_, i) => ({
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 300 + i,
+      errorClass: CLASS_TIMEOUT,
+    }));
+    expect(aggregatePriorFailures(priors, current).alreadySystemic).toBe(true);
+  });
+
   test("distinct PRs are keyed per repo, so the same number in two repos is two PRs", () => {
     const result = aggregatePriorFailures(
       [{ owner: "edobry", repo: "peezombie.me", prNumber: 10, errorClass: CLASS_TIMEOUT }],
@@ -346,7 +372,7 @@ describe("recordReviewFailure", () => {
         { ...BASE_CTX, message: MSG_TOOLLOOP_TIMEOUT },
         { askEmitter: emitter }
       );
-      expect(outcome).toBe("suppressed_duplicate");
+      expect(outcome).toBe(SUPPRESSED_DUP);
     }
 
     // 20 failures, 1 ask.
@@ -361,7 +387,7 @@ describe("recordReviewFailure", () => {
 
     const outcome = await recordReviewFailure(
       makeDb({ priorRows }).db as never,
-      { ...BASE_CTX, message: "429 You have no credits remaining" },
+      { ...BASE_CTX, message: MSG_NO_CREDITS },
       { askEmitter: emitter }
     );
 
@@ -369,20 +395,71 @@ describe("recordReviewFailure", () => {
     expect(captured[0]?.errorClass).toBe(CLASS_CREDITS);
   });
 
-  test("AT4: the same class across 5 distinct PRs reports a systemic condition", async () => {
+  test("AT4: 5 distinct PRs with one class read as a systemic condition, not 5 one-offs", async () => {
+    // Fired sequentially, the way production sees them, with each failure's
+    // predecessors as its priors.
     const { emitter, captured } = makeEmitter();
-    const message = "429 You have no credits remaining";
-    // 4 other PRs already hit by this class, plus the current one = 5.
-    const priorRows = [1, 2, 3, 4].map((n) => priorRow(n, message));
+    const message = MSG_NO_CREDITS;
+    const outcomes: string[] = [];
 
-    await recordReviewFailure(
+    for (let i = 0; i < 5; i++) {
+      const priorRows = Array.from({ length: i }, (_, j) => priorRow(600 + j, message));
+      outcomes.push(
+        await recordReviewFailure(
+          makeDb({ priorRows }).db as never,
+          { ...BASE_CTX, prNumber: 600 + i, message },
+          { askEmitter: emitter }
+        )
+      );
+    }
+
+    // 5 failures across 5 PRs produce 3 asks, not 5: the first two look
+    // isolated, the third names the condition repo-wide, and the rest are
+    // suppressed as already-systemic.
+    expect(outcomes).toEqual(["emitted", "emitted", "emitted", SUPPRESSED_DUP, SUPPRESSED_DUP]);
+    expect(captured).toHaveLength(3);
+    expect(captured[2]?.systemic).toBe(true);
+    expect(captured[2]?.distinctPrsWithClass).toBe(SYSTEMIC_DISTINCT_PR_THRESHOLD);
+    // ...and the earlier two did NOT overclaim.
+    expect(captured[0]?.systemic).toBe(false);
+    expect(captured[1]?.systemic).toBe(false);
+  });
+
+  test("an ALREADY-systemic condition is suppressed even on a brand-new PR", async () => {
+    // The reason the dedup key is adaptive. A repo-wide outage hits each PR
+    // once, so a per-PR key dedups nothing: replaying the real 30-day corpus
+    // left 60 asks for 88 failures. One ask already told the operator the
+    // condition is repo-wide; the rest are noise on top of it.
+    const { emitter, captured } = makeEmitter();
+    const message = MSG_NO_CREDITS;
+    const priorRows = [10, 11, 12, 13].map((n) => priorRow(n, message));
+
+    const outcome = await recordReviewFailure(
       makeDb({ priorRows }).db as never,
-      { ...BASE_CTX, message },
+      { ...BASE_CTX, prNumber: 999, message },
       { askEmitter: emitter }
     );
 
+    expect(outcome).toBe(SUPPRESSED_DUP);
+    expect(captured).toHaveLength(0);
+  });
+
+  test("the failure that TIPS a condition into systemic still alerts, flagged systemic", async () => {
+    const { emitter, captured } = makeEmitter();
+    const message = MSG_NO_CREDITS;
+    // Threshold - 1 distinct prior PRs; this failure is the one that crosses it.
+    const priorRows = Array.from({ length: SYSTEMIC_DISTINCT_PR_THRESHOLD - 1 }, (_, i) =>
+      priorRow(500 + i, message)
+    );
+
+    const outcome = await recordReviewFailure(
+      makeDb({ priorRows }).db as never,
+      { ...BASE_CTX, prNumber: 999, message },
+      { askEmitter: emitter }
+    );
+
+    expect(outcome).toBe("emitted");
     expect(captured[0]?.systemic).toBe(true);
-    expect(captured[0]?.distinctPrsWithClass).toBe(5);
   });
 
   test("AT5/SC8: a failure already owned by the circuit breaker does NOT double-alert", async () => {
