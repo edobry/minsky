@@ -964,6 +964,14 @@ export function registerCalibrationCommands(): void {
               exists: r.exists,
               totalFires: r.totalFires,
               watermarkCount: r.watermarkCount,
+              // mt#4904 (PR #3572 R1): projected for EVERY result, not only
+              // review-due ones. A stranded log that the review-due leg
+              // declines — an absent log, e.g. the retired `policy-coverage`
+              // with a watermark of 1760 — is otherwise reported as
+              // `firesSinceLastReview: 0` with nothing distinguishing it from a
+              // just-reviewed log, which is the silent clamping this task
+              // exists to end. The `reviewDue` entry alone cannot carry it.
+              watermarkStranded: r.watermarkStranded,
               firesSinceLastReview: r.firesSinceLastReview,
               suppressedSinceLastReview: r.suppressedSinceLastReview,
               injectedFiresSinceLastReview: r.injectedFiresSinceLastReview,

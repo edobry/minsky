@@ -2408,6 +2408,15 @@ export interface ReviewDueLog {
   totalFires: number;
   distinctPhrases: number;
   reason: "past-threshold" | "time-stale" | "never-reviewed" | "never-fired" | "watermark-stranded";
+  /**
+   * The watermark this log was compared against (mt#4904, PR #3572 R1).
+   * Carried so a consumer can render the `watermark-stranded` leg's actual
+   * comparison — "watermark 424 exceeds 121 record(s)" — instead of the shared
+   * warning line's `injectedFiresSinceLastReview`, which the stranding clamps
+   * to 0 and which would otherwise report "0 new fire(s)" about a log being
+   * flagged for review.
+   */
+  watermarkCount: number;
   /** Forwarded from the watermark's `openAskId` (mt#2659); undefined for never-reviewed (no watermark). */
   openAskId?: string;
   /**
@@ -2439,6 +2448,7 @@ function toReviewDueLog(
     totalFires: r.totalFires,
     distinctPhrases: r.distinctPhrases,
     reason,
+    watermarkCount: r.watermarkCount,
     openAskId,
     reviewByDays,
   };
