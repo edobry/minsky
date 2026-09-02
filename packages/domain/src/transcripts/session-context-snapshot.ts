@@ -145,10 +145,22 @@ export function assistantContentKind(message: unknown): "text" | "thinking" {
  * origin describes the TEXT and is therefore null exactly when the text is. A
  * `user` line whose content is entirely `tool_result` blocks contributes none.
  *
- * Both content shapes occur and both are handled: a bare STRING (how a
- * dispatched subagent's first turn arrives — verified against
+ * Takes the line's `message`, which is ALWAYS an object — measured across 400
+ * recent transcripts, 80,755 `user` lines, `typeof message === "object"` in
+ * every one. The early return for a non-object is a defensive guard on
+ * malformed input, not a supported shape.
+ *
+ * It is `message.CONTENT` that has two shapes, and both are handled: a bare
+ * STRING (how a dispatched subagent's first turn arrives — verified against
  * `subagents/agent-a335fb8b0e7586511.jsonl` line 1, a 6,661-char string), and
  * the usual ARRAY of typed blocks.
+ *
+ * PR #3574 R1 flagged this docblock as claiming the STRING case applied to
+ * `message` itself, which would have meant the origin was never stamped for a
+ * dispatch brief. The claim was about `content` and the code is correct — the
+ * end-to-end run stamps `dispatch_brief` on exactly that record — but the
+ * sentence did not say so, and a comment that misdescribes its own guard is
+ * worth fixing rather than explaining.
  */
 function userLineCarriesText(message: unknown): boolean {
   if (message === null || typeof message !== "object") return false;

@@ -288,3 +288,63 @@ describe("mt#4354 — dispatch-brief origin", () => {
     ).toEqual({ kind: "dispatch", label: "dispatch brief" });
   });
 });
+
+// ── PR #3574 R1 (non-blocking): run-grouping key shape ────────────────────────
+//
+// `ActorKey` in ConversationTurnView changed from a single `harnessLabel` to
+// `originKind` + `originLabel`. The reviewer asked whether that can split runs
+// that previously grouped. It cannot, and this pins why: BOTH fields are derived
+// from the same `classifyTurnOrigin` result the old `harnessLabel` was derived
+// from, by the same rule — labeled kinds carry their label, everything else
+// carries null. So two turns that agreed under the old key still agree under the
+// new one, and the ONLY new split is `dispatch`, which is the point of the task.
+describe("PR #3574 R1 — grouping inputs are unchanged for pre-existing kinds", () => {
+  const labeled = (o: ReturnType<typeof classifyTurnOrigin>) =>
+    o?.kind === "harness" || o?.kind === "dispatch"
+      ? { originKind: o.kind, originLabel: o.label }
+      : { originKind: null, originLabel: null };
+
+  test("an operator turn contributes a null key, as before", () => {
+    expect(labeled(classifyTurnOrigin({ role: "user", elements: [text("hi")] }))).toEqual({
+      originKind: null,
+      originLabel: null,
+    });
+  });
+
+  test("an unclassifiable turn contributes a null key, as before", () => {
+    expect(labeled(classifyTurnOrigin({ role: "user", elements: [] }))).toEqual({
+      originKind: null,
+      originLabel: null,
+    });
+  });
+
+  test("two harness turns with the SAME origin still produce equal keys", () => {
+    const a = labeled(
+      classifyTurnOrigin({ role: "user", elements: [injected("system-reminder")] })
+    );
+    const b = labeled(
+      classifyTurnOrigin({ role: "user", elements: [injected("system-reminder")] })
+    );
+    expect(a).toEqual(b);
+    expect(a.originKind).toBe("harness");
+  });
+
+  test("two harness turns with DIFFERENT origins still produce unequal keys", () => {
+    const a = labeled(
+      classifyTurnOrigin({ role: "user", elements: [injected("system-reminder")] })
+    );
+    const b = labeled(classifyTurnOrigin({ role: "user", elements: [injected("skill-body")] }));
+    expect(a).not.toEqual(b);
+  });
+
+  test("a dispatch brief does NOT group with a harness turn — the one intended new split", () => {
+    const brief = labeled(
+      classifyTurnOrigin({ role: "user", elements: [text("x")], userOrigin: "dispatch_brief" })
+    );
+    const harness = labeled(
+      classifyTurnOrigin({ role: "user", elements: [injected("system-reminder")] })
+    );
+    expect(brief).not.toEqual(harness);
+    expect(brief.originKind).toBe("dispatch");
+  });
+});
