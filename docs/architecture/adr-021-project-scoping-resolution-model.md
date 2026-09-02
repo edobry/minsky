@@ -57,6 +57,36 @@ method parameter from the request boundary through the call stack, independent o
 (no repo/remote/config — e.g. the hosted server's `/app` cwd), fall back to **ALL / unscoped**,
 preserving current behavior.
 
+### Writes resolve from the entity, not the process (mt#2391, amending the above)
+
+The model above governs **reads**. Writes take the opposite default, and this section records that
+as a decision rather than a deviation: a new row's `project_id` comes from **the entity the row is
+about** — its parent task, the workspace it names — falling back to the filing context only when no
+entity answer exists.
+
+The asymmetry is not an inconsistency. A read asks _"what am I looking at from here?"_, and the
+process context is the correct answer to that. A write asks _"what does this row belong to?"_, which
+only the row's own subject can answer; the filing context records which server the agent happened to
+be connected to, which is a fact about the connection and never about the entity. Stamping a write
+from the process context produced one entity with two project identities depending on which page
+rendered it (mt#4772's originating defect).
+
+- **Precedence**, where more than one answer exists: an explicit `workspace`/`repo` the caller named
+  → the parent entity's project → the filing context. Explicit beats inherited because an argument
+  the caller passed is an instruction while a parent's project is an inference; a caller wanting the
+  parent's project omits the argument (mt#4808).
+- **Every resolver fails open** to the next level and finally to the context. A create must not
+  fail, nor silently NULL its project, because a lookup did.
+- **Seam choice follows reachability, not layering.** Applied at `session.start` (mt#4758),
+  `tasks.create` (mt#4808), `asks.create` (mt#4772), and `DrizzleAskRepository.create` (mt#4848).
+  The fourth is deliberately a repository-layer seam: four of the seven Ask writers live in
+  `packages/domain/**` and cannot reach an adapter-layer resolver taking a DI container, while every
+  writer passes through the repository. Picking the seam by the widest writer set also covers writers
+  not yet written — which is what the first three seams, chosen per call site, did not.
+
+The strict-enforcement counterpart (NOT NULL on `project_id`, erroring on unidentified) remains
+deferred to Phase-1.3b as recorded under `## Consequences`.
+
 ## Consequences
 
 Easier:
@@ -151,12 +181,24 @@ New **session** and **memory** records are also stamped with the resolved
   backend's construction-time `currentProjectId` (the MCP path injects a boot
   singleton, so nothing per-call could reach the insert without that seam).
 
-**Deviation from `## Decision`, recorded not resolved.** The per-process
-resolution model above describes reads. Two write paths now resolve from the
-ENTITY rather than the process context — `session.start` (mt#4758) and
-`tasks.create` (mt#4808) — and `asks_create` is the third and last call site of
-the same root (mt#4772, open). Amending `## Decision` to match belongs with the
-phase that owns this ADR, not with an individual bugfix; **mt#2391** carries it.
+- `DrizzleAskRepository.create` resolves `project_id` for **every** Ask writer,
+  not only the ones going through `asks.create` (mt#4848). mt#4772's fix held on
+  one write path of seven; the other six construct `CreateAskInput` directly and
+  never set `projectId`, so they emitted NULL rows at a rate that kept the NULL
+  population growing rather than static. The repository is the one seam all seven
+  pass through, and it holds `this.db`, which the resolution's task lookup needs;
+  `toInsert` is a pure mapper and cannot do a read. Verified live: over the 120
+  Asks created in the 40 hours after deploy, zero carried a NULL `project_id`
+  against a project-carrying parent, and the newest NULL-`project_id` Ask in the
+  table predates the fleet's post-merge restart.
+
+**Deviation from `## Decision` — RESOLVED 2026-09-02 (mt#2391).** This note
+previously read _"recorded not resolved,"_ naming two entity-resolving write
+paths with `asks_create` still open. All four have since shipped, so the
+deviation has been folded into `## Decision` as
+`### Writes resolve from the entity, not the process` rather than left as an
+exception to it. The bullets above remain the per-call-site detail; the rule
+they instantiate now lives with the decision.
 
 ## Cross-references
 
@@ -164,6 +206,8 @@ phase that owns this ADR, not with an individual bugfix; **mt#2391** carries it.
 - Strategic frame: RFC "Minsky beyond Minsky" (Notion `37a937f0-3cb4-81ed-9a08-fbdeebd8845d`)
 - Tasks: mt#2391 (Phase 1 umbrella), mt#2414 (resolver), mt#2415 (schema+backfill),
   mt#2416 (W1 — scope param + CLI/stdio supplier; lands this ADR), mt#2417 (embeddings audit),
-  mt#2418 (cockpit supplier), mt#2505 (auto-migrate decouple; gates Phase-1.3b hardening)
+  mt#2418 (cockpit supplier), mt#2505 (auto-migrate decouple; gates Phase-1.3b hardening),
+  mt#4758 / mt#4808 / mt#4772 / mt#4848 (the four entity-resolving write seams),
+  mt#4839 (backfill of the rows written before them)
 - Memory: `5c0a4f78` (auto-migrate prod hazard / Phase-1.3b rationale), `6e5e2631` (per-session
   daemon → shared-Postgres topology), `ae514f10` (the RFC memory)
