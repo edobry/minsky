@@ -26,7 +26,13 @@
  *   1. Self-check — confirm the repo's bunfig enables randomization AND that a
  *      generated probe genuinely produces different orders under different
  *      seeds. If either fails, exit 2: the sweep would be meaningless.
- *   2. Sweep — one full run per seed, collecting each run's failures.
+ *   2. Sweep — one full run per seed, collecting each run's failures, and
+ *      REFUSING any run it cannot interpret. Zero `(fail)` lines is what a clean
+ *      run and a dead run both look like, so each run must also show bun's
+ *      `Ran N tests across M files` summary and must not exit non-zero with
+ *      nothing to attribute that to. Without this the sweep's central claim
+ *      rests on a probe that cannot fail — the same defect one level up from the
+ *      seed loop it replaces.
  *   3. Discriminate — for every seed that produced a failure, run that SAME seed
  *      a second time. Same seed means the same order, so a failure that comes
  *      back is caused by the order and one that comes and goes is not.
@@ -46,10 +52,11 @@
  *   bun scripts/run-tests-seed-sweep.ts --json
  *
  * Exit code: 0 = no order-dependent test found across the seeds run; 1 = at
- * least one test's outcome varied with the order, or a finding could not be
- * classified; 2 = the sweep could not establish that randomization is active (or
- * fewer than 2 seeds were asked for), so it proves nothing and its silence must
- * not be read as a pass.
+ * least one test's outcome varied with the order, a finding could not be
+ * classified, or the executed-test count drifted between seeds; 2 = the sweep
+ * could not establish that randomization is active, a run could not be
+ * interpreted, or fewer than 2 seeds were asked for — in every exit-2 case it
+ * proves nothing and its silence must not be read as a pass.
  *
  * Load-sensitive findings do NOT fail the run: they are mt#3501 / mt#3494's
  * population, out of this task's scope and owned elsewhere. They are printed
@@ -74,10 +81,54 @@ export function parseFailureNames(output: string): string[] {
   return names;
 }
 
+/**
+ * How many tests bun reported executing, or `null` when it printed no summary.
+ *
+ * `null` is the load-bearing case and the reason this exists. `parseFailureNames`
+ * reads `(fail)` lines, so a run that DIED — a crashed runner, a watchdog kill,
+ * a truncated stream — yields zero failures and is byte-indistinguishable from a
+ * clean sweep. That is mt#2632's shape (a truncated bun run exits with no
+ * summary at all and reads as green), and `run-tests-gated.ts` already treats a
+ * missing `Ran N tests across M files` line as a FAILURE for exactly this reason.
+ * The sweep must too, or its central claim — "these seeds were clean" — rests on
+ * a probe that cannot fail (mem#704).
+ */
+export function parseExecutedTestCount(output: string): number | null {
+  const match = output.match(/^\s*Ran (\d+) tests? across \d+ files?\./m);
+  if (match?.[1] === undefined) return null;
+  const n = Number.parseInt(match[1], 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Did every seed execute the same number of tests?
+ *
+ * The seeds run the same files with the same filters, so the COUNT should not
+ * move — only the order does. A count that differs means some file failed to
+ * load under one order and not another, which is order-dependence at the file
+ * level rather than a broken sweep, and it is invisible to `(fail)` parsing
+ * because a file that never loads reports no failing test (mem#316 — varying
+ * counts between runs are a signal, never noise).
+ *
+ * Judged on FIRST runs only, one sample per order, matching `standingRed`.
+ */
+export function detectCountDrift(observations: readonly SeedObservation[]): {
+  drifted: boolean;
+  counts: number[];
+} {
+  const counts = observations
+    .map((o) => o.executedTests)
+    .filter((n): n is number => n !== undefined);
+  const distinct = [...new Set(counts)].sort((a, b) => a - b);
+  return { drifted: distinct.length > 1, counts: distinct };
+}
+
 /** What one seed produced: a run, plus a SECOND run at that same seed when one was taken. */
 export interface SeedObservation {
   readonly seed: number;
   readonly failures: readonly string[];
+  /** Tests bun reported executing on the FIRST run at this seed. */
+  readonly executedTests?: number;
   /**
    * A repeat run at the SAME seed — i.e. the same execution order. Absent when
    * the first run was clean (nothing to discriminate) or the repeat was not
@@ -240,6 +291,25 @@ function runBunTest(args: readonly string[], cwd = REPO_ROOT): RunResult {
 }
 
 /**
+ * A run whose result cannot be trusted is exit 2, never a finding. Zero `(fail)`
+ * lines is what a clean run AND a dead run both look like, so the sweep's whole
+ * claim depends on separating them here rather than downstream.
+ *
+ * Declared as a function rather than a `const` arrow so its `never` return
+ * NARROWS at the call site — otherwise the caller still sees `number | null`
+ * after the guard, which is the tell that the guard is decorative.
+ */
+function abortUnusableRun(seed: number, why: string, run: RunResult): never {
+  const tail = run.output.split("\n").slice(-40).join("\n");
+  console.error(
+    `run-tests-seed-sweep: the run at seed ${seed} cannot be interpreted, so this sweep ` +
+      `proves nothing.\n  ${why}\n  exit code: ${run.exitCode}\n` +
+      `  --- last 40 lines of that run ---\n${tail}`
+  );
+  process.exit(2);
+}
+
+/**
  * Is `[test] randomize` TRUE in the repo's own bunfig?
  *
  * The sandbox probe below proves this Bun BUILD can shuffle. That is a
@@ -347,10 +417,31 @@ function main(): never {
   for (let seed = 1; seed <= seedCount; seed++) {
     const run = runBunTest(["scripts/run-tests-main.ts", "--seed", String(seed)]);
     const failures = parseFailureNames(run.output);
-    if (!json) console.log(`seed ${seed}: ${failures.length} failure(s)`);
+
+    const executedTests = parseExecutedTestCount(run.output);
+    if (executedTests === null) {
+      abortUnusableRun(
+        seed,
+        "bun printed no `Ran N tests across M files` summary, so the run did not complete. " +
+          "Zero parsed failures here means the runner died, NOT that the suite is clean.",
+        run
+      );
+    }
+    if (run.exitCode !== 0 && failures.length === 0) {
+      abortUnusableRun(
+        seed,
+        "the runner exited non-zero but printed no `(fail)` line, so there is nothing to " +
+          "attribute the failure to — the sweep cannot classify what it cannot see.",
+        run
+      );
+    }
+
+    if (!json) {
+      console.log(`seed ${seed}: ${failures.length} failure(s), ${executedTests} tests executed`);
+    }
 
     if (failures.length === 0) {
-      observations.push({ seed, failures });
+      observations.push({ seed, failures, executedTests });
       continue;
     }
 
@@ -363,10 +454,11 @@ function main(): never {
     if (!json) {
       console.log(`seed ${seed} (fixed-seed repeat): ${repeatFailures.length} failure(s)`);
     }
-    observations.push({ seed, failures, repeatFailures });
+    observations.push({ seed, failures, executedTests, repeatFailures });
   }
 
   const { orderDependent, loadSensitive, standingRed, unclassified } = classifySweep(observations);
+  const countDrift = detectCountDrift(observations);
 
   if (json) {
     console.log(
@@ -375,6 +467,7 @@ function main(): never {
           selfCheck,
           seedCount,
           observations,
+          countDrift,
           orderDependent,
           loadSensitive,
           standingRed,
@@ -399,13 +492,23 @@ function main(): never {
     );
     report("Standing red set (failed under EVERY order — not this sweep's concern)", standingRed);
     report("UNCLASSIFIED (varied across seeds, no fixed-seed repeat covered it)", unclassified);
+    if (countDrift.drifted) {
+      console.log(
+        `\nEXECUTED-TEST-COUNT DRIFT across seeds: ${countDrift.counts.join(" vs ")}\n` +
+          "  The seeds run the same files, so only the ORDER should move. A differing count " +
+          "means a file failed to LOAD under one order and not another — order-dependence that " +
+          "reports no failing test, because a file that never loads has none to report."
+      );
+    }
   }
 
   // Load-sensitive findings are deliberately not a failure signal here: they are
   // owned by mt#3501 / mt#3494 and this task's `## Scope` excludes them. An
   // unclassified finding IS a failure signal — the sweep did not establish a
-  // class for it, and silence must not read as a pass.
-  process.exit(orderDependent.length > 0 || unclassified.length > 0 ? 1 : 0);
+  // class for it, and silence must not read as a pass. Count drift is a finding
+  // in its own right and is invisible to every other bucket.
+  const failed = orderDependent.length > 0 || unclassified.length > 0 || countDrift.drifted;
+  process.exit(failed ? 1 : 0);
 }
 
 if (import.meta.main) {

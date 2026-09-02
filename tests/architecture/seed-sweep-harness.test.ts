@@ -15,8 +15,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   classifySweep,
+  detectCountDrift,
   evidenceFor,
   ordersDiffer,
+  parseExecutedTestCount,
   parseFailureNames,
   parseSeedArg,
   repoRandomizeEnabled,
@@ -88,6 +90,68 @@ describe("parseFailureNames", () => {
 
   test("a clean run yields no names", () => {
     expect(parseFailureNames("bun test v1.3.14\n 16 pass\n 0 fail\n")).toEqual([]);
+  });
+});
+
+describe("parseExecutedTestCount", () => {
+  test("reads bun's run summary, singular and plural", () => {
+    expect(parseExecutedTestCount("Ran 17132 tests across 1117 files. [370.00s]")).toBe(17132);
+    expect(parseExecutedTestCount("Ran 1 test across 1 file. [12.00ms]")).toBe(1);
+  });
+
+  test("tolerates the leading whitespace bun emits", () => {
+    expect(parseExecutedTestCount("  Ran 24 tests across 1 file. [121.00ms]")).toBe(24);
+  });
+
+  test("output with NO summary line is null, not zero", () => {
+    // The whole point. A run that died prints failures-so-far and no summary;
+    // returning 0 would make a dead run indistinguishable from a run that
+    // legitimately executed nothing, and both would read as a clean sweep.
+    expect(parseExecutedTestCount("bun test v1.3.14\n(fail) something\n")).toBeNull();
+    expect(parseExecutedTestCount("")).toBeNull();
+  });
+
+  test("a truncated summary line does not half-match", () => {
+    expect(parseExecutedTestCount("Ran 17132 tests across")).toBeNull();
+  });
+});
+
+describe("detectCountDrift", () => {
+  test("identical counts across seeds are not drift", () => {
+    const result = detectCountDrift([
+      { seed: 1, failures: [], executedTests: 17132 },
+      { seed: 2, failures: [], executedTests: 17132 },
+    ]);
+
+    expect(result.drifted).toBe(false);
+    expect(result.counts).toEqual([17132]);
+  });
+
+  test("a differing count is drift, and both values are reported", () => {
+    // Only the ORDER changes between seeds, so a moved count means a file did
+    // not load under one of them — order-dependence that reports no failing
+    // test, because a file that never loads has none to report.
+    const result = detectCountDrift([
+      { seed: 1, failures: [], executedTests: 17132 },
+      { seed: 2, failures: [], executedTests: 17098 },
+    ]);
+
+    expect(result.drifted).toBe(true);
+    expect(result.counts).toEqual([17098, 17132]);
+  });
+
+  test("observations carrying no count are ignored rather than read as zero", () => {
+    const result = detectCountDrift([
+      { seed: 1, failures: [], executedTests: 17132 },
+      { seed: 2, failures: [] },
+    ]);
+
+    expect(result.drifted).toBe(false);
+    expect(result.counts).toEqual([17132]);
+  });
+
+  test("no observations is not drift", () => {
+    expect(detectCountDrift([])).toEqual({ drifted: false, counts: [] });
   });
 });
 
