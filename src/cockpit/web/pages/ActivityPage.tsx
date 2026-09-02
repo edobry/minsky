@@ -28,21 +28,27 @@ import {
 } from "../components/ui/select";
 import { Checkbox } from "../components/ui/checkbox";
 import { useProject } from "../lib/project-context";
+import { eventStyle, eventSummary } from "../lib/activity-event-render";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors of server SystemEvent shape
 // ---------------------------------------------------------------------------
 
-export type SystemEventType =
-  | "ask.created"
-  | "task.auto_created"
-  | "pr.review_posted"
-  | "subagent.failed"
-  | "embeddings.provider_degraded"
-  | "task.status_changed"
-  | "pr.merged"
-  | "subagent.completed"
-  | "session.started";
+/**
+ * The wire's event type, as a plain string (mt#4775).
+ *
+ * This was a 9-member union while the server's `system_event_type` enum had 30,
+ * so 21 types rendered as `Unknown event (…)`. Narrowing it bought a
+ * compile-time exhaustiveness guard that was sound over the union and vacuous
+ * with respect to the server — mt#3240's fallback existed precisely because the
+ * two never matched, and `fetchActivity` type-asserts the response rather than
+ * validating it, so the narrow type was never a guarantee about the wire.
+ *
+ * Rendering now lives in `../lib/activity-event-render`, which gives every type
+ * a derived label and a payload summary and keeps bespoke copy for the nine.
+ * `enum-drift.test.ts` asserts no server type renders as "Unknown".
+ */
+export type SystemEventType = string;
 
 export interface SystemEvent {
   id: string;
@@ -103,120 +109,6 @@ function formatRelative(isoTimestamp: string): string {
   if (diffHr < 24) return `${diffHr}h ago`;
   const diffDay = Math.floor(diffHr / 24);
   return `${diffDay}d ago`;
-}
-
-interface EventStyle {
-  icon: string;
-  label: string;
-  badgeClass: string;
-}
-
-function eventStyle(type: SystemEventType): EventStyle {
-  switch (type) {
-    case "ask.created":
-      return {
-        icon: "?",
-        label: "Ask created",
-        badgeClass: "bg-accent text-accent-foreground",
-      };
-    case "task.auto_created":
-      return {
-        icon: "+",
-        label: "Task auto-filed",
-        badgeClass: "bg-secondary text-secondary-foreground",
-      };
-    case "pr.review_posted":
-      return {
-        icon: "R",
-        label: "Review posted",
-        badgeClass: "bg-muted text-muted-foreground",
-      };
-    case "subagent.failed":
-      return {
-        icon: "!",
-        label: "Subagent failed",
-        badgeClass: "bg-destructive text-destructive-foreground",
-      };
-    case "embeddings.provider_degraded":
-      return {
-        icon: "~",
-        label: "Embeddings degraded",
-        badgeClass: "bg-destructive text-destructive-foreground",
-      };
-    case "task.status_changed":
-      return {
-        icon: ">",
-        label: "Task status changed",
-        badgeClass: "bg-muted text-muted-foreground",
-      };
-    case "pr.merged":
-      return {
-        icon: "M",
-        label: "PR merged",
-        badgeClass: "bg-muted text-muted-foreground",
-      };
-    case "subagent.completed":
-      return {
-        icon: "*",
-        label: "Subagent completed",
-        badgeClass: "bg-muted text-muted-foreground",
-      };
-    case "session.started":
-      return {
-        icon: "S",
-        label: "Session started",
-        badgeClass: "bg-muted text-muted-foreground",
-      };
-    default: {
-      // Exhaustiveness guard (compile-time only): adding a new SystemEventType
-      // member without a matching case above fails typecheck here. This does
-      // NOT protect against event types arriving from the wire that the
-      // client's SystemEventType union doesn't model at all — fetchActivity's
-      // response is only type-asserted (`res.json() as Promise<...>`), never
-      // runtime-validated, so a server-only event type (the server's
-      // system_event_type enum is wider than this client union — see mt#3240)
-      // reaches this switch with none of its literal cases matching. The
-      // fallback return below is what keeps that case from crashing the page.
-      const _exhaustive: never = type;
-      return {
-        icon: "?",
-        label: String(_exhaustive),
-        badgeClass: "bg-muted text-muted-foreground",
-      };
-    }
-  }
-}
-
-function eventSummary(event: SystemEvent): string {
-  const p = event.payload;
-  switch (event.eventType) {
-    case "ask.created":
-      return `${String(p.kind ?? "ask")}: ${String(p.title ?? "(untitled)")}`;
-    case "task.auto_created":
-      return `${String(p.createdBy ?? "sweeper")} filed: ${String(p.title ?? "(untitled)")}`;
-    case "pr.review_posted":
-      return `PR #${String(p.prNumber ?? "?")} — ${String(p.state ?? "review")} by ${String(p.reviewer ?? "bot")}`;
-    case "subagent.failed":
-      return `${String(p.agentType ?? "agent")} on ${String(p.taskId ?? "?")} — ${String(p.outcome ?? "failed")}`;
-    case "embeddings.provider_degraded":
-      return `${String(p.provider ?? "provider")} degraded — ${String(p.degradedReason ?? p.errorCode ?? "error")}`;
-    case "task.status_changed":
-      return `${String(p.taskId ?? "?")}: ${String(p.previousStatus ?? "?")} → ${String(p.newStatus ?? "?")}`;
-    case "pr.merged":
-      return `PR #${String(p.prNumber ?? "?")} merged${p.taskId ? ` (${String(p.taskId)})` : ""}`;
-    case "subagent.completed":
-      return `${String(p.agentType ?? "agent")} on ${String(p.taskId ?? "?")} — ${String(p.outcome ?? "completed")}`;
-    case "session.started":
-      return `Session started${p.taskId ? ` for ${String(p.taskId)}` : ""}`;
-    default: {
-      // Same exhaustiveness-plus-fallback pairing as eventStyle above (mt#3240):
-      // the assertion catches a missing case for an enumerated SystemEventType
-      // member at build time; the fallback return catches a server event type
-      // arriving from the wire that this client union never modeled.
-      const _exhaustive: never = event.eventType;
-      return `Unknown event (${String(_exhaustive)})`;
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------
