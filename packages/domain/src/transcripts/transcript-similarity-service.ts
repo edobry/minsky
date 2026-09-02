@@ -633,8 +633,10 @@ export class TranscriptSimilarityService {
     }
 
     try {
-      // mt#4919: same reason as search() — this method filters too (session
-      // exclusion, role, originKind), so it has the same recall exposure.
+      // mt#4919: same reason as search() — this method filters too, so it has
+      // the same recall exposure. Its filters are the seed-session exclusion,
+      // `projectId` and `originKind`; it exposes no `role` option (PR #3588 R1
+      // corrected an earlier version of this comment that claimed it did).
       const rows = await this.withIterativeScan((tx) =>
         tx
           .select({

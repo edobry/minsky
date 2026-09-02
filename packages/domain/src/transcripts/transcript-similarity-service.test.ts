@@ -69,7 +69,22 @@ let capturedWhereConditions: unknown[] = [];
  */
 let capturedStatements: string[] = [];
 
-/** Flatten a drizzle SQL template into something assertable. */
+/** The three fragments the mt#4919 assertions look for in the emitted SQL. */
+const SET_LOCAL = "SET LOCAL";
+const ITERATIVE_SCAN = "hnsw.iterative_scan";
+const STRICT_ORDER = "strict_order";
+
+/**
+ * Flatten a drizzle SQL template into something assertable.
+ *
+ * PR #3588 R1 flagged the dependence on drizzle's internal `queryChunks` shape
+ * as brittle across upgrades. It is, and the failure direction is the safe one:
+ * if that shape changes, this returns `String(statement)` — `"[object Object]"`
+ * — which contains none of the substrings the tests assert, so they go RED
+ * rather than silently passing. A brittle assertion that fails loudly on an
+ * upgrade is the intended trade here; the alternative is asserting nothing
+ * about the SQL text at all.
+ */
 function renderSql(statement: unknown): string {
   const chunks = (statement as { queryChunks?: unknown[] })?.queryChunks;
   if (!Array.isArray(chunks)) return String(statement);
@@ -557,7 +572,7 @@ describe("TranscriptSimilarityService — iterative scan (mt#4919)", () => {
     await svc.search("anything", { limit: 20, role: "user" });
 
     expect(capturedStatements).toHaveLength(1);
-    expect(capturedStatements[0]).toContain("hnsw.iterative_scan");
+    expect(capturedStatements[0]).toContain(ITERATIVE_SCAN);
   });
 
   test("it is SET LOCAL, not a bare SET — the setting must not outlive the transaction", async () => {
@@ -570,7 +585,7 @@ describe("TranscriptSimilarityService — iterative scan (mt#4919)", () => {
 
     await svc.search("anything", {});
 
-    expect(capturedStatements[0]).toContain("SET LOCAL");
+    expect(capturedStatements[0]).toContain(SET_LOCAL);
   });
 
   test("it is strict_order — relaxed_order would give up exact distance ordering", async () => {
@@ -584,8 +599,58 @@ describe("TranscriptSimilarityService — iterative scan (mt#4919)", () => {
 
     await svc.search("anything", {});
 
-    expect(capturedStatements[0]).toContain("strict_order");
+    expect(capturedStatements[0]).toContain(STRICT_ORDER);
     expect(capturedStatements[0]).not.toContain("relaxed_order");
+  });
+
+  test("findSimilarTurn() issues it too — it filters, so it has the same exposure", async () => {
+    // PR #3588 R1: only search() was covered. findSimilarTurn wraps the same
+    // way and needs its own assertion, so removing one wrapper cannot pass.
+    //
+    // Its own fake rather than makeFakeDb: this method issues THREE selects
+    // (seed embedding, then neighbours, then message counts) where search()
+    // issues two, and the shared fake's call-ordering is built for the latter.
+    const statements: string[] = [];
+    let selectCount = 0;
+    const scope: Record<string, unknown> = {
+      execute: (statement: unknown) => {
+        statements.push(renderSql(statement));
+        return Promise.resolve([]);
+      },
+      transaction: <T>(run: (tx: unknown) => Promise<T> | PromiseLike<T>) => run(scope),
+      select: (_fields?: unknown) => {
+        selectCount++;
+        const resolve = (n?: number) => {
+          // 1: the seed turn's embedding. 2: the neighbours. 3+: message counts.
+          if (selectCount === 1) return Promise.resolve([{ embedding: [0.1, 0.2, 0.3] }]);
+          if (selectCount === 2) return Promise.resolve([makeTurnRow()].slice(0, n));
+          return Promise.resolve([]);
+        };
+        // Every builder step returns the same tail, so any chain order the
+        // service uses resolves — `.from().innerJoin().where().orderBy().limit()`
+        // for the neighbour query, `.from().where().limit()` for the seed.
+        const tail: Record<string, unknown> = {
+          orderBy: () => tail,
+          where: () => tail,
+          innerJoin: () => tail,
+          groupBy: () => Promise.resolve([]),
+          limit: resolve,
+        };
+        return { from: () => tail };
+      },
+    };
+
+    const svc = new TranscriptSimilarityService(
+      scope as never,
+      new FakeEmbeddingService() as never
+    );
+
+    await svc.findSimilarTurn("session-a:0", { limit: 20, originKind: "human" });
+
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toContain(SET_LOCAL);
+    expect(statements[0]).toContain(ITERATIVE_SCAN);
+    expect(statements[0]).toContain(STRICT_ORDER);
   });
 
   test("the setting is issued even with no filters — the scan saturates regardless", async () => {
@@ -600,6 +665,6 @@ describe("TranscriptSimilarityService — iterative scan (mt#4919)", () => {
     await svc.search("anything", { limit: 50 });
 
     expect(capturedStatements).toHaveLength(1);
-    expect(capturedStatements[0]).toContain("hnsw.iterative_scan");
+    expect(capturedStatements[0]).toContain(ITERATIVE_SCAN);
   });
 });
