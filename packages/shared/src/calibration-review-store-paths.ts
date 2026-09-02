@@ -89,8 +89,23 @@ export function calibrationReviewStoreDir(repoRoot: string): string {
 /**
  * Resolve one store file for a given repo root.
  *
- * `repoRoot` is whatever the caller already resolved — this module deliberately
- * does NOT add a `CLAUDE_PROJECT_DIR` or `MINSKY_STATE_DIR` tier of its own.
+ * **`repoRoot` MUST be a repo-root-derived absolute path, and this module cannot
+ * enforce that for you (PR #3581 R1).** The key is a HASH, so it does not degrade
+ * gracefully the way the old `join(repoRoot, ".minsky/…")` did: a subdirectory, a
+ * trailing slash, or an unresolved symlink yields a COMPLETELY different
+ * `projects/<key>/` directory rather than a nearby wrong one. Normalizing here would
+ * be worse than useless — it would diverge from the key the calibration LOGS are
+ * written under, since `dispatcher.ts` hashes exactly what `findRepoRoot` returns
+ * without further normalization, and the store must land beside the logs it indexes.
+ *
+ * All three callers therefore derive the root the same way, and each is one call from
+ * the log-path resolution it must agree with: `findRepoRoot` in the cadence detector,
+ * `findGitRepoRoot` in the calibration command (the same function
+ * `resolveCalibrationStatePath` uses for the logs), and `findRepoRoot([process.cwd()])`
+ * in the cockpit sweeper that feeds the reader.
+ *
+ * Beyond that, this module deliberately adds NO `CLAUDE_PROJECT_DIR` or
+ * `MINSKY_STATE_DIR` tier of its own.
  * `getMinskyStateDir`'s docblock records why the latter is absent (it would
  * outrank the `XDG_STATE_HOME` override seven test files use), and the former is
  * mt#4885's question, fenced out of this task's scope so the move changes WHERE

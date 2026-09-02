@@ -260,6 +260,29 @@ export async function resolveCalibrationStatePath(
   return join(getMinskyStateDir(), "projects", key, bareName);
 }
 
+/**
+ * Resolve one calibration-review STATE store, from the same repo root the LOGS use.
+ *
+ * PR #3581 R1 (BLOCKING) — and the reviewer was right in a way worth recording. Every
+ * store call site below used to pass `workspacePath` RAW while
+ * `resolveCalibrationStatePath` above passes `await findGitRepoRoot(workspacePath)`.
+ * Under the OLD repo-rooted `join(workspacePath, relPath)` that divergence degraded
+ * gracefully — a subdirectory just produced a nearby wrong path, and the module note
+ * above reasons explicitly from that ("never handled a subdirectory correctly either").
+ *
+ * A project key does NOT degrade gracefully: it is a hash, so ANY difference in the
+ * string — a subdirectory, a trailing slash, an unresolved symlink — yields a
+ * COMPLETELY different `projects/<key>/` directory rather than a nearby one. The store
+ * would land somewhere other than the calibration logs it indexes, which is the
+ * separated-store failure this whole task exists to end.
+ *
+ * So the stores now derive their root exactly as the logs do. Same function, same
+ * input, one call away from each other.
+ */
+async function calibrationReviewStore(workspacePath: string, filename: string): Promise<string> {
+  return calibrationReviewStorePath(filename, await findGitRepoRoot(workspacePath));
+}
+
 async function writeFileMkdir(filePath: string, content: string): Promise<void> {
   const { writeFile, mkdir } = await import("node:fs/promises");
   const { dirname } = await import("node:path");
@@ -268,7 +291,7 @@ async function writeFileMkdir(filePath: string, content: string): Promise<void> 
 }
 
 async function loadWatermarks(workspacePath: string): Promise<WatermarkStore> {
-  const storePath = calibrationReviewStorePath(WATERMARK_STORE_FILENAME, workspacePath);
+  const storePath = await calibrationReviewStore(workspacePath, WATERMARK_STORE_FILENAME);
   const content = await readFileOrNull(storePath);
   if (!content) return {};
   try {
@@ -279,7 +302,7 @@ async function loadWatermarks(workspacePath: string): Promise<WatermarkStore> {
 }
 
 async function saveWatermarks(workspacePath: string, store: WatermarkStore): Promise<void> {
-  const storePath = calibrationReviewStorePath(WATERMARK_STORE_FILENAME, workspacePath);
+  const storePath = await calibrationReviewStore(workspacePath, WATERMARK_STORE_FILENAME);
   await writeFileMkdir(storePath, `${JSON.stringify(store, null, 2)}\n`);
 }
 
@@ -290,7 +313,7 @@ async function saveWatermarks(workspacePath: string, store: WatermarkStore): Pro
  */
 async function loadClaims(workspacePath: string): Promise<CalibrationClaimStore> {
   const content = await readFileOrNull(
-    calibrationReviewStorePath(CLAIM_STORE_FILENAME, workspacePath)
+    await calibrationReviewStore(workspacePath, CLAIM_STORE_FILENAME)
   );
   if (!content) return {};
   try {
@@ -304,7 +327,7 @@ async function loadClaims(workspacePath: string): Promise<CalibrationClaimStore>
 
 async function saveClaims(workspacePath: string, store: CalibrationClaimStore): Promise<void> {
   await writeFileMkdir(
-    calibrationReviewStorePath(CLAIM_STORE_FILENAME, workspacePath),
+    await calibrationReviewStore(workspacePath, CLAIM_STORE_FILENAME),
     `${JSON.stringify(store, null, 2)}\n`
   );
 }
@@ -346,7 +369,7 @@ const resolveActorId = resolveCallerActorId;
  */
 async function withWatermarkLock<T>(workspacePath: string, critical: () => Promise<T>): Promise<T> {
   const { mkdir, rm, stat } = await import("node:fs/promises");
-  const lockPath = calibrationReviewStorePath(WATERMARK_LOCK_FILENAME, workspacePath);
+  const lockPath = await calibrationReviewStore(workspacePath, WATERMARK_LOCK_FILENAME);
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
   const deadline = Date.now() + WATERMARK_LOCK_MAX_WAIT_MS;
