@@ -83,6 +83,7 @@ import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-sche
 import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "../errors/index";
 import { buildTurnDateRangeConditions } from "./transcript-search-filters";
+import { toDisplaySnippet } from "./text-snippet";
 import type { AgentSessionId } from "./transcript-source";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -153,14 +154,22 @@ export interface TranscriptTurnResult {
    */
   resumeHint: string;
   /**
-   * Bounded excerpt around the match, with matched spans delimited by `[` and
-   * `]` (mt#3713). Present on full-text search results; absent on paths that
-   * do not match against text (semantic search, whole-session reads).
+   * Bounded excerpt for this hit.
    *
-   * Additive to the pre-mt#3713 shape: `userText` / `assistantText` still
-   * carry the turn in full, so an existing consumer is unaffected. Prefer this
-   * field when displaying results — a transcript turn can run to tens of
-   * kilobytes, which is why search results were unscannable before it existed.
+   * **Producer-dependent, like `score` above.** `TranscriptFtsService` fills it
+   * from Postgres `ts_headline` — an excerpt cut AROUND the match, with matched
+   * spans delimited by `[` and `]` (mt#3713). `TranscriptSimilarityService`
+   * fills it with the turn's LEADING text, stripped and truncated (mt#4917),
+   * because a vector match has no matched terms to cut around. Both are bounded
+   * and both are safe to display; only the FTS one marks matches.
+   *
+   * Still absent on whole-session reads (`getSession`), which do not search.
+   *
+   * Additive to the pre-mt#3713 shape at the SERVICE layer: `userText` /
+   * `assistantText` are still returned in full here, so the cockpit's
+   * conversation-search route — which calls this service directly — is
+   * unaffected. The MCP/CLI COMMANDS are what drop the full text, under the
+   * default `snippet` projection (`transcript-search-projection.ts`, mt#4917).
    */
   snippet?: string;
 }
@@ -291,6 +300,46 @@ export interface FindSimilarSessionOptions {
   projectId?: string;
 }
 
+/**
+ * Characters of leading text kept in a semantic hit's {@link TranscriptTurnResult.snippet}.
+ *
+ * Sized to land in the same neighbourhood as the FTS side's `ts_headline`
+ * output so the two search surfaces read alike, rather than picked round:
+ * `TS_HEADLINE_OPTIONS` (`transcript-fts-search-query.ts`) is
+ * `MaxFragments=2, MaxWords=28`, i.e. up to ~56 words, which at English's ~6
+ * characters per word plus the fragment delimiter is ~350-400 characters.
+ */
+const SEMANTIC_SNIPPET_MAX_CHARS = 400;
+
+/**
+ * Build the display excerpt for a SEMANTIC hit (mt#4917).
+ *
+ * The FTS side gets its `snippet` from Postgres `ts_headline`, which cuts
+ * around the matched lexemes. There is no equivalent here and there cannot be:
+ * a vector match has no matched terms to cut around — the query's words may not
+ * appear in the hit at all, which is the entire point of semantic search. So
+ * this takes the LEADING text instead, run through the same harness-markup and
+ * markdown stripping the cockpit's conversation labels use, and truncated on a
+ * word boundary.
+ *
+ * Prefers `userText` when both sides are present, matching
+ * `selectLiteralSnippetSource`'s convention on the FTS side so a caller reading
+ * both surfaces sees the same side of the turn quoted.
+ *
+ * Note this is additive: `userText` / `assistantText` are still returned in
+ * full by this service. The command layer is what drops them
+ * (`transcript-search-projection.ts`), and it does so precisely BECAUSE this
+ * field now exists on both surfaces.
+ */
+function buildSemanticSnippet(userText: string | null, assistantText: string | null): string {
+  // Falls through on a present-but-EMPTY user side, which is deliberately not
+  // what `deriveTurnRole` does with the same value: an empty string is a real
+  // role signal (the row matched a `user_text IS NOT NULL` filter) and a
+  // useless display excerpt. The two questions get different answers.
+  const source = userText !== null && userText !== "" ? userText : assistantText;
+  return toDisplaySnippet(source, SEMANTIC_SNIPPET_MAX_CHARS);
+}
+
 // ── Service ───────────────────────────────────────────────────────────────────
 
 @injectable()
@@ -407,6 +456,11 @@ export class TranscriptSimilarityService {
         endedAt: row.endedAt,
         isSpawnBoundary: row.isSpawnBoundary,
         score: typeof row.score === "number" ? row.score : Number(row.score),
+        // mt#4917: semantic hits carried no `snippet` at all, so a caller had
+        // no bounded way to read a hit and the command layer had nothing to
+        // project onto. See buildSemanticSnippet for why this is leading text
+        // rather than a match-centred excerpt.
+        snippet: buildSemanticSnippet(row.userText, row.assistantText),
         sessionMetadata: {
           agentSessionId: row.agentSessionId,
           startedAt: row.sessionStartedAt,

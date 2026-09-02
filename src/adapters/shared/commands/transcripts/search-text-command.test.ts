@@ -2,6 +2,9 @@ import { describe, test, expect, beforeEach } from "bun:test";
 import { createSharedCommandRegistry, CommandCategory } from "../../command-registry";
 import { registerTranscriptSearchTextCommand } from "./search-text-command";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
+// The real cap this projection has to clear, imported rather than restated so
+// a future change to the limit re-runs this assertion against the new value.
+import { MAX_TOOL_RESPONSE_TEXT_BYTES } from "../../../../mcp/response-size-guard";
 
 const COMMAND_ID = "transcripts.search-text";
 
@@ -186,6 +189,135 @@ describe("transcripts.search-text command", () => {
       )) as { results: unknown[]; coverage?: unknown };
       expect(resp.results).toHaveLength(1);
       expect("coverage" in resp).toBe(false);
+    });
+  });
+
+  describe("projection (mt#4917)", () => {
+    /**
+     * A turn near the observed extreme. Measured against the repo project on
+     * 2026-09-02: mean turn 935 chars, p99 23,344, max 690,525. 120k per side
+     * is well inside that range and makes ten hits enough to blow the limit —
+     * which is what production actually did, at the DEFAULT limit of 10.
+     */
+    const BIG_TEXT = "x".repeat(120_000);
+
+    function bigTurnRow(i: number): FakeRow {
+      return {
+        agentSessionId: `session-${i}`,
+        turnIndex: i,
+        userText: BIG_TEXT,
+        userOrigin: "human",
+        assistantText: BIG_TEXT,
+        startedAt: new Date("2026-09-01"),
+        endedAt: null,
+        isSpawnBoundary: false,
+        score: 0.5,
+        snippet: "a bounded [excerpt] around the match",
+        sessionStartedAt: new Date("2026-08-01"),
+        sessionModel: "claude",
+        sessionCwd: "/repo",
+        relatedTaskIds: [],
+        relatedPrNumbers: [],
+      };
+    }
+
+    /**
+     * Size the response exactly the way the MCP server does before the
+     * mt#4749 guard sees it: `JSON.stringify(result, null, 2)` measured in
+     * UTF-8 bytes (`src/mcp/server.ts` — the pretty-print is not incidental,
+     * a compact stringify would understate it).
+     */
+    function wireBytes(response: unknown): number {
+      return new TextEncoder().encode(JSON.stringify(response, null, 2)).length;
+    }
+
+    function ctxWithRows(rows: FakeRow[]) {
+      return {
+        interface: "cli" as const,
+        container: makeContainerWithDb(makeFakeDb(rows, 0)),
+      };
+    }
+
+    test("declares a projection parameter defaulting to snippet", () => {
+      const params = getCommand().parameters as Record<
+        string,
+        { required?: boolean; defaultValue?: unknown } | undefined
+      >;
+      expect(params.projection).toBeDefined();
+      expect(params.projection?.required).toBe(false);
+      expect(params.projection?.defaultValue).toBe("snippet");
+    });
+
+    test("the description names the default and points at how to read a hit in full", () => {
+      const description = getCommand().description;
+      expect(description).toContain("snippet");
+      expect(description).toContain("transcripts_get");
+    });
+
+    test("the description names BOTH sides of the agentSessionId/conversationId rename", () => {
+      // PR #3584 R1: the hit carries `agentSessionId` while transcripts_get
+      // takes `conversationId` (ADR-022 renamed the concept for new params and
+      // left existing result fields alone). Naming only one side sends a
+      // caller looking for a field that is not on the row.
+      const projectionDescription = (
+        getCommand().parameters as Record<string, { description?: string } | undefined>
+      ).projection?.description;
+
+      expect(projectionDescription).toContain("agentSessionId");
+      expect(projectionDescription).toContain("conversationId");
+      expect(projectionDescription).toContain("turnIndex");
+    });
+
+    test("by default a hit omits the full turn text and reports what it dropped", async () => {
+      const resp = (await getCommand().execute(
+        { query: "hi", limit: 1 },
+        ctxWithRows([bigTurnRow(0)])
+      )) as { results: Record<string, unknown>[] };
+
+      const hit = resp.results[0] as Record<string, unknown>;
+      expect("userText" in hit).toBe(false);
+      expect("assistantText" in hit).toBe(false);
+      expect(hit.omittedTextChars).toBe(BIG_TEXT.length * 2);
+      expect(hit.role).toBe("both");
+      expect(hit.snippet).toBe("a bounded [excerpt] around the match");
+      // The coordinates a caller needs to fetch the turn in full survive.
+      expect(hit.agentSessionId).toBe("session-0");
+      expect(hit.turnIndex).toBe(0);
+    });
+
+    test("projection 'full' still returns the complete turn text", async () => {
+      const resp = (await getCommand().execute(
+        { query: "hi", limit: 1, projection: "full" },
+        ctxWithRows([bigTurnRow(0)])
+      )) as { results: Record<string, unknown>[] };
+
+      const hit = resp.results[0] as Record<string, unknown>;
+      expect(hit.userText).toBe(BIG_TEXT);
+      expect(hit.assistantText).toBe(BIG_TEXT);
+      expect("omittedTextChars" in hit).toBe(false);
+    });
+
+    test("the DEFAULT limit of 10 fits under the mt#4749 limit projected, and did not before", async () => {
+      const rows = Array.from({ length: 10 }, (_, i) => bigTurnRow(i));
+
+      // The regression itself: production returned 5.67 MB at limit 10 against
+      // a 2 MB cap, spooled to disk, and the caller had to jq the spool file.
+      const full = await getCommand().execute(
+        { query: "hi", limit: 10, projection: "full" },
+        ctxWithRows(rows)
+      );
+      expect(wireBytes(full)).toBeGreaterThan(MAX_TOOL_RESPONSE_TEXT_BYTES);
+
+      // Same query, same corpus, default projection.
+      const projected = await getCommand().execute({ query: "hi", limit: 10 }, ctxWithRows(rows));
+      expect(wireBytes(projected)).toBeLessThan(MAX_TOOL_RESPONSE_TEXT_BYTES);
+
+      // And not marginally. Expressed as a ratio against the FULL response
+      // rather than as a fraction of the cap (PR #3584 R1): the invariant is
+      // "projecting removes essentially all of the bytes", which stays true
+      // however the cap is retuned. Tying it to MAX/100 would fail this test
+      // on a LOWERED cap even though the projection was working perfectly.
+      expect(wireBytes(projected)).toBeLessThan(wireBytes(full) / 100);
     });
   });
 });
