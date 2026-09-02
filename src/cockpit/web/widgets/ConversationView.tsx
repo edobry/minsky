@@ -497,6 +497,56 @@ function ConversationThread({
   // `epoch` so every mounted ToolInvocation re-syncs its local `open` state.
   const [expandSignal, setExpandSignal] = useState<ExpandSignal>(undefined);
 
+  /**
+   * The dispatch brief, pinned above the thread's start boundary (mt#4909).
+   *
+   * A subagent conversation opens with the assignment its parent wrote, and the
+   * tail-first FETCH (mt#4263 — not the render window; the two are different
+   * mechanisms) leaves that turn unfetched on anything longer than one page. It
+   * was three `load earlier turns` round trips away on the conversation this
+   * was measured against, which made mt#4354's whole argument — the brief is
+   * what a reader opens this page to find — false in practice.
+   *
+   * Built by running the ONE block back through the same thread pipeline the
+   * windowed turns use, rather than rendering it specially. A brief pinned here
+   * and the same brief reached by paging back must be the same artifact; giving
+   * the pin its own render path is how those two drift, and mt#4354's header,
+   * ascent link and folded boilerplate all live in that shared path anyway.
+   *
+   * `null` whenever the server sent no head block — a root conversation, a
+   * pre-stamp subagent, or a window that already reached index 0 — so there is
+   * no empty affordance in any of those cases.
+   */
+  const pinnedBriefNodes = useMemo(() => {
+    const head = snapshot.headBlock;
+    if (head === undefined) return null;
+    const brief = buildConversationThread(
+      [head],
+      snapshot.spawnChildrenByToolUseId,
+      snapshot.toolNamesByUseId
+    );
+    const prepared = mergeCommandInvocations(
+      pairToolInvocations(brief.visibleTurns, brief.callNameByToolUseId)
+    ).filter((t) => t.elements.some(hasRenderablePreparedElement));
+    if (prepared.length === 0) return null;
+    return buildTurnNodes({
+      preparedTurns: prepared,
+      supersededGroups: [],
+      blockIndexById: brief.blockIndexById,
+      turnIndexByBlockId: brief.turnIndexByBlockId,
+      entityIndex,
+      expandSignal,
+      filmPath,
+    });
+  }, [
+    snapshot.headBlock,
+    snapshot.spawnChildrenByToolUseId,
+    snapshot.toolNamesByUseId,
+    entityIndex,
+    expandSignal,
+    filmPath,
+  ]);
+
   // Land on the newest exchange once, after the windowed items are actually in
   // the DOM (layout effect keyed on the mounted count — an empty first commit
   // must not consume the one-shot; PR #1667 R1). Expanding "Show older" later
@@ -809,6 +859,16 @@ function ConversationThread({
           Collapse all
         </button>
       </div>
+      {/* Above the start boundary, not below it (mt#4909): the boundary's job
+          is to say what sits further back, and the brief is the conversation's
+          own opening rather than something hidden behind that count. Reading
+          top-down then gives the assignment, then "N earlier turns not loaded",
+          then the turns — which is the order they actually occurred in. */}
+      {pinnedBriefNodes !== null && (
+        <div data-testid="pinned-dispatch-brief" className="flex flex-col gap-4">
+          {pinnedBriefNodes}
+        </div>
+      )}
       <ThreadStartBoundary
         hiddenBefore={hiddenBefore}
         isRevealing={isRevealing}

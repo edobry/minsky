@@ -25,7 +25,7 @@ import { agentSpawnsTable } from "../storage/schemas/agent-spawns-schema";
 import { getLoggableErrorSummary } from "../errors/index";
 import type { AgentSessionId } from "./transcript-source";
 import { MAX_SNAPSHOT_WINDOW_LIMIT } from "./snapshot-window-limit";
-import { classifyUserLineOrigin } from "./user-line-origin";
+import { classifyUserLineOrigin, DISPATCH_BRIEF_ORIGIN } from "./user-line-origin";
 import {
   applyAbandonedBlockIds,
   computeAbandonedBlockIds,
@@ -229,6 +229,39 @@ export function turnLineToBlock(
     turnIndex,
     rawJsonlType,
   };
+}
+
+/**
+ * Turn 0 as a pinnable block, when it is a dispatch brief (mt#4909).
+ *
+ * The windowed assembler calls this with raw transcript entry 0, which the SQL
+ * supplies ONLY when the slice did not already reach it — so `null` in means
+ * "the brief is already in the page" (or there is no conversation), and
+ * `undefined` out means "nothing to pin". Both of those are the common case.
+ *
+ * Routed through {@link turnLineToBlock} rather than calling the classifier
+ * directly, which is the point of the function existing: a brief that would not
+ * RENDER as a brief must not PIN as one either, and one code path is what keeps
+ * those two answers from drifting. It also means a non-renderable entry 0 (a
+ * summary or meta line) yields nothing here, exactly as it would in the page.
+ *
+ * Only `dispatch_brief` pins. `"human"` is the classifier's FAIL-OPEN default —
+ * returned when no structural marker matched, not positive evidence of operator
+ * authorship (see the `userOrigin` docblock in `../context/types.ts`) — so
+ * pinning on anything else would hoist an arbitrary first turn above every long
+ * conversation in the cockpit.
+ *
+ * Exported for its own tests: the decision is pure and worth checking against
+ * real line shapes, while the query around it is not reachable without a DB.
+ */
+export function dispatchBriefHeadBlock(
+  agentSessionId: string,
+  headLine: unknown
+): SessionContextSnapshotBlock | undefined {
+  if (headLine === null || headLine === undefined) return undefined;
+  const block = turnLineToBlock(agentSessionId, 0, headLine);
+  if (block === null) return undefined;
+  return block.userOrigin === DISPATCH_BRIEF_ORIGIN ? block : undefined;
 }
 
 /**
@@ -558,6 +591,13 @@ type WindowedQueryRow = {
   slice_start: number | string | null;
   lines: unknown[] | null;
   attachments: WindowedAttachmentRow[] | null;
+  /**
+   * Raw transcript entry 0, present only when the slice did not already reach
+   * it (mt#4909) — the candidate dispatch brief. `null` when `lo === 0`, which
+   * is also when the caller needs nothing extra because the brief is in
+   * `lines`.
+   */
+  head_line: unknown | null;
 };
 
 function toInt(value: number | string | null | undefined): number | null {
@@ -661,6 +701,12 @@ async function assembleWindowedSessionContextSnapshot(
           harness,
           total,
           lo,
+          -- mt#4909: raw entry 0, but only when the slice did not already
+          -- reach it — otherwise the brief is in the raw slice below and
+          -- sending it twice would render it twice. The arrow operator is an
+          -- O(1) offset read into the same binary structure the jsonpath range
+          -- addresses, so this adds one element to the payload and no scan.
+          case when lo > 0 then transcript -> 0 else null end as head,
           case
             when hi > lo then coalesce(
               jsonb_path_query_array(
@@ -678,6 +724,7 @@ async function assembleWindowedSessionContextSnapshot(
         s.total as total_turns,
         s.lo as slice_start,
         s.raw as lines,
+        s.head as head_line,
         coalesce(
           (
             select jsonb_agg(
@@ -775,6 +822,10 @@ async function assembleWindowedSessionContextSnapshot(
 
   const markedBlocks = applyAbandonedBlockIds(blocks, new Set(snapshotStructure.abandonedBlockIds));
 
+  // The SQL supplies `head_line` only when the slice did not reach index 0, so
+  // the in-window case arrives null here and this is a no-op (mt#4909).
+  const headBlock = dispatchBriefHeadBlock(agentSessionId, row.head_line);
+
   const window: SessionContextSnapshotWindow = {
     // The RAW array length, which is also what the route's version token counts
     // — so the two never disagree about how long the conversation is.
@@ -797,6 +848,7 @@ async function assembleWindowedSessionContextSnapshot(
     ...(spawnChildrenByToolUseId ? { spawnChildrenByToolUseId } : {}),
     ...(spawnParent ? { spawnParent } : {}),
     window,
+    ...(headBlock ? { headBlock } : {}),
     toolNamesByUseId: snapshotStructure.toolNamesByUseId,
     assembledAt: new Date().toISOString(),
   };

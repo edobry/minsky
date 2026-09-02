@@ -576,6 +576,30 @@ export interface SessionContextSnapshot {
    */
   toolNamesByUseId?: Record<string, string>;
 
+  /**
+   * Turn 0, when it is a dispatch brief sitting OUTSIDE this window (mt#4909).
+   *
+   * A subagent conversation opens with the assignment its parent composed, and
+   * that is the block a reader opens such a conversation to find. The window is
+   * tail-first, so on any conversation longer than one page turn 0 is not
+   * merely unmounted — it was never FETCHED, and reaching it cost three
+   * `load earlier turns` round trips on the conversation this was measured
+   * against (195 raw lines, 50 per page).
+   *
+   * Carried as its own field rather than prepended to {@link blocks} so the
+   * paging arithmetic is untouched: `sliceStart`, `nextBefore` and
+   * `oldestTurnIndex` all describe the SLICE the server read, and a block from
+   * outside it would make each of them describe something else. The client
+   * renders this pinned above the thread's start boundary.
+   *
+   * Set only when ALL of: the request asked for a window, the slice did not
+   * already reach index 0, and turn 0 classifies `dispatch_brief`. So a root
+   * conversation, a subagent dispatched before the mt#2292 stamp, and every
+   * unwindowed consumer all see it absent — which is what keeps this additive
+   * and leaves those three callers byte-identical.
+   */
+  headBlock?: SessionContextSnapshotBlock;
+
   /** When this snapshot was assembled (ISO-8601 UTC). */
   assembledAt: string;
 }
