@@ -238,6 +238,7 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   // --- observability / persistence -----------------------------------------
   "observability.calibration-review": "mutates", // advances + persists watermarks
   "observability.reviewer-cost": "reads", // SELECTs over review_timing; writes nothing
+  "observability.reviewer-events": "reads", // SELECTs over reviewer_webhook_events; writes nothing
   "observability.smoke-test": "mutates", // sends a live event to Braintrust
   "persistence.migrate": "mutates",
   "persistence.check": "reads",
