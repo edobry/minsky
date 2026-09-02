@@ -102,23 +102,23 @@ function isTelemetryTarget(text: string): boolean {
  * Files exempt from the rule, each with the reason and — where the exemption is temporary — the
  * task that retires it. An entry without a reason is not an exemption, it is a silent hole.
  */
-export const ALLOWLIST: Record<string, string> = {
-  ".minsky/hooks/calibration-review-cadence-detector.ts":
-    "DELIBERATE, AND UNDECIDED — the watermark / last-warned stores are a different producer " +
-    "from the calibration logs themselves and were explicitly out of mt#4748's scope (see that " +
-    "file's mt#4748-R1 docblock). Their stated justification is 'still correctly gitignored', " +
-    "which is a minsky-repo-only property and therefore the premise mt#4748 exists to retire. " +
-    "Recorded in mt#4816's Context as a boundary case someone must decide, not close silently.",
-  "src/adapters/shared/commands/calibration.ts":
-    "DELIBERATE, AND UNDECIDED — same watermark store as above plus mt#4164's claim store, " +
-    "written under the same lock. See the entry above for why this exemption is provisional.",
-  "src/cockpit/ask-state-cache.ts":
-    "DELIBERATE, AND UNDECIDED — a READER of the same watermark store, and the third module in " +
-    "that family. Surfaced only after PR #3528 R1 widened this scan to namespaced calls: it " +
-    "uses `path.join`, which the first draft could not see. Flagging a reader is intended, not " +
-    "over-reach — reader/writer disagreement on a path IS the mt#4811 failure, so both sides of " +
-    "a store belong to the same decision. Same provisional status as the two entries above.",
-};
+// mt#4880 RETIRED all three entries that stood here. They covered the
+// `.minsky/calibration-review-*.json` state stores — the watermark store, its lock,
+// mt#4164's claim store, and the cadence detector's last-warned store — and every one
+// of them opened with `DELIBERATE, AND UNDECIDED`, because the justification they had
+// inherited ("still correctly gitignored") is a minsky-repo-only property and therefore
+// the exact premise mt#4748 exists to retire.
+//
+// The decision is now made and implemented: all three stores resolve through
+// `@minsky/shared/calibration-review-store-paths` into
+// `getMinskyStateDir()/projects/<key>/`, so the scan finds no repo-rooted expression to
+// exempt. `findStaleAllowlistEntries` is what would have caught a fixed writer whose
+// exemption outlived it; removing the entries in the same change is what keeps it quiet.
+//
+// An empty allowlist is the correct state, not an oversight — every scanned module now
+// resolves telemetry through a shared resolver. A new entry needs a reason AND, if the
+// exemption is temporary, the task that retires it.
+export const ALLOWLIST: Record<string, string> = {};
 
 /** Every repo-rooted telemetry path expression in the given files, allowlist NOT applied. */
 export function findRepoRootedTelemetryPaths(files: ScannedFile[]): RepoRootedTelemetryFinding[] {
