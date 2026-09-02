@@ -61,8 +61,20 @@ export const CHECK_RUN_NAME = "minsky-reviewer/findings";
  * Passed explicitly (not re-derived) so the publisher is a pure transformer.
  */
 export interface ConvergenceState {
-  /** 1-based current review round (iterationCount + 1). */
-  roundNumber: number;
+  /**
+   * 1-based current review round (iterationCount + 1), or `null` when the round
+   * is genuinely unknown.
+   *
+   * `null` exists for mt#4881 SC7's thrown-failure path: a review that throws
+   * (a provider error, the GitHub diff 406) never reaches `finalizeReviewError`,
+   * so nothing has ingested the prior reviews and no round number has been
+   * computed. Rendering a fabricated `round 1` in front of the operator would be
+   * worse than omitting it, and paying an extra GitHub round-trip to derive one
+   * on a failure path is not worth it — so the renderers below drop the round
+   * parenthetical instead. Output for a numeric round is byte-identical to
+   * before.
+   */
+  roundNumber: number | null;
   /** Number of BLOCKING findings in the current review. 0 when none. */
   blockingCount: number;
 }
@@ -151,19 +163,25 @@ export function buildCheckRunPayload(params: BuildCheckRunPayloadParams): CheckR
   const conclusion: "success" | "failure" | "neutral" =
     failureSummary || blockingCount > 0 ? "failure" : deriveConclusion(levels);
 
+  // Round rendering. Both forms below are byte-identical to the pre-mt#4881
+  // output when roundNumber is a number; they only differ for the `null`
+  // (round-unknown) case the thrown-failure path passes.
+  const roundSuffix = roundNumber === null ? "" : ` (round ${roundNumber})`;
+  const roundPrefix = roundNumber === null ? "Review" : `Round ${roundNumber}`;
+
   // Summary: liveness failure overrides convergence state.
   let summary: string;
   if (failureSummary) {
-    summary = `Reviewer failure (round ${roundNumber}): ${failureSummary}`;
+    summary = `Reviewer failure${roundSuffix}: ${failureSummary}`;
   } else if (blockingCount === 0) {
-    summary = `Round ${roundNumber}: no blocking findings — approved.`;
+    summary = `${roundPrefix}: no blocking findings — approved.`;
   } else {
-    summary = `Round ${roundNumber}: ${blockingCount} blocking finding${blockingCount === 1 ? "" : "s"} remain.`;
+    summary = `${roundPrefix}: ${blockingCount} blocking finding${blockingCount === 1 ? "" : "s"} remain.`;
   }
 
   const findingCount = annotations.length;
   const title = failureSummary
-    ? `minsky-reviewer: error (round ${roundNumber})`
+    ? `minsky-reviewer: error${roundSuffix}`
     : `minsky-reviewer: ${findingCount} finding${findingCount === 1 ? "" : "s"}`;
 
   return {

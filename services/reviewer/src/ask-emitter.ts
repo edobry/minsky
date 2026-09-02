@@ -46,6 +46,8 @@ import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/t
  * `classifierVersion` is a sentinel identifying the emit path.
  */
 export const ASK_CLASSIFIER_VERSION = "reviewer-circuit-breaker/v1";
+/** Sentinel for the mt#4881 pre-submission failure path — a different emit point. */
+export const REVIEW_FAILURE_CLASSIFIER_VERSION = "reviewer-pre-submit-failure/v1";
 export const ASK_REQUESTOR = "minsky-reviewer-service";
 
 /**
@@ -74,6 +76,39 @@ export interface CircuitBreakerAlertContext {
 }
 
 /**
+ * Context for a reviewer failure that never reached submission (mt#4881).
+ *
+ * Distinct from `CircuitBreakerAlertContext` above, which describes a failure
+ * that DID reach `submitReview` and was recorded by the mt#2350 tracker. This one
+ * describes the classes that die earlier — the model provider rejecting the
+ * prompt, credit exhaustion, the GitHub diff 406, the tool-loop timeout — and so
+ * carries a classified error plus the aggregation facts that separate a
+ * repo-wide condition from a single deterministic PR failure.
+ */
+export interface ReviewFailureAlertContext {
+  owner: string;
+  repo: string;
+  prNumber: number;
+  headSha: string;
+  /** "reviewer" (server.ts) or "boot_recovery" (boot-recovery.ts). */
+  stage: string;
+  /** Machine-readable class from `failure-alert.ts`'s classifier. */
+  errorClass: string;
+  /** Operator-facing one-liner: what this class is and who can fix it. */
+  errorSummary: string;
+  /** The raw failure message, possibly empty (the mt#2465 class). */
+  failureMessage: string;
+  /** Occurrences of this class on THIS PR inside the window, including this one. */
+  occurrencesOnPr: number;
+  /** Distinct PRs hit by this class inside the window, including this one. */
+  distinctPrsWithClass: number;
+  /** True when the condition looks repo-wide rather than PR-specific. */
+  systemic: boolean;
+  /** Width of the aggregation window, in minutes. */
+  windowMinutes: number;
+}
+
+/**
  * Emits operator-routed Asks for reviewer-service failures.
  *
  * Implementations MUST be fail-open: a failure to emit an Ask must never crash
@@ -84,6 +119,14 @@ export interface CircuitBreakerAlertContext {
  */
 export interface AskEmitter {
   emitCircuitBreakerAlert(ctx: CircuitBreakerAlertContext): Promise<AskEmitOutcome>;
+  /**
+   * mt#4881. Dedup for this path is the CALLER's (`failure-alert.ts` suppresses
+   * on a prior occurrence of the same class on the same PR inside its window) —
+   * unlike `emitCircuitBreakerAlert`, whose `!open.alerted` guard lives in the
+   * sweeper. mt#1596 flagged exactly this: these emit points "need their own
+   * dedup design."
+   */
+  emitReviewFailureAlert(ctx: ReviewFailureAlertContext): Promise<AskEmitOutcome>;
 }
 
 /**
@@ -184,6 +227,86 @@ export class DomainAskEmitter implements AskEmitter {
         pr: ctx.prNumber,
         headSha: ctx.headSha,
         circuitId: ctx.circuitId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return "failed";
+    }
+  }
+
+  async emitReviewFailureAlert(ctx: ReviewFailureAlertContext): Promise<AskEmitOutcome> {
+    try {
+      const repo = await this.repoProvider();
+      if (!repo) {
+        log.warn("review_failure_ask_skipped_no_repo", {
+          event: "review_failure_ask_skipped_no_repo",
+          pr: ctx.prNumber,
+          headSha: ctx.headSha,
+          errorClass: ctx.errorClass,
+          message:
+            "Reviewer failure not surfaced as an Ask — the asks repository is unavailable " +
+            "(domain container / DB not booted).",
+        });
+        return "skipped";
+      }
+
+      // The title carries the discriminator SC4 asks for, because the title is
+      // what the operator reads in a list: a repo-wide condition and a single
+      // deterministic PR failure need different urgency, and mt#1697 records
+      // four unrelated causes collapsing into one identical non-signal.
+      const title = ctx.systemic
+        ? `Reviewer failing across ${ctx.distinctPrsWithClass} PRs — ${ctx.errorClass}`
+        : `Reviewer failed before submitting — PR #${ctx.prNumber} (${ctx.errorClass})`;
+
+      const scale = ctx.systemic
+        ? `This class has hit ${ctx.distinctPrsWithClass} distinct PRs in the last ` +
+          `${ctx.windowMinutes} minutes — it is a repo-wide condition, not one bad PR.`
+        : `This class has hit ${ctx.occurrencesOnPr} time(s) on this PR and ` +
+          `${ctx.distinctPrsWithClass} distinct PR(s) in the last ${ctx.windowMinutes} minutes.`;
+
+      const input: CreateAskInput = {
+        kind: "coordination.notify",
+        classifierVersion: REVIEW_FAILURE_CLASSIFIER_VERSION,
+        requestor: ASK_REQUESTOR,
+        routingTarget: "operator",
+        title,
+        question:
+          `The reviewer failed on ${ctx.owner}/${ctx.repo} PR #${ctx.prNumber} @ ${ctx.headSha} ` +
+          `before it could submit a review, at stage "${ctx.stage}". ${ctx.errorSummary} ${scale} ` +
+          `Underlying error: ${ctx.failureMessage || "(none recorded — see the row's stack)"}`,
+        metadata: {
+          severity: "error",
+          crossReference: "mt#4881",
+          source: "reviewer-failure-alert",
+          pr: ctx.prNumber,
+          owner: ctx.owner,
+          repo: ctx.repo,
+          headSha: ctx.headSha,
+          stage: ctx.stage,
+          errorClass: ctx.errorClass,
+          occurrencesOnPr: ctx.occurrencesOnPr,
+          distinctPrsWithClass: ctx.distinctPrsWithClass,
+          systemic: ctx.systemic,
+          windowMinutes: ctx.windowMinutes,
+        },
+      };
+
+      const ask = await repo.create(input);
+      log.info("review_failure_ask_created", {
+        event: "review_failure_ask_created",
+        askId: ask.id,
+        pr: ctx.prNumber,
+        headSha: ctx.headSha,
+        errorClass: ctx.errorClass,
+        systemic: ctx.systemic,
+      });
+      return "created";
+    } catch (err: unknown) {
+      // Fail-open, same contract as emitCircuitBreakerAlert above.
+      log.error("review_failure_ask_failed", {
+        event: "review_failure_ask_failed",
+        pr: ctx.prNumber,
+        headSha: ctx.headSha,
+        errorClass: ctx.errorClass,
         error: err instanceof Error ? err.message : String(err),
       });
       return "failed";
