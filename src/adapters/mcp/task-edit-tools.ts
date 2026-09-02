@@ -13,7 +13,10 @@ import type { CommandMapper } from "../../mcp/command-mapper";
 import { log } from "@minsky/shared/logger";
 import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import { countOccurrences } from "./session-edit-tools";
-import { formatLineCount } from "@minsky/domain/ai/edit-pattern-utils";
+import {
+  formatLineCount,
+  resolveMarkerMergeDeterministically,
+} from "@minsky/domain/ai/edit-pattern-utils";
 
 /** Shape of the collapse detector this module consumes (mt#2577's predicate). */
 type CollapseDetector = (
@@ -231,14 +234,13 @@ type TaskSearchReplaceArgs = z.infer<typeof TaskSearchReplaceSchema>;
 // TOOL REGISTRATION
 // ========================
 
-export function registerTaskEditTools(
-  commandMapper: CommandMapper,
-  container?: import("@minsky/domain/composition/types").AppContainerInterface
-): void {
-  // Marker-based spec patching — lazy handler (mt#1792)
-  commandMapper.addCommand({
-    name: "tasks.spec.patch",
-    description: `Edit a task specification using marker-based patching. Task specs are stored in the database, not the filesystem.
+/**
+ * The `tasks.spec.patch` tool description, hoisted out of the registration call so it is
+ * directly assertable (mt#4181 AT4: "a caller reading only the tool description can tell
+ * which mode to use for an append"). A description that has to be scraped out of a source
+ * file to be checked is one nothing checks.
+ */
+export const TASK_SPEC_PATCH_DESCRIPTION = `Edit a task specification using marker-based patching. Task specs are stored in the database, not the filesystem.
 
 Use this tool to make partial edits to a task spec. Specify each edit with the special comment // ... existing code ... to represent unchanged content between edited sections.
 
@@ -260,7 +262,26 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
 
 FAIL-CLOSED (mt#2400): patching an EXISTING spec with content that has NO // ... existing code ... marker is REFUSED, because it would silently replace the entire spec. For an intentional full replacement, use tasks_edit with specContent.
 
-COLLAPSE-GUARD (mt#3674): the marker check above validates the MARKER, not the rest of the payload, and the merge is performed by a fast-apply model. A merge result dramatically smaller than the original spec is REFUSED — that is the signature of the model mis-resolving a marker (e.g. because stray text was prefixed before the intended patch body). Re-issue with tighter marker regions, or pass allowShrink=true for an intentional large deletion. Task specs have no version history, so this refusal is the last line before unrecoverable content loss.`,
+COLLAPSE-GUARD (mt#3674): the marker check above validates the MARKER, not the rest of the payload, and the merge is performed by a fast-apply model. A merge result dramatically smaller than the original spec is REFUSED — that is the signature of the model mis-resolving a marker (e.g. because stray text was prefixed before the intended patch body). Re-issue with tighter marker regions, or pass allowShrink=true for an intentional large deletion. Task specs have no version history, so this refusal is the last line before unrecoverable content loss.
+
+APPENDING TO A LONG SPEC (mt#4181): there is no separate append tool or mode — this tool handles it, and on ANY spec size. Three marker shapes are resolved by direct string splice with no model involved, so they cannot collapse and the guard above cannot fire on them:
+
+  - APPEND — a lone leading '// ... existing code ...' followed by your new section. This is the shape to use for adding a section at the end, and it is the common case.
+  - PREPEND — your new content, then a lone trailing marker.
+  - ANCHORED — a segment between two markers whose FIRST and LAST lines each appear exactly ONCE in the spec. The span between them is replaced by the segment, so include the anchor lines verbatim and put your addition between them.
+
+Anything else — a segment whose opening anchor appears more than once, or new content in a position the tool cannot locate — falls back to the fast-apply model and behaves exactly as before. Every splice is additionally checked to retain every original line in order; a candidate that would drop content falls back rather than being written. Note the consequence: an edit that intentionally DELETES content is not a splice shape, so it goes to the model and is subject to the collapse guard.
+
+Before mt#4181 every patch went to the model, which past roughly 500 lines returned a fraction of the document (measured: 588->86, 1172->36, 1956->67, 2130->63 lines) — the guard correctly refused, and there was no append path for long specs at all. If you are appending, prefer the APPEND shape: it is unambiguous by construction.`;
+
+export function registerTaskEditTools(
+  commandMapper: CommandMapper,
+  container?: import("@minsky/domain/composition/types").AppContainerInterface
+): void {
+  // Marker-based spec patching — lazy handler (mt#1792)
+  commandMapper.addCommand({
+    name: "tasks.spec.patch",
+    description: TASK_SPEC_PATCH_DESCRIPTION,
     parameters: TaskEditSchema,
     getHandler: async () => {
       // mt#1792: defer heavy domain imports until first call.
@@ -371,12 +392,37 @@ COLLAPSE-GUARD (mt#3674): the marker check above validates the MARKER, not the r
           let finalContent: string;
 
           if (specExists && hasMarkers) {
-            // Apply the edit pattern using fast-apply providers, passing optional instruction
-            finalContent = await applyEditPattern(
+            // mt#4181: try a deterministic string splice FIRST. `applyEditPattern`
+            // hands the whole document to a fast-apply model, which past ~500
+            // lines stops reproducing it and returns a fraction of its size — so
+            // the collapse guard below refuses and there is no append path at all
+            // for exactly the long-lived specs that most need one. A splice
+            // cannot collapse. It resolves only unambiguous marker shapes and
+            // self-checks that every original line survives, so anything it
+            // cannot prove falls through to the model exactly as before.
+            const deterministic = resolveMarkerMergeDeterministically(
               originalContent,
-              typedArgs.content,
-              typedArgs.instructions
+              typedArgs.content
             );
+
+            if (deterministic.resolved) {
+              finalContent = deterministic.merged;
+              log.debug("tasks.spec.patch resolved deterministically", {
+                taskId: typedArgs.taskId,
+                shapes: deterministic.shapes,
+              });
+            } else {
+              log.debug("tasks.spec.patch falling back to the apply model", {
+                taskId: typedArgs.taskId,
+                reason: deterministic.reason,
+              });
+              // Apply the edit pattern using fast-apply providers, passing optional instruction
+              finalContent = await applyEditPattern(
+                originalContent,
+                typedArgs.content,
+                typedArgs.instructions
+              );
+            }
           } else {
             // Direct write for a brand-new spec (specExists === false, no markers)
             finalContent = typedArgs.content;
