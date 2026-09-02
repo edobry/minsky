@@ -53,7 +53,7 @@ import type { ReviewerDb } from "./db/client";
 import { webhookEventsTable } from "./db/schemas/webhook-events-schema";
 import { submissionFailuresTable } from "./db/schemas/submission-failures-schema";
 import { updateOutcome, type WebhookErrorDetails } from "./webhook-events";
-import type { AskEmitter } from "./ask-emitter";
+import { providerBillingUrl, type AskEmitter } from "./ask-emitter";
 
 // ---------------------------------------------------------------------------
 // Thresholds
@@ -84,6 +84,54 @@ export const SUPPRESSION_WINDOW_MS = 60 * 60 * 1000;
  * between 1 and 6 distinct PRs, so 3 separates the two without straddling either.
  */
 export const SYSTEMIC_DISTINCT_PR_THRESHOLD = 3;
+
+/**
+ * Failure classes a HUMAN — and only a human — can clear (mt#2719, extension
+ * requirement 2).
+ *
+ * The discriminator is not "how bad is it" but "can anything on this side
+ * recover". Credit exhaustion needs somebody with a billing page; nothing the
+ * reviewer, the sweeper or an agent does will restore service. That is precisely
+ * the `severity: "incident"` definition in `packages/domain/src/ask/types.ts`
+ * ("a severity trigger fired AND remediation is operator-only"), so this set is
+ * the code-level expression of that second half.
+ *
+ * **Deliberately NOT included**, though they look similar and are far more
+ * frequent (18 of the 88 measured, vs 12 for credits):
+ * `provider_unavailable` and `provider_timeout`. Both self-heal — the provider
+ * regains capacity, the next tick succeeds — so paging on them would spend the
+ * principal's attention on something that fixes itself, and would burn the
+ * substrate's 3-pages-per-24h ceiling before a real incident could use it.
+ * `github_diff_too_large` and `provider_token_limit` are likewise excluded: they
+ * are deterministic properties of ONE PR, owned by mt#4434 and mt#4879, and the
+ * reviewer keeps working on every other PR.
+ */
+export const OPERATOR_ACTIONABLE_CLASSES: ReadonlySet<ReviewFailureClass> = new Set([
+  "provider_credits_exhausted",
+]);
+
+/**
+ * Occurrences of one operator-actionable class inside {@link SUPPRESSION_WINDOW_MS}
+ * at which the condition is escalated from an inbox ask to a PAGE.
+ *
+ * Grounded rather than picked, per `decision-defaults.mdc §Thresholds`, and
+ * deliberately the same number as `auth-health.ts`'s
+ * `DEFAULT_AUTH_HEALTH_THRESHOLD` — reusing an existing derivation instead of
+ * minting a third number for the same judgment ("how many failures before we
+ * believe this is a state rather than a blip?").
+ *
+ * Why 3 specifically: the sweeper retriggers on a 5-minute cycle, which
+ * `SUPPRESSION_WINDOW_MS`'s own derivation already names as the natural
+ * sub-unit. Three occurrences inside the 60-minute window therefore means the
+ * condition survived at least two retrigger cycles — it is not one unlucky
+ * request. It is also the count at which the 2026-07-31 outage (mt#3433) would
+ * have paged roughly 15 minutes in, against the ~4 hours it actually ran unseen.
+ *
+ * The counter is across ALL PRs, not per-PR: credit exhaustion is an
+ * account-level condition, so requiring 3 hits on one PR would miss the common
+ * shape where it fails three different PRs once each.
+ */
+export const PROVIDER_ESCALATION_THRESHOLD = 3;
 
 // ---------------------------------------------------------------------------
 // Classification
@@ -298,6 +346,17 @@ export interface FailureAggregation {
    * window is suppressed.
    */
   readonly alreadySystemic: boolean;
+  /**
+   * Prior failures of this class inside the window across ALL PRs, EXCLUDING the
+   * current one (mt#2719).
+   *
+   * Distinct from `priorOccurrencesOnPr` (one PR) and from
+   * `distinctPrsWithClass` (PRs, not occurrences): the paging tier asks "how
+   * often is this condition happening at all", which neither of the other two
+   * answers. Three failures on one PR and three across three PRs are the same
+   * account-level outage.
+   */
+  readonly priorOccurrencesOfClass: number;
 }
 
 /**
@@ -324,6 +383,7 @@ export function aggregatePriorFailures(
     distinctPrsWithClass: prKeys.size,
     systemic: prKeys.size >= SYSTEMIC_DISTINCT_PR_THRESHOLD,
     alreadySystemic: priorPrKeys.size >= SYSTEMIC_DISTINCT_PR_THRESHOLD,
+    priorOccurrencesOfClass: sameClass.length,
   };
 }
 
@@ -420,6 +480,36 @@ export interface RecordReviewFailureDeps {
   readonly askEmitter?: AskEmitter | undefined;
   /** Injected for tests; defaults to the real clock (`testing-standards.mdc` §Testable Design). */
   readonly nowMs?: number;
+  /**
+   * Reviewer model provider, for the escalation's remediation URL (mt#2719).
+   * Injected for tests; defaults to `REVIEWER_PROVIDER`. An unset/unknown value
+   * yields generic guidance rather than another vendor's billing page.
+   */
+  readonly provider?: string;
+}
+
+/**
+ * Should this failure page the operator (mt#2719)? Pure, so the escalation rule
+ * is assertable without a database (`testing-standards.mdc` §Testable Design).
+ *
+ * Two conditions, and the second is the subtle one. Firing on the CROSSING —
+ * rather than on every occurrence at or above the threshold — is what makes this
+ * one page per episode without any new dedup state, exactly as mt#4881's
+ * `alreadySystemic` flag does for its own suppression. Occurrence 3 escalates;
+ * occurrences 4..n have `priorOccurrencesOfClass >= threshold` and do not. The
+ * window then rolls forward, so a genuinely persistent outage re-escalates once
+ * the earlier failures age out — which is correct: it is still down, and the
+ * substrate's own 3-per-24h ceiling bounds the total.
+ */
+export function shouldEscalateToOperator(
+  errorClass: ReviewFailureClass,
+  priorOccurrencesOfClass: number
+): boolean {
+  if (!OPERATOR_ACTIONABLE_CLASSES.has(errorClass)) return false;
+  return (
+    priorOccurrencesOfClass + 1 >= PROVIDER_ESCALATION_THRESHOLD &&
+    priorOccurrencesOfClass < PROVIDER_ESCALATION_THRESHOLD
+  );
 }
 
 /** Why an alert did or did not fire — returned so callers and tests can assert it. */
@@ -475,6 +565,49 @@ export async function recordReviewFailure(
     const nowMs = deps.nowMs ?? Date.now();
     const priors = await fetchPriorFailures(db, ctx.deliveryId, nowMs);
     const aggregation = aggregatePriorFailures(priors, { ...coords, errorClass });
+
+    // mt#2719's paging tier, and it runs BEFORE the duplicate suppression below
+    // ON PURPOSE. The suppression is right for the inbox ask — a repeat adds
+    // nothing to a record the operator can already see — but an outage that
+    // keeps failing the SAME PR would otherwise be suppressed at occurrence 2
+    // and never reach the count that proves it is sustained. The escalation asks
+    // a different question of the same facts, so it gets its own gate.
+    //
+    // Fail-open in its own right: an escalation failure must not stop the
+    // ordinary alert below from being considered.
+    if (
+      deps.askEmitter &&
+      shouldEscalateToOperator(errorClass, aggregation.priorOccurrencesOfClass)
+    ) {
+      const provider = deps.provider ?? process.env["REVIEWER_PROVIDER"] ?? "";
+      try {
+        await deps.askEmitter.emitOperatorIncidentAlert({
+          source: "provider",
+          errorClass,
+          errorSummary: summary,
+          occurrencesInWindow: aggregation.priorOccurrencesOfClass + 1,
+          threshold: PROVIDER_ESCALATION_THRESHOLD,
+          windowMinutes: SUPPRESSION_WINDOW_MS / 60_000,
+          lastError: ctx.message,
+          remediationUrl: providerBillingUrl(provider),
+        });
+        log.warn("review_failure_alert.escalated_to_operator", {
+          event: "review_failure_alert.escalated_to_operator",
+          errorClass,
+          occurrencesInWindow: aggregation.priorOccurrencesOfClass + 1,
+          threshold: PROVIDER_ESCALATION_THRESHOLD,
+          windowMinutes: SUPPRESSION_WINDOW_MS / 60_000,
+          message:
+            "Operator-only reviewer failure crossed the escalation threshold; paged the principal.",
+        });
+      } catch (escalationErr: unknown) {
+        log.error("review_failure_alert.escalation_failed", {
+          event: "review_failure_alert.escalation_failed",
+          errorClass,
+          error: escalationErr instanceof Error ? escalationErr.message : String(escalationErr),
+        });
+      }
+    }
 
     // Two suppression rules, because one key does not fit both shapes:
     //   - a burst on ONE PR    → key on (PR, class); the repeat adds nothing.

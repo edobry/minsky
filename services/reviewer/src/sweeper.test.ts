@@ -78,6 +78,11 @@ const HEAD_SHA = "abc123def456";
  * `failure-alert.test.ts` covers that path.
  */
 const unusedFailureAlert = () => Promise.resolve("created" as const);
+// mt#2719 added a third method (the operator paging tier). The sweeper owns only
+// the circuit-breaker emit point, so this is an unused stub for the same reason
+// as the one above; the paging tier's own tests live in ask-emitter.test.ts,
+// failure-alert.test.ts and auth-health.test.ts.
+const unusedOperatorIncident = () => Promise.resolve("created" as const);
 const OLD_SHA = "000000000000";
 const TIER3_BODY = "<!-- minsky:tier=3 -->";
 const TIER1_BODY = "<!-- minsky:tier=1 -->";
@@ -1211,7 +1216,11 @@ describe("runSweep — circuit breaker (mt#2350)", () => {
     // mt#4881 added a second method to the AskEmitter interface. The sweeper
     // owns only the circuit-breaker emit point, so this is an unused stub;
     // the pre-submission path has its own tests in failure-alert.test.ts.
-    const askEmitter = { emitCircuitBreakerAlert, emitReviewFailureAlert: unusedFailureAlert };
+    const askEmitter = {
+      emitCircuitBreakerAlert,
+      emitReviewFailureAlert: unusedFailureAlert,
+      emitOperatorIncidentAlert: unusedOperatorIncident,
+    };
     const openMap = new Map<string, OpenCircuit>([
       [
         submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),
@@ -1247,7 +1256,11 @@ describe("runSweep — circuit breaker (mt#2350)", () => {
     // mt#4881 added a second method to the AskEmitter interface. The sweeper
     // owns only the circuit-breaker emit point, so this is an unused stub;
     // the pre-submission path has its own tests in failure-alert.test.ts.
-    const askEmitter = { emitCircuitBreakerAlert, emitReviewFailureAlert: unusedFailureAlert };
+    const askEmitter = {
+      emitCircuitBreakerAlert,
+      emitReviewFailureAlert: unusedFailureAlert,
+      emitOperatorIncidentAlert: unusedOperatorIncident,
+    };
     const openMap = new Map<string, OpenCircuit>([
       [
         submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),
@@ -1396,7 +1409,11 @@ describe("runSweep — circuit breaker (mt#2350)", () => {
     // mt#4881 added a second method to the AskEmitter interface. The sweeper
     // owns only the circuit-breaker emit point, so this is an unused stub;
     // the pre-submission path has its own tests in failure-alert.test.ts.
-    const askEmitter = { emitCircuitBreakerAlert, emitReviewFailureAlert: unusedFailureAlert };
+    const askEmitter = {
+      emitCircuitBreakerAlert,
+      emitReviewFailureAlert: unusedFailureAlert,
+      emitOperatorIncidentAlert: unusedOperatorIncident,
+    };
     const openMap = new Map<string, OpenCircuit>([
       [
         submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),

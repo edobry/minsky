@@ -22,7 +22,10 @@ import type { ReviewResult } from "./review-worker";
 import { runReview } from "./review-worker";
 import { loadSweeperConfig, startSweeper } from "./sweeper";
 import { buildAlertSink, loadAlertSinkConfig, type AlertSink } from "./alert-sink";
-import { configureGithubAuthHealthAlertSink } from "./auth-health";
+import {
+  configureGithubAuthHealthAlertSink,
+  configureGithubAuthHealthAskEmitter,
+} from "./auth-health";
 import { loadPrWatchSchedulerConfig, startPrWatchScheduler } from "./pr-watch-scheduler";
 import {
   loadAsksReconcileSchedulerConfig,
@@ -1631,6 +1634,22 @@ if (import.meta.main) {
   // so a sustained credential failure across the sweepers pages off-cockpit
   // (in addition to the distinct `reviewer.auth_health_failing` error log).
   configureGithubAuthHealthAlertSink(alertSink);
+
+  // mt#2719: wire the operator-incident ask emitter into the SAME tracker, so a
+  // sustained credential failure also lands as a `severity: "incident"` ask and
+  // pages the principal. Additive to the sink above and independent of it — the
+  // sink is fire-and-forget prose, this is a durable respondable record that
+  // carries the severity marker into the substrate's paging machinery.
+  //
+  // Built from the same container as the sweeper's and boot-recovery's emitters
+  // (mt#2451 single-instance convention). `undefined` when no container booted,
+  // in which case the tracker keeps logging and keeps using the sink — the
+  // degradation is per-surface, never all-or-nothing.
+  configureGithubAuthHealthAskEmitter(
+    domainServices
+      ? new DomainAskEmitter(makeContainerAskRepoProvider(domainServices.container))
+      : null
+  );
 
   const { server, gracefulShutdown } = createApp(config, runReview, db, domainServices, alertSink);
 
