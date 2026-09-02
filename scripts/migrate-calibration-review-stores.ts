@@ -47,7 +47,21 @@ import {
   LAST_WARNED_STORE_FILENAME,
   CLAIM_STORE_FILENAME,
 } from "@minsky/shared/calibration-review-store-paths";
-import { resolveRepoRoot } from "@minsky/domain/guard-events/ingest-runtime";
+// PR #3581 R4 (non-blocking, and correct): this used `resolveRepoRoot` from
+// `ingest-runtime.ts`, which ascends looking for `.minsky`. Every RUNTIME writer and
+// reader of these stores ascends looking for `.git` — `findRepoRoot`
+// (`.minsky/hooks/types.ts`) in the cadence detector, `findGitRepoRoot` in the
+// calibration command, `findRepoRoot` (`web-dist.ts`) in the cockpit sweep. The two
+// agree in THIS repo (verified: the migration resolved `a0809beec3ba7e98`, the same
+// key the calibration logs already use), and they need not agree in general — a
+// project whose `.minsky` and `.git` sit at different levels, or which has no
+// `.minsky` at all, would send this script's writes to a key nothing reads.
+//
+// A migration tool that can address the wrong project key is the very defect this
+// task exists to remove, so it now uses the same `.git` ascent the writers do.
+// `scripts/` importing from `.minsky/hooks/` is established precedent (see
+// `scripts/lib/standalone-guard-canaries.ts` and `calibration-log-declarations.ts`).
+import { findRepoRoot } from "../.minsky/hooks/types";
 
 /** The JSON stores that MOVE. The lock is handled separately — see the module docblock. */
 const MIGRATED_FILENAMES = [
@@ -129,7 +143,7 @@ function reportLock(repoRoot: string): string {
 
 function main(): void {
   const execute = process.argv.includes("--execute");
-  const repoRoot = resolveRepoRoot(process.cwd());
+  const repoRoot = findRepoRoot(process.cwd());
 
   console.log(`repo root: ${repoRoot}`);
   console.log(
