@@ -345,11 +345,20 @@ export function resolveMarkerMergeDeterministically(
     return { resolved: false, reason: "patch carries no existing-code marker" };
   }
 
-  // Trailing blank lines are re-applied at the end via preserveTrailingNewline's
-  // convention; comparing content lines keeps the retention check from tripping
-  // on trailing-newline churn (the same reason `countLines` normalizes them).
-  const originalLines = stripBlankEdges(originalContent.split("\n"));
-  const editLines = editContent.split("\n");
+  // Line endings and boundary blanks are CONTENT, and a spec has no version history to restore
+  // from if they are lost (PR #3580 R1, both BLOCKING). An earlier revision stripped blank edges
+  // off the ORIGINAL and joined with "\n" unconditionally, which silently dropped leading blank
+  // lines and left LF-only separators inside a CRLF document. Worse, it then ran the retention
+  // check against the STRIPPED array — so the post-condition could not see its own damage. The
+  // original is now split without normalizing, and the check below compares against all of it.
+  const lineEnding = originalContent.includes("\r\n") ? "\r\n" : "\n";
+  const endsWithNewline = /\r?\n$/.test(originalContent);
+
+  const originalLines = originalContent.split(/\r?\n/);
+  // Drop ONLY the empty string a terminating newline produces — never a genuine trailing blank.
+  if (endsWithNewline) originalLines.pop();
+
+  const editLines = editContent.split(/\r?\n/);
 
   const segments: string[][] = [];
   let segmentStart = 0;
@@ -365,10 +374,19 @@ export function resolveMarkerMergeDeterministically(
   const shapes: MarkerMergeShape[] = [];
   let cursor = 0;
 
+  /** One blank line of separation, and only when there is not already one. */
+  const pushSeparator = (): void => {
+    const last = merged[merged.length - 1];
+    if (merged.length > 0 && (last ?? "").trim() !== "") merged.push("");
+  };
+
   for (let s = 0; s < segments.length; s++) {
     const body = stripBlankEdges(segments[s] ?? []);
     const openingAnchor = body[0];
     const closingAnchor = body[body.length - 1];
+    // Blank edges are stripped from the PATCH's segments — those blanks sit between a marker and
+    // its anchor and are patch formatting, not document content. The original's blanks are never
+    // touched.
     if (openingAnchor === undefined || closingAnchor === undefined) continue;
 
     const isFirst = s === 0;
@@ -395,11 +413,11 @@ export function resolveMarkerMergeDeterministically(
     }
 
     if (heads.length === 0 && isLast) {
-      // Pure new content after the final marker: the marker stands for "all the
-      // rest of the original", so the addition lands at the end.
+      // Pure new content after the final marker: the marker stands for "all the rest of the
+      // original", so the addition lands at the end.
       merged.push(...originalLines.slice(cursor));
       cursor = originalLines.length;
-      merged.push("");
+      pushSeparator();
       merged.push(...body);
       shapes.push("append");
       continue;
@@ -408,7 +426,7 @@ export function resolveMarkerMergeDeterministically(
     if (heads.length === 0 && isFirst) {
       // Pure new content before the first marker: prepend.
       merged.push(...body);
-      merged.push("");
+      pushSeparator();
       shapes.push("prepend");
       continue;
     }
@@ -426,6 +444,13 @@ export function resolveMarkerMergeDeterministically(
 
   merged.push(...originalLines.slice(cursor));
 
+  // A patch of markers and blank lines only would otherwise "resolve" to the original written
+  // back unchanged — a silent no-op write (PR #3580 R1, NON-BLOCKING). There is nothing to apply,
+  // so say so rather than reporting success.
+  if (shapes.length === 0) {
+    return { resolved: false, reason: "patch contains no content to apply" };
+  }
+
   if (!retainsAllLinesInOrder(originalLines, merged)) {
     return {
       resolved: false,
@@ -433,10 +458,9 @@ export function resolveMarkerMergeDeterministically(
     };
   }
 
-  const endsWithNewline = originalContent.endsWith("\n");
   return {
     resolved: true,
-    merged: merged.join("\n") + (endsWithNewline ? "\n" : ""),
+    merged: merged.join(lineEnding) + (endsWithNewline ? lineEnding : ""),
     shapes,
   };
 }

@@ -330,3 +330,87 @@ describe("shape coverage", () => {
     expect(b.resolved && b.merged.endsWith("\n")).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// PR #3580 R1 — boundary fidelity
+// ---------------------------------------------------------------------------
+
+describe("boundary fidelity (PR #3580 R1)", () => {
+  // A spec has no version history, so a blank line or a line ending silently changed by the
+  // splice is unrecoverable. The first revision stripped blank edges off the ORIGINAL and then
+  // ran the retention check against that stripped array — so the post-condition could not see its
+  // own damage. These pin both halves.
+
+  test("leading blank lines of the original survive", () => {
+    const original = "\n\n# Title\n\nbody line\n";
+    const result = resolveMarkerMergeDeterministically(
+      original,
+      `${EXISTING_CODE_MARKER}\n\nnew section\n`
+    );
+    expect(result.resolved).toBe(true);
+    if (!result.resolved) return;
+    expect(result.merged.startsWith("\n\n# Title")).toBe(true);
+    expect(result.merged).toBe("\n\n# Title\n\nbody line\n\nnew section\n");
+  });
+
+  test("trailing blank lines of the original survive", () => {
+    const original = "# Title\n\nbody line\n\n\n";
+    const result = resolveMarkerMergeDeterministically(
+      original,
+      `${EXISTING_CODE_MARKER}\n\nnew section\n`
+    );
+    expect(result.resolved).toBe(true);
+    if (!result.resolved) return;
+    // The two genuine trailing blanks are kept; only the terminator's artifact is dropped, and
+    // the separator is not doubled because a blank already ends the document.
+    expect(result.merged).toBe("# Title\n\nbody line\n\n\nnew section\n");
+  });
+
+  test("a CRLF document stays CRLF throughout, including inserted lines", () => {
+    const original = "# Title\r\n\r\nbody line\r\n";
+    const result = resolveMarkerMergeDeterministically(
+      original,
+      `${EXISTING_CODE_MARKER}\n\nnew section\n`
+    );
+    expect(result.resolved).toBe(true);
+    if (!result.resolved) return;
+    expect(result.merged).toBe("# Title\r\n\r\nbody line\r\n\r\nnew section\r\n");
+    expect(/[^\r]\n/.test(result.merged)).toBe(false);
+  });
+
+  test("an LF document is not given CRLF endings", () => {
+    const original = "# Title\nbody line\n";
+    const result = resolveMarkerMergeDeterministically(
+      original,
+      `${EXISTING_CODE_MARKER}\n\nnew section\n`
+    );
+    expect(result.resolved && result.merged.includes("\r")).toBe(false);
+  });
+
+  test("a document with no trailing newline does not gain one", () => {
+    const result = resolveMarkerMergeDeterministically(
+      "# Title\nbody line",
+      `${EXISTING_CODE_MARKER}\n\nnew section\n`
+    );
+    expect(result.resolved).toBe(true);
+    if (!result.resolved) return;
+    expect(result.merged.endsWith("new section")).toBe(true);
+  });
+
+  test("the retention check now sees boundary blanks, because it runs on the FULL original", () => {
+    // The hole in the first revision: blanks were stripped before the check, so losing them was
+    // invisible to it. Asserted directly on the exported predicate.
+    expect(retainsAllLinesInOrder(["", "", "# Title"], ["# Title"])).toBe(false);
+    expect(retainsAllLinesInOrder(["", "", "# Title"], ["", "", "# Title", "added"])).toBe(true);
+  });
+
+  test("a patch of markers and blanks only refuses instead of rewriting the original", () => {
+    const result = resolveMarkerMergeDeterministically(
+      "# Title\nbody\n",
+      `${EXISTING_CODE_MARKER}\n\n${EXISTING_CODE_MARKER}\n`
+    );
+    expect(result.resolved).toBe(false);
+    if (result.resolved) return;
+    expect(result.reason).toContain("no content to apply");
+  });
+});
