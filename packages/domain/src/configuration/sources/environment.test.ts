@@ -57,9 +57,12 @@ import {
 //   - `--concurrent` / `test.concurrent()` is what would interleave test bodies
 //     inside ONE process. It is enabled nowhere: no `--concurrent`,
 //     `--parallel`, `--isolate` or `--shard` flag appears in `scripts/*.ts`,
-//     `package.json` or `bunfig.toml`; `bunfig.toml` sets `randomize = false`;
-//     and the repo contains zero `test.concurrent` / `describe.concurrent`
-//     call sites.
+//     `package.json` or `bunfig.toml`; and the repo contains zero
+//     `test.concurrent` / `describe.concurrent` call sites.
+//
+//     Note `bunfig.toml` sets `randomize = true` (mt#3575). That reorders tests
+//     and files; it does NOT make them run concurrently, which is the only
+//     property this argument depends on.
 //
 // So files and tests both run serially today, and the one mode that could break
 // this isolates by process rather than sharing one. If someone ever turns

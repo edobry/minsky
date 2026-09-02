@@ -522,6 +522,17 @@ function ensureDebugCommandsRegistered(): void {
  * state, the correct teardown is restore-what-you-displaced, not
  * delete-what-you-added. Idempotent, because it reads the write-once cell above
  * rather than consuming it.
+ *
+ * **What this does NOT give a later file (PR #3590 R3).** It restores the
+ * PRE-FILE state, which is usually "`debug.*` absent" — so a file running after
+ * this one inherits an EMPTY registry, not a populated one. That is the correct
+ * contract and it is deliberately not "leave the commands registered for
+ * everyone": a later file that reads `debug.systemInfo` off the global registry
+ * must call `registerDebugCommands()` itself rather than inherit one, which is
+ * precisely the order-dependence this file was fixed for (mem#942 — a test
+ * asserting a precondition it never establishes is order-dependent by
+ * construction). Leaving them behind would make this file's teardown the thing
+ * some other file silently depends on.
  */
 function restorePreFileDebugCommands(): void {
   if (preFileDebugEntries) restoreRegistryEntries(preFileDebugEntries);

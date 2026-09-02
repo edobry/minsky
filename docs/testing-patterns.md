@@ -432,23 +432,42 @@ mt#2662 incident.
   bare `bun test`; see the note in the file itself on why `src/mcp` is excluded via the
   wrapper scripts rather than `pathIgnorePatterns`
 
-## Test order is NOT randomized right now (mt#3561, temporary — mt#3575 restores it)
+## Test order IS randomized (mt#3575)
 
-`bunfig.toml` sets `randomize = false`. Do not read that as "test order does not matter."
+`bunfig.toml` sets `randomize = true`, so every run — yours, the pre-push gate's, and CI's —
+executes in a different order and prints the seed it used.
 
-The setting was `true` for a long time, but it was a **no-op on Bun 1.2.21** — that version prints
-no seed and exposes neither `--seed` nor `--randomize`. The suite ran in declaration order the whole
-time while declaring otherwise. The Bun 1.3.14 upgrade (mt#3561) made the setting real, which
-immediately surfaced roughly **nine clusters** of order-dependent tests. They were fixed one at a
-time and a different cluster appeared each run, so the setting was turned off deliberately rather
-than blocking the upgrade on an open-ended sweep.
+**The history, because the setting lied for months.** It was `true` for a long time and was a
+**no-op**: test-order randomization landed in **Bun v1.2.23**, and this repo was on 1.2.21, which
+prints no seed and exposes neither `--seed` nor `--randomize`. The suite ran in declaration order
+the whole time while declaring otherwise. The upgrade in mt#3561 made the setting real, which
+immediately surfaced roughly nine clusters of order-dependent tests; the flag was set to `false`
+deliberately rather than blocking the upgrade on an open-ended sweep. mt#3575 then fixed the
+population and turned it back on.
 
-**mt#3575 owns fixing the population and restoring `true`**, plus a CI seed rotation so the next
-order-dependence fails loudly instead of lying dormant. Escalate if it is still open 10 days after
-mt#3561 merged.
+**A seed only takes effect through the bunfig key.** `bun test --seed=N` shuffles nothing while
+`[test] randomize` is `false`, and the `--randomize` CLI flag does NOT override the config —
+measured on 1.3.14. So a seed loop over a tree with the flag off is a probe that cannot fail: it
+reports a clean sweep having shuffled nothing.
 
-**Write order-independent tests anyway.** The four failure shapes found, as a checklist for what to
-avoid:
+**Reproducing an order-dependent failure.** Read the seed off the failing run's output and pass it
+back: `bun test --preload ./tests/setup.ts --seed=<N> <files>`. If the failure only appears in a
+multi-file run, the polluter is another file — pass the same file list, since a seed reproduces an
+order only over the same set.
+
+Prefer a **deterministic** reproducer to a seed where one exists. Constructing the collision
+directly — filtering to the block that inherits a precondition (`-t "<name>"`), or registering the
+id a test assumes is free — cannot go stale when the file gains a test, whereas a seed silently
+stops reproducing. mt#3575's `guardHealth` cluster is the worked example.
+
+**The nightly sweep.** `.github/workflows/seed-sweep-tests.yml` runs
+`bun scripts/run-tests-seed-sweep.ts` across several seeds and classifies what it finds on two axes:
+variance ACROSS seeds separates order-sensitive tests from the standing red set, and a repeat WITHIN
+a failing seed separates genuine order-dependence from load-sensitivity — a load-sensitive test
+varies across seeds too, so variance alone over-reports (mt#3501 / mt#3494 own that class). It is
+informational and never a required check. `bun run test:seed-sweep` runs it locally.
+
+**Write order-independent tests.** The failure shapes found, as a checklist for what to avoid:
 
 1. **Reassigning a spy handle.** `spy = mock(...)` over a `spyOn` handle means `afterEach`'s
    `mockRestore()` restores the replacement — which restores nothing — and leaks the spy onto the
@@ -462,8 +481,20 @@ avoid:
    this makes your test depend on every predecessor in the whole suite tidying up. Reset in
    `beforeEach` too — establish your own precondition rather than trusting the one you inherited.
 
-To check a file is genuinely order-independent, force randomization on regardless of the config:
-`bun test --randomize --seed=$i <file>` across a range of seeds.
+5. **Displacing a shared REGISTRY without restoring it.** The mirror of shape 4, for a registry
+   rather than module state: registering into `sharedCommandRegistry` in a `beforeEach` leaves your
+   entries there for every later file, and unregistering in teardown deletes whatever an earlier
+   file registered. Neither direction is safe. Capture what each id held BEFORE your first
+   mutation, once, and restore exactly that in `afterAll` — an id that was absent owes an
+   unregister, an id that was occupied owes that same object back. The baseline must be write-once
+   and unreachable by anything that runs after it is taken, or a later `beforeEach` re-captures a
+   mid-file state and the teardown "restores" to that. Worked examples: mt#4076
+   (`src/commands/setup/index.test.ts`) and mt#3575 (`debug.test.ts`).
+
+To check a file is genuinely order-independent, run it across a range of seeds:
+`for i in $(seq 1 20); do bun test --preload ./tests/setup.ts --seed=$i <file>; done`. That is only
+meaningful while `[test] randomize` is `true` in `bunfig.toml` — the `--randomize` CLI flag does not
+force it on, so with the key off the loop shuffles nothing and passes regardless.
 
 ## mt#2990: opt-in parallel-sharded test runner (`bun run test:sharded`)
 
