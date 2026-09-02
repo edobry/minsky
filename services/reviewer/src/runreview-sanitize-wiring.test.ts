@@ -46,6 +46,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
+import type { Octokit } from "@octokit/rest";
 import { runReview, type RunReviewDeps } from "./review-worker";
 import type { ReviewerConfig } from "./config";
 import type { ReviewerDb } from "./db/client";
@@ -56,6 +57,15 @@ import { captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
 
 const COT_LEAK_EVENT = "reviewer.cot_leak_detected";
 const SUBMIT_ERROR_NOTICE_FAILED_EVENT = "reviewer.submit_error_notice_failed";
+
+/**
+ * Sanitizer `meta.reason` values. Named because each is written once as the
+ * sanitizer's output and read back out of the `reviewer.cot_leak_detected` log —
+ * a literal drifting between those two points is exactly the inconsistency the
+ * assertion exists to catch.
+ */
+const STRIPPED_REASON = "blank-line-run";
+const ERRORED_REASON = "whole-body-scratch";
 
 /** Distinct from the reviewer identity below, so `isSelfReview` is false. */
 const PR_AUTHOR = "a-human-contributor";
@@ -213,7 +223,13 @@ function baseDeps(
 ): RunReviewDeps {
   return {
     db: makeGrantingDb(),
-    octokitFactory: async () => ({}) as Awaited<ReturnType<RunReviewDeps["octokitFactory"] & {}>>,
+    // An empty object stands in for the client: every octokit call on this path is
+    // either seamed away below or degrades in its own try/catch (`fetchReviewThreads`).
+    // Cast against the imported `Octokit` type rather than
+    // `Awaited<ReturnType<RunReviewDeps["octokitFactory"] & {}>>` — that form reduces
+    // to the same type but takes three type operators and an intersection-with-`{}`
+    // to say it (PR #3582 R1 non-blocking).
+    octokitFactory: async () => ({}) as unknown as Octokit,
     prContextFetcher: async () => PR_CONTEXT,
     appIdentityFetcher: async () => ({ login: REVIEWER_LOGIN }),
     priorReviewFetcher: async () => [],
@@ -286,7 +302,7 @@ describe("runReview — prose-path sanitize wiring (mt#1263)", () => {
     test("submits sanitized.body — not output.text — and derives the event from it", async () => {
       const recorder = newRecorder();
       const { result } = await runWithCapture(
-        baseDeps(sanitizeResult("stripped", STRIPPED_BODY, "blank-line-run"), recorder)
+        baseDeps(sanitizeResult("stripped", STRIPPED_BODY, STRIPPED_REASON), recorder)
       );
 
       // The reviewed path goes through the guarded submitter, not the plain one.
@@ -321,13 +337,13 @@ describe("runReview — prose-path sanitize wiring (mt#1263)", () => {
 
     test("emits reviewer.cot_leak_detected carrying the sanitize action and lengths", async () => {
       const recorder = newRecorder();
-      const sanitized = sanitizeResult("stripped", STRIPPED_BODY, "blank-line-run");
+      const sanitized = sanitizeResult("stripped", STRIPPED_BODY, STRIPPED_REASON);
       const { logs } = await runWithCapture(baseDeps(sanitized, recorder));
 
       const logged = findLogEvent(logs, COT_LEAK_EVENT);
       expect(logged).not.toBeNull();
       expect(logged?.["action"]).toBe("stripped");
-      expect(logged?.["reason"]).toBe("blank-line-run");
+      expect(logged?.["reason"]).toBe(STRIPPED_REASON);
       expect(logged?.["originalLength"]).toBe(sanitized.meta.originalLength);
       expect(logged?.["cleanedLength"]).toBe(sanitized.meta.cleanedLength);
       expect(logged?.["sha"]).toBe(PR_CONTEXT.headSha);
@@ -337,9 +353,8 @@ describe("runReview — prose-path sanitize wiring (mt#1263)", () => {
   describe("sanitize action: errored", () => {
     test("posts the error notice as COMMENT and returns status=error with NO review", async () => {
       const recorder = newRecorder();
-      const { result } = await runWithCapture(
-        baseDeps(sanitizeResult("errored", ERRORED_BODY, "whole-body-scratch"), recorder)
-      );
+      const sanitized = sanitizeResult("errored", ERRORED_BODY, ERRORED_REASON);
+      const { result, logs } = await runWithCapture(baseDeps(sanitized, recorder));
 
       // The errored path deliberately uses the PLAIN submitter inside a try/catch,
       // not the guarded one — that split is part of the wiring under test.
@@ -358,13 +373,23 @@ describe("runReview — prose-path sanitize wiring (mt#1263)", () => {
       // Downstream consumers treat status=error as "no review confirmed posted",
       // so the field must stay absent even though a notice WAS posted.
       expect(result.review).toBeUndefined();
+
+      // The leak guard fires on `action !== "passthrough"`, so it covers errored as
+      // well as stripped. Asserting it on BOTH is what makes the passthrough test's
+      // `toBeNull()` a real discriminator rather than a claim about stripped alone
+      // (PR #3582 R1 BLOCKING).
+      const logged = findLogEvent(logs, COT_LEAK_EVENT);
+      expect(logged).not.toBeNull();
+      expect(logged?.["action"]).toBe("errored");
+      expect(logged?.["reason"]).toBe(ERRORED_REASON);
+      expect(logged?.["cleanedLength"]).toBe(sanitized.meta.cleanedLength);
     });
 
     test("a submitReview failure does not propagate — it is logged and the error status still returns", async () => {
       const recorder = newRecorder();
       const submitFailure = new Error("GitHub 422: pull request is closed");
       const { result, logs } = await runWithCapture(
-        baseDeps(sanitizeResult("errored", ERRORED_BODY, "whole-body-scratch"), recorder, {
+        baseDeps(sanitizeResult("errored", ERRORED_BODY, ERRORED_REASON), recorder, {
           reviewSubmitter: async () => {
             throw submitFailure;
           },
@@ -420,7 +445,7 @@ describe("runReview — prose-path sanitize wiring (mt#1263)", () => {
     const metricWrites: Array<{ verdict?: unknown; newBlockerCount?: unknown }> = [];
 
     await runWithCapture(
-      baseDeps(sanitizeResult("stripped", STRIPPED_BODY, "blank-line-run"), recorder, {
+      baseDeps(sanitizeResult("stripped", STRIPPED_BODY, STRIPPED_REASON), recorder, {
         metricsRecorder: async (_db, input) => {
           metricWrites.push(input);
         },
