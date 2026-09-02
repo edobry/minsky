@@ -62,6 +62,7 @@ import {
   Network,
   Bot,
   MessageCircleQuestion,
+  MessagesSquare,
   Bell,
   Cpu,
   Brain,
@@ -123,6 +124,13 @@ const BROWSE: NavItem[] = [
   // Cmd-K-findable via the CommandPalette's entity index (mt#2769), which
   // reads the context-inspector source directly rather than via this rail.
   { to: "/agents", label: "Agents", icon: Bot },
+  // mt#4874 — cross-session peer messages, sent and delivered, against each
+  // other. In the rail beside Agents rather than nested under a conversation:
+  // the question it answers ("did that message land, and what else has been
+  // passing between my sessions") is about the traffic BETWEEN conversations,
+  // so it has no single conversation to hang off. Expected to be empty for
+  // most projects, which the page states rather than hides.
+  { to: "/messages", label: "Messages", icon: MessagesSquare },
   { to: "/asks", label: "Asks", icon: MessageCircleQuestion },
   // mt#3331 — the EngProd toil-miner's curation-gate digest: filed proposal
   // tasks grouped by mining run, with accept/reject wiring.

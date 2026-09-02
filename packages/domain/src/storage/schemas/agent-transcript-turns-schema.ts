@@ -130,5 +130,55 @@ export const agentTranscriptTurnsTable = pgTable(
       .where(
         sql`${table.embedding} IS NULL AND (${table.userText} IS NOT NULL OR ${table.assistantText} IS NOT NULL)`
       ),
+
+    /**
+     * The cockpit Messages page's receiver lookup (mt#4874).
+     *
+     * `user_origin` carries no index of its own, so selecting the delivered
+     * peer messages is a parallel sequential scan of the whole table: measured
+     * against production 2026-09-02, `Rows Removed by Filter: 197,081` per
+     * worker (394,170 total), ~39,000 buffers, 575 ms — to return **12 rows**,
+     * on a widget that polls every 60 seconds.
+     *
+     * PARTIAL for the same reason as the backlog index above, only more so: the
+     * predicate matches 12 of 394,170 rows. Unlike that one this does not shrink
+     * over time, but it grows only with genuine cross-session traffic, which is
+     * inherently low-volume — 12 rows in the corpus to date.
+     *
+     * Columns are the primary key, so the reader gets the identifiers it needs
+     * without a heap fetch.
+     *
+     * Lock note (the 0068 convention, with this table's own numbers). Plain
+     * CREATE INDEX, not CONCURRENTLY, for the reason migration 0111 records for
+     * this same table: drizzle's `migrate()` runs each migration inside a
+     * transaction, where Postgres forbids CONCURRENTLY. The measured bound is
+     * 0111's and it still holds — a partial index scans every heap row to
+     * evaluate its predicate, so the build tracks the full scan, and this
+     * table's production seq scan is the 575 ms measured above. Sub-second, so
+     * the plain form is the right trade.
+     *
+     * **Those numbers have a shelf life (PR #3562 R1).** They were measured on
+     * 2026-09-02 at 394,170 rows here and 411,324 in
+     * `agent_tool_call_projection`, and both tables are written on every
+     * transcript ingest — so they grow, and the lock window grows with them.
+     * Before applying migration 0116 materially later than that date, or before
+     * copying this justification into a new index on either table, re-measure
+     * rather than inheriting the figure:
+     *
+     * ```sql
+     * EXPLAIN (ANALYZE, BUFFERS) SELECT count(*) FROM agent_transcript_turns;
+     * EXPLAIN (ANALYZE, BUFFERS) SELECT count(*) FROM agent_tool_call_projection;
+     * ```
+     *
+     * A full scan an order of magnitude slower than the above means the ACCESS
+     * EXCLUSIVE window is no longer negligible: apply in a low-traffic window,
+     * or build the index out-of-band with `CREATE INDEX CONCURRENTLY` first.
+     * (This note lives here rather than in 0116's own SQL because an applied
+     * migration is immutable — drizzle hashes the file, so editing it would
+     * re-apply and drift the ledger.)
+     */
+    index("idx_agent_transcript_turns_peer_origin")
+      .on(table.agentSessionId, table.turnIndex)
+      .where(sql`${table.userOrigin} = 'peer'`),
   ]
 );

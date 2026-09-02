@@ -297,6 +297,72 @@ at a 45:2 ratio against one project's own activity — so they collapse into thi
 one row instead. Full mechanism: `src/cockpit/widgets/run-merge.ts`'s module
 header ("Collapsed rendering under a narrow filter").
 
+## Messages (`/messages`, mt#4874)
+
+Cross-session peer messages, both halves against each other: what this project's
+conversations **sent** (a `SendMessage` tool call) and what they **received** (a
+delivered message carrying the harness's structured `origin` envelope). Reached
+via the **Messages** entry in the rail, between Agents and Asks. It is a read
+surface over transcripts already ingested — nothing here binds a socket or
+intercepts a message in flight; to DRIVE a conversation through that socket, see
+mt#4870.
+
+A top-level route rather than a tab under `/conversation/:id`, because the
+question it answers — "did that message land, and what else has been passing
+between my sessions" — is about the traffic BETWEEN conversations and has no
+single conversation to hang off.
+
+### Reading a row
+
+Each row carries its direction (**SENT** / **RECEIVED**), when it happened, and
+how its counterpart resolved. A paired row links **both** conversations: its own
+and the one at the other end.
+
+Received rows additionally show whether the peer was a **session peer** (another
+Claude Code session on this machine, over a Unix socket) or an **in-session
+agent** (a teammate or subagent inside one session). The harness marks both as
+`peer`, so merging them would present a subagent's message as though it came
+from another of your terminals. Receiver-side facts — the socket path, the
+sender's pid, `msg_id` — are shown as facts; none of them is the join key,
+because the sender's record carries none of them.
+
+### What "no delivery record found" means, and does not
+
+Correlation is on exact message text within a five-minute window (the harness's
+own `dialogExpiry`), because the two sides share no identifier. So:
+
+- A **paired** row means a send and a delivery were matched one-to-one.
+- **"ambiguous"** means the text matched more than one candidate. The page says
+  so and declines to pick; identical messages sent in the same instant are a real
+  property of the data, not a corner case.
+- **"no delivery record found"** on a send means exactly that — no delivery was
+  FOUND. It is not a claim that the message failed. A send to a subagent lands in
+  that subagent's transcript, and the vendor documentation additionally describes
+  held, refused, expired, over-size, burst-refused and loop-throttled outcomes.
+  The page therefore never totals sends-minus-deliveries into an "undelivered"
+  count, and you should not read it as one.
+
+### Coverage limits, stated on the page
+
+The page renders what it cannot see, in every state including the empty one —
+an empty feed is exactly when you need to know whether that means no traffic or
+no coverage:
+
+- **Local transcripts only.** A message appears only if at least one endpoint is
+  a conversation ingested on this machine; two remote or cloud sessions messaging
+  each other are invisible.
+- **Not real-time.** Latency is the transcript watcher's debounce plus ingest.
+- **Held and refused messages never arrive at all** — they exist only on the
+  sender's side.
+
+Two further gaps appear as counts when non-zero: deliveries whose raw envelope is
+not indexed in `transcript_lines` (mt#4590 owns that backfill), and turns the
+tool-call index named that carry no send when read — the index drifting from the
+transcripts it derives from (mt#4892). The second is reported as a floor, not a
+measurement: sends the index failed to name are not detectable from this view.
+
+**An empty page is the expected state for most projects.**
+
 ## Driven sessions (`/driven/:id`, mt#2750–mt#2752)
 
 The drive surface of the harness-host ladder (umbrella mt#2230): the cockpit
@@ -764,6 +830,9 @@ health indicator reflects the `db` field in addition to overall HTTP reachabilit
   (the §The rail surface)
 - mt#2767 / mt#4728 / mt#4733 — Agents unified run list, project-scoped filtering, the
   NULL-attribution collapse (the §Agents / unified run list surface)
+- mt#4874 — cross-session peer messages, sends and deliveries correlated (the §Messages
+  surface); mt#4875 / mt#4877 made the receiver rows selectable at all, mt#4870 owns
+  DRIVING a conversation through the same socket
 - mt#4766 — Memory curation write path (retag / edit / supersede / delete),
   routed through the shared command registry per ADR-004 (the §Memory
   curation surface)
