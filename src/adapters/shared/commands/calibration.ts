@@ -730,8 +730,10 @@ export function registerCalibrationCommands(): void {
 
         // mt#4748 R1: the log CONTENT lives under the state dir now, not
         // `<workspacePath>/<relPath>` — see the module note above
-        // `resolveCalibrationStatePath`. (Watermark/claim stores below are
-        // unaffected and still resolve against `workspacePath` directly.)
+        // `resolveCalibrationStatePath`. The watermark/claim stores below used to
+        // be "unaffected and still resolve against `workspacePath` directly";
+        // mt#4880 moved them too, through `calibrationReviewStore`, which derives
+        // the root with the SAME `findGitRepoRoot` call this path uses.
         const readContent = async (relPath: string): Promise<string | null> => {
           return readFileOrNull(await resolveCalibrationStatePath(workspacePath, relPath));
         };
