@@ -6248,7 +6248,7 @@
           "options": [
             {
               "flags": ["--ack"],
-              "description": "Advance the watermark for every review-due log — any reason: past-threshold, time-stale, never-reviewed or never-fired — marking them as reviewed (mt#2878). Without this flag the command is read-only."
+              "description": "Advance the watermark for every review-due log — any reason: past-threshold, time-stale, never-reviewed, never-fired or watermark-stranded — marking them as reviewed (mt#2878, mt#4904). Without this flag the command is read-only."
             },
             {
               "flags": ["--json"],
@@ -7056,7 +7056,7 @@
         },
         {
           "name": "search",
-          "description": "Search agent transcript turns by semantic similarity. Embeds the query text and returns the nearest-neighbor turns ranked by vector distance (pgvector). Optionally filter by role (user/assistant), date range, or session UUID. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
+          "description": "Search agent transcript turns by semantic similarity. Embeds the query text and returns the nearest-neighbor turns ranked by vector distance (pgvector). Each result carries a `snippet` — the turn's leading text, stripped and truncated. Unlike full-text search it marks no matched spans, because a vector match has no matched terms to cut around. By default each hit returns its `snippet` and coordinates WITHOUT the full turn text (`projection: \"full\"` restores it); to read one hit in full, pass its `agentSessionId` to transcripts_get as `conversationId`, with `turnRange` set to its `turnIndex`. Optionally filter by role (user/assistant), date range, or session UUID. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
           "options": [
             {
               "flags": ["--limit"],
@@ -7097,6 +7097,12 @@
             {
               "flags": ["--all-projects"],
               "description": "Return results across all projects (default: scoped to the resolved current project, mt#2417)"
+            },
+            {
+              "flags": ["--projection"],
+              "description": "How much of each matching turn to return. 'snippet' (the DEFAULT) returns the bounded excerpt plus the turn's coordinates (agentSessionId, turnIndex, role, timestamps, score) and OMITS the full userText/assistantText, reporting how many characters it dropped as `omittedTextChars`. 'full' additionally returns the complete turn text. Prefer the default: a transcript turn can run to hundreds of kilobytes, so a full-projection search of ~10 hits routinely exceeds the MCP response limit and spools to disk. To read one hit in full, call transcripts_get passing the hit's `agentSessionId` as its `conversationId` (the two name the same harness conversation — the result field and the parameter simply differ per ADR-022), with `turnRange` set to the hit's `turnIndex`.",
+              "takesValue": true,
+              "values": ["snippet", "full"]
             }
           ],
           "arguments": [
@@ -7162,7 +7168,7 @@
         },
         {
           "name": "search-text",
-          "description": "Search agent transcript turns by full-text search (FTS) against the fts_text column. Set mode to control matching: \"websearch\" (default) supports \"quoted phrases\" (matched by adjacency), or, and -negation; \"plain\" ANDs the words with no adjacency; \"exact\" matches a literal substring with no stemming, for identifiers and punctuation-bearing strings. Results are ranked by ts_rank (higher = more relevant), except in exact mode which orders by recency. Each result carries a `snippet` — a bounded excerpt with matched spans in [brackets] — so a hit can be read without pulling the whole turn. Optionally filter by role (user/assistant), date range, or session UUID. Scoped to the current project by default; pass allProjects to search every project. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
+          "description": "Search agent transcript turns by full-text search (FTS) against the fts_text column. Set mode to control matching: \"websearch\" (default) supports \"quoted phrases\" (matched by adjacency), or, and -negation; \"plain\" ANDs the words with no adjacency; \"exact\" matches a literal substring with no stemming, for identifiers and punctuation-bearing strings. Results are ranked by ts_rank (higher = more relevant), except in exact mode which orders by recency. Each result carries a `snippet` — a bounded excerpt with matched spans in [brackets] — so a hit can be read without pulling the whole turn. By default each hit returns its `snippet` and coordinates WITHOUT the full turn text (`projection: \"full\"` restores it); to read one hit in full, pass its `agentSessionId` to transcripts_get as `conversationId`, with `turnRange` set to its `turnIndex`. Optionally filter by role (user/assistant), date range, or session UUID. Scoped to the current project by default; pass allProjects to search every project. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
           "options": [
             {
               "flags": ["--limit"],
@@ -7209,6 +7215,12 @@
             {
               "flags": ["--all-projects"],
               "description": "Return results across all projects (default: scoped to the resolved current project, mt#2417)"
+            },
+            {
+              "flags": ["--projection"],
+              "description": "How much of each matching turn to return. 'snippet' (the DEFAULT) returns the bounded excerpt plus the turn's coordinates (agentSessionId, turnIndex, role, timestamps, score) and OMITS the full userText/assistantText, reporting how many characters it dropped as `omittedTextChars`. 'full' additionally returns the complete turn text. Prefer the default: a transcript turn can run to hundreds of kilobytes, so a full-projection search of ~10 hits routinely exceeds the MCP response limit and spools to disk. To read one hit in full, call transcripts_get passing the hit's `agentSessionId` as its `conversationId` (the two name the same harness conversation — the result field and the parameter simply differ per ADR-022), with `turnRange` set to the hit's `turnIndex`.",
+              "takesValue": true,
+              "values": ["snippet", "full"]
             }
           ],
           "arguments": [
@@ -7222,7 +7234,7 @@
         },
         {
           "name": "get",
-          "description": "Return all turns for a harness conversation in turn_index order. Optionally slice to a turn range using the turnRange parameter (format: 'start-end', e.g. '10-20'). Optionally filter to a role ('user' or 'assistant', mt#2818) and/or request a lean text-only projection (projection: 'text') that excludes tool-call payloads (already excluded from userText/assistantText by construction) and strips/flags detectable harness-injected markup (system-reminder / command wrappers — heuristic, see docs). Throws if the conversation is not found. Coverage: conversations are auto-ingested on MCP server boot; if a conversation is missing, run `transcripts_ingest --all` to force a full sweep.",
+          "description": "Return all turns for a harness conversation in turn_index order. Optionally slice to a turn range using the turnRange parameter (format: 'start-end', e.g. '10-20'). Optionally filter to a role ('user' or 'assistant', mt#2818) and/or request a lean text-only projection (projection: 'text') that excludes tool-call payloads (already excluded from userText/assistantText by construction) and strips/flags detectable harness-injected markup (system-reminder / command wrappers — heuristic, see docs). On USER entries it additionally strips Minsky's own prompt watermarks and reports `userOrigin`, so a generated dispatch prompt is not returned as operator prose (mt#4072); the human-paste watermark is deliberately left in place. Throws if the conversation is not found. Coverage: conversations are auto-ingested on MCP server boot; if a conversation is missing, run `transcripts_ingest --all` to force a full sweep.",
           "options": [
             {
               "flags": ["--conversation-id"],
@@ -7247,7 +7259,7 @@
             },
             {
               "flags": ["--projection"],
-              "description": "'full' (default) returns the structured TranscriptTurnResult[] shape (session metadata, timestamps, spawn-boundary flag). 'text' returns a lean { turnIndex, role, text, injected }[] — see the command description for the injected-markup heuristic and its documented limits.",
+              "description": "'full' (default) returns the structured TranscriptTurnResult[] shape (session metadata, timestamps, spawn-boundary flag). 'text' returns a lean { turnIndex, role, text, injected, userOrigin? }[] — see the command description for the injected-markup heuristic and its documented limits. `userOrigin` is present on USER entries only and names who authored the text (mt#4072); 'human' is a fail-open default, so only a non-'human' value carries information.",
               "takesValue": true,
               "values": ["full", "text"]
             }

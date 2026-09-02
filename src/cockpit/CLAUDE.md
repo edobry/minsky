@@ -260,6 +260,23 @@ polls `/api/*` forever), wait for a known `data-testid`, save a PNG, then Read i
 playwright's browser binary is missing, install the version pinned to the bun-cached
 `playwright-core`: `bunx playwright@<ver> install chromium`.
 
+**Launch an ad-hoc browser from the HARNESS shell, never `session_exec` (mt#4798).** Both fallbacks
+above launch a browser of their own — Playwright's, or the plain
+`--remote-debugging-port=<n> --user-data-dir=<scratch>` Chrome you reach for when the shared canary
+is down. Start it from the agent's own Bash / your terminal, **not** through `session_exec`.
+`session_exec` runs on the shared MCP daemon, and that daemon is a child of
+`/Applications/Minsky Cockpit.app`; macOS attributes a directly-exec'd descendant's sensitive access
+to the **responsible app**, so the browser's first touch of a protected resource reaches the
+principal as *"Minsky Cockpit.app would like to access your Photo Library"* — our own app asking for
+something no one can connect to anything they did.
+
+Incident 2026-08-30: two farmed implementers doing cockpit UI work launched Chrome by direct binary
+path through `session_exec` and produced exactly that dialog; the same Chrome launched from the
+harness Bash in the same hour produced none. Denying the prompt breaks nothing, so the cost is
+legibility, not function — which is the whole reason it is worth avoiding rather than explaining
+afterwards. The shared dev canary is **exempt and remains the default**: it is tray-launched by
+design and has not historically prompted.
+
 **Asserting layout geometry — a verify script, not a component test.** The guidance above is about
 LOOKING at a rendered cockpit. ASSERTING on its box model is a separate job with a separate tool.
 The component suite runs under happy-dom, which has **no layout engine**: `clientHeight`,

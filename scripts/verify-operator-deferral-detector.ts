@@ -88,7 +88,7 @@ for (const name of GUARD_NAMES) {
 // --- 2. Positive controls --------------------------------------------------
 process.stdout.write("\n== Positive controls ==\n");
 
-const proseOutcome = run(
+const proseOutcome = await run(
   hookInput,
   ctx([
     prompt("drive the PR to convergence"),
@@ -126,7 +126,7 @@ check("ask surface fires on the R5 option labels", askOutcome?.calibration !== u
 // --- 3. Negative controls --------------------------------------------------
 process.stdout.write("\n== Negative controls ==\n");
 
-const probedOutcome = run(
+const probedOutcome = await run(
   hookInput,
   ctx([
     prompt("drive the PR to convergence"),
@@ -137,7 +137,7 @@ const probedOutcome = run(
 );
 check("same prose WITH a probe in the turn does not fire", probedOutcome === null);
 
-const mt2303Outcome = run(
+const mt2303Outcome = await run(
   hookInput,
   ctx([
     prompt("merge it"),
@@ -150,7 +150,7 @@ check(
   mt2303Outcome === null
 );
 
-const cleanOutcome = run(
+const cleanOutcome = await run(
   hookInput,
   ctx([prompt("merge it"), say("Merged and verified; deploy SUCCESS."), prompt("next")])
 );

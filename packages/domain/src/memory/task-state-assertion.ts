@@ -135,7 +135,7 @@ export function extractTaskStateAssertions(record: {
   // Measured over the live corpus (1343 records, 2026-09-01): 197 records carry an assertion,
   // 4 lose one, and all 4 are genuine false positives — see the module's test file for the
   // verbatim fixtures. No record loses a genuine assertion.
-  const haystack = elideQuotedAndMarkdown(`${record.description ?? ""}\n${record.content}`);
+  const haystack = elideQuotedAndMarkdown(`${record.description ?? ""}\n${record.content ?? ""}`);
   const seen = new Set<string>();
   const assertions: TaskStateAssertion[] = [];
 

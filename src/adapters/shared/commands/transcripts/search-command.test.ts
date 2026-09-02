@@ -1,6 +1,9 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { createSharedCommandRegistry, CommandCategory } from "../../command-registry";
 import { registerTranscriptSearchCommand } from "./search-command";
+// Registered into a throwaway registry by the parity test below, which asserts
+// the two search tools still share one projection default (mt#4917).
+import { registerTranscriptSearchTextCommand } from "./search-text-command";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 const COMMAND_ID = "transcripts.search";
@@ -91,6 +94,52 @@ describe("transcripts.search command", () => {
         container: containerWithoutPersistence as AppContainerInterface,
       };
       await expect(getCommand().execute({ query: "hello" }, ctx)).rejects.toThrow(/persistence/);
+    });
+  });
+
+  describe("projection (mt#4917)", () => {
+    test("declares a projection parameter defaulting to snippet", () => {
+      const params = getCommand().parameters as Record<
+        string,
+        { required?: boolean; defaultValue?: unknown } | undefined
+      >;
+      expect(params.projection).toBeDefined();
+      expect(params.projection?.required).toBe(false);
+      expect(params.projection?.defaultValue).toBe("snippet");
+    });
+
+    test("matches search-text's default, so the two tools read the same way", () => {
+      // The pair is the point: an agent that learns one tool's default and
+      // applies it to the other must not be surprised. Both parameters are
+      // built by the same `projectionParam()`, and this asserts the result
+      // rather than trusting that they still share it.
+      const registryB = createSharedCommandRegistry();
+      registerTranscriptSearchTextCommand(undefined, registryB);
+      const siblingParams = registryB.getCommand("transcripts.search-text")?.parameters as Record<
+        string,
+        { defaultValue?: unknown } | undefined
+      >;
+      const ownParams = getCommand().parameters as Record<
+        string,
+        { defaultValue?: unknown } | undefined
+      >;
+
+      expect(ownParams.projection?.defaultValue).toBe(
+        siblingParams.projection?.defaultValue as string
+      );
+    });
+
+    test("the description names the default and points at how to read a hit in full", () => {
+      const description = getCommand().description;
+      expect(description).toContain("snippet");
+      expect(description).toContain("transcripts_get");
+    });
+
+    test("the description says its snippet marks no matched spans", () => {
+      // A caller comparing the two tools will notice the FTS one brackets its
+      // matches and this one does not; the description has to say why rather
+      // than leaving it to read as a bug.
+      expect(getCommand().description).toContain("no matched spans");
     });
   });
 });

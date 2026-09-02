@@ -25,6 +25,7 @@ import { agentSpawnsTable } from "../storage/schemas/agent-spawns-schema";
 import { getLoggableErrorSummary } from "../errors/index";
 import type { AgentSessionId } from "./transcript-source";
 import { MAX_SNAPSHOT_WINDOW_LIMIT } from "./snapshot-window-limit";
+import { classifyUserLineOrigin, DISPATCH_BRIEF_ORIGIN } from "./user-line-origin";
 import {
   applyAbandonedBlockIds,
   computeAbandonedBlockIds,
@@ -137,6 +138,42 @@ export function assistantContentKind(message: unknown): "text" | "thinking" {
  * pulls the timestamp + parentUuid + content into the unified block shape
  * and resolves the assistant kind via `assistantContentKind`.
  */
+/**
+ * Does this `user` line's message actually carry TEXT (mt#4354)?
+ *
+ * The gate on `userOrigin`, mirroring `turn-extractor.ts`'s invariant that the
+ * origin describes the TEXT and is therefore null exactly when the text is. A
+ * `user` line whose content is entirely `tool_result` blocks contributes none.
+ *
+ * Takes the line's `message`, which is ALWAYS an object — measured across 400
+ * recent transcripts, 80,755 `user` lines, `typeof message === "object"` in
+ * every one. The early return for a non-object is a defensive guard on
+ * malformed input, not a supported shape.
+ *
+ * It is `message.CONTENT` that has two shapes, and both are handled: a bare
+ * STRING (how a dispatched subagent's first turn arrives — verified against
+ * `subagents/agent-a335fb8b0e7586511.jsonl` line 1, a 6,661-char string), and
+ * the usual ARRAY of typed blocks.
+ *
+ * PR #3574 R1 flagged this docblock as claiming the STRING case applied to
+ * `message` itself, which would have meant the origin was never stamped for a
+ * dispatch brief. The claim was about `content` and the code is correct — the
+ * end-to-end run stamps `dispatch_brief` on exactly that record — but the
+ * sentence did not say so, and a comment that misdescribes its own guard is
+ * worth fixing rather than explaining.
+ */
+function userLineCarriesText(message: unknown): boolean {
+  if (message === null || typeof message !== "object") return false;
+  const content = (message as Record<string, unknown>)["content"];
+  if (typeof content === "string") return content.trim().length > 0;
+  if (!Array.isArray(content)) return false;
+  return content.some((block) => {
+    if (block === null || typeof block !== "object") return false;
+    const b = block as Record<string, unknown>;
+    return b["type"] === "text" && typeof b["text"] === "string" && b["text"].trim().length > 0;
+  });
+}
+
 export function turnLineToBlock(
   agentSessionId: string,
   turnIndex: number,
@@ -167,6 +204,15 @@ export function turnLineToBlock(
   // mt#3322: same defensive/additive shape — `isMeta` is a TOP-LEVEL boolean on
   // a `user` line marking harness-generated (not operator-typed) content.
   const isMeta = l.isMeta === true ? true : undefined;
+  // mt#4354: who authored this user line's text, via the SAME classifier that
+  // writes `agent_transcript_turns.user_origin` (mt#4289) — one classifier, two
+  // call sites. Gated on the line actually carrying text so this mirrors that
+  // column's invariant rather than stamping a `tool_result`-only line; see the
+  // field's docblock in `../context/types.ts` for why that distinction matters.
+  const userOrigin =
+    rawJsonlType === "user" && userLineCarriesText(l.message)
+      ? classifyUserLineOrigin(l)
+      : undefined;
 
   return {
     id: turnBlockId(agentSessionId, turnIndex),
@@ -175,6 +221,7 @@ export function turnLineToBlock(
     content: l.message ?? l,
     ...(isCompactSummary ? { isCompactSummary } : {}),
     ...(isMeta ? { isMeta } : {}),
+    ...(userOrigin ? { userOrigin } : {}),
     ...(model ? { model } : {}),
     uuid,
     parentUuid,
@@ -182,6 +229,43 @@ export function turnLineToBlock(
     turnIndex,
     rawJsonlType,
   };
+}
+
+/**
+ * Turn 0 as a pinnable block, when it is a dispatch brief (mt#4909).
+ *
+ * The windowed assembler calls this with raw transcript entry 0, which the SQL
+ * supplies ONLY when the slice did not already reach it — so `null` in means
+ * "the brief is already in the page" (or there is no conversation), and
+ * `undefined` out means "nothing to pin". Both of those are the common case.
+ *
+ * Routed through {@link turnLineToBlock} rather than calling the classifier
+ * directly, which is the point of the function existing: a brief that would not
+ * RENDER as a brief must not PIN as one either, and one code path is what keeps
+ * those two answers from drifting. It also means a non-renderable entry 0 (a
+ * summary or meta line) yields nothing here, exactly as it would in the page.
+ *
+ * Only `dispatch_brief` pins. `"human"` is the classifier's FAIL-OPEN default —
+ * returned when no structural marker matched, not positive evidence of operator
+ * authorship (see the `userOrigin` docblock in `../context/types.ts`) — so
+ * pinning on anything else would hoist an arbitrary first turn above every long
+ * conversation in the cockpit.
+ *
+ * @internal Exported for its own tests, NOT for use outside this module — the
+ * decision is pure and worth checking against real line shapes, while the query
+ * around it is not reachable without a DB. The windowed assembler is the only
+ * intended caller; a consumer wanting the pinned brief should read
+ * `SessionContextSnapshot.headBlock` rather than re-deriving it here, which is
+ * what keeps the classification in one place (PR #3586 R1).
+ */
+export function dispatchBriefHeadBlock(
+  agentSessionId: string,
+  headLine: unknown
+): SessionContextSnapshotBlock | undefined {
+  if (headLine === null || headLine === undefined) return undefined;
+  const block = turnLineToBlock(agentSessionId, 0, headLine);
+  if (block === null) return undefined;
+  return block.userOrigin === DISPATCH_BRIEF_ORIGIN ? block : undefined;
 }
 
 /**
@@ -511,6 +595,13 @@ type WindowedQueryRow = {
   slice_start: number | string | null;
   lines: unknown[] | null;
   attachments: WindowedAttachmentRow[] | null;
+  /**
+   * Raw transcript entry 0, present only when the slice did not already reach
+   * it (mt#4909) — the candidate dispatch brief. `null` when `lo === 0`, which
+   * is also when the caller needs nothing extra because the brief is in
+   * `lines`.
+   */
+  head_line: unknown | null;
 };
 
 function toInt(value: number | string | null | undefined): number | null {
@@ -614,6 +705,12 @@ async function assembleWindowedSessionContextSnapshot(
           harness,
           total,
           lo,
+          -- mt#4909: raw entry 0, but only when the slice did not already
+          -- reach it — otherwise the brief is in the raw slice below and
+          -- sending it twice would render it twice. The arrow operator is an
+          -- O(1) offset read into the same binary structure the jsonpath range
+          -- addresses, so this adds one element to the payload and no scan.
+          case when lo > 0 then transcript -> 0 else null end as head,
           case
             when hi > lo then coalesce(
               jsonb_path_query_array(
@@ -631,8 +728,18 @@ async function assembleWindowedSessionContextSnapshot(
         s.total as total_turns,
         s.lo as slice_start,
         s.raw as lines,
+        s.head as head_line,
         coalesce(
-          (
+          -- PR #3586 R1 (NON-BLOCKING): an EMPTY slice must not re-send every
+          -- attachment. When hi <= lo the slice is an empty array, so the
+          -- min/max bounds below coalesce to -infinity and +infinity — and the
+          -- upper bound then stops bounding anything, so a request that selects
+          -- no turns would return the whole attachment set for the conversation.
+          -- The UI cannot reach it (TanStack halts paging on a null cursor), but
+          -- the route is public and can be called directly. Short-circuit on the
+          -- slice being empty, which is the same condition in a form this scope
+          -- can see.
+          case when jsonb_array_length(s.raw) = 0 then '[]'::jsonb else (
             select jsonb_agg(
               jsonb_build_object(
                 'lineIndex', a.line_index,
@@ -676,7 +783,7 @@ async function assembleWindowedSessionContextSnapshot(
                       'infinity'::timestamptz
                     )`
               }
-          ),
+          ) end,
           '[]'::jsonb
         ) as attachments
       from sliced s
@@ -728,6 +835,10 @@ async function assembleWindowedSessionContextSnapshot(
 
   const markedBlocks = applyAbandonedBlockIds(blocks, new Set(snapshotStructure.abandonedBlockIds));
 
+  // The SQL supplies `head_line` only when the slice did not reach index 0, so
+  // the in-window case arrives null here and this is a no-op (mt#4909).
+  const headBlock = dispatchBriefHeadBlock(agentSessionId, row.head_line);
+
   const window: SessionContextSnapshotWindow = {
     // The RAW array length, which is also what the route's version token counts
     // — so the two never disagree about how long the conversation is.
@@ -750,6 +861,7 @@ async function assembleWindowedSessionContextSnapshot(
     ...(spawnChildrenByToolUseId ? { spawnChildrenByToolUseId } : {}),
     ...(spawnParent ? { spawnParent } : {}),
     window,
+    ...(headBlock ? { headBlock } : {}),
     toolNamesByUseId: snapshotStructure.toolNamesByUseId,
     assembledAt: new Date().toISOString(),
   };

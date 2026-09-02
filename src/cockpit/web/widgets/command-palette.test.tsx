@@ -18,6 +18,7 @@ import { TabBar } from "../components/TabBar";
 import { CommandPalette } from "../components/CommandPalette";
 import { NewConversationProvider } from "../hooks/useNewConversation";
 import { ProjectProvider } from "../lib/project-context";
+import { stubProjectsRoute } from "../lib/test-support/projects";
 
 function LocationProbe() {
   const { pathname } = useLocation();
@@ -157,6 +158,7 @@ describe("CommandPalette (mt#2399)", () => {
       }
       throw new Error(`Unexpected fetch in test: ${url}`);
     }) as unknown as typeof fetch;
+    stubProjectsRoute();
   });
 
   afterEach(() => {

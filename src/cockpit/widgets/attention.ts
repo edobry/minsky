@@ -142,15 +142,32 @@ export async function loadCohort(
   // Reading only `suspended` here would drop exactly those asks the moment the
   // window closed — windows are open 30-60 minutes a day, so this branch is the
   // widget's normal state and the ask would be invisible until the next one.
+  const operatorAsks = await pendingOperatorAsks(repo, projectScope);
+  operatorAsks.sort(compareAskPriority);
+  return operatorAsks;
+}
+
+/**
+ * Every operator-routed ask still awaiting an answer, ignoring windows.
+ *
+ * Extracted (mt#4775) so the header COUNT and the cohort LIST cannot drift
+ * apart. The header used to run its own `listByState("suspended")`, so it
+ * undercounted the very list it heads by exactly the asks sitting in `routed` —
+ * invisible whenever nothing was woken, which is why it surfaced as an
+ * intermittent off-by-N (home 40 vs /asks 41) rather than a constant one. One
+ * predicate, two callers.
+ */
+export async function pendingOperatorAsks(
+  repo: AskRepository,
+  projectScope?: ProjectScope
+): Promise<Ask[]> {
   const [routed, suspended] = await Promise.all([
     repo.listByState("routed", projectScope),
     repo.listByState("suspended", projectScope),
   ]);
-  const operatorAsks = [...routed, ...suspended].filter(
+  return [...routed, ...suspended].filter(
     (a) => a.routingTarget === "operator" && !isTerminal(a.state)
   );
-  operatorAsks.sort(compareAskPriority);
-  return operatorAsks;
 }
 
 // ---------------------------------------------------------------------------
@@ -203,11 +220,16 @@ export function createAttentionWidget(getDeps: () => Promise<AttentionDeps>): Wi
         // Load cohort for the active window (or fallback all-operator asks)
         const cohort = await loadCohort(repo, activeWindowKey, projectScope);
 
-        // Total pending: all suspended asks routed to operator (for header counter)
-        const allSuspended = await repo.listByState("suspended", projectScope);
-        const totalPending = allSuspended.filter(
-          (a) => a.routingTarget === "operator" && !isTerminal(a.state)
-        ).length;
+        // Total pending: the SAME predicate `loadCohort` uses, deliberately
+        // (mt#4775). This read `suspended` only while the no-window branch of
+        // `loadCohort` above reads `routed` + `suspended`, so the header
+        // undercounted the very list it heads by exactly the operator asks
+        // sitting in `routed` — which is where a woken ask lives from the moment
+        // its window opens until it is answered. The two agreed whenever nothing
+        // was `routed`, which is why this surfaced as an intermittent off-by-N
+        // (home 40 vs /asks 41) rather than a constant one, and why a test built
+        // on a homogeneous fixture would pass against the unfixed code.
+        const totalPending = (await pendingOperatorAsks(repo, projectScope)).length;
 
         const activeWindow: ActiveWindowInfo | null = activeWindowKey
           ? { windowKey: activeWindowKey }

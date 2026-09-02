@@ -16,6 +16,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemorySearch } from "./MemorySearch";
 import type { MemoryRecord } from "@minsky/domain/memory/types";
 import { ProjectProvider } from "../lib/project-context";
+import { stubProjectsRoute } from "../lib/test-support/projects";
 
 const originalFetch = global.fetch;
 
@@ -70,6 +71,7 @@ async function renderAndSearch(records: MemoryRecord[]) {
     }
     return jsonResponse({ state: "degraded", reason: "not mocked" });
   }) as unknown as typeof fetch;
+  stubProjectsRoute();
 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const result = render(

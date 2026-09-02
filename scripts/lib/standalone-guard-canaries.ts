@@ -229,13 +229,28 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
     // dormant-vs-dead distinction mt#3502 built the three-state model for, and
     // `check-calibration-sweep-coverage.ts` FAILED outright because no sweep visited it.
     // `-sc-coverage` has never been written, so it was invisible to both checks and
-    // would have surfaced the same way on its first fire. Adding a calibration surface
-    // to this guard means adding it here in the same change.
+    // would have surfaced the same way on its first fire.
+    //
+    // mt#4688: THIRD instance — this declared four of the five, omitting
+    // `-consumer-account` when mt#4493 added that surface. The line that used to sit here
+    // ("Adding a calibration surface to this guard means adding it here in the same
+    // change") was correct and failed on the very next addition, which is what a
+    // prose-tier fix failing looks like. It is deliberately NOT restored: the obligation
+    // is now checked, by the `effects`-vs-`calibrationLog` invariant in
+    // `calibration-log-declarations.test.ts`. `effects` above already names all five —
+    // the two lists are the same fact written twice, so the test compares them instead of
+    // asking the next author to remember.
+    //
+    // Note the backstop mt#4064 leaned on is currently dark: `check-calibration-sweep-
+    // coverage.ts` still globs the repo `.minsky/` that mt#4748 emptied, so it reports
+    // "nothing to check" and exits 0 (mt#4914). That is why this instance reached a
+    // planning pass rather than a failing check.
     calibrationLog: [
       "execution-evidence-at-coverage",
       "execution-evidence-test-first",
       "execution-evidence-render-path",
       "execution-evidence-sc-coverage",
+      "execution-evidence-consumer-account",
     ],
     check: async () => {
       const { checkExecutionEvidence } = await import(

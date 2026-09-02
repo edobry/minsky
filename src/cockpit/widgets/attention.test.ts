@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test";
 import type { Ask } from "@minsky/domain/ask/types";
 import type { AskRepository } from "@minsky/domain/ask/repository";
 import type { ProjectScope } from "@minsky/domain/project/scope";
-import { loadCohort } from "./attention";
+import { loadCohort, pendingOperatorAsks } from "./attention";
 
 function ask(overrides: Partial<Ask> & Pick<Ask, "id" | "state">): Ask {
   return {
@@ -137,5 +137,40 @@ describe("loadCohort — project-scope wiring (mt#4727)", () => {
     const repo = projectScopedRepoWith(fixture);
     const cohort = await loadCohort(repo, windowKey, PROJECT_A_ID);
     expect(cohort.map((a) => a.id)).toEqual(["a-scheduled"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Header count vs cohort list (mt#4775)
+// ---------------------------------------------------------------------------
+
+describe("pendingOperatorAsks — the header count and the cohort cannot drift", () => {
+  test("a woken (routed) operator ask is COUNTED, not merely listed", async () => {
+    // The seeded fixture AT3 calls for. Before the fix the header ran its own
+    // `listByState("suspended")`, so it reported 2 while the cohort listed 3.
+    // A fixture with no `routed` ask agrees either way and would pass against
+    // the unfixed code — which is exactly why the live probe could not
+    // reproduce this: production happened to hold zero routed asks.
+    const repo = repoWith([
+      ask({ id: "woken", state: "routed" }),
+      ask({ id: "waiting-a", state: "suspended" }),
+      ask({ id: "waiting-b", state: "suspended" }),
+    ]);
+
+    const cohort = await loadCohort(repo, null);
+    const total = (await pendingOperatorAsks(repo)).length;
+
+    expect(total).toBe(3);
+    expect(total).toBe(cohort.length);
+  });
+
+  test("non-operator routing is excluded from the count as it is from the cohort", async () => {
+    const repo = repoWith([
+      ask({ id: "mine", state: "routed" }),
+      ask({ id: "subagent", state: "routed", routingTarget: "subagent" }),
+    ]);
+
+    expect((await pendingOperatorAsks(repo)).length).toBe(1);
+    expect((await loadCohort(repo, null)).length).toBe(1);
   });
 });

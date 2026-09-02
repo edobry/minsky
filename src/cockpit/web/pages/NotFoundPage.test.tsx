@@ -31,6 +31,7 @@ import { render, screen, within, waitFor, cleanup } from "@testing-library/react
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ProjectProvider } from "../lib/project-context";
+import { stubProjectsRoute } from "../lib/test-support/projects";
 import { App } from "../App";
 
 /**
@@ -61,6 +62,7 @@ beforeEach(() => {
       })
     )
   ) as unknown as typeof globalThis.fetch;
+  stubProjectsRoute();
   try {
     localStorage.clear();
   } catch {

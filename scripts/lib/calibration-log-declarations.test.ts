@@ -183,16 +183,19 @@ describe("gate-walk-provenance's declaration (mt#4390)", () => {
   });
 });
 
-describe("the execution-evidence merge gate's four calibration logs (mt#4064)", () => {
+describe("the execution-evidence merge gate's five calibration logs (mt#4064, mt#4688)", () => {
   // Keyed off the WRITER CONSTANTS rather than hand-copied strings, because this one guard's
-  // declaration has now been incomplete twice in the same way: mt#3519 widened `calibrationLog`
-  // to accept a list precisely because the gate writes more than one log, and enumerated two of
-  // the four. Binding to the constants means renaming a log breaks this at the rename.
+  // declaration has now been incomplete THREE times in the same way: mt#3519 widened
+  // `calibrationLog` to accept a list precisely because the gate writes more than one log, and
+  // enumerated two of four; mt#4064 took it to four of five; mt#4688 added the fifth
+  // (`-consumer-account`, omitted when mt#4493 added that surface). Binding to the constants
+  // means renaming a log breaks this at the rename.
   const GATE_LOGS: readonly (readonly [string, string])[] = [
     ["AT_COVERAGE_CALIBRATION_LOG", AT_COVERAGE_CALIBRATION_LOG],
     ["TEST_FIRST_CALIBRATION_LOG", TEST_FIRST_CALIBRATION_LOG],
     ["RENDER_PATH_CALIBRATION_LOG", RENDER_PATH_CALIBRATION_LOG],
     ["SC_COVERAGE_CALIBRATION_LOG", SC_COVERAGE_CALIBRATION_LOG],
+    ["CONSUMER_ACCOUNT_CALIBRATION_LOG", CONSUMER_ACCOUNT_CALIBRATION_LOG],
   ];
 
   const stem = (logPath: string): string =>
@@ -215,19 +218,70 @@ describe("the execution-evidence merge gate's four calibration logs (mt#4064)", 
     }
   });
 
-  test("the four log names are pinned, so a rename cannot pass silently", () => {
-    // Also the scope statement for the two tests above: they bind the four constants that exist
-    // today, so a FIFTH surface added to this gate would pass them. For a log that lands on disk
-    // the backstop is `scripts/check-calibration-sweep-coverage.ts`, which fails when an existing
-    // `.minsky/*-calibration.jsonl` is visited by no sweep — that is how mt#4064's render-path gap
-    // was surfaced. The case with no backstop is a log declared nowhere AND never yet written, as
-    // `-sc-coverage` was: absent from disk, so invisible to every glob-driven check until it fires.
+  test("the five log names are pinned, so a rename cannot pass silently", () => {
+    // Also the scope statement for the two tests above: they bind the constants that exist today,
+    // so a SIXTH surface added to this gate would pass them. That prediction was written when
+    // there were four, and it came true — mt#4493 added `-consumer-account` and these tests were
+    // green throughout (mt#4688).
+    //
+    // The backstop this comment used to lean on did NOT catch it, for a reason worth recording:
+    // `scripts/check-calibration-sweep-coverage.ts` fails when an existing
+    // `.minsky/*-calibration.jsonl` is visited by no sweep — which is how mt#4064's render-path
+    // gap surfaced — but it still globs the repo-rooted directory mt#4748 emptied, so it now
+    // reports "nothing to check" and exits 0 over 47 live streams (mt#4914). A backstop reading
+    // an empty directory reports the same thing as a clean tree.
+    //
+    // So the general check no longer lives in a pinned list or in a glob: it is the
+    // `effects`-vs-`calibrationLog` invariant below, which is scoped to declarations and cannot
+    // go dark when a directory moves.
     expect(GATE_LOGS.map(([, logPath]) => stem(logPath))).toEqual([
       "execution-evidence-at-coverage",
       "execution-evidence-test-first",
       "execution-evidence-render-path",
       "execution-evidence-sc-coverage",
+      "execution-evidence-consumer-account",
     ]);
+  });
+});
+
+describe("mt#4688 — a canary's named recorder effects must all be declared (the invariant)", () => {
+  // Three instances on ONE declaration (mt#3519 0→2, mt#4064 2→4, mt#4688 4→5) is the signal
+  // that the omission is structural rather than careless. `effects` and `calibrationLog` are two
+  // lists in the SAME object literal that must agree — the same fact written twice, adjacent, with
+  // nothing comparing them. Every instance was an author updating one and not the other.
+  //
+  // The direction is deliberately ONE-WAY: a named recorder effect obliges a declaration, not the
+  // reverse. `recorderEffect()` with no argument declares the generic `"calibration"` effect and
+  // carries no stream name (three canaries use that form today), so requiring the inverse would
+  // fire on every one of them.
+  const namedRecorderStreams = (canary: (typeof STANDALONE_GUARD_CANARIES)[number]): string[] =>
+    canary.effects
+      .filter((e) => e.verdictShape === "recorder" && e.effect !== "calibration")
+      .map((e) => e.effect);
+
+  const declaredLogs = (canary: (typeof STANDALONE_GUARD_CANARIES)[number]): string[] => {
+    if (!canary.calibrationLog) return [];
+    return Array.isArray(canary.calibrationLog)
+      ? [...canary.calibrationLog]
+      : [canary.calibrationLog];
+  };
+
+  test("every named recorder effect appears in its own canary's calibrationLog", () => {
+    for (const canary of STANDALONE_GUARD_CANARIES) {
+      const declared = new Set(declaredLogs(canary));
+      for (const stream of namedRecorderStreams(canary)) {
+        expect(declared.has(stream), `${canary.guardName} declares effect "${stream}"`).toBe(true);
+      }
+    }
+  });
+
+  test("the invariant has something to check — at least one canary names a recorder stream", () => {
+    // A vacuous pass is the failure mode for a rule shaped like "for all X, P(X)": if the
+    // `verdictShape`/`effect` filter above ever stops matching (a renamed field, a changed default
+    // effect name), the test above goes green over an empty set and reports coverage it does not
+    // have. This pins the population as non-empty so that silent-zero cannot happen.
+    const total = STANDALONE_GUARD_CANARIES.flatMap(namedRecorderStreams);
+    expect(total.length).toBeGreaterThan(0);
   });
 });
 

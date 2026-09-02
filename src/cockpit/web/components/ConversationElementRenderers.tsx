@@ -95,7 +95,11 @@ import {
 import { sessionFileTargetFor } from "../lib/session-path";
 import type { InjectedSpan, TaskNotificationParts } from "../lib/injected-content";
 import { isApiErrorText } from "../lib/conversation-outcome";
-import { ADDRESSED_MARK_CLASS, TOOL_USE_ANCHOR_ATTR } from "../lib/conversation-turn-address";
+import {
+  ADDRESSED_MARK_CLASS,
+  TOOL_USE_ANCHOR_ATTR,
+  TOOL_USE_PARAM,
+} from "../lib/conversation-turn-address";
 import { FilmMomentLink } from "./FilmMomentLink";
 
 // ── Shared element types ─────────────────────────────────────────────────────
@@ -258,6 +262,33 @@ export type PreparedElement =
   | { kind: "tool-invocation"; call: ToolCallElement; result?: ToolResultElement }
   | { kind: "tool-result-orphan"; result: ToolResultElement; callName: string | undefined }
   | { kind: "injected"; span: InjectedSpan }
+  /**
+   * A generated subagent dispatch brief (mt#4354) — the assignment the PARENT
+   * AGENT composed, which opens every Minsky-dispatched subagent conversation.
+   *
+   * Distinct from `injected` on purpose, and the distinction is the whole
+   * design: `injected` exists to SUPPRESS noise behind a muted one-line header
+   * (skill bodies, system reminders). A brief is the opposite — it is the
+   * highest-value block on a subagent's page, the reason you opened it. So it
+   * gets a treatment that is DISTINCT without being DIMINISHED: expanded by
+   * default, with the generated boilerplate folded inside it rather than the
+   * whole thing collapsed.
+   *
+   * `stamp` is absent for a dispatch that predates mt#2292's stamp, or whose
+   * prompt the guard did not rewrite. That is ordinary, not broken — the brief
+   * renders without an ascent link rather than not rendering.
+   */
+  | {
+      kind: "dispatch-brief";
+      /** The dispatch-specific instructions — boilerplate split out, markers stripped. */
+      body: string;
+      /** Generated sections folded behind their own headings. */
+      sections: { heading: string; content: string }[];
+      /** Parent conversation + the `Agent` call that dispatched this, when stamped. */
+      stamp?: { parentAgentSessionId: string; parentToolUseId: string };
+      /** Assignment facts shown in the header without hover. */
+      facts: { sessionId?: string; taskId?: string; readOnly: boolean };
+    }
   /**
    * A slash-command invocation merged with its captured output and the
    * harness caveat that accompanies it (mt#3322) — the command analogue of
@@ -485,8 +516,7 @@ export function ToolInvocation({
     ? `${call.name}\n${sessionTarget.absolutePath}\nsession ${sessionTarget.sessionId}`
     : call.name;
   const digest = useMemo(
-    () =>
-      summarizeToolInvocation(call.name, call.input, resultInfo),
+    () => summarizeToolInvocation(call.name, call.input, resultInfo),
     [call.name, call.input, resultInfo]
   );
 
@@ -665,6 +695,111 @@ export function ToolResult({
 // participation, but muted (not blue-accented) styling — this is harness
 // plumbing, not an agent action.
 
+/**
+ * A generated subagent dispatch brief (mt#4354) — the assignment that opens
+ * every Minsky-dispatched subagent conversation.
+ *
+ * DISTINCT from the operator's own prose, but deliberately NOT diminished the
+ * way `InjectedContentBlock` diminishes harness noise. This is the block a
+ * reader opens a subagent conversation to find, so the instructions render
+ * expanded and only the generated boilerplate folds.
+ *
+ * The header's ascent link is built from the mt#2292 stamp the dispatch guard
+ * wrote into the prompt, so it addresses the exact `Agent` CALL rather than
+ * just the parent conversation — `conversation-turn-address.ts` resolves the
+ * `toolUse` param and ring-marks the arrival. That is strictly better than the
+ * page-level "Spawned by" link, which is a join over `agent_spawns` and lands
+ * on the conversation. When the prompt carries no stamp the header renders
+ * without the link rather than not rendering.
+ */
+export function DispatchBriefBlock({
+  element,
+  entityIndex,
+}: {
+  element: Extract<PreparedElement, { kind: "dispatch-brief" }>;
+  entityIndex: EntityIndex;
+}) {
+  const { body, sections, stamp, facts } = element;
+  return (
+    <div
+      data-testid="dispatch-brief"
+      className="rounded border border-violet-400/30 bg-violet-400/[0.04]"
+    >
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-violet-400/20 px-2 py-1 text-[11px] text-muted-foreground">
+        {/*
+          No label here. The RUN header one level up already renders "dispatch
+          brief" from `classifyTurnOrigin`, and printing it again inside the
+          block is the duplicated-origin-noun defect mt#3728 criterion 4 names
+          for skill bodies — caught here by looking at the render rather than by
+          review. The violet border and rail carry the block's identity; this row
+          carries only what the run header cannot: where the brief came from.
+        */}
+        {stamp ? (
+          <>
+            <Link
+              to={`/conversation/${stamp.parentAgentSessionId}?${TOOL_USE_PARAM}=${encodeURIComponent(stamp.parentToolUseId)}`}
+              title={`Open the Agent call that dispatched this (${stamp.parentToolUseId})`}
+              className="rounded text-violet-300 underline decoration-violet-300/40 underline-offset-2 transition-colors hover:text-violet-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              ↑ dispatched from this call
+            </Link>
+          </>
+        ) : null}
+        {facts.taskId ? (
+          <>
+            <span aria-hidden>·</span>
+            <Link
+              to={`/tasks/${encodeURIComponent(facts.taskId)}`}
+              className="rounded font-mono text-violet-300 underline decoration-violet-300/40 underline-offset-2 transition-colors hover:text-violet-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {facts.taskId}
+            </Link>
+          </>
+        ) : null}
+        {facts.sessionId ? (
+          <>
+            <span aria-hidden>·</span>
+            <span className="font-mono" title={`Workspace session ${facts.sessionId}`}>
+              {/* Short prefix, full id on hover — the id itself is unreadable at
+                  a glance and the header is a scan surface, not a reference. The
+                  HOVER carries only the long form of something already visible,
+                  which is the permitted use (`cockpit-design` anti-pattern 5
+                  bans hover-ONLY critical state, not hover detail). */}
+              {facts.sessionId.slice(0, 8)}…
+            </span>
+          </>
+        ) : null}
+        {facts.readOnly ? (
+          <>
+            <span aria-hidden>·</span>
+            <span
+              className="rounded border border-violet-400/40 px-1 text-[10px] uppercase tracking-wide text-violet-300"
+              title="This dispatch was declared read-only (mt#2865); a write-gate denies session mutations for it"
+            >
+              read-only
+            </span>
+          </>
+        ) : null}
+      </div>
+
+      <div className="px-2 py-1.5">
+        <Prose entityIndex={entityIndex}>{body}</Prose>
+      </div>
+
+      {sections.map((section) => (
+        <details key={section.heading} className="border-t border-violet-400/15 px-2 py-1">
+          <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground">
+            {section.heading.replace(/^#+\s*/, "")}
+          </summary>
+          <div className="mt-1">
+            <Prose entityIndex={entityIndex}>{section.content}</Prose>
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+}
+
 export function InjectedContentBlock({
   span,
   entityIndex,
@@ -705,11 +840,7 @@ export function InjectedContentBlock({
           // No padding on the wrapper: the structured body pads its own rows,
           // exactly as ToolInvocation's expanded branch does.
           <div className="border-t border-border/40">
-            <TaskNotificationBody
-              span={span}
-              parts={span.notification}
-              entityIndex={entityIndex}
-            />
+            <TaskNotificationBody span={span} parts={span.notification} entityIndex={entityIndex} />
           </div>
         ) : (
           <div className="border-t border-border/40 px-2 py-1">
@@ -1133,6 +1264,8 @@ export function ElementView({
           expandSignal={expandSignal}
         />
       );
+    case "dispatch-brief":
+      return <DispatchBriefBlock element={element} entityIndex={entityIndex} />;
     case "image":
       return <ImageElement element={element} />;
     case "unknown":

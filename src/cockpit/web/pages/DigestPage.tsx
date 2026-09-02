@@ -163,7 +163,11 @@ function DigestBody({ dayOffset }: { dayOffset: number }) {
   return (
     <div className="flex flex-col gap-3">
       <p className="text-xs text-muted-foreground" data-testid="digest-headline">
-        {workstreams.length} workstream{workstreams.length === 1 ? "" : "s"} active ·{" "}
+        {/* "with activity today", not "active" (mt#4775): this count is derived
+            from the day's events, while /workstreams counts parents with open
+            work. Two real definitions, one word — see Workstreams.tsx. */}
+        {workstreams.length} workstream{workstreams.length === 1 ? "" : "s"} with activity today ·
+        {" "}
         {prsMerged} PR{prsMerged === 1 ? "" : "s"} merged ·{" "}
         {totalExceptions === 0 ? "no exceptions" : `${totalExceptions} exception${totalExceptions === 1 ? "" : "s"}`}
         {truncated && (

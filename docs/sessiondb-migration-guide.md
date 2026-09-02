@@ -113,14 +113,14 @@ If `--from` is omitted, the source is the currently configured backend (already 
 the command re-reads and re-writes the live table — useful mainly as a "verified full rewrite"
 operation, not a cross-backend migration.
 
-| Option          | Description                                                                                                              |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `to`            | Target backend argument; only `postgres` is accepted                                                                     |
-| `--from <path>` | Read source sessions from a JSON backup file instead of the live DB                                                      |
-| `--backup`      | Write a JSON backup of the source before migrating (default: true)                                                       |
-| `--execute`     | Actually perform the migration (default is preview mode)                                                                 |
-| `-n, --dry-run` | Accepted by the CLI but currently has no effect — preview vs. apply is controlled entirely by `--execute`, not this flag |
-| `--debug`       | Enable debug output                                                                                                      |
+| Option          | Description                                                                                                                                                                    |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `to`            | Target backend argument; only `postgres` is accepted                                                                                                                           |
+| `--from <path>` | Read source sessions from a JSON backup file instead of the live DB                                                                                                            |
+| `--backup`      | Write a JSON backup of the source before migrating (default: true)                                                                                                             |
+| `--execute`     | Actually perform the migration (default is preview mode)                                                                                                                       |
+| `-n, --dry-run` | Force preview mode. Takes precedence over `--execute`, so `--dry-run --execute` previews rather than applies. Applies to both schema-only mode and backend migration (mt#3191) |
+| `--debug`       | Enable debug output                                                                                                                                                            |
 
 Legacy session records without a `taskId` are skipped and reported in the operation summary —
 this is a carryover safeguard from the original JSON-backend migration path, not something that

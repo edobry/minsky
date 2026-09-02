@@ -19,6 +19,7 @@ import {
 } from "./TriageBand";
 import type { AskItem } from "./AskDetail";
 import { ProjectProvider } from "../lib/project-context";
+import { stubProjectsRoute } from "../lib/test-support/projects";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -106,6 +107,7 @@ function stubAsks(asks: AskItem[]) {
     }
     throw new Error(`Unexpected fetch in test: ${url}`);
   }) as unknown as typeof fetch;
+  stubProjectsRoute();
 }
 
 function renderBand() {

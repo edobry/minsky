@@ -679,7 +679,11 @@ export const NEVER_REVIEWED_DAYS_MS = NEVER_REVIEWED_DAYS * 24 * 60 * 60 * 1000;
 
 /**
  * Watermark record for a single log. Keyed by log path → watermark state.
- * Written to `.minsky/calibration-review-watermarks.json`.
+ * Written to `calibration-review-watermarks.json` under
+ * `getMinskyStateDir()/projects/<key>/` (mt#4880; it was `.minsky/` until then).
+ * The KEY is still a repo-relative log NAME — see `CalibrationLogEntry.path`
+ * above for why that form is deliberate — and it is precisely because those keys
+ * are identical across projects that the FILE has to be project-keyed.
  */
 export interface LogWatermark {
   /**
@@ -1087,6 +1091,29 @@ export interface CalibrationLogResult {
   newRecords: CalibrationRecord[];
   /** The watermark at review time (may be zero if never reviewed). */
   watermarkCount: number;
+  /**
+   * True when the watermark exceeds the log's CURRENT record count (mt#4904).
+   *
+   * `firesSinceLastReview` is `Math.max(0, totalFires - watermarkCount)` and
+   * `newRecords` is `allRecords.slice(watermarkCount)`, so a watermark above
+   * the record count clamps the first to 0 and empties the second — which is
+   * byte-identical to a log that was genuinely just reviewed. Every
+   * `computeReviewDueLogs` leg then declines it: `past-threshold` and
+   * `time-stale` are gated on an injected count the clamp pins to zero, and
+   * `never-reviewed` / `never-fired` both require NO watermark. The log
+   * becomes permanently invisible to the review loop with no error anywhere.
+   *
+   * This is not hypothetical: mt#4748 moved the calibration streams to the
+   * project-keyed state dir while the watermark store kept counts recorded
+   * against the larger pre-migration logs. Measured 2026-09-02 — 13 of 46
+   * streams stranded, including `bare-entity-ref` (2130 vs 301) and
+   * `retrospective-trigger` (2338 vs 181).
+   *
+   * Reported as its own state rather than folded into the counts, because the
+   * counts CANNOT represent it: 0 is what they say both when nothing is new
+   * and when the basis for the comparison is gone.
+   */
+  watermarkStranded: boolean;
   /**
    * ID of a still-open disposition Ask filed for this log by a prior
    * /calibration-review pass (mt#2659), forwarded from the watermark's
@@ -1701,6 +1728,13 @@ export function computeLogResult(
   const totalFires = allRecords.length;
   const firesSinceLastReview = Math.max(0, totalFires - watermarkCount);
   const newRecords = allRecords.slice(watermarkCount);
+  // mt#4904: the clamp above is lossy in one direction. A watermark ABOVE the
+  // record count means the basis for the subtraction is gone (the log was
+  // rotated, truncated, or re-rooted under it), and both the clamp and the
+  // slice render that as "nothing new" — the same output a just-reviewed log
+  // produces. Capture the condition here, where both operands are still in
+  // hand, since no downstream consumer can recover it from the results.
+  const watermarkStranded = watermarkCount > totalFires;
 
   const distinctPhrases = extractDistinctPhrases(newRecords).size;
 
@@ -1777,6 +1811,7 @@ export function computeLogResult(
     // log is low-diversity), even though the Ask only fires on pastThreshold.
     newRecords: atCountThreshold ? newRecords : [],
     watermarkCount,
+    watermarkStranded,
     openAskId: watermark?.openAskId,
     // Calibration logs are APPEND-ONLY (records appended as events fire, never
     // reordered), so the first record IS the earliest — mt#2896 review NB1. A
@@ -2376,7 +2411,16 @@ export interface ReviewDueLog {
   suppressedSinceLastReview: number;
   totalFires: number;
   distinctPhrases: number;
-  reason: "past-threshold" | "time-stale" | "never-reviewed" | "never-fired";
+  reason: "past-threshold" | "time-stale" | "never-reviewed" | "never-fired" | "watermark-stranded";
+  /**
+   * The watermark this log was compared against (mt#4904, PR #3572 R1).
+   * Carried so a consumer can render the `watermark-stranded` leg's actual
+   * comparison — "watermark 424 exceeds 121 record(s)" — instead of the shared
+   * warning line's `injectedFiresSinceLastReview`, which the stranding clamps
+   * to 0 and which would otherwise report "0 new fire(s)" about a log being
+   * flagged for review.
+   */
+  watermarkCount: number;
   /** Forwarded from the watermark's `openAskId` (mt#2659); undefined for never-reviewed (no watermark). */
   openAskId?: string;
   /**
@@ -2408,13 +2452,23 @@ function toReviewDueLog(
     totalFires: r.totalFires,
     distinctPhrases: r.distinctPhrases,
     reason,
+    watermarkCount: r.watermarkCount,
     openAskId,
     reviewByDays,
   };
 }
 
 /**
- * Determine which logs are review-due, per FOUR independent conditions:
+ * Determine which logs are review-due, per FIVE independent conditions.
+ *
+ *   0. watermark-stranded — the watermark exceeds the log's CURRENT record
+ *      count (mt#4904), so the counts every other leg reads are invalid: the
+ *      subtraction clamps to 0 and the slice is empty. Checked FIRST and
+ *      ungated, because all four below decline such a log — two on a zero
+ *      injected count, two because they require NO watermark — leaving it
+ *      permanently unreviewable with no error raised anywhere.
+ *
+ * The original four:
  *   1. past-threshold — fires-since-review >= FIRES_THRESHOLD AND
  *      distinctPhrases >= DIVERSITY_THRESHOLD (the diversity-aware count bar).
  *   2. time-stale     — the log HAS a watermark (reviewed before), has >= 1 new
@@ -2446,6 +2500,30 @@ export function computeReviewDueLogs(
   const due: ReviewDueLog[] = [];
   for (const r of results) {
     const wm = watermarks[r.entry.path];
+
+    // watermark-stranded (mt#4904): FIRST, because every leg below reads counts
+    // this condition invalidates. When the watermark exceeds the log's record
+    // count, `firesSinceLastReview` is clamped to 0 and `newRecords` is empty —
+    // so `past-threshold` and `time-stale` decline on a zero injected count,
+    // and `never-reviewed` / `never-fired` are unreachable because a watermark
+    // exists. The log falls through all four and is never reviewed again.
+    //
+    // Deliberately NOT gated on an injected count, unlike its siblings: that
+    // gate asks "has the operator seen anything since the last review", and
+    // here the question is whether the last-review marker means anything at
+    // all. Gating it would reproduce exactly the silence it exists to break.
+    // Gated on `exists` (found by live verification, mt#4904). An ABSENT log
+    // has `totalFires: 0`, so any watermark at all satisfies the comparison —
+    // and a retired detector is exactly that shape: `policy-coverage` was
+    // retired by mt#4197 and its watermark still reads 1760 against a file that
+    // is gone. Flagging it would say "review these fires" about a log with no
+    // fires and no file, which is noise rather than the signal this leg exists
+    // for. A watermark orphaned by a DELETED log is a real but different
+    // condition (nothing to review, only to clean up) and is not this task's.
+    if (r.exists && r.watermarkStranded) {
+      due.push(toReviewDueLog(r, "watermark-stranded", wm?.openAskId));
+      continue;
+    }
 
     if (r.pastThreshold) {
       due.push(toReviewDueLog(r, "past-threshold", wm?.openAskId));

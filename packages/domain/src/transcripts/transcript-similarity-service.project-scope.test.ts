@@ -84,7 +84,13 @@ function makeFakeSearchDb(rows: FlatTurnRow[]) {
     return (row: FlatTurnRow) => row.projectId === wantedProjectId;
   }
 
-  return {
+  const scope: Record<string, unknown> = {
+    // mt#4919: the vector query now runs inside a transaction that issues
+    // `SET LOCAL hnsw.iterative_scan`. This fake runs that callback against
+    // itself, so the project-scope assertions below see the same query path
+    // they always did; the setting is asserted in the sibling suite.
+    execute: (_statement: unknown) => Promise.resolve([]),
+    transaction: <T>(run: (tx: unknown) => Promise<T> | PromiseLike<T>) => run(scope),
     select(_fields?: unknown) {
       return {
         from(_table: unknown) {
@@ -110,7 +116,9 @@ function makeFakeSearchDb(rows: FlatTurnRow[]) {
         },
       };
     },
-  } as unknown as PostgresJsDatabase;
+  };
+
+  return scope as unknown as PostgresJsDatabase;
 }
 
 function makeTurnRow(overrides: Partial<FlatTurnRow>): FlatTurnRow {

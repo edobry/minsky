@@ -17,6 +17,7 @@ import { MemoryRouter } from "react-router-dom";
 import { Rail } from "./Rail";
 import { NewConversationProvider } from "../hooks/useNewConversation";
 import { ProjectProvider } from "../lib/project-context";
+import { stubProjectsRoute } from "../lib/test-support/projects";
 
 function createTestQueryClient(): QueryClient {
   return new QueryClient({
@@ -65,6 +66,7 @@ beforeEach(() => {
       headers: { "Content-Type": "application/json" },
     });
   }) as unknown as typeof globalThis.fetch;
+  stubProjectsRoute();
 });
 
 afterEach(() => {

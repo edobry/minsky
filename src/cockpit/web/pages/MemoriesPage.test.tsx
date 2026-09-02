@@ -23,6 +23,7 @@ import {
   COHORT_DEFS,
 } from "./MemoriesPage";
 import { ProjectProvider } from "../lib/project-context";
+import { stubProjectsRoute } from "../lib/test-support/projects";
 
 const originalFetch = global.fetch;
 
@@ -192,6 +193,7 @@ function renderPage() {
     }
     return jsonResponse({ state: "degraded", reason: "not mocked" });
   }) as unknown as typeof fetch;
+  stubProjectsRoute();
 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const result = render(

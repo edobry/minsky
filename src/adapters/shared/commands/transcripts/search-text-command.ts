@@ -42,13 +42,18 @@ import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import {
   assessWindowCoverage,
   buildSearchResponse,
-  type TranscriptSearchResponse,
+  type TranscriptSearchCommandResponse,
 } from "@minsky/domain/transcripts/transcript-search-filters";
 import {
   DEFAULT_FTS_SEARCH_MODE,
   parseSearchMode,
 } from "@minsky/domain/transcripts/transcript-fts-search-query";
+import {
+  parseSearchProjection,
+  projectTurnResults,
+} from "@minsky/domain/transcripts/transcript-search-projection";
 import { resolveTranscriptProjectScope } from "./resolve-transcript-project-scope";
+import { projectionParam, PROJECTION_TOOL_DESCRIPTION_SUFFIX } from "./projection-param";
 
 // ── Registration ──────────────────────────────────────────────────────────────
 
@@ -70,20 +75,21 @@ export function registerTranscriptSearchTextCommand(
     category: CommandCategory.TRANSCRIPTS,
     name: "search-text",
     description:
-      "Search agent transcript turns by full-text search (FTS) against the fts_text column. " +
-      'Set mode to control matching: "websearch" (default) supports "quoted phrases" (matched by ' +
-      'adjacency), or, and -negation; "plain" ANDs the words with no adjacency; "exact" matches a ' +
-      "literal substring with no stemming, for identifiers and punctuation-bearing strings. " +
-      "Results are ranked by ts_rank (higher = more relevant), except in exact mode which orders by " +
-      "recency. Each result carries a `snippet` — a bounded excerpt with matched spans in [brackets] — " +
-      "so a hit can be read without pulling the whole turn. " +
-      "Optionally filter by role (user/assistant), date range, or session UUID. " +
-      "Scoped to the current project by default; pass allProjects to search every project. " +
-      "Date filters bind the turn's own timestamp, so turns from long-running " +
-      "sessions are matched by when the turn happened, not when the session started. " +
-      "Returns { results, coverage }: when a date window contains sessions not yet " +
-      "indexed into searchable turns, `coverage` reports the gap instead of a silent " +
-      "empty result (those turns become searchable after `transcripts index-embeddings`).",
+      `Search agent transcript turns by full-text search (FTS) against the fts_text column. ` +
+      `Set mode to control matching: "websearch" (default) supports "quoted phrases" (matched by ` +
+      `adjacency), or, and -negation; "plain" ANDs the words with no adjacency; "exact" matches a ` +
+      `literal substring with no stemming, for identifiers and punctuation-bearing strings. ` +
+      `Results are ranked by ts_rank (higher = more relevant), except in exact mode which orders by ` +
+      `recency. Each result carries a \`snippet\` — a bounded excerpt with matched spans in [brackets] — ` +
+      `so a hit can be read without pulling the whole turn. ${
+        PROJECTION_TOOL_DESCRIPTION_SUFFIX
+      }Optionally filter by role (user/assistant), date range, or session UUID. ` +
+      `Scoped to the current project by default; pass allProjects to search every project. ` +
+      `Date filters bind the turn's own timestamp, so turns from long-running ` +
+      `sessions are matched by when the turn happened, not when the session started. ` +
+      `Returns { results, coverage }: when a date window contains sessions not yet ` +
+      `indexed into searchable turns, \`coverage\` reports the gap instead of a silent ` +
+      `empty result (those turns become searchable after \`transcripts index-embeddings\`).`,
     parameters: {
       query: {
         schema: z.string(),
@@ -142,11 +148,13 @@ export function registerTranscriptSearchTextCommand(
         required: false,
         defaultValue: false,
       },
+      projection: projectionParam(),
     },
 
-    async execute(params, context): Promise<TranscriptSearchResponse> {
+    async execute(params, context): Promise<TranscriptSearchCommandResponse> {
       const query = params.query as string;
       const limit = (params.limit as number | undefined) ?? 10;
+      const projection = parseSearchProjection(params.projection);
       const role = params.role as "user" | "assistant" | undefined;
       const originKind = params.originKind as string | undefined;
       const from = params.from as string | undefined;
@@ -225,10 +233,13 @@ export function registerTranscriptSearchTextCommand(
       log.debug("transcripts.search-text complete", {
         query,
         resultCount: results.length,
+        projection,
         unindexedSessionsInWindow: coverage.unindexedSessionsInWindow,
       });
 
-      return buildSearchResponse(results, coverage);
+      // mt#4917: project at the COMMAND layer only — the cockpit calls the
+      // service directly and must keep receiving full turns.
+      return buildSearchResponse(projectTurnResults(results, projection), coverage);
     },
   });
 

@@ -15,8 +15,10 @@
  *   - The pure sweep logic lives in `src/domain/calibration/calibration-sweep.ts`
  *     (unit-testable, no filesystem I/O).
  *
- * Watermark persistence: `.minsky/calibration-review-watermarks.json` (keyed
- * by log path → { lastReviewedCount, lastReviewedAt }).
+ * Watermark persistence: `calibration-review-watermarks.json` under
+ * `getMinskyStateDir()/projects/<key>/` (mt#4880 — it was repo-rooted at
+ * `.minsky/` until then), keyed by log path → { lastReviewedCount,
+ * lastReviewedAt }. The KEY stays repo-relative on purpose; only the file moved.
  *
  * @see mt#2483 — tracking task
  * @see src/domain/calibration/calibration-sweep.ts — pure logic
@@ -58,19 +60,25 @@ import {
   type ReviewDueLog,
   type WatermarkStore,
 } from "../../../domain/calibration/calibration-sweep";
+import {
+  calibrationReviewStorePath,
+  WATERMARK_STORE_FILENAME,
+  WATERMARK_LOCK_FILENAME,
+  CLAIM_STORE_FILENAME,
+} from "@minsky/shared/calibration-review-store-paths";
 
 // ---------------------------------------------------------------------------
-// Watermark store path (repo-relative)
+// Watermark store path — state-dir, project-keyed (mt#4880)
 // ---------------------------------------------------------------------------
-
-const WATERMARK_STORE_PATH = ".minsky/calibration-review-watermarks.json";
-
-/**
- * Lock guarding the watermark store's read-merge-write critical section
- * (mt#3899). A directory, because `mkdir` is atomic and exclusive on every
- * platform we run on — no dependency, no partial-create state.
- */
-const WATERMARK_LOCK_PATH = ".minsky/calibration-review-watermarks.lock";
+//
+// Was `.minsky/calibration-review-watermarks.json`, joined onto `workspacePath`
+// at each of the five call sites below. mt#4880 moved the whole family into
+// `getMinskyStateDir()/projects/<key>/` through one shared resolver, so the two
+// writers and the cockpit reader cannot drift apart — reader/writer path
+// disagreement IS the mt#4811 failure.
+//
+// The LOCK moves with the store it guards: a lock left in the repo tree while
+// the store lives elsewhere serializes nothing that matters.
 /** A holder older than this is treated as dead; the section is ~2 file ops. */
 const WATERMARK_LOCK_STALE_MS = 10_000;
 /** Give up waiting and proceed unlocked rather than lose the pass's work. */
@@ -156,10 +164,12 @@ function buildRecordContextLines(rec: CalibrationRecord): string[] {
 function resolveWorkspacePath(ctx?: CommandExecutionContext): string {
   // Prefer the workspace resolved by the execution context (correct for MCP /
   // session-scoped invocations where the server cwd is not the user's workspace);
-  // fall back to cwd for plain CLI use. Still used as the repo-root INPUT for
-  // watermark/claim-store paths (those stay repo-relative, mt#4748 does not
-  // move them) and as the key input for calibration/evaluation log
-  // resolution below (mt#4748 R1 — those are no longer repo-relative reads).
+  // fall back to cwd for plain CLI use. Used as the repo-root INPUT for BOTH the
+  // calibration/evaluation log resolution (mt#4748 R1) and the watermark/claim
+  // stores (mt#4880) — the sentence here used to say the stores "stay
+  // repo-relative, mt#4748 does not move them", which mt#4880 made false.
+  // Both now go through the same `findGitRepoRoot` derivation, which is what
+  // keeps a store beside the logs it indexes.
   return ctx?.workspacePath ?? process.cwd();
 }
 
@@ -254,6 +264,29 @@ export async function resolveCalibrationStatePath(
   return join(getMinskyStateDir(), "projects", key, bareName);
 }
 
+/**
+ * Resolve one calibration-review STATE store, from the same repo root the LOGS use.
+ *
+ * PR #3581 R1 (BLOCKING) — and the reviewer was right in a way worth recording. Every
+ * store call site below used to pass `workspacePath` RAW while
+ * `resolveCalibrationStatePath` above passes `await findGitRepoRoot(workspacePath)`.
+ * Under the OLD repo-rooted `join(workspacePath, relPath)` that divergence degraded
+ * gracefully — a subdirectory just produced a nearby wrong path, and the module note
+ * above reasons explicitly from that ("never handled a subdirectory correctly either").
+ *
+ * A project key does NOT degrade gracefully: it is a hash, so ANY difference in the
+ * string — a subdirectory, a trailing slash, an unresolved symlink — yields a
+ * COMPLETELY different `projects/<key>/` directory rather than a nearby one. The store
+ * would land somewhere other than the calibration logs it indexes, which is the
+ * separated-store failure this whole task exists to end.
+ *
+ * So the stores now derive their root exactly as the logs do. Same function, same
+ * input, one call away from each other.
+ */
+async function calibrationReviewStore(workspacePath: string, filename: string): Promise<string> {
+  return calibrationReviewStorePath(filename, await findGitRepoRoot(workspacePath));
+}
+
 async function writeFileMkdir(filePath: string, content: string): Promise<void> {
   const { writeFile, mkdir } = await import("node:fs/promises");
   const { dirname } = await import("node:path");
@@ -262,8 +295,7 @@ async function writeFileMkdir(filePath: string, content: string): Promise<void> 
 }
 
 async function loadWatermarks(workspacePath: string): Promise<WatermarkStore> {
-  const { join } = await import("node:path");
-  const storePath = join(workspacePath, WATERMARK_STORE_PATH);
+  const storePath = await calibrationReviewStore(workspacePath, WATERMARK_STORE_FILENAME);
   const content = await readFileOrNull(storePath);
   if (!content) return {};
   try {
@@ -274,8 +306,7 @@ async function loadWatermarks(workspacePath: string): Promise<WatermarkStore> {
 }
 
 async function saveWatermarks(workspacePath: string, store: WatermarkStore): Promise<void> {
-  const { join } = await import("node:path");
-  const storePath = join(workspacePath, WATERMARK_STORE_PATH);
+  const storePath = await calibrationReviewStore(workspacePath, WATERMARK_STORE_FILENAME);
   await writeFileMkdir(storePath, `${JSON.stringify(store, null, 2)}\n`);
 }
 
@@ -284,11 +315,10 @@ async function saveWatermarks(workspacePath: string, store: WatermarkStore): Pro
  * by the SAME lock — the two are written in one critical section, so a pass can
  * never take a claim it then fails to record, or release one whose ack was lost.
  */
-const CLAIM_STORE_PATH = ".minsky/calibration-review-claims.json";
-
 async function loadClaims(workspacePath: string): Promise<CalibrationClaimStore> {
-  const { join } = await import("node:path");
-  const content = await readFileOrNull(join(workspacePath, CLAIM_STORE_PATH));
+  const content = await readFileOrNull(
+    await calibrationReviewStore(workspacePath, CLAIM_STORE_FILENAME)
+  );
   if (!content) return {};
   try {
     return JSON.parse(content) as CalibrationClaimStore;
@@ -300,9 +330,8 @@ async function loadClaims(workspacePath: string): Promise<CalibrationClaimStore>
 }
 
 async function saveClaims(workspacePath: string, store: CalibrationClaimStore): Promise<void> {
-  const { join } = await import("node:path");
   await writeFileMkdir(
-    join(workspacePath, CLAIM_STORE_PATH),
+    await calibrationReviewStore(workspacePath, CLAIM_STORE_FILENAME),
     `${JSON.stringify(store, null, 2)}\n`
   );
 }
@@ -343,9 +372,8 @@ const resolveActorId = resolveCallerActorId;
  * brief by construction.
  */
 async function withWatermarkLock<T>(workspacePath: string, critical: () => Promise<T>): Promise<T> {
-  const { join } = await import("node:path");
   const { mkdir, rm, stat } = await import("node:fs/promises");
-  const lockPath = join(workspacePath, WATERMARK_LOCK_PATH);
+  const lockPath = await calibrationReviewStore(workspacePath, WATERMARK_LOCK_FILENAME);
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
   const deadline = Date.now() + WATERMARK_LOCK_MAX_WAIT_MS;
@@ -407,7 +435,20 @@ export function formatResult(results: CalibrationLogResult[], reviewDue: ReviewD
     lines.push(`  Exists:                 ${r.exists}`);
     lines.push(`  Total fires (all-time): ${r.totalFires}`);
     lines.push(`  Watermark count:        ${r.watermarkCount}`);
-    lines.push(`  Fires since review:     ${r.firesSinceLastReview}`);
+    lines.push(
+      // mt#4904 (PR #3572 R2): annotated in place rather than left bare. The
+      // TEXT surface had the same gap R1 fixed in the JSON one — a stranded log
+      // the review-due leg declines (an ABSENT log, e.g. the retired
+      // `policy-coverage` at watermark 1760) printed "Fires since review: 0"
+      // with nothing marking it, which is indistinguishable from a log that was
+      // genuinely just reviewed. The number is the clamp's output, not a
+      // measurement, and this says so where it is read.
+      r.watermarkStranded
+        ? `  Fires since review:     ${r.firesSinceLastReview}  ` +
+            `(NOT MEANINGFUL — watermark ${r.watermarkCount} exceeds ${r.totalFires} record(s); ` +
+            `the log was rotated, truncated or re-rooted under it)`
+        : `  Fires since review:     ${r.firesSinceLastReview}`
+    );
     // mt#3197: the positional count above includes detections that were
     // suppressed before reaching the operator. mt#3863 widens the split with
     // evaluation-only records — a record carrying no match at all, from a
@@ -571,7 +612,17 @@ export function formatResult(results: CalibrationLogResult[], reviewDue: ReviewD
     lines.push(`${reviewDue.length} log(s) review-due:`);
     for (const d of reviewDue) {
       lines.push(
-        `  - ${d.name}: ${d.reason} (${d.firesSinceLastReview} new / ${d.totalFires} total fires)`
+        // mt#4904 (PR #3572 R2): the stranded leg gets its own rendering for
+        // the same reason the cadence hook's does — `firesSinceLastReview` is
+        // the value the clamp FABRICATED, so the shared form reads
+        // "(0 new / 121 total fires)" about the one log whose new-fire count is
+        // known to be meaningless. Sibling of the `legLine` branch in
+        // `.minsky/hooks/calibration-review-cadence-detector.ts`; both render
+        // the comparison instead.
+        d.reason === "watermark-stranded"
+          ? `  - ${d.name}: ${d.reason} (watermark ${d.watermarkCount} exceeds ` +
+              `${d.totalFires} record(s) — new-fire count not meaningful)`
+          : `  - ${d.name}: ${d.reason} (${d.firesSinceLastReview} new / ${d.totalFires} total fires)`
       );
     }
     lines.push(
@@ -601,8 +652,8 @@ export function registerCalibrationCommands(): void {
         schema: z.boolean(),
         description:
           "Advance the watermark for every review-due log — any reason: past-threshold, " +
-          "time-stale, never-reviewed or never-fired — marking them as reviewed (mt#2878). " +
-          "Without this flag the command is read-only.",
+          "time-stale, never-reviewed, never-fired or watermark-stranded — marking them as " +
+          "reviewed (mt#2878, mt#4904). Without this flag the command is read-only.",
         required: false,
         defaultValue: false,
       },
@@ -679,8 +730,10 @@ export function registerCalibrationCommands(): void {
 
         // mt#4748 R1: the log CONTENT lives under the state dir now, not
         // `<workspacePath>/<relPath>` — see the module note above
-        // `resolveCalibrationStatePath`. (Watermark/claim stores below are
-        // unaffected and still resolve against `workspacePath` directly.)
+        // `resolveCalibrationStatePath`. The watermark/claim stores below used to
+        // be "unaffected and still resolve against `workspacePath` directly";
+        // mt#4880 moved them too, through `calibrationReviewStore`, which derives
+        // the root with the SAME `findGitRepoRoot` call this path uses.
         const readContent = async (relPath: string): Promise<string | null> => {
           return readFileOrNull(await resolveCalibrationStatePath(workspacePath, relPath));
         };
@@ -829,9 +882,10 @@ export function registerCalibrationCommands(): void {
         //
         // mt#2878: this path used to re-derive its own, narrower selection
         // (`results.filter((r) => r.pastThreshold)`) rather than consuming the
-        // `reviewDue` set computed just above. `computeReviewDueLogs` has FOUR
-        // legs — past-threshold, time-stale, never-reviewed (mt#2896) and
-        // never-fired (mt#3078) — and only the first was ackable, so a log
+        // `reviewDue` set computed just above. `computeReviewDueLogs` has FIVE
+        // legs — past-threshold, time-stale, never-reviewed (mt#2896),
+        // never-fired (mt#3078) and watermark-stranded (mt#4904) — and only the
+        // first was ackable, so a log
         // flagged by any other leg could be reviewed but never MARKED reviewed.
         // The cadence hook then re-warned on it every turn with no operator
         // action able to stop it: `pre-narration` sat time-stale-and-unackable
@@ -963,6 +1017,14 @@ export function registerCalibrationCommands(): void {
               exists: r.exists,
               totalFires: r.totalFires,
               watermarkCount: r.watermarkCount,
+              // mt#4904 (PR #3572 R1): projected for EVERY result, not only
+              // review-due ones. A stranded log that the review-due leg
+              // declines — an absent log, e.g. the retired `policy-coverage`
+              // with a watermark of 1760 — is otherwise reported as
+              // `firesSinceLastReview: 0` with nothing distinguishing it from a
+              // just-reviewed log, which is the silent clamping this task
+              // exists to end. The `reviewDue` entry alone cannot carry it.
+              watermarkStranded: r.watermarkStranded,
               firesSinceLastReview: r.firesSinceLastReview,
               suppressedSinceLastReview: r.suppressedSinceLastReview,
               injectedFiresSinceLastReview: r.injectedFiresSinceLastReview,

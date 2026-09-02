@@ -14,6 +14,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HomePage, countFleet, isSubsystemAnomalous } from "./HomePage";
 import type { WidgetData } from "../lib/widget-client";
 import { ProjectProvider } from "../lib/project-context";
+import { PEEZOMBIE_PROJECT, stubProjectsRoute } from "../lib/test-support/projects";
 
 // ---------------------------------------------------------------------------
 // Pure predicates
@@ -168,6 +169,7 @@ function stubHome({
       );
     throw new Error(`Unexpected fetch in test: ${url}`);
   }) as unknown as typeof fetch;
+  stubProjectsRoute();
 }
 
 function renderHome() {
@@ -184,6 +186,15 @@ function renderHome() {
 }
 
 const PROJECT_STORAGE_KEY = "cockpit.project.v1";
+
+/**
+ * The slug these fixtures select must be one `stubProjectsRoute()`'s payload
+ * actually knows (mt#4842). `ProjectProvider` falls back to "All projects"
+ * when the persisted slug names no known project — a guard that was dead for
+ * as long as `/api/projects` went unstubbed and `projectList` was always
+ * empty, which is how an arbitrary slug used to keep the filter active here.
+ */
+const PEEZOMBIE_SLUG = PEEZOMBIE_PROJECT.slug;
 
 describe("HomePage (triage radiator)", () => {
   beforeEach(() => {
@@ -248,7 +259,7 @@ describe("HomePage (triage radiator)", () => {
   // -------------------------------------------------------------------------
 
   test("project filter active, scoped=0/unscoped=40: 'Nothing needs you' plus a muted elsewhere line", async () => {
-    localStorage.setItem(PROJECT_STORAGE_KEY, "edobry/peezombie");
+    localStorage.setItem(PROJECT_STORAGE_KEY, PEEZOMBIE_SLUG);
     stubHome({ scopedPending: 0, unscopedPending: 40 });
     renderHome();
 
@@ -259,7 +270,7 @@ describe("HomePage (triage radiator)", () => {
   });
 
   test("project filter active, scoped=N/unscoped=N (equal): no elsewhere line", async () => {
-    localStorage.setItem(PROJECT_STORAGE_KEY, "edobry/peezombie");
+    localStorage.setItem(PROJECT_STORAGE_KEY, PEEZOMBIE_SLUG);
     stubHome({ scopedPending: 40, unscopedPending: 40 });
     renderHome();
 

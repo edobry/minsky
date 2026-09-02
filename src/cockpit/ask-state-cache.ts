@@ -51,6 +51,10 @@ import * as path from "path";
 import { getStateDir, atomicWriteJSON } from "./lifecycle";
 import { log } from "@minsky/shared/logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+import {
+  calibrationReviewStorePath,
+  WATERMARK_STORE_FILENAME,
+} from "@minsky/shared/calibration-review-store-paths";
 // mt#4014: type-only, erased at build — see OPEN_ASK_STATES below.
 import type { AskState } from "@minsky/domain/ask/types";
 
@@ -66,12 +70,18 @@ export function getAskStateCachePath(): string {
   return path.join(getStateDir(), ASK_STATE_CACHE_FILENAME);
 }
 
-/**
- * Repo-relative path of the watermark store the ask ids come from. Same literal
- * the detector uses (`WATERMARK_STORE_PATH` there); duplicated for the same
- * separate-module-graph reason as the cache filename above.
- */
-export const WATERMARK_STORE_RELPATH = ".minsky/calibration-review-watermarks.json";
+// mt#4880: `WATERMARK_STORE_RELPATH` is gone. It was a repo-relative literal
+// "duplicated for the same separate-module-graph reason as the cache filename
+// above" — and duplication is exactly what a reader must not do for a store two
+// other modules WRITE. This file resolves through
+// `@minsky/shared/calibration-review-store-paths`, which the cadence detector and
+// the calibration command import too, so a reader/writer path disagreement is no
+// longer expressible. That disagreement IS the mt#4811 failure: 17,187 bytes on
+// disk and nothing where the sweep looked, read as "this guard never fired."
+//
+// The separate-module-graph convention still holds for the `.minsky/hooks` ↔
+// `src` boundary; `@minsky/shared` is the sanctioned layer BOTH sides already
+// import, so this crosses nothing.
 
 /**
  * Ask states in which the operator genuinely still owes a response. MUST match
@@ -301,7 +311,7 @@ export function collectWatermarkAskIds(parsed: unknown): string[] {
  * carries `openAskId` only between a calibration review and its disposition).
  */
 export function readWatermarkAskIds(repoRoot: string): string[] {
-  const watermarkPath = path.join(repoRoot, WATERMARK_STORE_RELPATH);
+  const watermarkPath = calibrationReviewStorePath(WATERMARK_STORE_FILENAME, repoRoot);
   try {
     if (!fs.existsSync(watermarkPath)) return [];
     // `String(...)` around the read: the root tsconfig's fs typings widen every readFileSync

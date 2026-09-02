@@ -421,6 +421,35 @@ export interface SessionContextSnapshotBlock {
   isMeta?: boolean;
 
   /**
+   * Who authored this `user` line's text (mt#4354), from the SAME classifier
+   * that writes `agent_transcript_turns.user_origin` — `classifyUserLineOrigin`
+   * in `../transcripts/user-line-origin.ts` (mt#4289).
+   *
+   * **Computed here rather than read from the column, deliberately.** The column
+   * and this field are two call sites of ONE classifier, not two classifiers —
+   * which is the property that matters. Computing has two advantages the column
+   * read does not: `turnLineToBlock` also serves the live-tail SSE path
+   * (mt#2232), where no `agent_transcript_turns` row exists yet, so a column read
+   * would leave every live conversation unlabeled; and it does not depend on the
+   * backfill reaching a historical row.
+   *
+   * **`"human"` is the classifier's FAIL-OPEN default, not positive evidence of
+   * operator authorship.** It is the value returned when no structural marker
+   * matched, so a consumer must not treat it as a claim. Only a NON-`human`
+   * value carries information.
+   *
+   * Set only when the `user` line actually carries text, mirroring the DB
+   * invariant `user_origin IS NOT NULL` ⟺ `user_text IS NOT NULL`. A
+   * `tool_result`-only user line contributes no text, and stamping it `human`
+   * would put an operator-speech marker on a row that carries none — inverting
+   * the question the field exists to answer (`turn-extractor.ts:400-409`).
+   *
+   * Optional and additive: absent on assistant lines and on text-less user
+   * lines, so no existing consumer changes behavior.
+   */
+  userOrigin?: string;
+
+  /**
    * The assistant message's `model`, when the line carried one (mt#3260).
    *
    * Load-bearing case: Claude Code records a retried turn with the sentinel
@@ -546,6 +575,30 @@ export interface SessionContextSnapshot {
    * byte-for-byte guarantee.
    */
   toolNamesByUseId?: Record<string, string>;
+
+  /**
+   * Turn 0, when it is a dispatch brief sitting OUTSIDE this window (mt#4909).
+   *
+   * A subagent conversation opens with the assignment its parent composed, and
+   * that is the block a reader opens such a conversation to find. The window is
+   * tail-first, so on any conversation longer than one page turn 0 is not
+   * merely unmounted — it was never FETCHED, and reaching it cost three
+   * `load earlier turns` round trips on the conversation this was measured
+   * against (195 raw lines, 50 per page).
+   *
+   * Carried as its own field rather than prepended to {@link blocks} so the
+   * paging arithmetic is untouched: `sliceStart`, `nextBefore` and
+   * `oldestTurnIndex` all describe the SLICE the server read, and a block from
+   * outside it would make each of them describe something else. The client
+   * renders this pinned above the thread's start boundary.
+   *
+   * Set only when ALL of: the request asked for a window, the slice did not
+   * already reach index 0, and turn 0 classifies `dispatch_brief`. So a root
+   * conversation, a subagent dispatched before the mt#2292 stamp, and every
+   * unwindowed consumer all see it absent — which is what keeps this additive
+   * and leaves those three callers byte-identical.
+   */
+  headBlock?: SessionContextSnapshotBlock;
 
   /** When this snapshot was assembled (ISO-8601 UTC). */
   assembledAt: string;
