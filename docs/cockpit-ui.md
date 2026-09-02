@@ -521,6 +521,34 @@ and the row marked.
 state is per-view only — nothing is remembered between visits, so a historical
 conversation reads the same on any day.
 
+### A subagent conversation opens with its dispatch brief (mt#4354, mt#4909)
+
+A conversation dispatched by another agent begins with the brief that agent
+wrote. It renders as its own block — labelled **dispatch brief** on a violet
+rail matching the spawn-lineage colour, never under the operator's own label,
+because the parent AGENT composed it (mt#4354). The header carries the task, the
+workspace session, a `read-only` badge when the dispatch declared that intent,
+and an ascent link back to the exact `Agent` call that dispatched it. Generated
+tooling boilerplate is folded; Minsky's own prompt watermarks are stripped.
+
+**It is pinned above the thread, because it would otherwise be unreachable
+(mt#4909).** The brief is turn 0, and the thread is FETCHED a page at a time
+from the tail — so on any conversation longer than one page turn 0 has not been
+fetched at all, and it sat three `load earlier turns` clicks away. The server
+sends it alongside the first page as a separate head block and the view renders
+it above the start boundary, so reading top-down gives the assignment, then what
+is still unfetched, then the turns.
+
+Consequences worth knowing when reading a conversation:
+
+- **The boundary count does not change.** `N earlier turns not loaded` still
+  counts real unfetched history; the brief is additive and is not one of them.
+- **The brief appears exactly once.** Page back far enough to fetch turn 0 and
+  the pinned copy stands down, because the real turn is now in the thread.
+- **No brief, no affordance.** A root conversation — or a subagent dispatched
+  before the mt#2292 stamp existed — renders exactly as it did before, with no
+  empty container above the thread.
+
 ### Identity registration and deeplinks
 
 App-started sessions register their workspace↔conversation identity **at spawn
