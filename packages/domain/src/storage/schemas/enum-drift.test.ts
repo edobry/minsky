@@ -33,6 +33,12 @@ import {
 } from "./system-events-schema";
 import { TASK_STATUS_VALUES } from "../../tasks/taskConstants";
 import { taskStatusEnum } from "./task-embeddings";
+// The cockpit's activity renderer (mt#4775). Imported across the package
+// boundary on purpose: this is the only place that can compare the server's
+// enum against what the client actually renders, and the client cannot import
+// the enum itself (the bundle bans value imports from @minsky/domain, mt#3239).
+// The module is deliberately React-free so this import stays cheap.
+import { eventStyle, eventSummary } from "../../../../../src/cockpit/web/lib/activity-event-render";
 
 // ---------------------------------------------------------------------------
 // Migration-parsing helper
@@ -323,5 +329,47 @@ describe("Event category map — exhaustiveness", () => {
 
   test("eventCategory has no keys beyond SYSTEM_EVENT_TYPE_VALUES (no stale entries)", () => {
     expect(Object.keys(eventCategory).sort()).toEqual([...SYSTEM_EVENT_TYPE_VALUES].sort());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cockpit activity renderer — client/server drift (mt#4775)
+// ---------------------------------------------------------------------------
+//
+// The third axis. `eventCategory` above keeps the SERVER's read-side map in step
+// with the enum, and the migration check keeps the DB in step with it — but
+// nothing compared the enum to what the cockpit RENDERS. It drifted to 9 of 30,
+// so 21 event types displayed as "Unknown event (…)" and the exhaustiveness
+// guard in ActivityPage stayed green throughout, because it was sound over the
+// 9-member union it was given and silent about the other 21.
+
+describe("Activity renderer — client/server drift", () => {
+  test("every SYSTEM_EVENT_TYPE_VALUES member renders a real label", () => {
+    for (const eventType of SYSTEM_EVENT_TYPE_VALUES) {
+      const { label } = eventStyle(eventType);
+      expect(label.length).toBeGreaterThan(0);
+      // The literal the old fallback produced. Asserting on the WORD rather than
+      // on union membership is what lets a 31st event type pass this test on the
+      // day it lands: the derived default covers it, which is the point.
+      expect(label.toLowerCase()).not.toContain("unknown");
+    }
+  });
+
+  test("every SYSTEM_EVENT_TYPE_VALUES member renders a summary, payload or not", () => {
+    for (const eventType of SYSTEM_EVENT_TYPE_VALUES) {
+      const summary = eventSummary({ eventType, payload: {} });
+      expect(summary.length).toBeGreaterThan(0);
+      expect(summary).not.toContain("Unknown event");
+    }
+  });
+
+  test("an event type NOT in the enum still renders rather than falling through", () => {
+    // The guard against a regression to per-type `case` arms: a hypothetical
+    // 31st type must render its own name and payload, not a placeholder.
+    const style = eventStyle("deploy.rolled_back");
+    expect(style.label).toBe("Deploy rolled back");
+    expect(
+      eventSummary({ eventType: "deploy.rolled_back", payload: { service: "minsky-mcp", from: 7 } })
+    ).toBe("service=minsky-mcp · from=7");
   });
 });
