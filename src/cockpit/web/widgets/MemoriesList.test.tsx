@@ -33,6 +33,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoriesList, formatMemoryDisplayName, parseHandoffName } from "./MemoriesList";
 import type { MemoryRecord } from "@minsky/domain/memory/types";
 import { ProjectProvider } from "../lib/project-context";
+import { stubProjectsRoute } from "../lib/test-support/projects";
 
 const originalFetch = global.fetch;
 
@@ -125,6 +126,7 @@ function renderList({ records = [baseRecord()], total }: RenderOptions = {}) {
     }
     return jsonResponse({ state: "degraded", reason: "not mocked" });
   }) as unknown as typeof fetch;
+  stubProjectsRoute();
 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const result = render(
@@ -284,6 +286,7 @@ describe("MemoriesList — search folds into the table toolbar (mt#4762 AT5)", (
       if (url.startsWith("/api/tasks/ids")) return jsonResponse({ ids: [] });
       return jsonResponse({ state: "degraded", reason: "not mocked" });
     }) as unknown as typeof fetch;
+    stubProjectsRoute();
 
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { container } = render(

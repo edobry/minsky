@@ -11,6 +11,7 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DigestPage } from "./DigestPage";
 import { ProjectProvider } from "../lib/project-context";
+import { stubProjectsRoute } from "../lib/test-support/projects";
 
 const originalFetch = globalThis.fetch;
 
@@ -20,6 +21,7 @@ function stubActivity(events: unknown[], status = 200): void {
       status,
       headers: { "Content-Type": "application/json" },
     })) as unknown as typeof fetch;
+  stubProjectsRoute();
 }
 
 function renderPage() {

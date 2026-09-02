@@ -17,6 +17,7 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ConversationSearchPanel } from "./ConversationSearchPanel";
 import { ProjectProvider } from "../lib/project-context";
+import { stubProjectsRoute } from "../lib/test-support/projects";
 
 const originalFetch = global.fetch;
 
@@ -45,6 +46,7 @@ function stubFetch(status: number, body: unknown): void {
       status,
       headers: { "content-type": "application/json" },
     })) as unknown as typeof fetch;
+  stubProjectsRoute();
 }
 
 /** Expand the panel and fill in + submit the query — the shared setup every test needs. */
@@ -145,6 +147,7 @@ describe("ConversationSearchPanel (mt#2523)", () => {
       }
       return new Response(JSON.stringify({}), { status: 404 });
     }) as unknown as typeof fetch;
+    stubProjectsRoute();
 
     renderPanel();
     await expandAndSearch("distinctive phrase");

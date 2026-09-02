@@ -29,6 +29,7 @@ import { MemoryRouter, Routes, useLocation } from "react-router-dom";
 import { PlantFlowPage } from "./PlantFlowPage";
 import { plantRoutes } from "../App";
 import { ProjectProvider } from "../lib/project-context";
+import { stubProjectsRoute } from "../lib/test-support/projects";
 
 // ---------------------------------------------------------------------------
 // Suppress known JSDOM/react-flow canvas compat errors
@@ -124,6 +125,7 @@ function mockTasksFetch(tasks: Array<{ id: string; title: string; status: string
     }
     return Promise.resolve(new Response("Not found", { status: 404 }));
   }) as unknown as typeof globalThis.fetch;
+  stubProjectsRoute();
 }
 
 /**
@@ -256,6 +258,7 @@ function mockPlantBoardFetch(overrides: PlantBoardFetchOverrides = {}) {
 
     return Promise.resolve(new Response("Not found", { status: 404 }));
   }) as unknown as typeof globalThis.fetch;
+  stubProjectsRoute();
 }
 
 // ---------------------------------------------------------------------------
@@ -369,6 +372,7 @@ describe("PlantFlowPage", () => {
     globalThis.fetch = mock(
       () => new Promise(() => {}) // never resolves — keeps query in loading state
     ) as unknown as typeof globalThis.fetch;
+    stubProjectsRoute();
 
     renderPlantFlow();
     expect(screen.getByText("…")).toBeDefined();
