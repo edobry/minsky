@@ -9,6 +9,7 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoriesFamilies } from "./MemoriesFamilies";
 import { ProjectProvider } from "../lib/project-context";
+import { MINSKY_PROJECT, stubProjectsRoute } from "../lib/test-support/projects";
 
 const originalFetch = global.fetch;
 const PROJECT_STORAGE_KEY = "cockpit.project.v1"; // mirrors project-context.tsx's STORAGE_KEY
@@ -54,6 +55,7 @@ function renderFamilies() {
     }
     return jsonResponse({ state: "degraded", reason: "not mocked" });
   }) as unknown as typeof fetch;
+  stubProjectsRoute();
 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const result = render(
@@ -122,13 +124,16 @@ describe("MemoriesFamilies (mt#4763 AT5)", () => {
 
 describe("MemoriesFamilies — project scoping (PR #3500 R1 BLOCKING)", () => {
   test("with a project selected, the fetch carries project=<slug>", async () => {
-    localStorage.setItem(PROJECT_STORAGE_KEY, "minsky");
+    // A slug `stubProjectsRoute()`'s payload knows: an unknown one is reset to
+    // "All projects" by ProjectProvider once the list loads (mt#4842), which
+    // would leave this assertion passing only on the pre-reset first fetch.
+    localStorage.setItem(PROJECT_STORAGE_KEY, MINSKY_PROJECT.slug);
     const { container, calls } = renderFamilies();
     await waitFor(() =>
       expect(container.textContent).toContain("assertion-without-verification")
     );
     const familiesCall = calls.find((c) => c.startsWith("/api/widget/memories-families/data"));
-    expect(familiesCall).toContain("project=minsky");
+    expect(familiesCall).toContain(`project=${encodeURIComponent(MINSKY_PROJECT.slug)}`);
   });
 
   test("with no project selected (All projects), the fetch carries no project param", async () => {

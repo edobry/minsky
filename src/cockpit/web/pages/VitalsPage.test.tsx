@@ -20,6 +20,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { VitalsPage } from "./VitalsPage";
 import { ProjectProvider } from "../lib/project-context";
+import { stubProjectsRoute } from "../lib/test-support/projects";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -154,6 +155,7 @@ function mockVitalsFetch(overrides: Record<string, () => Promise<Response>> = {}
     if (handler) return handler();
     return Promise.resolve(new Response("Not found", { status: 404 }));
   }) as unknown as typeof globalThis.fetch;
+  stubProjectsRoute();
 }
 
 // ---------------------------------------------------------------------------

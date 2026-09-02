@@ -19,6 +19,7 @@ import {
   type WorkstreamAltitude,
 } from "../lib/use-workstreams-data";
 import { ProjectProvider } from "../lib/project-context";
+import { stubProjectsRoute } from "../lib/test-support/projects";
 
 // ---------------------------------------------------------------------------
 // Fixtures — one workstream; the rollup slice strips children, the actionable
@@ -96,6 +97,7 @@ describe("Workstreams altitude parameterization (mt#2385)", () => {
         headers: { "Content-Type": "application/json" },
       });
     }) as unknown as typeof fetch;
+    stubProjectsRoute();
   });
 
   afterEach(() => {
@@ -153,6 +155,7 @@ describe("Workstreams altitude parameterization (mt#2385)", () => {
         { status: 200, headers: { "Content-Type": "application/json" } }
       );
     }) as unknown as typeof fetch;
+    stubProjectsRoute();
 
     render(
       <MemoryRouter>
@@ -206,6 +209,7 @@ describe("Workstreams count wording (mt#4775)", () => {
         status: 200,
         headers: { "Content-Type": "application/json" },
       })) as unknown as typeof fetch;
+    stubProjectsRoute();
   });
 
   afterEach(() => {
