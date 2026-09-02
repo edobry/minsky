@@ -464,52 +464,67 @@ const DEBUG_ECHO_ID = "debug.echo";
 const DEBUG_LIST_METHODS_ID = "debug.listMethods";
 const DEBUG_COMMAND_IDS = ["debug.systemInfo", DEBUG_ECHO_ID, DEBUG_LIST_METHODS_ID] as const;
 
+/** One id's prior occupant: the command object, or `undefined` if it was absent. */
+type RegistryEntry = readonly [string, ReturnType<typeof sharedCommandRegistry.getCommand>];
+
+/** What the registry holds for `ids` right now. */
+function captureRegistryEntries(ids: readonly string[]): RegistryEntry[] {
+  return ids.map((id) => [id, sharedCommandRegistry.getCommand(id)] as const);
+}
+
 /**
- * What the registry held for each debug id BEFORE this file first touched it.
+ * Put the registry back to exactly `entries`.
  *
- * `undefined` for an id that was ABSENT, which is a different restoration than
- * "present with some command" and must not be collapsed into it: the first owes
- * an unregister, the second owes the original object back.
+ * The two cases are NOT interchangeable: an id that was ABSENT owes an
+ * unregister, and one that HELD something owes that same object back. Collapsing
+ * them leaves this file's own registration in place for whoever runs next.
  */
-let displacedDebugCommands: ReadonlyArray<
-  readonly [string, ReturnType<typeof sharedCommandRegistry.getCommand>]
-> = [];
+function restoreRegistryEntries(entries: readonly RegistryEntry[]): void {
+  for (const [id, prior] of entries) {
+    sharedCommandRegistry.unregisterCommand(id);
+    if (prior) sharedCommandRegistry.registerCommand(prior, { allowOverwrite: true });
+  }
+}
+
+/**
+ * What the registry held for the debug ids BEFORE this file first touched it.
+ *
+ * **Written exactly once and never cleared** (PR #3590 R2). The previous version
+ * cleared this on restore, so any later `ensureDebugCommandsRegistered()` — which
+ * the file-level `beforeEach` runs before every remaining test — re-captured a
+ * MID-FILE state, and `afterAll` then "restored" to that instead of to the
+ * pre-file state. The baseline a teardown restores to must not be reachable by
+ * anything that runs after the baseline is taken; that is why this is a
+ * write-once cell rather than a cleared one, and why the test below exercises
+ * `captureRegistryEntries`/`restoreRegistryEntries` against its OWN local
+ * capture instead of driving this cell.
+ */
+let preFileDebugEntries: RegistryEntry[] | undefined;
 
 function ensureDebugCommandsRegistered(): void {
-  // Capture ONCE, before the first mutation — what we displace is what we owe
-  // back. Capturing on every call would record this file's own registrations
-  // from the second call onward and restore them as though they were someone
-  // else's.
-  if (displacedDebugCommands.length === 0) {
-    displacedDebugCommands = DEBUG_COMMAND_IDS.map(
-      (id) => [id, sharedCommandRegistry.getCommand(id)] as const
-    );
-  }
+  // Capture before the FIRST mutation — what we displace is what we owe back.
+  preFileDebugEntries ??= captureRegistryEntries(DEBUG_COMMAND_IDS);
   for (const id of DEBUG_COMMAND_IDS) sharedCommandRegistry.unregisterCommand(id);
   registerDebugCommands();
 }
 
 /**
- * Put back exactly what this file displaced.
+ * Hand the process-global registry back as this file found it.
  *
  * `sharedCommandRegistry` is a process global and `bun test` shares one process
  * across files, so without this the file leaks in BOTH directions: it leaves its
- * own `debug.*` commands in the registry for every later file, and it deletes
+ * own `debug.*` commands there for every later file, and its unregister deletes
  * whichever ones an earlier file had registered. Each is cross-file
  * order-dependence — the class this task exists to remove — so introducing one
  * while fixing another would be a net loss.
  *
- * mt#4076 states the rule this follows: for a shared REGISTRY, as opposed to
- * shared module state, the correct teardown is restore-what-you-displaced, not
- * delete-what-you-added. That task hit the delete-what-you-added version and it
- * poisoned later files even when registration had succeeded.
+ * mt#4076 states the rule: for a shared REGISTRY, as opposed to shared module
+ * state, the correct teardown is restore-what-you-displaced, not
+ * delete-what-you-added. Idempotent, because it reads the write-once cell above
+ * rather than consuming it.
  */
-function restoreDisplacedDebugCommands(): void {
-  for (const [id, prior] of displacedDebugCommands) {
-    sharedCommandRegistry.unregisterCommand(id);
-    if (prior) sharedCommandRegistry.registerCommand(prior, { allowOverwrite: true });
-  }
-  displacedDebugCommands = [];
+function restorePreFileDebugCommands(): void {
+  if (preFileDebugEntries) restoreRegistryEntries(preFileDebugEntries);
 }
 
 // ---------------------------------------------------------------------------
@@ -524,7 +539,7 @@ beforeEach(ensureDebugCommandsRegistered);
 // File-level teardown: hand the process-global registry back in the state this
 // file found it. Without this the fix above would trade one cross-file
 // order-dependence for another (PR #3590 R1).
-afterAll(restoreDisplacedDebugCommands);
+afterAll(restorePreFileDebugCommands);
 
 describe("registry restoration (mt#3575, PR #3590 R1)", () => {
   /**
@@ -537,7 +552,7 @@ describe("registry restoration (mt#3575, PR #3590 R1)", () => {
    * Drives the real displace→restore pair rather than a copy of it, so a change
    * to either function is what this test observes.
    */
-  test("a displaced command is put back, and one this file added is removed", () => {
+  test("an occupied id is restored to the same object; an absent one ends up unregistered", () => {
     const sentinel = defineCommand({
       id: DEBUG_ECHO_ID,
       category: CommandCategory.DEBUG,
@@ -547,35 +562,72 @@ describe("registry restoration (mt#3575, PR #3590 R1)", () => {
       execute: async () => ({ sentinel: true }),
     });
 
-    // Start from a clean capture: the file-level beforeEach already ran one.
-    restoreDisplacedDebugCommands();
+    // Construct the two cases the teardown must tell apart: one id OCCUPIED by
+    // someone else's command, one id ABSENT.
     sharedCommandRegistry.registerCommand(sentinel, { allowOverwrite: true });
-    expect(sharedCommandRegistry.getCommand(DEBUG_ECHO_ID)).toBe(sentinel);
-
-    // An earlier file's command is genuinely displaced, not left in place...
-    ensureDebugCommandsRegistered();
-    expect(sharedCommandRegistry.getCommand(DEBUG_ECHO_ID)).not.toBe(sentinel);
-    expect(sharedCommandRegistry.getCommand(DEBUG_ECHO_ID)).toBeDefined();
-
-    // ...and restored on the way out, byte-for-byte the same object.
-    restoreDisplacedDebugCommands();
-    expect(sharedCommandRegistry.getCommand(DEBUG_ECHO_ID)).toBe(sentinel);
-
-    // The ABSENT direction: an id nobody held must end up unregistered, not
-    // left carrying this file's registration. `debug.listMethods` was captured
-    // as undefined above only if it was absent, so assert against the capture
-    // rather than assuming — establish the state, then check it.
     sharedCommandRegistry.unregisterCommand(DEBUG_LIST_METHODS_ID);
-    restoreDisplacedDebugCommands();
-    ensureDebugCommandsRegistered();
+
+    // A LOCAL capture — the file-level `preFileDebugEntries` is deliberately not
+    // touched, so this test cannot corrupt the baseline `afterAll` restores to.
+    // That corruption is exactly what R2 caught in the previous version.
+    const localBaseline = captureRegistryEntries([DEBUG_ECHO_ID, DEBUG_LIST_METHODS_ID]);
+
+    // Displacing really replaces the occupant and really fills the empty slot.
+    for (const id of DEBUG_COMMAND_IDS) sharedCommandRegistry.unregisterCommand(id);
+    registerDebugCommands();
+    expect(sharedCommandRegistry.getCommand(DEBUG_ECHO_ID)).not.toBe(sentinel);
     expect(sharedCommandRegistry.getCommand(DEBUG_LIST_METHODS_ID)).toBeDefined();
-    restoreDisplacedDebugCommands();
+
+    restoreRegistryEntries(localBaseline);
+
+    // The occupied id gets that same object back — identity, not a lookalike.
+    expect(sharedCommandRegistry.getCommand(DEBUG_ECHO_ID)).toBe(sentinel);
+    // The absent id ends up absent, NOT carrying this file's registration.
     expect(sharedCommandRegistry.getCommand(DEBUG_LIST_METHODS_ID)).toBeUndefined();
 
-    // Leave the registry usable for whatever runs next in this file.
+    // Restoring twice is the same as once: the teardown reads its baseline
+    // rather than consuming it, which is what makes it safe to call from
+    // `afterAll` after any number of `beforeEach` displacements.
+    restoreRegistryEntries(localBaseline);
+    expect(sharedCommandRegistry.getCommand(DEBUG_ECHO_ID)).toBe(sentinel);
+    expect(sharedCommandRegistry.getCommand(DEBUG_LIST_METHODS_ID)).toBeUndefined();
+
+    // Drop the sentinel and hand the file back a working registry; the
+    // file-level beforeEach re-establishes it for whatever runs next anyway.
     sharedCommandRegistry.unregisterCommand(DEBUG_ECHO_ID);
-    restoreDisplacedDebugCommands();
     ensureDebugCommandsRegistered();
+  });
+
+  test("the file-level baseline cell is written ONCE — a later displacement must not replace it", () => {
+    // R2's defect, stated as an identity check on the cell itself.
+    //
+    // An earlier version of this test compared the captured commands against the
+    // ones currently registered and asserted they differed. That assertion is
+    // INERT: `registerDebugCommands()` mints fresh objects on every call, so the
+    // two differ whether the cell is written once or reassigned every time. The
+    // negative control is what exposed it — reintroducing the defect left the
+    // test green (mt#4502: a control that does not fire means the test is inert
+    // or the control is unfaithful, and here it was the test).
+    //
+    // Array IDENTITY is the discriminator that actually separates them, and it
+    // does not depend on what any other file happened to register.
+    const baselineBefore = preFileDebugEntries;
+    // The file-level beforeEach has already displaced the registry once, so the
+    // cell must be populated by now. Throwing rather than asserting narrows the
+    // type AND states the precondition this test depends on.
+    if (baselineBefore === undefined) {
+      throw new Error("preFileDebugEntries was never captured by the file-level beforeEach");
+    }
+    expect(baselineBefore.map(([id]) => id)).toEqual([...DEBUG_COMMAND_IDS]);
+
+    // Displace again, exactly as the file-level beforeEach does before every
+    // remaining test in this file.
+    ensureDebugCommandsRegistered();
+
+    // Write-once: the SAME array, not an equal one. A cell that re-captured
+    // would hold this file's own registrations by now, and `afterAll` would
+    // restore to that instead of the pre-file state — leaking to later files.
+    expect(preFileDebugEntries).toBe(baselineBefore);
   });
 });
 
