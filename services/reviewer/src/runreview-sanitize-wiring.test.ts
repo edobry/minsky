@@ -299,6 +299,15 @@ describe("runReview — prose-path sanitize wiring (mt#1263)", () => {
       expect(submitted.body).toContain(STRIPPED_BODY);
       expect(submitted.body).not.toContain(SCRATCH_FRAGMENT);
 
+      // The criterion asks for the header annotation as well as the body — the
+      // submitted text is `annotateReviewBody`'s output, not a bare body, and the
+      // header is what identifies the review as Chinese-wall and carries the tier.
+      expect(submitted.body).toContain("**Independent adversarial review (Chinese-wall)**");
+      expect(submitted.body).toContain("Tier: 3");
+      // Not a self-review, so the forced-COMMENT warning must be absent — this is
+      // what keeps the REQUEST_CHANGES assertion below meaningful.
+      expect(submitted.body).not.toContain("Reviewer identity matches PR author");
+
       // Pins WHICH text the event was computed from: the raw output ends in
       // APPROVE, the sanitized body in REQUEST_CHANGES (confound 2 in the header).
       expect(submitted.event).toBe("REQUEST_CHANGES");
