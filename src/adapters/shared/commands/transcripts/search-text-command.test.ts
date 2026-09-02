@@ -254,6 +254,20 @@ describe("transcripts.search-text command", () => {
       expect(description).toContain("transcripts_get");
     });
 
+    test("the description names BOTH sides of the agentSessionId/conversationId rename", () => {
+      // PR #3584 R1: the hit carries `agentSessionId` while transcripts_get
+      // takes `conversationId` (ADR-022 renamed the concept for new params and
+      // left existing result fields alone). Naming only one side sends a
+      // caller looking for a field that is not on the row.
+      const projectionDescription = (
+        getCommand().parameters as Record<string, { description?: string } | undefined>
+      ).projection?.description;
+
+      expect(projectionDescription).toContain("agentSessionId");
+      expect(projectionDescription).toContain("conversationId");
+      expect(projectionDescription).toContain("turnIndex");
+    });
+
     test("by default a hit omits the full turn text and reports what it dropped", async () => {
       const resp = (await getCommand().execute(
         { query: "hi", limit: 1 },
@@ -298,9 +312,12 @@ describe("transcripts.search-text command", () => {
       const projected = await getCommand().execute({ query: "hi", limit: 10 }, ctxWithRows(rows));
       expect(wireBytes(projected)).toBeLessThan(MAX_TOOL_RESPONSE_TEXT_BYTES);
 
-      // And not marginally: the whole point is headroom as the corpus grows,
-      // so assert the order of magnitude rather than merely clearing the bar.
-      expect(wireBytes(projected)).toBeLessThan(MAX_TOOL_RESPONSE_TEXT_BYTES / 100);
+      // And not marginally. Expressed as a ratio against the FULL response
+      // rather than as a fraction of the cap (PR #3584 R1): the invariant is
+      // "projecting removes essentially all of the bytes", which stays true
+      // however the cap is retuned. Tying it to MAX/100 would fail this test
+      // on a LOWERED cap even though the projection was working perfectly.
+      expect(wireBytes(projected)).toBeLessThan(wireBytes(full) / 100);
     });
   });
 });

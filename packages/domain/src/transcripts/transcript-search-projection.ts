@@ -79,8 +79,15 @@ export type TranscriptTurnRole = "user" | "assistant" | "both" | "none";
  * A search hit with its text replaced by the bounded excerpt.
  *
  * Everything that is not the turn body is preserved, so the coordinates needed
- * to fetch the full turn (`agentSessionId` + `turnIndex`, via `transcripts_get`
- * with `turnRange`) all survive the projection.
+ * to fetch the full turn survive the projection.
+ *
+ * **Note the field/parameter rename across that hop**: this row's
+ * `agentSessionId` is what `transcripts_get` takes as `conversationId`. Both
+ * name the same harness conversation; the two surfaces differ because ADR-022
+ * renamed the concept for NEW parameters while leaving existing result fields
+ * on the old name. Spell the mapping out wherever it is documented rather than
+ * naming only one side — a caller who reads "pass the conversationId" will
+ * look for a `conversationId` field on this row and not find one.
  */
 export interface TranscriptTurnSnippetResult {
   agentSessionId: string;

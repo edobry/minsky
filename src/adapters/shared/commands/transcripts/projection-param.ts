@@ -29,8 +29,9 @@ export function projectionParam() {
       "`omittedTextChars`. 'full' additionally returns the complete turn text. Prefer the " +
       "default: a transcript turn can run to hundreds of kilobytes, so a full-projection search " +
       "of ~10 hits routinely exceeds the MCP response limit and spools to disk. To read one hit " +
-      "in full, call transcripts_get with the hit's conversationId and a turnRange around its " +
-      "turnIndex.",
+      "in full, call transcripts_get passing the hit's `agentSessionId` as its `conversationId` " +
+      "(the two name the same harness conversation — the result field and the parameter simply " +
+      "differ per ADR-022), with `turnRange` set to the hit's `turnIndex`.",
     required: false,
     defaultValue: DEFAULT_TRANSCRIPT_SEARCH_PROJECTION,
   };
@@ -45,4 +46,5 @@ export function projectionParam() {
  */
 export const PROJECTION_TOOL_DESCRIPTION_SUFFIX =
   "By default each hit returns its `snippet` and coordinates WITHOUT the full turn text " +
-  '(`projection: "full"` restores it); read a hit in full with transcripts_get + turnRange. ';
+  '(`projection: "full"` restores it); to read one hit in full, pass its `agentSessionId` to ' +
+  "transcripts_get as `conversationId`, with `turnRange` set to its `turnIndex`. ";
