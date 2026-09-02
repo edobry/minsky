@@ -273,9 +273,9 @@ correctly?**), not as evidence of liveness.
 Also read the `Unmapped (...)` line if present: those calibration logs have no guard
 declaring them, so the check has no invocation evidence for them and can therefore never
 report `[DORMANT]` — a quiet window takes them straight to `[FLAGGED]`. That is a wiring gap
-to file, not a dead detector, and it is worth filing while the log still reads `[OK]` (see
-the corrected bullet above; the older wording here said "can only ever flag them", which
-overstates it).
+to file, not a dead detector, and it is worth filing while the log still reads `[OK]`. This
+sentence overstated the consequence until mt#4688; the corrected bullet above carries the
+detail.
 
 This is the LIVE-input complement to the canary's synthetic-input check; see
 `docs/architecture/evaluation-loop-fire-log.md` §Coverage-receipt gate.
