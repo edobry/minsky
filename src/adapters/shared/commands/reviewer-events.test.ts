@@ -45,6 +45,7 @@ const MESSAGE_400 =
  */
 const OUTCOME_FAILED_AT_REVIEWER = "failed_at_reviewer";
 const VERDICT_NOT_A_TRIGGER = "not-a-review-trigger";
+const VERDICT_AWAITING_ROUTING = "awaiting-routing";
 
 function row(overrides: Partial<ReviewerEventRow> = {}): ReviewerEventRow {
   return {
@@ -118,7 +119,7 @@ describe("classifyEventRow", () => {
   test("a received row on a trigger event type is awaiting-routing", () => {
     for (const eventType of REVIEW_TRIGGER_EVENT_TYPES) {
       expect(classifyEventRow({ eventType, outcome: "received", errorMessage: null })).toBe(
-        "awaiting-routing"
+        VERDICT_AWAITING_ROUTING
       );
     }
   });
@@ -144,7 +145,7 @@ describe("classifyEventRow", () => {
       outcome: "some_future_outcome",
       errorMessage: null,
     });
-    expect(verdict).toBe("awaiting-routing");
+    expect(verdict).toBe(VERDICT_AWAITING_ROUTING);
     expect(deriveLadderVerdict([row({ verdict })]).isSilence).toBe(false);
   });
 });
@@ -163,7 +164,11 @@ describe("deriveLadderVerdict", () => {
     expect(v.detail).toContain("bypass condition (c) does not hold");
   });
 
-  test("rows that never advanced past receipt are a routing stall, not silence", () => {
+  test("only non-trigger traffic stays silence-PERMITTING, not a routing stall", () => {
+    // PR #3560 R1. check_suite receipts accompany almost every push, so counting
+    // them as reviewer activity would block the webhook-silence bypass on nearly
+    // every genuinely-missed PR — the opposite of what this command is for. They
+    // say nothing about whether a reviewer-triggering delivery arrived.
     const v = deriveLadderVerdict([
       row({
         eventType: "check_suite",
@@ -172,7 +177,30 @@ describe("deriveLadderVerdict", () => {
         verdict: VERDICT_NOT_A_TRIGGER,
       }),
     ]);
-    expect(v.kind).toBe("delivered-not-dispatched");
+    expect(v.kind).toBe(VERDICT_NOT_A_TRIGGER);
+    expect(v.isSilence).toBe(true);
+    expect(v.detail).toContain("does NOT block the ladder");
+  });
+
+  test("a trigger delivery that has not been routed IS activity — not silence", () => {
+    // The counterpart to the test above, and the reason it cannot simply treat
+    // every non-informative window as silence: a `pull_request` row at
+    // `received` means the webhook landed, so the miss did not happen.
+    const v = deriveLadderVerdict([
+      row({
+        eventType: "pull_request",
+        outcome: "received",
+        errorMessage: null,
+        verdict: VERDICT_AWAITING_ROUTING,
+      }),
+      row({
+        eventType: "check_suite",
+        outcome: "received",
+        errorMessage: null,
+        verdict: VERDICT_NOT_A_TRIGGER,
+      }),
+    ]);
+    expect(v.kind).toBe(VERDICT_AWAITING_ROUTING);
     expect(v.isSilence).toBe(false);
   });
 
@@ -241,6 +269,29 @@ describe("toEventRow", () => {
     });
     expect(r.errorMessage).toBeNull();
     expect(r.verdict).toBe("ran-and-failed");
+  });
+
+  test("an empty-string PR number becomes null, not 0", () => {
+    // PR #3560 R1. `Number("")` is 0 and `Number.isFinite(0)` is true, so a
+    // naive coercion turns an absent PR number into a valid-looking `#0` that
+    // the repo-wide `count(DISTINCT …)` would then count as a real PR.
+    for (const raw of ["", "   ", "0", null]) {
+      const r = toEventRow({
+        received_at: "2026-08-08T18:20:28Z",
+        event_type: "check_suite",
+        outcome: "received",
+        pr_number: raw,
+      });
+      expect(r.prNumber).toBeNull();
+    }
+  });
+
+  test("a real PR number still survives the guard", () => {
+    // The negative case above is only meaningful if the positive one still
+    // works — a guard that nulled everything would pass it vacuously.
+    expect(
+      toEventRow({ event_type: "pull_request", outcome: "received", pr_number: "1" }).prNumber
+    ).toBe(1);
   });
 });
 

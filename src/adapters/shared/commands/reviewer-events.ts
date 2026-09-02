@@ -114,10 +114,7 @@ export type ReviewerEventVerdict =
 /** The ladder-facing verdict for a whole PR, derived from its rows. */
 export type ReviewerLadderVerdictKind =
   /** No delivery at all in the window — consistent with genuine webhook silence. */
-  | "no-record"
-  /** Deliveries arrived but none advanced past receipt — a routing stall, NOT silence. */
-  | "delivered-not-dispatched"
-  | ReviewerEventVerdict;
+  "no-record" | ReviewerEventVerdict;
 
 export interface ReviewerEventRow {
   receivedAt: string;
@@ -152,8 +149,21 @@ export interface ReviewerEventsReport {
   verdict: {
     kind: ReviewerLadderVerdictKind;
     /**
-     * True ONLY for `no-record`. Every other value means the service saw the
-     * delivery, so §7a's webhook-silence bypass condition does not hold.
+     * True when the record holds no evidence that a review was ever ATTEMPTED
+     * on this head — `no-record` (no delivery at all) and `not-a-review-trigger`
+     * (only routine non-trigger traffic such as `check_suite` receipts). In both
+     * cases the ladder may continue toward its webhook-silence bypass.
+     *
+     * False for every other verdict: the service received a reviewer-triggering
+     * delivery and ran, declined, stalled, or is still in flight, so §7a's
+     * webhook-silence condition does not hold.
+     *
+     * **This defaults toward permitting the bypass, deliberately.** A wrong
+     * `false` blocks a legitimate merge on a PR the reviewer never saw, which
+     * is a silent stall with no signal attached; a wrong `true` merely returns
+     * the ladder to the behaviour it had before this command existed, where the
+     * remaining rungs still apply. The asymmetry is why non-trigger traffic
+     * must not be counted as reviewer activity (PR #3560 R1).
      */
     isSilence: boolean;
     detail: string;
@@ -228,8 +238,6 @@ function isInformative(verdict: ReviewerEventVerdict): boolean {
 const VERDICT_DETAIL: Record<ReviewerLadderVerdictKind, string> = {
   "no-record":
     "No delivery recorded in this window. Consistent with genuine webhook silence — but read `bounds` first: a retrigger-initiated review leaves no row, and the window is bounded.",
-  "delivered-not-dispatched":
-    "Deliveries arrived and were verified, but none advanced past receipt. The webhook did NOT miss — this is a routing stall. Not a bypass condition.",
   "ran-and-failed":
     "The reviewer RAN and did not complete. This is not silence and §7a's bypass condition (c) does not hold. Read `errorMessage`, then check `repoWideFailures` to tell a systemic outage from one bad PR.",
   "declined-to-run":
@@ -244,7 +252,8 @@ const VERDICT_DETAIL: Record<ReviewerLadderVerdictKind, string> = {
     "The delivery failed at signature verification or tier routing, before the reviewer was reached. Not silence.",
   "awaiting-routing":
     "The delivery arrived and was verified but has not been routed yet. Recent — wait rather than diagnose.",
-  "not-a-review-trigger": "Only non-trigger traffic recorded. Not evidence a review was attempted.",
+  "not-a-review-trigger":
+    "Only routine non-trigger traffic recorded (check_suite receipts, comment events the reviewer does not act on). No reviewer-triggering delivery arrived in this window, so this says nothing about reviewer activity and does NOT block the ladder — read `bounds`, then continue.",
 };
 
 /**
@@ -259,13 +268,38 @@ export function deriveLadderVerdict(rows: ReviewerEventRow[]): ReviewerEventsRep
   if (rows.length === 0) {
     return { kind: "no-record", isSilence: true, detail: VERDICT_DETAIL["no-record"] };
   }
+
   const informative = rows.find((r) => isInformative(r.verdict));
-  const kind: ReviewerLadderVerdictKind = informative
-    ? informative.verdict
-    : rows.some((r) => r.verdict === "awaiting-routing")
-      ? "awaiting-routing"
-      : "delivered-not-dispatched";
-  return { kind, isSilence: false, detail: VERDICT_DETAIL[kind] };
+  if (informative) {
+    return {
+      kind: informative.verdict,
+      isSilence: false,
+      detail: VERDICT_DETAIL[informative.verdict],
+    };
+  }
+
+  // A trigger-type delivery arrived and has not been routed yet. Not silence:
+  // the webhook landed, so the miss this ladder is diagnosing did not happen.
+  if (rows.some((r) => r.verdict === "awaiting-routing")) {
+    return {
+      kind: "awaiting-routing",
+      isSilence: false,
+      detail: VERDICT_DETAIL["awaiting-routing"],
+    };
+  }
+
+  // Only non-trigger traffic — check_suite receipts and the like. Routine, and
+  // it says NOTHING about whether a reviewer-triggering delivery arrived. This
+  // must stay silence-permitting: `check_suite` rows accompany almost every
+  // push, so counting them as reviewer activity would block the webhook-silence
+  // bypass on nearly every genuinely-missed PR, which is the opposite of this
+  // command's purpose. (PR #3560 R1 — the earlier code returned a
+  // "routing stall" verdict here and flipped `isSilence` to false.)
+  return {
+    kind: "not-a-review-trigger",
+    isSilence: true,
+    detail: VERDICT_DETAIL["not-a-review-trigger"],
+  };
 }
 
 /**
@@ -347,10 +381,35 @@ function str(value: unknown): string | null {
   return s.length === 0 ? null : s;
 }
 
+/**
+ * Coerce a jsonb-extracted value to an integer, or null.
+ *
+ * The empty-string guard is load-bearing, not defensive noise: `Number("")` is
+ * **0**, and `Number.isFinite(0)` is true, so without it an absent PR number
+ * that surfaced as `""` rather than NULL would become a valid-looking
+ * `prNumber: 0` — rendered as `#0`, and counted by the repo-wide
+ * `count(DISTINCT …)`. The `->>` operator should yield NULL for a missing path,
+ * but this reads jsonb across four heterogeneous event shapes and a driver or
+ * row-shaping change is exactly the kind of thing that surfaces `""` instead.
+ * A wrong zero is worse than a null here because it looks like data.
+ * (PR #3560 R1.)
+ */
 function int(value: unknown): number | null {
   if (value === null || value === undefined) return null;
+  if (typeof value === "string" && value.trim() === "") return null;
   const n = Number(value);
   return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
+/**
+ * A PR number is 1-based, so anything at or below zero is a coercion artifact
+ * rather than data. Normalised to null rather than thrown: this command runs
+ * while an agent is diagnosing a reviewer outage, and a diagnostic that throws
+ * on malformed input takes away the one signal the caller came for.
+ */
+function prNumberOrNull(value: unknown): number | null {
+  const n = int(value);
+  return n !== null && n > 0 ? n : null;
 }
 
 export function toEventRow(row: Record<string, unknown>): ReviewerEventRow {
@@ -364,7 +423,7 @@ export function toEventRow(row: Record<string, unknown>): ReviewerEventRow {
     action: str(row["action"]),
     outcome,
     repo: str(row["repo"]),
-    prNumber: int(row["pr_number"]),
+    prNumber: prNumberOrNull(row["pr_number"]),
     headSha: str(row["head_sha"]),
     errorStage: str(row["error_stage"]),
     errorMessage,

@@ -117,13 +117,13 @@ After pushing a follow-up commit that addresses BLOCKING findings, \`minsky-revi
    mcp__minsky__observability_reviewer-events(owner: "<owner>", repo: "<repo>", pr: <n>)
    \`\`\`
 
-   It reads \`reviewer_webhook_events\`, the service's per-delivery outcome record, and returns a \`verdict\` plus the classified rows, the repo-wide failure classes, and the coverage bounds. **\`verdict.isSilence\` is true for exactly one value — \`no-record\`. Every other verdict means the service saw the delivery, so this section's webhook-miss class does not apply and §8's bypass condition (c) does not hold.**
+   It reads \`reviewer_webhook_events\`, the service's per-delivery outcome record, and returns a \`verdict\` plus the classified rows, the repo-wide failure classes, and the coverage bounds. **\`verdict.isSilence\` is true for exactly two values — \`no-record\` and \`not-a-review-trigger\`, the two readings under which no reviewer-triggering delivery arrived at all. Every other verdict means the service received one and acted on it, so this section's webhook-miss class does not apply and §8's bypass condition (c) does not hold.** Read the field rather than the kind: it defaults toward permitting the bypass on purpose, because a wrong block strands a PR the reviewer never saw with no signal attached, while a wrong pass merely leaves the ladder's remaining rungs to do their job.
 
    | \`verdict.kind\` | What happened | What to do |
    | --- | --- | --- |
    | \`no-record\` | No delivery recorded in the window | Genuine silence — continue this ladder |
-   | \`delivered-not-dispatched\` | Arrived and verified, never routed | A routing stall, not a webhook miss — do not bypass |
-   | \`awaiting-routing\` | Arrived, still in flight | Too recent to diagnose — wait |
+   | \`not-a-review-trigger\` | Only routine traffic (\`check_suite\` receipts, comments the reviewer ignores) | The reviewer was never asked — continue this ladder |
+   | \`awaiting-routing\` | A trigger delivery arrived, still in flight | The webhook landed, so the miss did not happen — wait |
    | \`deliberately-skipped\` | Draft PR, or tier=skip | Not silence, and not reviewable in this state |
    | \`declined-to-run\` | Another caller held the in-flight marker | Push a NEW HEAD; a retrigger is refused (mem#1093) |
    | \`dispatched-never-finished\` | Dispatched, killed mid-review | mt#1897 (tool-loop timeout) — retrigger, then escalate |
@@ -188,7 +188,7 @@ Use \`mcp__minsky__session_pr_merge\`. This succeeds after reviewer-bot APPROVE 
 
 1. **Self-reversal** — round N's BLOCKING finding contradicts an earlier round's ACCEPTED fix ON THE SAME ARTIFACT STATE. The reviewer re-reviewing DIFFERENT commit states the agent itself created (e.g. an add-then-revert churn across rounds) is NOT self-reversal — each round reviewed genuinely different code, so there is no contradiction to resolve by bypassing.
 2. **CoT-leakage** — the reviewer emitted raw reasoning / chain-of-thought prose instead of structured findings, on the SAME HEAD, at least twice consecutively.
-3. **Webhook-silence** — the reviewer has been absent for >5 minutes AFTER completing the full §7a diagnosis ladder, which now INCLUDES the direct reviews-list read above AND §7a step 5's delivery-record read. **That read must have returned \`verdict.isSilence: true\` (kind \`no-record\`) (mt#4118).** Any other verdict says the service received the delivery and ran, declined, or stalled — this condition is then false by definition, however empty the reviews list looks. An empty reviews list is the SHARED signature of silence and of submission failure; it discriminates neither.
+3. **Webhook-silence** — the reviewer has been absent for >5 minutes AFTER completing the full §7a diagnosis ladder, which now INCLUDES the direct reviews-list read above AND §7a step 5's delivery-record read. **That read must have returned \`verdict.isSilence: true\` — kind \`no-record\` or \`not-a-review-trigger\` (mt#4118).** Any other verdict says the service received the delivery and ran, declined, or stalled — this condition is then false by definition, however empty the reviews list looks. An empty reviews list is the SHARED signature of silence and of submission failure; it discriminates neither.
 4. **Verified-false-positive** — the cited code, when actually re-read, does NOT contain the claimed defect. An out-of-diff, pre-existing, but FACTUALLY TRUE finding is NOT a false positive — surface and file it (per mt#1882) rather than bypassing. **Before escalating this condition, retrigger once — see §8a.**
 
 If the named condition, once checked against its definition, does not actually hold, the bypass is refused — continue waiting, fix the finding, or escalate instead.
