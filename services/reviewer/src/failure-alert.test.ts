@@ -18,13 +18,14 @@ import {
   extractPrCoordinates,
   aggregatePriorFailures,
   recordReviewFailure,
+  shouldEscalateToOperator,
   SUPPRESSION_WINDOW_MS,
   SYSTEMIC_DISTINCT_PR_THRESHOLD,
   type ReviewFailureClass,
 } from "./failure-alert";
 import { buildCheckRunPayload } from "./check-run-publisher";
 import { submissionFailuresTable } from "./db/schemas/submission-failures-schema";
-import type { ReviewFailureAlertContext } from "./ask-emitter";
+import type { OperatorIncidentContext, ReviewFailureAlertContext } from "./ask-emitter";
 
 // ---------------------------------------------------------------------------
 // Shared literals
@@ -36,6 +37,11 @@ import type { ReviewFailureAlertContext } from "./ask-emitter";
 
 const CLASS_TIMEOUT: ReviewFailureClass = "provider_timeout";
 const CLASS_CREDITS: ReviewFailureClass = "provider_credits_exhausted";
+// Hoisted by mt#2719 for the same reason as the two above: the escalation tests
+// reference both classes as the NEGATIVE side of the operator-actionable split,
+// which tipped each literal over the duplication rule.
+const CLASS_UNAVAILABLE: ReviewFailureClass = "provider_unavailable";
+const CLASS_TOKEN_LIMIT: ReviewFailureClass = "provider_token_limit";
 const MSG_TOOLLOOP_TIMEOUT = "Operation timed out after 120000ms: toolloop.retry";
 const MSG_SELF_SIGNED = "self signed certificate";
 const MSG_NO_CREDITS = "429 You have no credits remaining";
@@ -87,12 +93,24 @@ function makeEmitter() {
     captured.push(ctx);
     return Promise.resolve("created" as const);
   });
+  // mt#2719 added a third method to the AskEmitter interface — the operator
+  // paging tier. Captured rather than stubbed, because the escalation tests
+  // below assert both that it fires when the threshold is crossed and that it
+  // does NOT fire for self-healing classes.
+  const capturedIncidents: OperatorIncidentContext[] = [];
+  const emitOperatorIncidentAlert = mock((ctx: OperatorIncidentContext) => {
+    capturedIncidents.push(ctx);
+    return Promise.resolve("created" as const);
+  });
   return {
     captured,
+    capturedIncidents,
     emitReviewFailureAlert,
+    emitOperatorIncidentAlert,
     emitter: {
       emitCircuitBreakerAlert: () => Promise.resolve("created" as const),
       emitReviewFailureAlert,
+      emitOperatorIncidentAlert,
     },
   };
 }
@@ -179,7 +197,7 @@ describe("classifyReviewFailure", () => {
     // Ordering guard: a provider rejection can also mention a duration, and the
     // specific class is the useful one.
     const message = "400 Input tokens exceed the configured limit; operation timed out after 5ms";
-    expect(classifyReviewFailure(message).errorClass).toBe("provider_token_limit");
+    expect(classifyReviewFailure(message).errorClass).toBe(CLASS_TOKEN_LIMIT);
   });
 });
 
@@ -242,7 +260,7 @@ describe("aggregatePriorFailures", () => {
       [
         { owner: "edobry", repo: "minsky", prNumber: 10, errorClass: CLASS_TIMEOUT },
         // different class, same PR — not a prior occurrence of THIS condition
-        { owner: "edobry", repo: "minsky", prNumber: 10, errorClass: "provider_unavailable" },
+        { owner: "edobry", repo: "minsky", prNumber: 10, errorClass: CLASS_UNAVAILABLE },
         // same class, different PR — counts toward breadth, not toward this PR
         { owner: "edobry", repo: "minsky", prNumber: 11, errorClass: CLASS_TIMEOUT },
       ],
@@ -523,6 +541,7 @@ describe("recordReviewFailure", () => {
     const emitter = {
       emitCircuitBreakerAlert: () => Promise.resolve("created" as const),
       emitReviewFailureAlert: () => Promise.reject(new Error("asks substrate down")),
+      emitOperatorIncidentAlert: () => Promise.resolve("created" as const),
     };
 
     const outcome = await recordReviewFailure(
@@ -614,5 +633,139 @@ describe("buildCheckRunPayload with an unknown round (mt#4881 SC7)", () => {
         convergenceState: { roundNumber: 2, blockingCount: 1 },
       }).output.summary
     ).toBe("Round 2: 1 blocking finding remain.");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The operator escalation tier (mt#2719)
+// ---------------------------------------------------------------------------
+
+const MSG_NO_CAPACITY = "No server is currently available to handle the request";
+
+describe("shouldEscalateToOperator (mt#2719)", () => {
+  test("fires only on the threshold crossing, so one episode pages once", () => {
+    // priorOccurrencesOfClass counts everything BEFORE this failure.
+    expect(shouldEscalateToOperator(CLASS_CREDITS, 0)).toBe(false);
+    expect(shouldEscalateToOperator(CLASS_CREDITS, 1)).toBe(false);
+    expect(shouldEscalateToOperator(CLASS_CREDITS, 2)).toBe(true);
+    // 4th and beyond: already escalated, do not page again.
+    expect(shouldEscalateToOperator(CLASS_CREDITS, 3)).toBe(false);
+    expect(shouldEscalateToOperator(CLASS_CREDITS, 9)).toBe(false);
+  });
+
+  test("never fires for self-healing classes, however many there are", () => {
+    // The whole discriminator: these recover without a human, so paging on them
+    // would spend attention on nothing and burn the 3-per-24h page ceiling.
+    for (const priors of [2, 3, 20]) {
+      expect(shouldEscalateToOperator(CLASS_UNAVAILABLE, priors)).toBe(false);
+      expect(shouldEscalateToOperator(CLASS_TIMEOUT, priors)).toBe(false);
+    }
+  });
+
+  test("never fires for single-PR deterministic classes owned elsewhere", () => {
+    expect(shouldEscalateToOperator("github_diff_too_large", 2)).toBe(false);
+    expect(shouldEscalateToOperator(CLASS_TOKEN_LIMIT, 2)).toBe(false);
+  });
+});
+
+describe("recordReviewFailure operator escalation (mt#2719)", () => {
+  test("the third credits failure in the window pages, carrying the billing URL", async () => {
+    const { emitter, capturedIncidents } = makeEmitter();
+    const priorRows = [priorRow(10, MSG_NO_CREDITS), priorRow(11, MSG_NO_CREDITS)];
+
+    await recordReviewFailure(
+      makeDb({ priorRows }).db as never,
+      { ...BASE_CTX, prNumber: 12, message: MSG_NO_CREDITS },
+      { askEmitter: emitter, provider: "openai" }
+    );
+
+    expect(capturedIncidents).toHaveLength(1);
+    const incident = capturedIncidents[0];
+    expect(incident?.source).toBe("provider");
+    expect(incident?.remediationUrl).toContain("platform.openai.com");
+    if (incident?.source === "provider") {
+      expect(incident.errorClass).toBe(CLASS_CREDITS);
+      expect(incident.occurrencesInWindow).toBe(3);
+    }
+  });
+
+  test("two failures is not yet sustained — no page", async () => {
+    const { emitter, capturedIncidents } = makeEmitter();
+    const priorRows = [priorRow(10, MSG_NO_CREDITS)];
+
+    await recordReviewFailure(
+      makeDb({ priorRows }).db as never,
+      { ...BASE_CTX, prNumber: 11, message: MSG_NO_CREDITS },
+      { askEmitter: emitter, provider: "openai" }
+    );
+
+    expect(capturedIncidents).toHaveLength(0);
+  });
+
+  test("a sustained self-healing outage never pages, however long it runs", async () => {
+    const { emitter, capturedIncidents } = makeEmitter();
+    const priorRows = Array.from({ length: 8 }, (_, i) => priorRow(20 + i, MSG_NO_CAPACITY));
+
+    await recordReviewFailure(
+      makeDb({ priorRows }).db as never,
+      { ...BASE_CTX, prNumber: 99, message: MSG_NO_CAPACITY },
+      { askEmitter: emitter, provider: "openai" }
+    );
+
+    expect(capturedIncidents).toHaveLength(0);
+  });
+
+  test("escalates even when the ordinary alert is suppressed as a duplicate", async () => {
+    // The case the escalation gate exists for: an outage that keeps failing the
+    // SAME PR. mt#4881's per-PR suppression correctly silences the inbox ask
+    // from occurrence 2, so if the escalation lived after it, a single-PR outage
+    // could never reach the count that proves it sustained.
+    const { emitter, capturedIncidents } = makeEmitter();
+    const priorRows = [priorRow(1234, MSG_NO_CREDITS), priorRow(1234, MSG_NO_CREDITS)];
+
+    const outcome = await recordReviewFailure(
+      makeDb({ priorRows }).db as never,
+      { ...BASE_CTX, prNumber: 1234, message: MSG_NO_CREDITS },
+      { askEmitter: emitter, provider: "openai" }
+    );
+
+    expect(outcome).toBe(SUPPRESSED_DUP);
+    expect(capturedIncidents).toHaveLength(1);
+  });
+
+  test("an unknown provider yields guidance, not another vendor's billing page", async () => {
+    const { emitter, capturedIncidents } = makeEmitter();
+    const priorRows = [priorRow(10, MSG_NO_CREDITS), priorRow(11, MSG_NO_CREDITS)];
+
+    await recordReviewFailure(
+      makeDb({ priorRows }).db as never,
+      { ...BASE_CTX, prNumber: 12, message: MSG_NO_CREDITS },
+      { askEmitter: emitter, provider: "some-new-provider" }
+    );
+
+    expect(capturedIncidents[0]?.remediationUrl).not.toContain("http");
+  });
+
+  test("an escalation failure does not stop the ordinary alert path", async () => {
+    const { captured } = makeEmitter();
+    const emitter = {
+      emitCircuitBreakerAlert: () => Promise.resolve("created" as const),
+      emitReviewFailureAlert: mock((ctx: ReviewFailureAlertContext) => {
+        captured.push(ctx);
+        return Promise.resolve("created" as const);
+      }),
+      emitOperatorIncidentAlert: () => Promise.reject(new Error("paging substrate down")),
+    };
+    const priorRows = [priorRow(10, MSG_NO_CREDITS), priorRow(11, MSG_NO_CREDITS)];
+
+    const outcome = await recordReviewFailure(
+      makeDb({ priorRows }).db as never,
+      { ...BASE_CTX, prNumber: 12, message: MSG_NO_CREDITS },
+      { askEmitter: emitter, provider: "openai" }
+    );
+
+    // The inbox ask still went out even though paging blew up.
+    expect(outcome).toBe("emitted");
+    expect(captured).toHaveLength(1);
   });
 });

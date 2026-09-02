@@ -86,19 +86,11 @@ import {
   type AskWaitForResponseResult,
 } from "@minsky/domain/ask/wait-for-response";
 import { SystemOperatorNotify } from "@minsky/domain/notify/operator-notify";
-// Severity transport binding (mt#3595)
-import {
-  notifyPrincipal,
-  createRealPrincipalChannelDeps,
-} from "@minsky/domain/notify/principal-channel";
-import { resolvePersistenceProvider } from "@minsky/domain/persistence/factory";
-import { emitSystemEventFromProvider } from "@minsky/domain/events/emit-best-effort";
-import {
-  PAGE_RATE_LIMIT_MAX,
-  PAGE_RATE_LIMIT_WINDOW_MS,
-  pagePrincipalForAsk,
-  type PrincipalPageDeps,
-} from "@minsky/domain/ask/principal-page";
+// Severity transport binding (mt#3595). The production delivery seam moved to
+// the domain in mt#2719 so the reviewer service can reach it too — see that
+// module's header. `createAsk`'s behaviour is unchanged by the move.
+import { dispatchPrincipalPage } from "@minsky/domain/ask/principal-page-dispatch";
+import type { PrincipalPageDeps } from "@minsky/domain/ask/principal-page";
 import type { AskSeverity } from "@minsky/domain/ask/types";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { describeContainerPersistenceUnavailability } from "./persistence-unavailability";
@@ -1569,125 +1561,6 @@ export async function createAsk(
     routedAt: persisted.routedAt ?? routed.routedAt,
     closedAt: persisted.closedAt ?? routed.closedAt,
   };
-}
-
-// ---------------------------------------------------------------------------
-// Severity → principal page (mt#3595)
-// ---------------------------------------------------------------------------
-
-/**
- * Build the production delivery seam for the severity page.
- *
- * A factory rather than a constant so each dispatch gets a fresh closure and
- * tests can substitute the whole object at the `createAsk` seam.
- */
-function makeProductionPageDeps(): PrincipalPageDeps {
-  return {
-    async send(message) {
-      // Never reach the live channel from a test run (mt#3557 / mt#3538 class).
-      // `notifyPrincipal` resolves credentials from the Pulumi stack when env
-      // vars are absent, so an un-injected call here would spawn `pulumi` and
-      // message the principal for real. That hazard is NEW with this dispatch:
-      // it fires from `createAsk`, which is on far more test paths than the
-      // `principal.notify` command those two tasks were about — no current test
-      // creates a severity ask, but nothing stops the next one.
-      //
-      // Reported as a LOUD non-delivery rather than a silent success: the
-      // caller records it, so a test that genuinely expects delivery fails
-      // visibly instead of passing against a no-op. A test that wants the real
-      // decision path injects `pageDeps` at the `createAsk` seam.
-      if (process.env.NODE_ENV === "test") {
-        return {
-          delivered: false,
-          error:
-            "suppressed-in-test: production page deps were used without injection — " +
-            "pass pageDeps to createAsk to exercise this path",
-        };
-      }
-      try {
-        const result = await notifyPrincipal({
-          message: message.message,
-          title: message.title,
-          ...(message.taskId === undefined ? {} : { taskId: message.taskId }),
-          // Explicit production wiring (ADR-026, mt#3609). This is the second
-          // production caller of `notifyPrincipal`; the spec's original
-          // enumeration named only the `principal.notify` command, which is
-          // why the required-deps change had to re-derive its consumers.
-          deps: createRealPrincipalChannelDeps(),
-        });
-        return result.delivered
-          ? { delivered: true }
-          : // notifyPrincipal reports a structured failure (`reason` +
-            // `detail`) rather than an `error` string — flatten both so the
-            // recorded failure says WHICH failure it was, not just that one
-            // happened. "not-configured" and "send-failed" want very different
-            // operator responses.
-            { delivered: false, error: `${result.reason}: ${result.detail}` };
-      } catch (err: unknown) {
-        return { delivered: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    },
-
-    async recordFailure(ask, error) {
-      // Log FIRST and unconditionally. The event row is best-effort by nature
-      // (it needs a live DB, which may be the very thing that is broken), so it
-      // cannot be the only record — a page failure that leaves no trace at all
-      // is indistinguishable from an incident nobody reported.
-      log.error("ask.page_failed: could not page the principal about a severity ask", {
-        askId: ask.id,
-        shortId: ask.shortId,
-        error,
-      });
-      try {
-        const provider = await resolvePersistenceProvider();
-        await emitSystemEventFromProvider(provider ?? undefined, {
-          eventType: "ask.page_failed",
-          payload: { askId: ask.id, shortId: ask.shortId, error },
-          ...(ask.parentTaskId === undefined ? {} : { relatedTaskId: ask.parentTaskId }),
-        });
-      } catch (err: unknown) {
-        log.warn("ask.page_failed: event emission also failed (already logged above)", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    },
-
-    now: () => new Date(),
-  };
-}
-
-/**
- * Run the severity-page dispatch for a just-routed Ask.
- *
- * Swallow-by-design at this boundary, and the ONE place in this flow where that
- * is correct: `pagePrincipalForAsk` already records its own failures durably,
- * so anything escaping here is a defect in the page path itself — and failing
- * ask creation because a notification broke would destroy the decision record
- * to protect the reminder about it.
- */
-async function dispatchPrincipalPage(
-  repo: AskRepository,
-  ask: Ask,
-  deps?: PrincipalPageDeps
-): Promise<void> {
-  try {
-    const outcome = await pagePrincipalForAsk(ask, repo, deps ?? makeProductionPageDeps());
-    if (outcome.reason === "rate-limited") {
-      // Never a silent cap (`work-completion.mdc`): a suppressed page must say
-      // so, with the count, or the ceiling reads as "nothing needed sending".
-      log.warn("ask page suppressed by rate limit", {
-        askId: ask.id,
-        recentPageCount: outcome.recentPageCount,
-        windowHours: PAGE_RATE_LIMIT_WINDOW_MS / (60 * 60 * 1000),
-        max: PAGE_RATE_LIMIT_MAX,
-      });
-    }
-  } catch (err: unknown) {
-    log.error("ask page dispatch threw; ask creation is unaffected", {
-      askId: ask.id,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
 }
 
 // ---------------------------------------------------------------------------

@@ -30,13 +30,41 @@
  *
  * ## Severity
  *
- * `CreateAskInput`/`Ask` carry no native `severity` field and the `AsksPage`
- * badge derives from kind-priority, so "error" severity is carried in
- * `metadata` until/unless a first-class field is added.
+ * Two different things are called "severity" here, and mt#2719 made the
+ * distinction load-bearing:
+ *
+ *   - `metadata.severity: "error"` — the ORIGINAL, cosmetic one. The `AsksPage`
+ *     badge derives from kind-priority, so this is display metadata and nothing
+ *     reads it for routing. Both mt#2363 and mt#4881 emits carry it.
+ *   - `severity: "incident"` — a FIRST-CLASS column since mt#3595
+ *     (`CreateAskInput.severity`, `packages/domain/src/ask/repository.ts`). It
+ *     means "a severity trigger fired AND remediation is operator-only", it
+ *     forces operator routing in the router (mt#3851), and it is what makes an
+ *     ask PAGE the principal rather than land in the inbox.
+ *
+ * The docblock here previously said `CreateAskInput` carries no native severity
+ * field. That was true when this module was written and has been false since
+ * mt#3595; it is corrected rather than deleted because the stale sentence is
+ * exactly what would let a reader conclude the marker is unavailable.
+ *
+ * ## Why paging needs an explicit dispatch on THIS path
+ *
+ * Setting `severity: "incident"` is necessary and NOT sufficient here. The page
+ * is fired by `pagePrincipalForAsk`, and until mt#2719 its only production
+ * caller was `createAsk` in the command adapter — a function this module
+ * deliberately does not use (see the section above). So a severity-marked ask
+ * created through `repo.create` would have persisted the marker and paged
+ * nobody: it typechecks, deploys, reports healthy, and is inert.
+ *
+ * mt#2719 moved that dispatch into the domain
+ * (`@minsky/domain/ask/principal-page-dispatch`) so this module can call it
+ * directly after `repo.create`. The ask carries `routingTarget: "operator"` at
+ * insert, which is the other half the page decision requires.
  */
 
 import { log } from "./logger";
 import type { AskRepository, CreateAskInput } from "@minsky/domain/ask/repository";
+import type { PrincipalPageDeps } from "@minsky/domain/ask/principal-page";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 
@@ -48,7 +76,45 @@ import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/t
 export const ASK_CLASSIFIER_VERSION = "reviewer-circuit-breaker/v1";
 /** Sentinel for the mt#4881 pre-submission failure path — a different emit point. */
 export const REVIEW_FAILURE_CLASSIFIER_VERSION = "reviewer-pre-submit-failure/v1";
+/** Sentinel for the mt#2719 operator-incident paging tier — a third emit point. */
+export const OPERATOR_INCIDENT_CLASSIFIER_VERSION = "reviewer-operator-incident/v1";
 export const ASK_REQUESTOR = "minsky-reviewer-service";
+
+/**
+ * Where the operator goes to clear a GitHub App auth failure (SC7).
+ *
+ * The App-settings index rather than a specific app URL: the reviewer's config
+ * carries no app slug or id (`config.ts` has no `GITHUB_APP_*` key), so a
+ * per-app deep link would have to be invented. This one is correct for whichever
+ * app the installation actually uses.
+ */
+export const GITHUB_APP_SETTINGS_URL = "https://github.com/settings/apps";
+
+/**
+ * Billing pages per reviewer provider (SC7), for the credits-exhaustion class.
+ *
+ * Keyed by `REVIEWER_PROVIDER` (`config.ts` `REVIEWER_PROVIDERS`), because the
+ * provider is configurable and paging the operator at the wrong vendor's billing
+ * page is worse than paging with no link at all. The OpenAI entry matches the URL
+ * the live 429 body itself carries (observed in the measured message recorded at
+ * `failure-alert.test.ts`), so the two agree rather than merely coexisting.
+ */
+export const PROVIDER_BILLING_URLS: Readonly<Record<string, string>> = {
+  openai: "https://platform.openai.com/settings/organization/billing",
+  anthropic: "https://console.anthropic.com/settings/billing",
+  google: "https://console.cloud.google.com/billing",
+};
+
+/**
+ * Billing URL for a provider, or the generic guidance string when the provider is
+ * unrecognized — never a wrong vendor's page, and never an empty link.
+ */
+export function providerBillingUrl(provider: string): string {
+  return (
+    PROVIDER_BILLING_URLS[provider] ??
+    `(no billing URL on file for provider "${provider}" — check the provider's console)`
+  );
+}
 
 /**
  * Outcome of an Ask-emit attempt. The caller uses this to decide whether to
@@ -117,8 +183,65 @@ export interface ReviewFailureAlertContext {
  * The caller uses the returned outcome to decide whether to dedup the circuit
  * (mark it `alerted`); see `AskEmitOutcome`.
  */
+/**
+ * Context for a reviewer-wide condition that only the OPERATOR can clear (mt#2719).
+ *
+ * One context and one emit method for both sources, deliberately. mt#2719's own
+ * 2026-07-31 extension makes the argument: sustained GitHub-auth failure and
+ * sustained provider-credit exhaustion "are both 'the reviewer is structurally
+ * unable to review, and only the operator can fix it'". They produce the same ask
+ * shape, the same severity marker and the same page; only the prose and the
+ * remediation URL differ. Two methods emitting identical shapes would be
+ * duplication, so the source is a discriminant rather than a second method.
+ *
+ * Distinct from the two contexts above in the one way that matters: those describe
+ * a failure of ONE review (they carry PR coordinates and route to the inbox), while
+ * this describes a condition affecting EVERY review and carries no PR at all.
+ */
+export type OperatorIncidentContext =
+  | {
+      source: "github_auth";
+      /** Consecutive auth-class failures observed when the tracker tripped. */
+      consecutiveFailures: number;
+      /** The tripping threshold, so the ask states its own basis. */
+      threshold: number;
+      /** Which sweeper observed the latest failure. */
+      observedBy: string;
+      /** The latest underlying error message. */
+      lastError: string;
+      /** Where the operator goes to fix it (SC7) — caller-supplied so it is testable. */
+      remediationUrl: string;
+    }
+  | {
+      source: "provider";
+      /** Machine-readable class from `failure-alert.ts`'s classifier. */
+      errorClass: string;
+      /** Operator-facing one-liner: what this class is and who can fix it. */
+      errorSummary: string;
+      /** Occurrences of this class across all PRs in the window, including this one. */
+      occurrencesInWindow: number;
+      /** The escalation threshold this crossed. */
+      threshold: number;
+      /** Width of the aggregation window, in minutes. */
+      windowMinutes: number;
+      /** The latest underlying error message. */
+      lastError: string;
+      /** Where the operator goes to fix it (SC7) — caller-supplied so it is testable. */
+      remediationUrl: string;
+    };
+
 export interface AskEmitter {
   emitCircuitBreakerAlert(ctx: CircuitBreakerAlertContext): Promise<AskEmitOutcome>;
+  /**
+   * mt#2719. Emits an `severity: "incident"` + `forceImmediate` ask for a
+   * condition only the operator can clear, AND dispatches the principal page.
+   *
+   * Unlike the two methods above this one PAGES — see the module header for why
+   * the marker alone would not have. Dedup is the CALLER's, as with
+   * `emitReviewFailureAlert`: `auth-health.ts` pages once per trip via its
+   * `tripped` flag, and `failure-alert.ts` pages once per threshold CROSSING.
+   */
+  emitOperatorIncidentAlert(ctx: OperatorIncidentContext): Promise<AskEmitOutcome>;
   /**
    * mt#4881. Dedup for this path is the CALLER's (`failure-alert.ts` suppresses
    * on a prior occurrence of the same class on the same PR inside its window) —
@@ -159,7 +282,18 @@ export function makeContainerAskRepoProvider(
  * holding a DB handle for the service lifetime.
  */
 export class DomainAskEmitter implements AskEmitter {
-  constructor(private readonly repoProvider: () => Promise<AskRepository | null>) {}
+  /**
+   * @param repoProvider resolves the ask repository per emit (see class docblock).
+   * @param pageDeps OPTIONAL injected delivery seam for the severity page
+   *   (mt#2719). Omitted in production, where the domain dispatch builds the real
+   *   one. Tests inject it for the same reason `createAsk` accepts one: the
+   *   production deps resolve a persistence provider and would otherwise reach
+   *   for infrastructure from a hermetic test (the mt#3557 class).
+   */
+  constructor(
+    private readonly repoProvider: () => Promise<AskRepository | null>,
+    private readonly pageDeps?: PrincipalPageDeps
+  ) {}
 
   async emitCircuitBreakerAlert(ctx: CircuitBreakerAlertContext): Promise<AskEmitOutcome> {
     try {
@@ -312,4 +446,148 @@ export class DomainAskEmitter implements AskEmitter {
       return "failed";
     }
   }
+
+  async emitOperatorIncidentAlert(ctx: OperatorIncidentContext): Promise<AskEmitOutcome> {
+    try {
+      const repo = await this.repoProvider();
+      if (!repo) {
+        log.warn("operator_incident_ask_skipped_no_repo", {
+          event: "operator_incident_ask_skipped_no_repo",
+          source: ctx.source,
+          message:
+            "Reviewer operator-incident not surfaced as an Ask — the asks repository is " +
+            "unavailable (domain container / DB not booted). The caller's log line and the " +
+            "alert sink remain the only record.",
+        });
+        return "skipped";
+      }
+
+      const input: CreateAskInput = {
+        // `stuck.unblock`, NOT the `coordination.notify` the two emits above use.
+        // Matched by semantics rather than by sibling proximity (mem#268): those
+        // two REPORT a failure of one review, while this one says the service
+        // cannot proceed at all until the operator acts. The kind does not affect
+        // routing here — mt#3851 makes `severity: "incident"` force operator +
+        // inbox for every kind — so this choice is purely about reading true on
+        // the cockpit surface.
+        kind: "stuck.unblock",
+        classifierVersion: OPERATOR_INCIDENT_CLASSIFIER_VERSION,
+        requestor: ASK_REQUESTOR,
+        routingTarget: "operator",
+        // The two fields are INDEPENDENT and neither gates the other (mem#843):
+        // `severity` decides whether the principal is notified at all,
+        // `forceImmediate` decides whether the ask waits for a service window.
+        // Setting only the first yields a page pointing at a queued ask.
+        severity: "incident",
+        forceImmediate: true,
+        title: buildOperatorIncidentTitle(ctx),
+        question: buildOperatorIncidentQuestion(ctx),
+        metadata: {
+          severity: "error",
+          crossReference: "mt#2719",
+          source: "reviewer-operator-incident",
+          incidentSource: ctx.source,
+          remediationUrl: ctx.remediationUrl,
+          ...(ctx.source === "github_auth"
+            ? {
+                consecutiveFailures: ctx.consecutiveFailures,
+                threshold: ctx.threshold,
+                observedBy: ctx.observedBy,
+              }
+            : {
+                errorClass: ctx.errorClass,
+                occurrencesInWindow: ctx.occurrencesInWindow,
+                threshold: ctx.threshold,
+                windowMinutes: ctx.windowMinutes,
+              }),
+        },
+      };
+
+      const ask = await repo.create(input);
+
+      // The half that the severity marker alone does NOT buy on this path — see
+      // the module header. Without it the row carries `severity: "incident"` and
+      // nothing ever pages, which is indistinguishable from success at every
+      // surface except the principal's phone.
+      //
+      // Fail-open by contract: `dispatchPrincipalPage` never throws and records
+      // its own delivery failures durably (`ask.page_failed`), so a dead Telegram
+      // channel costs the notification, never the ask.
+      const { dispatchPrincipalPage } = await import("@minsky/domain/ask/principal-page-dispatch");
+      await dispatchPrincipalPage(repo, ask, this.pageDeps);
+
+      log.info("operator_incident_ask_created", {
+        event: "operator_incident_ask_created",
+        askId: ask.id,
+        source: ctx.source,
+        remediationUrl: ctx.remediationUrl,
+      });
+      return "created";
+    } catch (err: unknown) {
+      // Fail-open, same contract as the two emits above.
+      log.error("operator_incident_ask_failed", {
+        event: "operator_incident_ask_failed",
+        source: ctx.source,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return "failed";
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Operator-incident ask body (mt#2719)
+// ---------------------------------------------------------------------------
+
+/**
+ * Title for an operator-incident ask.
+ *
+ * Pure and exported so the wording is assertable without a repository
+ * (`testing-standards.mdc` §Testable Design — the decision is a function of its
+ * inputs). It leads with the CONDITION rather than the service, because this is
+ * what the principal reads on a phone notification.
+ */
+export function buildOperatorIncidentTitle(ctx: OperatorIncidentContext): string {
+  return ctx.source === "github_auth"
+    ? "Reviewer is down — GitHub App auth is failing"
+    : `Reviewer is down — ${ctx.errorClass}`;
+}
+
+/**
+ * Body for an operator-incident ask. Pure, for the same reason as the title.
+ *
+ * **The remediation leads, and that ordering is load-bearing rather than
+ * stylistic.** The page body is built by `buildPageMessage`, which excerpts the
+ * question to `PAGE_QUESTION_EXCERPT_CHARS` (300) — so anything past that is
+ * simply absent from the notification the principal actually reads on a phone.
+ * With the remediation trailing, as this function first had it, the URL was cut
+ * and SC7's whole purpose ("act from the notification without investigation")
+ * was silently defeated: the ask carried the link, the page did not.
+ *
+ * Caught by `scripts/smoke-operator-incident-page.ts`, not by the unit tests —
+ * they asserted the URL was in the ASK's question, which was true and was not
+ * the requirement. Widening the shared excerpt was the wrong fix: it is a
+ * deliberate bound on every page, and one caller's prose is not a reason to move
+ * it. Leading with the action is also just better for the reader.
+ */
+export function buildOperatorIncidentQuestion(ctx: OperatorIncidentContext): string {
+  const lead =
+    `Only you can clear this — the reviewer cannot recover on its own. ` +
+    `Remediation: ${ctx.remediationUrl}`;
+
+  if (ctx.source === "github_auth") {
+    return (
+      `${lead} The reviewer's GitHub App authentication has failed ` +
+      `${ctx.consecutiveFailures} consecutive times (threshold ${ctx.threshold}), latest ` +
+      `observed by ${ctx.observedBy}. Every session-level GitHub call is failing, so no PR ` +
+      `is being reviewed. Latest error: ${ctx.lastError}`
+    );
+  }
+
+  return (
+    `${lead} The reviewer has failed ${ctx.occurrencesInWindow} times in the last ` +
+    `${ctx.windowMinutes} minutes with "${ctx.errorClass}" (threshold ${ctx.threshold}), which ` +
+    `means it is not a transient blip. ${ctx.errorSummary} No PR is being reviewed while this ` +
+    `persists. Latest error: ${ctx.lastError}`
+  );
 }
