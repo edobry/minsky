@@ -347,12 +347,71 @@ it would just make it fail. Treat the pinned SHAs as part of the fixture, not as
 
 ## Operator alerts (mt#2364 / mt#1596)
 
-When the submission-failure circuit breaker (mt#2350) trips — a PR's review submission keeps failing with a non-retryable error and the sweeper has stopped retriggering it — the failure is surfaced two ways:
+There are **two independent alert paths**, and they cover different failures. Which one fires
+tells you where the review died.
+
+### Path A — submission failures (mt#2350 circuit breaker)
+
+When the submission-failure circuit breaker trips — a PR's review submission keeps failing with a
+non-retryable error and the sweeper has stopped retriggering it — the failure is surfaced two ways:
 
 1. **On-cockpit (Phase 1, mt#2363, always on):** an operator-routed `coordination.notify` Ask is created and rendered on the cockpit `AsksPage`.
 2. **Off-cockpit (Phase 2, mt#2364, opt-in):** an external alert sink pushes the same failure to a channel that reaches you when the cockpit isn't open (after-hours, weekend, mobile).
 
 The external sink is **disabled by default**. It fails open — a sink error never crashes the sweep, and never affects the circuit-breaker dedup (which is gated on the cockpit-Ask outcome).
+
+### Path B — pre-submission failures (mt#4881)
+
+Path A only ever sees a review that reached `submitReview`. A review that dies **earlier** — the
+model provider rejecting the prompt, credit exhaustion, a provider outage, the tool-loop timeout,
+a GitHub diff too large to fetch — writes no circuit-breaker row, so before mt#4881 it reached
+nobody. Measured: 88 such failures in 30 days against a tracker whose newest row was 3+ weeks old.
+
+`failure-alert.ts` is the seam. Every `failed_at_reviewer` write (both `server.ts` and
+`boot-recovery.ts`, each on its resolve and its throw path) goes through `recordReviewFailure`,
+which creates an operator-routed `coordination.notify` Ask carrying the classified cause.
+
+**What you get, and how to read it:**
+
+- **Title** — `Reviewer failed before submitting — PR #N (<error_class>)` for an isolated failure,
+  or `Reviewer failing across N PRs — <error_class>` when the condition is repo-wide. The title is
+  the triage signal: the second form means every review is failing, not one bad PR.
+- **`metadata.errorClass`** — one of `provider_token_limit`, `provider_credits_exhausted`,
+  `provider_unavailable`, `provider_timeout`, `github_diff_too_large`, `github_submit_rejected`,
+  `tls_self_signed`, `network_socket_closed`, `unclassified`, `unclassified_empty`. Classes were
+  derived from the measured population, which they name at ~95%. `unclassified_empty` is the
+  mt#2465 case (an octokit error with an empty `.message`) — read the row's stack.
+- **`metadata.occurrencesOnPr` / `.distinctPrsWithClass` / `.systemic` / `.windowMinutes`** — the
+  aggregation facts, so a repeated condition is separable from a one-off without querying the DB.
+
+**Which ones need you.** `provider_credits_exhausted` is operator-only (add credits).
+`provider_unavailable` and `network_socket_closed` usually self-heal. `provider_token_limit`
+(mt#4879), `github_diff_too_large` (mt#4434) and `provider_timeout` (mt#1897) each have an owning
+cause task; the alert is telling you the class is recurring, not that you must act now.
+
+**Dedup, so the inbox stays usable.** One Ask per `(owner, repo, PR, error_class)` per 60 minutes;
+and once a class is already systemic (≥3 distinct PRs in the window), later PRs hit by that same
+class are suppressed rather than each producing their own Ask — the failure that _tips_ it over
+alerts and says so. Replayed over the real 30-day corpus this turns 88 failures into 37 Asks. A
+submit-path failure already owned by Path A is skipped here, so nothing double-alerts.
+
+This path is **on-cockpit only** — it does not push to the external sink. It is fail-open: an
+alerting failure never affects the review.
+
+**In-PR signal.** A review that throws now also publishes a failing `minsky-reviewer/findings`
+check run on the PR head (ADR-030 channel 2). Before mt#4881 only the empty-output and CoT-leakage
+paths did, so the dominant failure classes left no durable PR mark — the status comment is updated
+in place and the next review overwrites it. If you are looking at a PR and wondering whether the
+reviewer ran, the check run is the signal that survives.
+
+**Verifying the classification and alert volume:** `scripts/replay-failure-alerting.ts` replays the
+real historical failures through the shipped classifier and dedup rules and reports the class
+distribution plus how many Asks the window would produce. Read-only — it writes nothing and creates
+no Asks.
+
+```bash
+MINSKY_PERSISTENCE_POSTGRES_URL=... bun services/reviewer/scripts/replay-failure-alerting.ts --days 30
+```
 
 ### Telegram (recommended) — Pulumi-native setup (mt#2419)
 

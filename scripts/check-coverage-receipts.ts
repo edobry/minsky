@@ -9,10 +9,15 @@
  * with zero live fires in the window is FLAGGED — "shipped is not firing"
  * (memory fc8c66e7 / the mt#2057 9-day dead-hook incident).
  *
- * Read-only: reads `.minsky/*-calibration.jsonl` plus the guard registries'
- * DECLARED detector names (mt#3742 — a never-fired detector has no file, so
- * the disk scan alone cannot see it) and reports. It writes no state, so
- * (unlike the canary runner) it needs no temp-dir isolation.
+ * Read-only: reads `<state dir>/projects/<key>/*-calibration.jsonl` plus the
+ * guard registries' DECLARED detector names (mt#3742 — a never-fired detector
+ * has no file, so the disk scan alone cannot see it) and reports. It writes no
+ * state, so (unlike the canary runner) it needs no temp-dir isolation.
+ *
+ * mt#4784: that first path used to read `.minsky/` in the REPO tree, which is
+ * where these streams lived before mt#4748 moved them. Both the roster and the
+ * records now resolve through `resolveCalibrationLogDir`; see its docblock in
+ * `.minsky/hooks/coverage-receipt.ts` for why they must not be derived twice.
  *
  * Usage:
  *   bun scripts/check-coverage-receipts.ts                       # all detectors, 7d window
@@ -58,16 +63,14 @@
  * @see docs/architecture/evaluation-loop-fire-log.md
  */
 
-import { readdirSync } from "node:fs";
-import { join } from "node:path";
-
-const { findRepoRoot } = await import("../.minsky/hooks/types");
 const {
   checkDetectorCoverage,
   summarizeCoverage,
   formatCoverageResult,
   countInvocationsPerLog,
   resolveDetectorsToCheck,
+  resolveCalibrationLogDir,
+  discoverCalibrationDetectors,
   DEFAULT_COVERAGE_WINDOW_DAYS,
 } = await import("../.minsky/hooks/coverage-receipt");
 const { readFireLogEntries } = await import("../.minsky/hooks/fire-log");
@@ -83,8 +86,6 @@ const {
 } = await import("./lib/calibration-log-declarations");
 
 import type { InvocationEvidence } from "../.minsky/hooks/coverage-receipt";
-
-const CALIBRATION_SUFFIX = "-calibration.jsonl";
 
 /**
  * The `--json` payload, as ONE type both emission paths satisfy.
@@ -136,21 +137,6 @@ function buildInvocationEvidence(
   );
 }
 
-/** Discover every `<name>-calibration.jsonl` under the repo's `.minsky/` dir. */
-function discoverDetectors(cwd: string): string[] {
-  const dir = join(findRepoRoot(cwd), ".minsky");
-  let names: string[];
-  try {
-    names = readdirSync(dir);
-  } catch {
-    return [];
-  }
-  return names
-    .filter((n) => n.endsWith(CALIBRATION_SUFFIX))
-    .map((n) => n.slice(0, -CALIBRATION_SUFFIX.length))
-    .sort();
-}
-
 function parseArgs(argv: string[]): { detectors: string[]; windowDays: number; json: boolean } {
   const json = argv.includes("--json");
   let windowDays = DEFAULT_COVERAGE_WINDOW_DAYS;
@@ -179,16 +165,22 @@ async function main(): Promise<void> {
   // scan cannot see it — and "no records at all" is the very symptom this gate
   // exists to catch. An explicit CLI detector list still wins: that is the
   // deliberate-override path.
-  const discovered = discoverDetectors(cwd);
+  const discovered = discoverCalibrationDetectors(cwd);
   const detectors =
     requested.length > 0 ? requested : resolveDetectorsToCheck(logToGuards.keys(), discovered);
 
   // The "nothing to check" exit gates on TELEMETRY PRESENCE, not on the
-  // detector set (mt#3742). Calibration logs are gitignored, so a fresh clone
-  // has none — and since the union above is never empty while any guard
-  // declares a log, gating on `detectors` would turn every fresh checkout into
-  // a wall of FLAGGED. Absence of ALL telemetry means the sweep has nothing to
-  // reason from; absence of ONE declared detector's log is the real finding.
+  // detector set (mt#3742). Calibration logs live outside the repo (mt#4748),
+  // so a machine that has never run a guard has none — and since the union
+  // above is never empty while any guard declares a log, gating on `detectors`
+  // would turn every fresh checkout into a wall of FLAGGED. Absence of ALL
+  // telemetry means the sweep has nothing to reason from; absence of ONE
+  // declared detector's log is the real finding.
+  //
+  // mt#4784: this gate is why the stale-roster bug was silent rather than
+  // loud. `discovered` came from the repo dir, so in any workspace without
+  // leftover pre-migration files it was empty and this branch swallowed the
+  // whole sweep — exit 0, no findings, indistinguishable from a clean pass.
   if (requested.length === 0 && discovered.length === 0) {
     if (json) {
       // Same key set as the populated path below — a JSON consumer must not
@@ -208,7 +200,9 @@ async function main(): Promise<void> {
         })
       );
     } else {
-      console.log("No calibration logs found under .minsky/ — nothing to check.");
+      console.log(
+        `No calibration logs found under ${resolveCalibrationLogDir(cwd)} — nothing to check.`
+      );
     }
     process.exit(0);
   }

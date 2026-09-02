@@ -17,10 +17,23 @@ import {
   formatCoverageResult,
   countInvocationsPerLog,
   resolveDetectorsToCheck,
+  resolveCalibrationLogDir,
+  discoverCalibrationDetectors,
   DEFAULT_COVERAGE_WINDOW_DAYS,
   type CoverageCalibrationEntry,
   type CoverageFsDeps,
 } from "./coverage-receipt";
+// mt#4784: the writer/reader agreement tests at the bottom of this file must use the
+// REAL filesystem — an injected fs would assume the very agreement they exist to prove,
+// and a fixed '/mock/tmp' is writable by nobody. Isolation is the documented
+// XDG_STATE_HOME override scoped to a mkdtemp dir; see the block comment above their
+// describe() for the full rationale.
+// eslint-disable-next-line custom/no-real-fs-in-tests -- mt#4784: see the note above
+import { mkdtempSync, rmSync } from "node:fs";
+// eslint-disable-next-line custom/no-real-fs-in-tests -- mt#4784: see the note above
+import { tmpdir } from "node:os";
+import { join as pathJoin } from "node:path";
+import { findRepoRoot } from "./types";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -481,5 +494,97 @@ describe("resolveDetectorsToCheck (mt#3742)", () => {
 
   test("returns empty only when both sources are empty", () => {
     expect(resolveDetectorsToCheck([], [])).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4784 — the WRITER and the DISCOVERY reader must resolve to one directory
+// ---------------------------------------------------------------------------
+//
+// Unlike every test above, these touch the real filesystem on purpose: the
+// property under test is that two independently-callable functions agree about
+// WHERE a stream lives, and an fs fixture shared between them would assume the
+// very agreement it is supposed to prove. Isolation is the documented
+// XDG_STATE_HOME override (see `packages/shared/src/paths.ts`), scoped to a
+// temp dir and restored in `finally`.
+//
+// The bug this pins: discovery re-derived its own root as
+// `join(findRepoRoot(cwd), ".minsky")` and kept it through mt#4748's move, so
+// the roster came from a frozen pre-migration directory while the records came
+// from the state dir. Nothing failed — in a tree with leftover files the sweep
+// still printed a full report, and in one without it exited 0 saying "nothing
+// to check".
+
+/* eslint-disable custom/no-real-fs-in-tests --
+   These three tests touch the real filesystem deliberately, and an fs fixture
+   would defeat their purpose. The property under test is that the WRITER
+   (`logCalibrationRecord`) and the DISCOVERY reader (`discoverCalibrationDetectors`)
+   independently resolve to the SAME directory; handing both an injected fs, or a
+   shared path constant, would assume exactly the agreement being proven — which is
+   how the mt#4784 split survived a full migration with a green suite. Isolation is
+   the documented XDG_STATE_HOME override (`packages/shared/src/paths.ts`), scoped to
+   a mkdtemp dir and restored in `finally`, so nothing is written outside the temp
+   directory and no state leaks between tests.
+
+   Flake surface and why it is bounded (PR #3555 R1):
+   - **No shared path between tests.** Each test that writes gets its OWN `mkdtempSync`
+     directory, so two of these running concurrently cannot collide — which is the race
+     `custom/no-real-fs-in-tests` exists to prevent, and the reason a fixed `/mock/tmp`
+     would be worse here rather than better.
+   - **The env override is restored in `finally`**, including on assertion failure, so a
+     failing test cannot leave `XDG_STATE_HOME` pointing at a deleted directory for the
+     rest of the file.
+   - **CI cannot reach the operator's real state dir even if all of the above failed**:
+     `tests/setup.ts` sets `XDG_STATE_HOME` and `MINSKY_STATE_DIR` for every run
+     (mt#3965), so the harness floor is a temp dir, and these tests narrow it further.
+   - **The detector name is unique to this file** (`mt4784-writer-reader-agreement`), so
+     nothing else in the suite can write or read the same stream.
+   - Residual risk is a full temp filesystem, which fails loudly rather than silently. */
+describe("discovery agrees with the production writer (mt#4784)", () => {
+  const DETECTOR = "mt4784-writer-reader-agreement";
+
+  test("discovers a stream written through logCalibrationRecord", async () => {
+    const { logCalibrationRecord } = await import("./dispatcher");
+    const repoRoot = findRepoRoot(process.cwd());
+    const previousXdg = process.env["XDG_STATE_HOME"];
+    const stateHome = mkdtempSync(pathJoin(tmpdir(), "mt4784-"));
+    process.env["XDG_STATE_HOME"] = stateHome;
+    try {
+      // No path literal crosses this boundary: the writer is given a project
+      // root and the reader is given the same root, and each resolves its own
+      // location. If they ever disagree again, this fails.
+      logCalibrationRecord(
+        DETECTOR,
+        { source: "test", timestamp: NOW_ISO },
+        {
+          projectDir: repoRoot,
+        }
+      );
+      expect(discoverCalibrationDetectors(repoRoot)).toContain(DETECTOR);
+    } finally {
+      if (previousXdg === undefined) delete process.env["XDG_STATE_HOME"];
+      else process.env["XDG_STATE_HOME"] = previousXdg;
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+
+  test("discovery does NOT resolve to the pre-mt#4748 repo-rooted location", () => {
+    // The absence half. A test that only asserts the new shape is present
+    // would still pass if the old repo-rooted read were restored alongside it
+    // (PR #3541 R1's precedent, one task over in this same family).
+    const repoRoot = findRepoRoot(process.cwd());
+    expect(resolveCalibrationLogDir(repoRoot)).not.toBe(pathJoin(repoRoot, ".minsky"));
+    expect(resolveCalibrationLogDir(repoRoot).startsWith(repoRoot)).toBe(false);
+  });
+
+  test("an absent directory reads as no telemetry, not as an error", () => {
+    const previousXdg = process.env["XDG_STATE_HOME"];
+    process.env["XDG_STATE_HOME"] = pathJoin(tmpdir(), "mt4784-nonexistent-state-home");
+    try {
+      expect(discoverCalibrationDetectors(findRepoRoot(process.cwd()))).toEqual([]);
+    } finally {
+      if (previousXdg === undefined) delete process.env["XDG_STATE_HOME"];
+      else process.env["XDG_STATE_HOME"] = previousXdg;
+    }
   });
 });

@@ -266,3 +266,91 @@ export function summarizeAssociationIssues(issues: AssociationIssue[]): string |
   if (issues.length === 0) return null;
   return issues.map((i) => i.message).join("\n");
 }
+
+// ---------------------------------------------------------------------------
+// Update-input encoding (mt#4843)
+// ---------------------------------------------------------------------------
+
+/**
+ * The two halves of an `associations` update, separated.
+ *
+ * `MemoryService.update` MERGES rather than replaces, and encodes removal IN BAND: a key whose
+ * value is an EMPTY ARRAY is a tombstone. That encoding is unmarked in a
+ * `Record<string, string[]>`, so it is discoverable only by reading the SQL — which is how
+ * mt#4796 happened.
+ */
+export interface AssociationsUpdatePlan {
+  /** Keys to merge in. jsonb `||`, so an existing key is replaced wholesale, not appended to. */
+  merge: Record<string, string[]>;
+  /** Keys to delete. jsonb `-`, one term per key. */
+  remove: string[];
+}
+
+/**
+ * Split an update's `associations` map into its merge and remove halves.
+ *
+ * Extracted from `MemoryService.update` by mt#4843 so the encoding has ONE definition and can be
+ * tested without a database — the branch selection is the whole defect, and it used to be
+ * unreachable except through live SQL.
+ *
+ * **The three cases, which is the contract nothing stated before:**
+ *
+ * | input | effect on the stored map |
+ * | --- | --- |
+ * | `{ k: ["a"] }` — present, non-empty | key `k` is SET to `["a"]` |
+ * | `{ k: [] }` — present, empty | key `k` is REMOVED |
+ * | `k` absent from the map entirely | key `k` is UNTOUCHED |
+ *
+ * **The third row is the trap, and it is the intuitive JavaScript move.** `delete obj.k` produces
+ * a map where `k` is absent from `Object.entries`, so it reaches NEITHER half of this plan: no
+ * merge term, no remove term, and the stored value survives. There is no error, no warning, and
+ * no changed row — the only signal is that nothing happened.
+ *
+ * Use {@link removeAssociationKeys} to build the removal map rather than hand-rolling it, and see
+ * mt#4796 for what the hand-rolled version cost: a live corrective pass reported
+ * `Applied: 9, Skipped: 0, Errors: 0` and changed 4.
+ */
+export function planAssociationsUpdate(
+  associations: Record<string, string[]>
+): AssociationsUpdatePlan {
+  const entries = Object.entries(associations);
+  return {
+    merge: Object.fromEntries(entries.filter(([, v]) => v.length > 0)),
+    remove: entries.filter(([, v]) => v.length === 0).map(([k]) => k),
+  };
+}
+
+/**
+ * Build the `associations` map that REMOVES the given keys.
+ *
+ * The point is the NAME. `removeAssociationKeys("tracksTask")` says what it does at the call
+ * site; `{ tracksTask: [] }` requires the reader to already know the tombstone convention, and
+ * `delete obj.tracksTask` — the move a JavaScript author reaches for first — silently does
+ * nothing at all.
+ *
+ * Compose with a merge in ONE call when both are wanted, since a second `update` is a second
+ * round trip and the two halves are applied together:
+ *
+ * ```ts
+ * await service.update(id, {
+ *   associations: { ...removeAssociationKeys("relatedTask"), tracksTask: ["mt#1"] },
+ * });
+ * ```
+ */
+/**
+ * **`string[]`, not `AssociationType[]`, and that is deliberate (PR #3557 R1, non-blocking).**
+ *
+ * Narrowing to the closed vocabulary would catch typos, and it would break the caller this helper
+ * exists for. `normalize-memory-associations.ts` removes DIVERGENT keys — computed as
+ * `Object.keys(associations).filter((k) => !isKnownAssociationType(k))`, so they are by
+ * construction the keys the vocabulary does NOT contain. That cleanup path is what ADR-012's
+ * mt#4448 amendment created when it closed the vocabulary: 26 of 28 records carried undefined
+ * keys, and removing them is the only way out.
+ *
+ * So the loose signature is load-bearing for removal specifically. Removal must reach keys that
+ * validation rejects on WRITE; that asymmetry is the point, and `validateAssociations(..., "update")`
+ * already exempts empty-array values for exactly this reason.
+ */
+export function removeAssociationKeys(...keys: string[]): Record<string, string[]> {
+  return Object.fromEntries(keys.map((k) => [k, [] as string[]]));
+}
