@@ -268,7 +268,7 @@ export function extractTrackingTaskRefs(
     };
   }
 
-  const raw = `${record.description ?? ""}\n${record.content}`;
+  const raw = `${record.description ?? ""}\n${record.content ?? ""}`;
 
   // ADR-024 Rung 1 (mt#4454): match on the RESIDUAL, not the raw body. A clause the record
   // QUOTES — from another memory, from a spec, from its own documented test fixture — is

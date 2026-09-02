@@ -243,6 +243,25 @@ describe("extractTrackingTaskRefs — quotation prefilter (mt#4454)", () => {
     ).toEqual(["mt#8888"]);
   });
 
+  test("mt#4898: composition ORDER is load-bearing — markdown must elide before prose quotes", () => {
+    // The DETECTOR-level guard for the ordering `elideQuotedAndMarkdown` composes. The code span
+    // carries an UNBALANCED `"`; under the reversed composition the prose-quote pass runs first,
+    // pairs that `"` with the OPENING `"` of `"done"`, and blanks everything between them —
+    // taking this record's genuine tracking clause with it, so `refs` comes back empty.
+    //
+    // This lives here, and not only in `prose-elision.test.ts`, because three further call sites
+    // depend on the same ordering through the composed helper — `measurement-decay.ts:209`,
+    // `task-state-assertion.ts:138`, and `validation/negative-constraint.ts:298` (mt#4386) — and
+    // a consumer that inlined the two halves in the wrong order would otherwise pass its own
+    // suite. mt#4898 measured that gap: reversing the composition left all 115 detector tests
+    // green.
+    expect(
+      extractTrackingTaskRefs({
+        content: '`const q = "` Tracking task: mt#4321 and he said "done"',
+      }).refs
+    ).toEqual(["mt#4321"]);
+  });
+
   test("elision preserves offsets, so same-line anchor containment still holds", () => {
     // The mem#96 containment guard, re-asserted THROUGH the elider: a stray anchor one bullet
     // up must not license a conditional below it. Same-length blanking is what keeps

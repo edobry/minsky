@@ -182,6 +182,16 @@ export interface PhraseMatch {
  *
  * Imported-then-re-exported rather than a bare `export … from`: this module CALLS it too
  * (`scanForTriggerPhrases`), and a pass-through re-export would not bind the local name.
+ *
+ * **The deep relative path is deliberate (mt#4898).** PR #3498's review flagged it as
+ * non-blocking tidiness; it was checked and declined. The `.claude/hooks/SPEC.md`
+ * dependency-free invariant it rested on was retired by ADR-028's amendment ("Hook modules may
+ * import `packages/domain`"), and `docs/architecture/hook-module-inventory.md` measures 35 hook
+ * modules already importing domain. `prose-elision` is a LEAF, so this resolution pulls in no
+ * transitive graph — the same reasoning `packages/domain/src/validation/negative-constraint.ts`
+ * records for its own import of it — and three sibling hooks (`elision.ts`,
+ * `claim-provenance-scan.ts`, `actionables-block.ts`) reach it by this exact path. Converting
+ * one of four call sites would split the convention, not tidy it.
  */
 import { elideMarkdownNonProse } from "../../packages/domain/src/text/prose-elision";
 
