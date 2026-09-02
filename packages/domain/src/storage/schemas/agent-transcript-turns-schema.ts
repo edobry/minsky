@@ -130,5 +130,35 @@ export const agentTranscriptTurnsTable = pgTable(
       .where(
         sql`${table.embedding} IS NULL AND (${table.userText} IS NOT NULL OR ${table.assistantText} IS NOT NULL)`
       ),
+
+    /**
+     * The cockpit Messages page's receiver lookup (mt#4874).
+     *
+     * `user_origin` carries no index of its own, so selecting the delivered
+     * peer messages is a parallel sequential scan of the whole table: measured
+     * against production 2026-09-02, `Rows Removed by Filter: 197,081` per
+     * worker (394,170 total), ~39,000 buffers, 575 ms — to return **12 rows**,
+     * on a widget that polls every 60 seconds.
+     *
+     * PARTIAL for the same reason as the backlog index above, only more so: the
+     * predicate matches 12 of 394,170 rows. Unlike that one this does not shrink
+     * over time, but it grows only with genuine cross-session traffic, which is
+     * inherently low-volume — 12 rows in the corpus to date.
+     *
+     * Columns are the primary key, so the reader gets the identifiers it needs
+     * without a heap fetch.
+     *
+     * Lock note (the 0068 convention, with this table's own numbers). Plain
+     * CREATE INDEX, not CONCURRENTLY, for the reason migration 0111 records for
+     * this same table: drizzle's `migrate()` runs each migration inside a
+     * transaction, where Postgres forbids CONCURRENTLY. The measured bound is
+     * 0111's and it still holds — a partial index scans every heap row to
+     * evaluate its predicate, so the build tracks the full scan, and this
+     * table's production seq scan is the 575 ms measured above. Sub-second, so
+     * the plain form is the right trade.
+     */
+    index("idx_agent_transcript_turns_peer_origin")
+      .on(table.agentSessionId, table.turnIndex)
+      .where(sql`${table.userOrigin} = 'peer'`),
   ]
 );
