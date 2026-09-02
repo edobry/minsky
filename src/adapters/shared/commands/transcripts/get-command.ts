@@ -82,6 +82,9 @@ import {
 // layer — the module was lifted there specifically so both sides could share
 // it without that dependency direction.
 import { stripHarnessMarkup } from "@minsky/domain/transcripts/text-snippet";
+// mt#4072 — Minsky's own prompt watermarks, which `stripHarnessMarkup` cannot
+// see because they are HTML comments rather than tags.
+import { stripPromptMarkers } from "@minsky/shared/dispatch-stamp";
 
 // ── Text projection types ────────────────────────────────────────────────────
 
@@ -97,8 +100,37 @@ export interface TranscriptTextProjectionEntry {
    * True when the raw stored text contained detectable harness-injected
    * markup (see the module docblock's "Heuristic limits" section) that was
    * stripped to produce `text`.
+   *
+   * **Deliberately NOT set for Minsky's own prompt watermarks (mt#4072).** Those
+   * are stripped from `text` too, but they are not harness markup — Minsky
+   * writes them — and overloading this flag would make it mean two different
+   * things. Read {@link userOrigin} for that question. This mirrors mt#4354's
+   * choice on the render surface, which added an author class rather than
+   * reusing an existing flag for the same third category.
    */
   injected: boolean;
+  /**
+   * Who authored a `user` entry's text (mt#4072), passed through from
+   * `agent_transcript_turns.user_origin` — the column mt#4289 writes with
+   * `classifyUserLineOrigin`. Absent on assistant entries.
+   *
+   * This is the field that stops a Minsky-generated dispatch prompt reading as
+   * the operator's own words. Measured 2026-09-02: 283 turns in the local
+   * corpus carry Minsky's prompt watermark, 94 of them in 2026-08 alone, and
+   * every one came out of this projection flagged `injected: false` with the
+   * watermarks intact — i.e. presented as operator prose.
+   *
+   * **`"human"` is the classifier's FAIL-OPEN default, not positive evidence of
+   * operator authorship** — it is what a line with no structural marker gets.
+   * Only a NON-`human` value carries information, the same caveat the snapshot
+   * block's `userOrigin` docblock states.
+   *
+   * Read from the COLUMN rather than recomputed, unlike the render surface,
+   * which computes because its live-tail path has no row yet (mt#2232). This
+   * projection reads from the DB by construction, so the column is always there
+   * and re-deriving would be a second call site of one classifier for no gain.
+   */
+  userOrigin?: string;
 }
 
 /**
@@ -108,7 +140,7 @@ export interface TranscriptTextProjectionEntry {
  * present) each become their own entry.
  */
 export function projectTurnsToText(
-  turns: Pick<TranscriptTurnResult, "turnIndex" | "userText" | "assistantText">[],
+  turns: Pick<TranscriptTurnResult, "turnIndex" | "userText" | "assistantText" | "userOrigin">[],
   role?: TranscriptTurnRole
 ): TranscriptTextProjectionEntry[] {
   const entries: TranscriptTextProjectionEntry[] = [];
@@ -122,9 +154,23 @@ export function projectTurnsToText(
       if (!candidate.raw) continue;
       const stripped = stripHarnessMarkup(candidate.raw);
       const injected = stripped !== candidate.raw;
-      const text = stripped.trim();
+      // mt#4072: `stripHarnessMarkup` strips harness TAGS. Minsky's own prompt
+      // watermarks are HTML COMMENTS, so it does not touch them and a generated
+      // dispatch prompt left this projection with both markers intact. Applied
+      // AFTER, and NOT folded into `injected`, because the two answer different
+      // questions — see that field's docblock. `stripPromptMarkers` returns its
+      // input unchanged when there is nothing to strip, and deliberately spares
+      // `minsky:task-prompt:v1`, which marks a prompt generated for a HUMAN to
+      // paste and is therefore genuinely the operator speaking.
+      const text = stripPromptMarkers(stripped).trim();
       if (text.length === 0) continue; // entirely injected markup — excluded
-      entries.push({ turnIndex: turn.turnIndex, role: candidate.role, text, injected });
+      entries.push({
+        turnIndex: turn.turnIndex,
+        role: candidate.role,
+        text,
+        injected,
+        ...(candidate.role === "user" && turn.userOrigin ? { userOrigin: turn.userOrigin } : {}),
+      });
     }
   }
   return entries;
