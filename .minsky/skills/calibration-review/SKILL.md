@@ -241,9 +241,19 @@ Two lines below the per-detector report name logs that no coverage verdict appli
 (mt#3519). They are different problems and must not be conflated:
 
 - **`Unmapped: <names>`** — no guard DECLARES these logs, so the check has no invocation
-  evidence and can only ever flag them. A DEFECT: add the missing `calibrationLog`
-  declaration (or the `recordFireLogEntry` wiring, if the guard records no invocations at
-  all) rather than reading the eventual flag as a dead detector.
+  evidence for them. A DEFECT: add the missing `calibrationLog` declaration (or the
+  `recordFireLogEntry` wiring, if the guard records no invocations at all) rather than
+  reading the eventual flag as a dead detector.
+
+  **What an unmapped log can and cannot be (corrected mt#4688).** This bullet used to say the
+  check "can only ever flag them," which is wrong whenever the log has records:
+  `checkCoverageReceipt` tests `hasCoverage` FIRST and short-circuits, so live fires earn
+  `[OK]` with or without a declaration (`.minsky/hooks/coverage-receipt.ts:431-450`). What an
+  unmapped log can never be is **`[DORMANT]`** — that branch is the one requiring invocation
+  evidence. Nor is it excluded from `Checked:`; only `nonGuard` and `retired` are. So the
+  defect is LATENT: the log reads healthy until its first quiet window, then flips straight to
+  `[FLAGGED]` and reads as a dead entry point. Do not wait for the flag to appear before
+  filing — an unmapped log reporting `[OK]` today is the same defect, unfired.
 - **`[NON-GUARD] <name>: written by <producer>`** — the log has a declared producer that is
   not a guard at all (today: `ask-form-lint`, written on the `asks_create` command path).
   Not a defect and not fixable by a declaration — there is no entry point to instrument, so
@@ -261,8 +271,11 @@ about whether anything still invokes it — which is precisely the dead-entry-po
 correctly?**), not as evidence of liveness.
 
 Also read the `Unmapped (...)` line if present: those calibration logs have no guard
-declaring them, so the check has no invocation evidence for them and can only ever flag
-them. That is a wiring gap to file, not a dead detector.
+declaring them, so the check has no invocation evidence for them and can therefore never
+report `[DORMANT]` — a quiet window takes them straight to `[FLAGGED]`. That is a wiring gap
+to file, not a dead detector, and it is worth filing while the log still reads `[OK]` (see
+the corrected bullet above; the older wording here said "can only ever flag them", which
+overstates it).
 
 This is the LIVE-input complement to the canary's synthetic-input check; see
 `docs/architecture/evaluation-loop-fire-log.md` §Coverage-receipt gate.
