@@ -277,6 +277,69 @@ export function createApp(
     }
   }
 
+  /**
+   * mt#4271: publish a `skipped`-conclusion check run when the reviewer DECLINED
+   * to run.
+   *
+   * `runReview` returns `{ status: "skipped", reason: "concurrent_inflight" }`
+   * from `review-worker.ts` BEFORE `review-finalize.ts`, which is the only path
+   * that publishes on the reviewed and errored outcomes. So this outcome set no
+   * check-run conclusion at all, and `session_pr_wait-for-review` reported
+   * `reviewerCheckRunState: { status: "absent" }` — byte-identical to genuine
+   * reviewer silence, which is a documented bypass-merge condition. An agent
+   * walking that ladder honestly arrives at "reviewer absent" on a PR the bot
+   * REFUSED rather than missed (mem#1093, PR #3107: three consecutive waits over
+   * ~35 minutes, all reading `absent`).
+   *
+   * The status comment beside this is not a substitute, for the same reason
+   * `publishFailureCheckRunSafe` gives: it is one update-in-place comment that
+   * the next review overwrites, and repo-wide it has no reader outside
+   * `status-comment.ts`. The check-run is the durable, machine-readable mark,
+   * and ADR-030 assigns "status, convergence, and liveness of record" to that
+   * channel — this is the last leg of its follow-up 1, after mt#4881 took the
+   * thrown-review leg.
+   *
+   * `skipped` does not block: GitHub's protected-branches doc lists it beside
+   * `successful` and `neutral` as satisfying a required status check, and
+   * `minsky-reviewer/findings` IS required. Publishing `failure` here would turn
+   * a transient refusal into a merge blocker.
+   *
+   * Fail-open, exactly like its failure sibling: a check-run write must never
+   * affect the review path, and fork PRs legitimately lack the permission.
+   */
+  async function publishSkipCheckRunSafe(
+    owner: string,
+    repo: string,
+    prNumber: number,
+    headSha: string,
+    skipReason: string
+  ): Promise<void> {
+    try {
+      const octokit = await createOctokit(cfg);
+      await publishCheckRun({
+        octokit,
+        owner,
+        repo,
+        headSha,
+        prNumber,
+        toolCalls: [],
+        // No round: nothing ingested the prior reviews, because nothing ran.
+        // `null` renders without the round parenthetical rather than claiming
+        // a round that never happened.
+        convergenceState: { roundNumber: null, blockingCount: 0 },
+        skipReason,
+      });
+    } catch (err: unknown) {
+      log.warn("review_skip_check_run_failed", {
+        event: "review_skip_check_run_failed",
+        pr: prNumber,
+        headSha,
+        skipReason,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   async function updateStatusCommentSafe(
     owner: string,
     repo: string,
@@ -527,6 +590,16 @@ export function createApp(
           );
         } else if (result.status === "skipped") {
           void updateStatusCommentSafe(owner, repo, prNumber, buildSkippedBody(result.reason));
+          // mt#4271: and the durable half. Without this the skip sets no
+          // check-run conclusion, so `reviewerCheckRunState` reads `absent` —
+          // indistinguishable from reviewer silence, which is a bypass condition.
+          void publishSkipCheckRunSafe(
+            owner,
+            repo,
+            prNumber,
+            headSha,
+            result.reason ?? "unspecified"
+          );
         } else {
           void updateStatusCommentSafe(owner, repo, prNumber, buildErrorBody(result.reason));
         }

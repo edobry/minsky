@@ -29,6 +29,9 @@ import type { ReviewToolCall } from "./output-tools";
 // (allowInTests: true in eslint.config.js §test file overrides).
 type ReviewerOctokit = PublishCheckRunOptions["octokit"];
 
+/** The only skip reason `runReview` emits today (mt#4271). */
+const SKIP_REASON_CONCURRENT_INFLIGHT = "concurrent_inflight";
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 function makeFinding(severity: "BLOCKING" | "NON-BLOCKING" | "PRE-EXISTING"): ReviewToolCall {
@@ -441,5 +444,102 @@ describe("publishCheckRun: octokitOverride seam", () => {
     expect(calls).toHaveLength(1);
     const call = calls[0] as { conclusion: string };
     expect(call.conclusion).toBe("failure");
+  });
+
+  test("skip path publishes with conclusion 'skipped' (mt#4271)", async () => {
+    const { octokit, calls } = makeFakeOctokit();
+
+    await publishCheckRun({
+      ...baseOptions,
+      octokit,
+      skipReason: SKIP_REASON_CONCURRENT_INFLIGHT,
+    });
+
+    expect(calls).toHaveLength(1);
+    const call = calls[0] as { conclusion: string };
+    expect(call.conclusion).toBe("skipped");
+  });
+});
+
+// ── buildCheckRunPayload: the declined-to-run path (mt#4271) ───────────────
+//
+// The defect this closes: a `concurrent_inflight` skip published NO check-run,
+// so `reviewerCheckRunState` read `absent` — the same signature as genuine
+// reviewer silence, which is a documented bypass-merge condition.
+//
+// `skipped` is chosen over `neutral` on semantics; both satisfy a required
+// check per GitHub's protected-branches documentation ("Required status checks
+// must have a `successful`, `skipped`, or `neutral` status before collaborators
+// can make changes to a protected branch"), and `minsky-reviewer/findings` IS
+// required, so `failure` would turn a transient refusal into a merge blocker.
+
+describe("buildCheckRunPayload: declined-to-run path (mt#4271)", () => {
+  test("conclusion is 'skipped' — not 'failure', which would block a required check", () => {
+    const payload = buildCheckRunPayload({
+      toolCalls: [],
+      convergenceState: { roundNumber: null, blockingCount: 0 },
+      skipReason: SKIP_REASON_CONCURRENT_INFLIGHT,
+    });
+    expect(payload.conclusion).toBe("skipped");
+  });
+
+  test("conclusion is NOT 'success' — a declined review must not read as reviewed", () => {
+    // The trap this guards: a skip carries no findings and no blocking count,
+    // so falling through to the normal derivation would emit a green check-run
+    // asserting the code was reviewed when nothing looked at it.
+    const payload = buildCheckRunPayload({
+      toolCalls: [],
+      convergenceState: { roundNumber: null, blockingCount: 0 },
+      skipReason: SKIP_REASON_CONCURRENT_INFLIGHT,
+    });
+    expect(payload.conclusion).not.toBe("success");
+  });
+
+  test("the summary rules out the bypass explicitly, and names what clears it", () => {
+    // An agent reading this is partway down a ladder whose next documented step
+    // is a bypass merge. Describing the state is not enough — it has to say the
+    // state is not silence.
+    const payload = buildCheckRunPayload({
+      toolCalls: [],
+      convergenceState: { roundNumber: null, blockingCount: 0 },
+      skipReason: SKIP_REASON_CONCURRENT_INFLIGHT,
+    });
+    expect(payload.output.summary).toContain(SKIP_REASON_CONCURRENT_INFLIGHT);
+    expect(payload.output.summary).toContain("NOT reviewer silence");
+    expect(payload.output.summary).toContain("not a bypass condition");
+    expect(payload.output.summary).toContain("new head");
+    expect(payload.output.title).toContain("skipped");
+  });
+
+  test("no round parenthetical when the round is unknown", () => {
+    // Nothing ingested the prior reviews, because nothing ran. Rendering
+    // "round 1" here would fabricate a round that never happened.
+    const payload = buildCheckRunPayload({
+      toolCalls: [],
+      convergenceState: { roundNumber: null, blockingCount: 0 },
+      skipReason: SKIP_REASON_CONCURRENT_INFLIGHT,
+    });
+    expect(payload.output.summary).not.toContain("round");
+  });
+
+  test("a real failure outranks a skip when both are somehow set", () => {
+    const payload = buildCheckRunPayload({
+      toolCalls: [],
+      convergenceState: { roundNumber: null, blockingCount: 0 },
+      failureSummary: "provider 400",
+      skipReason: SKIP_REASON_CONCURRENT_INFLIGHT,
+    });
+    expect(payload.conclusion).toBe("failure");
+  });
+
+  test("negative control: the same params WITHOUT skipReason still derive normally", () => {
+    // Without this, every assertion above would pass on a builder that ignored
+    // its inputs and hardcoded "skipped".
+    const payload = buildCheckRunPayload({
+      toolCalls: [],
+      convergenceState: { roundNumber: 2, blockingCount: 0 },
+    });
+    expect(payload.conclusion).toBe("success");
+    expect(payload.output.summary).toContain("Round 2");
   });
 });
