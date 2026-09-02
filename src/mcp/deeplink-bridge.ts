@@ -22,6 +22,7 @@
  * changeset ids, trailing-punctuation stripping) without a second copy that
  * could drift (mt#3694's lesson).
  */
+import { escapeHtmlAttribute } from "@minsky/domain/html/escape";
 import {
   ROUTABLE_ENTITY_TYPES,
   entityToMinskyUri,
@@ -40,15 +41,6 @@ export interface DeeplinkBridgeResult {
    */
   cacheControl: "no-store";
   body: string;
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 function isRoutableEntityType(rawType: string): rawType is RoutableEntityType {
@@ -86,8 +78,8 @@ export function resolveDeeplinkBridge(rawType: string, rawId: string): DeeplinkB
     };
   }
 
-  const safeLabel = escapeHtml(rawId);
-  const safeUri = escapeHtml(uri);
+  const safeLabel = escapeHtmlAttribute(rawId);
+  const safeUri = escapeHtmlAttribute(uri);
   // JSON.stringify produces a valid JS string literal; escape `<` so the
   // literal cannot close the surrounding <script> element via `</script>`.
   const scriptUri = JSON.stringify(uri).replace(/</g, "\\u003c");
@@ -113,7 +105,7 @@ export function resolveDeeplinkBridge(rawType: string, rawId: string): DeeplinkB
 <body>
 <main>
 <h1>${safeLabel}</h1>
-<p>Opening this ${escapeHtml(rawType)} in Minsky…</p>
+<p>Opening this ${escapeHtmlAttribute(rawType)} in Minsky…</p>
 <a class="open" href="${safeUri}">Open in Minsky</a>
 <p class="dim">Nothing happening? Minsky isn't installed on this device. The reference is
 <code>${safeUri}</code> — open it on a machine running the Minsky cockpit.</p>

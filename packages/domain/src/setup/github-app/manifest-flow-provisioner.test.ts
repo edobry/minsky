@@ -361,6 +361,21 @@ describe("ManifestFlowProvisioner", () => {
       expect(body).not.toContain('onmouseover="alert(1)"');
     });
 
+    // mt#4832 — the ONE authorized behaviour change of the escaper
+    // consolidation, asserted at the migrated site rather than only at the
+    // shared module. mt#4815's local helper deliberately left `'` alone, which
+    // was safe only while every template here used double-quoted attributes;
+    // the shared attribute escaper closes that case.
+    test("an apostrophe in an ON-ORIGIN html_url is escaped too", async () => {
+      const body = await callbackPageWithHtmlUrl(
+        "https://github.com/apps/x' onmouseover='alert(1)"
+      );
+
+      expect(body).toContain("&#39;");
+      // The single-quoted handler never survives as live markup.
+      expect(body).not.toContain("onmouseover='");
+    });
+
     test("a legitimate html_url is rendered unchanged", async () => {
       const body = await callbackPageWithHtmlUrl("https://github.com/apps/test-app");
       expect(body).toContain('href="https://github.com/apps/test-app/installations/new"');
