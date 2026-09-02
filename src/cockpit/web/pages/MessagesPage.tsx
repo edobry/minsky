@@ -88,6 +88,16 @@ export function CoverageNotice({ coverage }: { coverage: MessagesCoverage }) {
             coverage, not a lost message.
           </li>
         ) : null}
+        {coverage.senderTurnsWithoutSend > 0 ? (
+          <li data-testid="messages-index-drift">
+            <span className="text-warn-amber">
+              {coverage.senderTurnsWithoutSend} of {coverage.senderTurnsNamed} turns
+            </span>{" "}
+            named by the tool-call index carry no send when read — the index has drifted from the
+            transcripts it derives from (mt#4892). Sends it FAILED to name are not detectable from
+            here, so the real sent count may be higher than shown.
+          </li>
+        ) : null}
         {coverage.senderScanTruncated ? (
           <li data-testid="messages-scan-truncated">
             <span className="text-warn-amber">Older sends are not shown.</span> This view reads the

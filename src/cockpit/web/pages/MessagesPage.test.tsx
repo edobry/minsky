@@ -59,6 +59,8 @@ const COVERAGE = {
   envelopesRead: 0,
   envelopesMissing: 0,
   sendsRead: 0,
+  senderTurnsNamed: 0,
+  senderTurnsWithoutSend: 0,
   senderScanLimit: 500,
   senderScanTruncated: false,
 };
@@ -269,6 +271,38 @@ describe("MessagesPage — the feed", () => {
     expect(screen.getByTestId("messages-envelope-gap").textContent).toContain(
       "1 of 2 known deliveries"
     );
+  });
+
+  test("tool-call-index drift is surfaced, including that the undetectable half exists", async () => {
+    mockWidgetData({
+      state: "ok",
+      payload: okPayload([sentEntry()], {
+        ...COVERAGE,
+        senderTurnsNamed: 341,
+        senderTurnsWithoutSend: 9,
+      }),
+    });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByTestId("messages-index-drift")).toBeDefined());
+    const drift = screen.getByTestId("messages-index-drift").textContent ?? "";
+    expect(drift).toContain("9 of 341 turns");
+    expect(drift).toContain("mt#4892");
+    // The claim must stay bounded: this counts only the drift this query path
+    // CAN see, and the page has to say the count may be low rather than
+    // presenting it as the measurement.
+    expect(drift).toContain("may be higher than shown");
+  });
+
+  test("no drift bullet renders when the index and the transcripts agree", async () => {
+    mockWidgetData({
+      state: "ok",
+      payload: okPayload([sentEntry()], { ...COVERAGE, senderTurnsNamed: 341 }),
+    });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByTestId("messages-feed")).toBeDefined());
+    expect(screen.queryByTestId("messages-index-drift")).toBeNull();
   });
 
   test("a truncated sender scan is stated rather than silently capping the view", async () => {

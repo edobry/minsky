@@ -305,6 +305,43 @@ describe("messagesWidget — the feed", () => {
     expect(payload.coverage.envelopesMissing).toBe(0);
   });
 
+  test("a turn the tool-call index names that carries NO send is counted as drift (mt#4892)", async () => {
+    const fixture = pairedFixture();
+    // The index claims turn 9 contains a send; the turn's own tool_calls — the
+    // authoritative source — say otherwise. That is the projection pointing at
+    // the wrong turn after a renumber, and it must not read as an empty result.
+    fixture.sendRefs = [
+      { agentSessionId: "sender", turnIndex: 7 },
+      { agentSessionId: "sender", turnIndex: 9 },
+    ];
+    fixture.turns = [
+      ...(fixture.turns ?? []),
+      {
+        agentSessionId: "sender",
+        turnIndex: 9,
+        toolCalls: [{ name: "Bash", input: { command: "ls" } }],
+        startedAt: SENT_AT,
+        endedAt: SENT_END,
+      },
+    ];
+
+    const payload = await payloadOf(makeDb(fixture));
+    if (payload.status !== "ok") throw new Error("expected ok");
+    expect(payload.coverage.senderTurnsNamed).toBe(2);
+    expect(payload.coverage.senderTurnsWithoutSend).toBe(1);
+    // The send that DOES exist is still read — drift degrades the count, it
+    // does not take the feed down.
+    expect(payload.coverage.sendsRead).toBe(1);
+    expect(payload.feed.counts.sent).toBe(1);
+  });
+
+  test("no drift is reported when every named turn carries its send", async () => {
+    const payload = await payloadOf(makeDb(pairedFixture()));
+    if (payload.status !== "ok") throw new Error("expected ok");
+    expect(payload.coverage.senderTurnsNamed).toBe(1);
+    expect(payload.coverage.senderTurnsWithoutSend).toBe(0);
+  });
+
   test("a turn sharing an index with a sending turn in ANOTHER session is not read as a send", async () => {
     const fixture = pairedFixture();
     // The two `inArray`s form a cross product of session ids and turn indexes,

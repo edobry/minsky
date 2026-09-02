@@ -106,6 +106,16 @@ export interface MessagesCoverage {
   envelopesMissing: number;
   /** `SendMessage` blocks read from the scanned turns. */
   sendsRead: number;
+  /** Distinct turns the tool-call index named as containing a send, in scope. */
+  senderTurnsNamed: number;
+  /**
+   * Of those, how many carried NO `SendMessage` block when their `tool_calls`
+   * were actually read — the tool-call index pointing at the wrong turn
+   * (mt#4892). Detectable half only: a turn the index FAILED to name is
+   * invisible from this query path, so this is a floor on the drift, never a
+   * measure of it.
+   */
+  senderTurnsWithoutSend: number;
   /** How many projection rows the sender scan looked at. */
   senderScanLimit: number;
   /**
@@ -221,6 +231,8 @@ function emptyCoverage(overrides: Partial<MessagesCoverage> = {}): MessagesCover
     envelopesRead: 0,
     envelopesMissing: 0,
     sendsRead: 0,
+    senderTurnsNamed: 0,
+    senderTurnsWithoutSend: 0,
     senderScanLimit: SENDER_SCAN_LIMIT,
     senderScanTruncated: false,
     ...overrides,
@@ -312,6 +324,8 @@ export function createMessagesWidget(
 
         // --- Sender side, step 2: fetch ONLY the scanned turns, by primary key.
         const sent: SentPeerMessage[] = [];
+        let senderTurnsNamed = 0;
+        let senderTurnsWithoutSend = 0;
         if (scopedSendRefs.length > 0) {
           const turnRows = (await db
             .select({
@@ -345,9 +359,17 @@ export function createMessagesWidget(
           // the projection actually named, or a turn that merely shares an index
           // with a sending turn in another session would be read as a send.
           const wanted = new Set(scopedSendRefs.map((r) => `${r.agentSessionId}:${r.turnIndex}`));
+          senderTurnsNamed = wanted.size;
+          // Which of the named turns actually carried a send. The tool-call
+          // index can point at the WRONG turn after a renumber (mt#4892), and
+          // the authoritative answer is the turn's own `tool_calls` — so a
+          // named turn that yields nothing is drift, not an empty result.
+          const turnsWithSend = new Set<string>();
           for (const row of turnRows) {
-            if (!wanted.has(`${row.agentSessionId}:${row.turnIndex}`)) continue;
+            const key = `${row.agentSessionId}:${row.turnIndex}`;
+            if (!wanted.has(key)) continue;
             for (const block of readSendMessageBlocks(row.toolCalls)) {
+              turnsWithSend.add(key);
               sent.push({
                 agentSessionId: row.agentSessionId,
                 turnIndex: row.turnIndex,
@@ -359,6 +381,7 @@ export function createMessagesWidget(
               });
             }
           }
+          senderTurnsWithoutSend = senderTurnsNamed - turnsWithSend.size;
         }
 
         // --- Receiver side, step 2: read the envelope off the RAW line.
@@ -397,6 +420,8 @@ export function createMessagesWidget(
           envelopesRead: received.length,
           envelopesMissing: Math.max(0, scopedPeerTurns.length - received.length),
           sendsRead: sent.length,
+          senderTurnsNamed,
+          senderTurnsWithoutSend,
           senderScanLimit: SENDER_SCAN_LIMIT,
           senderScanTruncated,
         };
