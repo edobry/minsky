@@ -186,6 +186,37 @@ export type RunReviewFn = (
  * Exported for testability; the module-level startup below calls this with
  * the real config and the real runReview.
  */
+/**
+ * A terminal outcome that must set a check-run conclusion (mt#4271).
+ *
+ * Two kinds, one shape: a review that THREW (mt#4881) and a review that was
+ * DECLINED. Both reach GitHub through the same call, because both had the same
+ * defect — no conclusion published, so `reviewerCheckRunState` read `absent`,
+ * the signature of reviewer silence and a documented bypass condition.
+ */
+export interface TerminalCheckRunPublication {
+  kind: "skip" | "failure";
+  owner: string;
+  repo: string;
+  prNumber: number;
+  headSha: string;
+  /** The skip reason, or the failure summary — whichever `kind` names. */
+  detail: string;
+}
+
+/**
+ * Test seam for terminal check-run publication (mt#4271, PR #3563 R1).
+ *
+ * The wiring — "does the skip branch actually publish?" — is the half that
+ * matters and the half unit tests on the payload builder cannot reach: a
+ * publisher that is never called produces exactly the `absent` state this
+ * change exists to end, with every payload test still green. It has to be
+ * injected ABOVE `createOctokit`, not below: the real path mints an App
+ * installation token, which no test holds, so a seam placed after that call is
+ * unreachable and would verify nothing.
+ */
+export type TerminalCheckRunPublisher = (p: TerminalCheckRunPublication) => Promise<void>;
+
 export function createApp(
   cfg: ReviewerConfig,
   runReviewFn: RunReviewFn = runReview,
@@ -194,7 +225,10 @@ export function createApp(
   // mt#2451: the external alert sink, shared with the sweeper (single instance
   // built once at server start). When omitted (tests / standalone createApp),
   // the /alert-test route builds one from env via loadAlertSinkConfig().
-  alertSink?: AlertSink | null
+  alertSink?: AlertSink | null,
+  // mt#4271: injected only by tests; production leaves it undefined and the
+  // real Octokit + publishCheckRun path runs.
+  terminalCheckRunPublisher?: TerminalCheckRunPublisher
 ): {
   server: ReturnType<typeof Bun.serve>;
   gracefulShutdown: () => Promise<void>;
@@ -229,7 +263,10 @@ export function createApp(
     : undefined;
 
   /**
-   * mt#4881 SC7: publish a failure-conclusion check run for a review that THREW.
+   * Publish a check-run conclusion for a terminal outcome that never reached
+   * `review-finalize.ts` — a review that THREW (mt#4881 SC7) or one that was
+   * DECLINED (mt#4271). One function because it was one defect: neither set a
+   * conclusion, so both read as `absent`.
    *
    * `finalizeReviewError` (`review-finalize.ts`) already publishes one for the
    * empty-output and CoT-leakage paths, but a throw from the model call or the
@@ -248,14 +285,15 @@ export function createApp(
    * Fail-open: a check-run write must never affect the review path, and fork PRs
    * legitimately lack the permission.
    */
-  async function publishFailureCheckRunSafe(
-    owner: string,
-    repo: string,
-    prNumber: number,
-    headSha: string,
-    failureSummary: string
-  ): Promise<void> {
+  async function publishTerminalCheckRunSafe(p: TerminalCheckRunPublication): Promise<void> {
+    const { kind, owner, repo, prNumber, headSha, detail } = p;
+    const event =
+      kind === "skip" ? "review_skip_check_run_failed" : "review_failure_check_run_failed";
     try {
+      if (terminalCheckRunPublisher) {
+        await terminalCheckRunPublisher(p);
+        return;
+      }
       const octokit = await createOctokit(cfg);
       await publishCheckRun({
         octokit,
@@ -264,20 +302,68 @@ export function createApp(
         headSha,
         prNumber,
         toolCalls: [],
-        // Round is genuinely unknown here — nothing has ingested the prior
-        // reviews on the thrown path. `null` renders without the round
-        // parenthetical rather than fabricating "round 1".
+        // Round is genuinely unknown on both paths — nothing has ingested the
+        // prior reviews, because the review threw or never ran. `null` renders
+        // without the round parenthetical rather than fabricating "round 1".
         convergenceState: { roundNumber: null, blockingCount: 0 },
-        failureSummary,
+        ...(kind === "skip" ? { skipReason: detail } : { failureSummary: detail }),
       });
     } catch (err: unknown) {
-      log.warn("review_failure_check_run_failed", {
-        event: "review_failure_check_run_failed",
+      log.warn(event, {
+        event,
         pr: prNumber,
         headSha,
+        detail,
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+
+  /**
+   * mt#4271: publish a `skipped`-conclusion check run when the reviewer DECLINED
+   * to run.
+   *
+   * `runReview` returns `{ status: "skipped", reason: "concurrent_inflight" }`
+   * from `review-worker.ts` BEFORE `review-finalize.ts`, which is the only path
+   * that publishes on the reviewed and errored outcomes. So this outcome set no
+   * check-run conclusion at all, and `session_pr_wait-for-review` reported
+   * `reviewerCheckRunState: { status: "absent" }` — byte-identical to genuine
+   * reviewer silence, which is a documented bypass-merge condition. An agent
+   * walking that ladder honestly arrives at "reviewer absent" on a PR the bot
+   * REFUSED rather than missed (mem#1093, PR #3107: three consecutive waits over
+   * ~35 minutes, all reading `absent`).
+   *
+   * The status comment beside this is not a substitute, for the same reason
+   * `publishFailureCheckRunSafe` gives: it is one update-in-place comment that
+   * the next review overwrites, and repo-wide it has no reader outside
+   * `status-comment.ts`. The check-run is the durable, machine-readable mark,
+   * and ADR-030 assigns "status, convergence, and liveness of record" to that
+   * channel — this is the last leg of its follow-up 1, after mt#4881 took the
+   * thrown-review leg.
+   *
+   * `skipped` does not block: GitHub's protected-branches doc lists it beside
+   * `successful` and `neutral` as satisfying a required status check, and
+   * `minsky-reviewer/findings` IS required. Publishing `failure` here would turn
+   * a transient refusal into a merge blocker.
+   *
+   * Fail-open, exactly like its failure sibling: a check-run write must never
+   * affect the review path, and fork PRs legitimately lack the permission.
+   */
+  async function publishSkipCheckRunSafe(
+    owner: string,
+    repo: string,
+    prNumber: number,
+    headSha: string,
+    skipReason: string
+  ): Promise<void> {
+    await publishTerminalCheckRunSafe({
+      kind: "skip",
+      owner,
+      repo,
+      prNumber,
+      headSha,
+      detail: skipReason,
+    });
   }
 
   async function updateStatusCommentSafe(
@@ -530,6 +616,16 @@ export function createApp(
           );
         } else if (result.status === "skipped") {
           void updateStatusCommentSafe(owner, repo, prNumber, buildSkippedBody(result.reason));
+          // mt#4271: and the durable half. Without this the skip sets no
+          // check-run conclusion, so `reviewerCheckRunState` reads `absent` —
+          // indistinguishable from reviewer silence, which is a bypass condition.
+          void publishSkipCheckRunSafe(
+            owner,
+            repo,
+            prNumber,
+            headSha,
+            result.reason ?? "unspecified"
+          );
         } else {
           void updateStatusCommentSafe(owner, repo, prNumber, buildErrorBody(result.reason));
         }
@@ -598,7 +694,14 @@ export function createApp(
         // mt#4881 SC7 / ADR-030 channel 2: leave a DURABLE in-PR mark. The
         // status comment updated above is overwritten in place by the next
         // review; a check-run conclusion is not.
-        void publishFailureCheckRunSafe(owner, repo, prNumber, headSha, message);
+        void publishTerminalCheckRunSafe({
+          kind: "failure",
+          owner,
+          repo,
+          prNumber,
+          headSha,
+          detail: message,
+        });
         log.error("webhook_processing_failed", {
           event: "webhook_processing_failed",
           delivery_id: deliveryId,

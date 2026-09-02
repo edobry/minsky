@@ -93,6 +93,25 @@ export interface BuildCheckRunPayloadParams {
    * summary shows this error message.
    */
   failureSummary?: string;
+  /**
+   * When provided, the reviewer DECLINED to run — it did not fail (mt#4271).
+   * Today the only reason is `concurrent_inflight`: another caller held the
+   * in-flight marker. The conclusion becomes `"skipped"`, which GitHub's
+   * protected-branches documentation lists alongside `successful` and `neutral`
+   * as satisfying a required status check, so the PR is not blocked:
+   *
+   * > Required status checks must have a `successful`, `skipped`, or `neutral`
+   * > status before collaborators can make changes to a protected branch.
+   *
+   * `minsky-reviewer/findings` IS a required check, so publishing `failure`
+   * here would turn a transient refusal into a merge blocker — worse than the
+   * silence this exists to end.
+   *
+   * Mutually exclusive with `failureSummary` in practice: a skip returns from
+   * `runReview` before any failure path. `failureSummary` wins if both are set,
+   * because a real failure is the more serious signal to surface.
+   */
+  skipReason?: string;
 }
 
 /**
@@ -102,7 +121,7 @@ export interface BuildCheckRunPayloadParams {
 export interface CheckRunPayload {
   name: string;
   status: "completed";
-  conclusion: "success" | "failure" | "neutral";
+  conclusion: "success" | "failure" | "neutral" | "skipped";
   output: {
     title: string;
     summary: string;
@@ -134,7 +153,7 @@ export interface CheckRunPayload {
  * regardless of annotations or blockingCount (liveness failure path per SC#1).
  */
 export function buildCheckRunPayload(params: BuildCheckRunPayloadParams): CheckRunPayload {
-  const { toolCalls, convergenceState, failureSummary } = params;
+  const { toolCalls, convergenceState, failureSummary, skipReason } = params;
   const { roundNumber, blockingCount } = convergenceState;
 
   // Build annotations from submit_finding tool calls only.
@@ -160,8 +179,17 @@ export function buildCheckRunPayload(params: BuildCheckRunPayloadParams): CheckR
   // green check-run on a prose CHANGES_REQUESTED review). With no blocking
   // findings, annotations distinguish neutral (NON-BLOCKING present) from
   // success (none / informational only).
-  const conclusion: "success" | "failure" | "neutral" =
-    failureSummary || blockingCount > 0 ? "failure" : deriveConclusion(levels);
+  // Order matters. `failureSummary` first (a real failure outranks a refusal),
+  // then `skipReason` — which must NOT fall through to the blockingCount branch,
+  // because a declined review has no findings and would otherwise render as a
+  // green "success" claiming the code was reviewed when nothing looked at it.
+  const conclusion: "success" | "failure" | "neutral" | "skipped" = failureSummary
+    ? "failure"
+    : skipReason
+      ? "skipped"
+      : blockingCount > 0
+        ? "failure"
+        : deriveConclusion(levels);
 
   // Round rendering. Both forms below are byte-identical to the pre-mt#4881
   // output when roundNumber is a number; they only differ for the `null`
@@ -173,6 +201,25 @@ export function buildCheckRunPayload(params: BuildCheckRunPayloadParams): CheckR
   let summary: string;
   if (failureSummary) {
     summary = `Reviewer failure${roundSuffix}: ${failureSummary}`;
+  } else if (skipReason) {
+    // Say what did NOT happen, and what clears it. An agent reading this is
+    // partway down a silence ladder whose next documented step is a bypass
+    // merge, so the summary has to rule that out rather than merely describe
+    // the state: no review ran, and this is not reviewer silence.
+    // The remedy is reason-SPECIFIC, so it is only asserted for the reason it
+    // is true of. `concurrent_inflight` clears on a new head; a future reason
+    // (a permission, a rate limit) would need a different one, and stating this
+    // one for it would send an operator confidently the wrong way — the same
+    // shape of error as the `absent` this whole change exists to fix, one layer
+    // up. Only the reason-independent half is unconditional. (PR #3563 R1.)
+    const remedy =
+      skipReason === "concurrent_inflight"
+        ? " A concurrent_inflight refusal clears on a new head; a retrigger is refused while the marker is held."
+        : "";
+    summary =
+      `Reviewer declined to run${roundSuffix}: ${skipReason}. ` +
+      `No review was performed on this commit — this is NOT reviewer silence, ` +
+      `and it is not a bypass condition.${remedy}`;
   } else if (blockingCount === 0) {
     summary = `${roundPrefix}: no blocking findings — approved.`;
   } else {
@@ -182,7 +229,9 @@ export function buildCheckRunPayload(params: BuildCheckRunPayloadParams): CheckR
   const findingCount = annotations.length;
   const title = failureSummary
     ? `minsky-reviewer: error${roundSuffix}`
-    : `minsky-reviewer: ${findingCount} finding${findingCount === 1 ? "" : "s"}`;
+    : skipReason
+      ? `minsky-reviewer: skipped — ${skipReason}`
+      : `minsky-reviewer: ${findingCount} finding${findingCount === 1 ? "" : "s"}`;
 
   return {
     name: CHECK_RUN_NAME,
@@ -221,6 +270,11 @@ export interface PublishCheckRunOptions {
    * have conclusion "failure" and the summary will show this error message.
    */
   failureSummary?: string;
+  /**
+   * When set, the reviewer DECLINED to run and the check run gets conclusion
+   * `"skipped"` (mt#4271). See `BuildCheckRunPayloadParams.skipReason`.
+   */
+  skipReason?: string;
 }
 
 /**
@@ -239,10 +293,24 @@ export interface PublishCheckRunOptions {
 export async function publishCheckRun(
   options: PublishCheckRunOptions
 ): Promise<SubmitCheckRunResult | null> {
-  const { octokit, owner, repo, headSha, prNumber, toolCalls, convergenceState, failureSummary } =
-    options;
+  const {
+    octokit,
+    owner,
+    repo,
+    headSha,
+    prNumber,
+    toolCalls,
+    convergenceState,
+    failureSummary,
+    skipReason,
+  } = options;
 
-  const payload = buildCheckRunPayload({ toolCalls, convergenceState, failureSummary });
+  const payload = buildCheckRunPayload({
+    toolCalls,
+    convergenceState,
+    failureSummary,
+    skipReason,
+  });
 
   // Construct a minimal GitHubContext. getToken is stubbed because the
   // `octokitOverride` path in `submitCheckRun` bypasses getToken entirely
