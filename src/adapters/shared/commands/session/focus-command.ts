@@ -108,7 +108,10 @@ async function executeSessionFocus(
 
   if (!repo) {
     const cause = repoResolutionError
-      ? `Cause: ${repoResolutionError}. Check that database migrations have been applied and DATABASE_URL/persistence config is correct for this workspace.`
+      ? // mt#4789: this used to name DATABASE_URL, which Minsky's configuration
+        // resolution does not read — sending the reader to a variable that
+        // cannot fix their problem. Name the ones that actually redirect it.
+        `Cause: ${repoResolutionError}. Check that database migrations have been applied and that persistence config (or MINSKY_PERSISTENCE_POSTGRES_URL) is correct for this workspace. Run \`minsky persistence check\` to see the resolved target host.`
       : "The database connection resolved to no connection object.";
     return {
       success: false,
