@@ -20,6 +20,7 @@ import { getMinskyStateDir } from "@minsky/shared/paths";
 import { runSchemaMigrationsForConfiguredBackend } from "@minsky/domain/persistence/migration-operations";
 import { validatePostgresBackend } from "@minsky/domain/persistence/validation-operations";
 import {
+  connectionTargetHost,
   getEffectivePersistenceConfig,
   resolvePersistenceTargetHost,
 } from "@minsky/domain/configuration/persistence-config";
@@ -332,8 +333,17 @@ export function registerPersistenceCommands(
               "Please configure persistence.postgres.connectionString in config file or set MINSKY_POSTGRES_URL environment variable."
           );
         }
+        // mt#4789: this was a hand-rolled redaction regex over the full connection
+        // string. A redaction pattern that matches nothing emits its input
+        // UNCHANGED and is indistinguishable from one that fired — this repo has
+        // already leaked a production password exactly that way, on a
+        // `postgres://` vs `postgresql://` mismatch (see
+        // `terminal-command-best-practices.mdc §Secret handling`). This pattern
+        // has the same shape of hole: a connection string with no userinfo, or
+        // one carrying its password outside `user:pass@`, passes through intact.
+        // The host cannot carry a credential, so print that instead.
         log.cli(
-          `Using PostgreSQL connection: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
+          `🎯 Resolved target host: ${connectionTargetHost(connectionString) ?? "(none configured)"}`
         );
         // Use the full postgres sub-object so pool settings are preserved.
         targetConfig.postgres = effectiveTarget.postgres ?? { connectionString };
