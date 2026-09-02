@@ -349,7 +349,10 @@ export function createSettledDecisionNominator(): SettledDecisionNominator {
  * provider degrades both, but a family-specific refusal does not silence the
  * other one.
  */
-function createNominator(exemplarSet: ExemplarSet, threshold: number): SettledDecisionNominator {
+export function createNominator(
+  exemplarSet: ExemplarSet,
+  threshold: number
+): SettledDecisionNominator {
   let deps: NominationDeps | null | undefined;
   let latchedFailure: string | undefined;
 

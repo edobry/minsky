@@ -91,7 +91,23 @@ import type { KillInvocation } from "./block-bulk-process-kill";
 // one definition serving both surfaces rather than a second copy that drifts.
 // Same one-way hook-to-hook edge `turn-end-untaken-action-scan` already has on
 // that module, and the same one this file already has on the kill parse above.
-import { findOfferShape, detectDeferralPhrases } from "./ask-routing-deferral-detector";
+import {
+  findOfferShape,
+  detectDeferralPhrases,
+  // mt#4649 (phase 2): the Rung-2 nomination framework this detector's
+  // settled-decision suppressor now climbs onto. Imported rather than copied,
+  // for the same reason `findOfferShape` is — one definition serving both
+  // detectors, so the two cannot drift. `createNominator` owns the
+  // latch-on-failure and degrade paths; the exemplar set is mt#4404's, reused
+  // per SC1 because the five renderings are the same act. What is NOT shared is
+  // the threshold, which ADR-024 gates per detector on its own corpus.
+  createNominator,
+  SETTLED_DECISION_EXEMPLAR_SET,
+} from "./ask-routing-deferral-detector";
+import type {
+  SettledDecisionNominator,
+  SettledNominationOutcome,
+} from "./ask-routing-deferral-detector";
 // The shared authored-text resolver (mt#4525), reused rather than re-derived
 // (mt#4769). Each guard passes its OWN field map and shares only the resolution
 // — `claim-provenance-scan.ts` states that split deliberately, because a widened
@@ -1504,7 +1520,24 @@ export function buildCalibrationRecord(
    * contract-tightening class `/plan-task` gate (h) names, where callers break
    * by OMISSION and a read-grep cannot see them.
    */
-  turnText?: string
+  turnText?: string,
+  /**
+   * Rung-2 suppression reasons (mt#4649).
+   *
+   * The sweep lifts `suppressionReasons` cross-kind to the parsed record's top
+   * level, so this is the field a `/calibration-review` pass reads to separate a
+   * Rung-1 suppression from a Rung-2 one — which is what SC4's per-rung residual
+   * is measured from. Omitted rather than empty when nothing suppressed, so a
+   * record predating the climb stays byte-identical.
+   */
+  suppressionReasons?: string[],
+  /**
+   * Why Rung 2 declined to score (mt#4649) — provider unconfigured, non-semantic
+   * provider, timeout, or a throw. ADR-024's degraded marker: present here means
+   * the rung did NOT run, so this record's absence of a Rung-2 suppression is
+   * "not measured", never "measured and found not settled".
+   */
+  rung2DegradedReason?: string
 ): Record<string, unknown> {
   return {
     timestamp: new Date().toISOString(),
@@ -1512,6 +1545,10 @@ export function buildCalibrationRecord(
     injection_enabled: INJECTION_ENABLED,
     source: "live",
     evaluated,
+    ...(suppressionReasons !== undefined && suppressionReasons.length > 0
+      ? { suppressionReasons }
+      : {}),
+    ...(rung2DegradedReason !== undefined ? { rung2DegradedReason } : {}),
     // mt#4702: does `ask-routing-deferral` fire on the same prose? Measured at
     // 10 of 11 distinct fire-minutes in the 2026-08-31 window, and the field
     // was ABSENT on all 12 records — so the pair's overlap was invisible to the
@@ -1641,6 +1678,147 @@ export function renderWorstCase(): string {
 }
 
 // ---------------------------------------------------------------------------
+// SETTLED-DECISION suppressor, Rung 2 (mt#4649 — ADR-024 phase 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Suppression reason for a permission ask retired by the Rung-2 nominator.
+ *
+ * Its own string, distinct from Rung 1's, so the two rungs stay separable in the
+ * calibration log — SC4 reports a residual per rung, which a shared reason would
+ * make unmeasurable. Same split phase 1 shipped
+ * (`SUPPRESSION_SETTLED_DECISION` / `SUPPRESSION_SETTLED_DECISION_RUNG2`).
+ */
+export const SUPPRESSION_PERMISSION_SETTLED_RUNG2 = "permission-settled-decision-rung2";
+
+/**
+ * At most this many distinct match contexts are scored per turn.
+ *
+ * Each costs its own `nominate` round-trip, because suppression is per-MATCH and
+ * `nominate` reports only its single best segment per family. Matches phase 1's
+ * cap; this detector's live log carries one or two matches per record, so it is
+ * headroom rather than a live constraint.
+ */
+const PERMISSION_RUNG2_MAX_CONTEXTS = 4;
+
+/**
+ * Similarity threshold for this detector's settled-decision family.
+ *
+ * **Measured on THIS corpus. Deliberately NOT mt#4404's 0.5144**, and not the
+ * shared `DEFAULT_SIMILARITY_THRESHOLD` (0.455) either — mt#4280 records that
+ * constant under-scoring ground-truth fixtures on a corpus it was not measured
+ * on, and phase 1's docblock records the same lesson a second time. SC3 makes
+ * measuring it here a criterion rather than a courtesy.
+ *
+ * **Why the two detectors cannot share a number even on identical exemplars.**
+ * The exemplars describe the same ACT; the threshold encodes the COST of being
+ * wrong, and the costs differ. On phase 1 a false suppression silences a
+ * deferral WARNING. Here it silences a PERMISSION ASK — the surface whose own
+ * exclusions are load-bearing precisely because the shape of an in-authority ask
+ * and a genuinely-reserved one are identical, and only the ACTION discriminates.
+ * So this band is set from this detector's own AT1/AT2 populations.
+ *
+ * MEASUREMENT PENDING — this value is a placeholder and MUST be replaced by
+ * `scripts/replay-permission-settled.ts`'s measured midpoint before this ships.
+ * Shipping the placeholder is exactly the inheritance SC3 forbids.
+ */
+export const PERMISSION_SETTLED_RUNG2_THRESHOLD = Number.NaN;
+
+/**
+ * Opt-in for this detector's Rung-2 nomination path.
+ *
+ * Ships DISABLED, matching phase 1 (`MINSKY_ARD_RUNG2_NOMINATION`) and mt#3408's
+ * precedent: the mechanism lands, and the threshold that decides a suppression is
+ * measured against the calibration corpus before it is allowed to change a
+ * verdict. **A SEPARATE variable from phase 1's, deliberately** — ADR-024 gates
+ * rung climbs per detector on that detector's own evidence, so one shared flag
+ * would couple two independent decisions and make either detector's residual
+ * unattributable. Registered in `HOOK_ONLY_ENV_VAR_CATEGORIES`.
+ */
+export const PERMISSION_RUNG2_NOMINATION_ENV_VAR = "MINSKY_ODD_RUNG2_NOMINATION";
+
+/** True when the operator has opted into this detector's Rung-2 path. */
+export function isPermissionRung2NominationEnabled(): boolean {
+  const raw = process.env[PERMISSION_RUNG2_NOMINATION_ENV_VAR];
+  return raw === "1" || raw?.toLowerCase() === "true" || raw?.toLowerCase() === "yes";
+}
+
+/** This detector's nominator, or `undefined` when the operator has not opted in. */
+export function createPermissionSettledNominator(): SettledDecisionNominator | undefined {
+  if (!isPermissionRung2NominationEnabled()) return undefined;
+  return createNominator(SETTLED_DECISION_EXEMPLAR_SET, PERMISSION_SETTLED_RUNG2_THRESHOLD);
+}
+
+/**
+ * Rung 2 for the permission-ask surface: drop matches whose context states a
+ * decision the agent already TOOK (mt#4649).
+ *
+ * **A post-pass, not a clause inside `isPermissionAskSuppressed`** — see this
+ * task's `## Implementation plan` for the reconciliation. Three facts drive it:
+ * `nominate` is async and that predicate is sync inside a sync `run` chain;
+ * phase 1 shipped exactly this shape; and coverage is identical, because
+ * `isPermissionAskSuppressed`'s only two call sites both produce
+ * `permission-deferral-prose`, so filtering on that surface sees the same
+ * population — including the offer-shape path, which the detector's own doc
+ * says must not become a new way to bypass.
+ *
+ * **Rung 1 is untouched and runs first.** `SETTLED_DECISION_PATTERNS` and the
+ * other four clauses are unchanged; this only ever sees matches they LEFT.
+ *
+ * Never throws. A degraded nomination returns `matches` UNCHANGED with the reason
+ * recorded — ADR-024's fail-to-Rung-1 invariant, which on a SUPPRESSOR lands on
+ * the safe side without modification: no suppression means the false positive
+ * returns, rather than a genuine permission ask being silenced.
+ */
+export async function resolvePermissionSettledRung2(
+  matches: DeferralMatch[],
+  nominator: SettledDecisionNominator | undefined
+): Promise<{ remaining: DeferralMatch[]; suppressedAll: boolean; degradedReason?: string }> {
+  const unchanged = { remaining: matches, suppressedAll: false };
+  if (nominator === undefined || matches.length === 0) return unchanged;
+
+  const eligible = matches.filter((m) => m.surface === "permission-deferral-prose");
+  if (eligible.length === 0) return unchanged;
+
+  // Distinct contexts only: two phrases matched in the same sentence share a
+  // window, and scoring it twice buys nothing for a second round-trip.
+  const contexts = [...new Set(eligible.map((m) => m.context))].slice(
+    0,
+    PERMISSION_RUNG2_MAX_CONTEXTS
+  );
+  const settledContexts = new Set<string>();
+  let degradedReason: string | undefined;
+
+  for (const context of contexts) {
+    let outcome: SettledNominationOutcome;
+    try {
+      outcome = await nominator(context);
+    } catch (err) {
+      degradedReason = `nominator-threw: ${err instanceof Error ? err.message : String(err)}`;
+      break;
+    }
+    if (outcome.kind === "degraded") {
+      degradedReason = outcome.reason;
+      // The nominator latches, so every later context returns the same reason.
+      // Stop rather than paying for that.
+      break;
+    }
+    if (outcome.kind === "settled") settledContexts.add(context);
+  }
+
+  // A degradation mid-loop leaves a PARTIAL verdict. Discard it: suppressing the
+  // contexts scored before the provider failed would make the outcome depend on
+  // match ordering, and this surface's safe failure is to suppress nothing.
+  if (degradedReason !== undefined) return { ...unchanged, degradedReason };
+  if (settledContexts.size === 0) return unchanged;
+
+  const remaining = matches.filter(
+    (m) => !(m.surface === "permission-deferral-prose" && settledContexts.has(m.context))
+  );
+  return { remaining, suppressedAll: remaining.length === 0 };
+}
+
+// ---------------------------------------------------------------------------
 // Dispatcher-compatible entry points (ADR-028 D1/D2)
 // ---------------------------------------------------------------------------
 
@@ -1742,18 +1920,40 @@ function toOutcome(
    * every caller KNOWS which unit it evaluated, while only the prose-turn
    * surface HAS the prose. Absent — or empty — means "not measured".
    */
-  turnText?: string
+  turnText?: string,
+  /** Rung-2 suppression reasons, when the post-pass retired every match (mt#4649). */
+  suppressionReasons?: string[],
+  /** The Rung-2 degrade reason, per ADR-024's fail-to-Rung-1 invariant (mt#4649). */
+  degradedReason?: string
 ): GuardOutcome | null {
   if (matches.length === 0) return null;
   const outcome: GuardOutcome = {
-    calibration: buildCalibrationRecord(sessionId, matches, evaluated, turnText),
+    calibration: buildCalibrationRecord(
+      sessionId,
+      matches,
+      evaluated,
+      turnText,
+      suppressionReasons,
+      degradedReason
+    ),
   };
   if (INJECTION_ENABLED) outcome.additionalContext = buildReminder(matches);
   return outcome;
 }
 
-/** Surface A — UserPromptSubmit: scan the just-completed turn's prose. */
-export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome | null {
+/**
+ * Surface A — UserPromptSubmit: scan the just-completed turn's prose.
+ *
+ * **Async since mt#4649**, so the Rung-2 post-pass can await its nominator. The
+ * dispatcher already awaits guard results — phase 1's `run` in the sibling
+ * detector has been async since mt#4404 and is registered the same way, which is
+ * the evidence for this rather than an assumption. Every other surface on this
+ * module stays synchronous: none of them consults Rung 2.
+ */
+export async function run(
+  input: ClaudeHookInput,
+  ctx: DispatchContext
+): Promise<GuardOutcome | null> {
   if (isOverridden()) return null;
   if (!input.transcript_path) return null;
   const lines = ctx.transcriptLines;
@@ -1785,17 +1985,35 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     // honest tail of a turn with no prose, and the calibration record omits the
     // overlap field rather than fabricating a negative.
     const turnText = extractAssistantText(turnLines);
+
+    // mt#4649: Rung 2 runs over what Rung 1 LEFT, and only when the operator has
+    // opted in. Both records below read the SURVIVING matches, so an all-suppressed
+    // turn reports `fired: false` in the evaluation stream and writes no
+    // calibration fire — otherwise the suppression would be invisible in exactly
+    // the log SC4's residual is measured from.
+    const rung2 = await resolvePermissionSettledRung2(matches, createPermissionSettledNominator());
+    const suppressionReasons = rung2.suppressedAll
+      ? [SUPPRESSION_PERMISSION_SETTLED_RUNG2]
+      : undefined;
+
     appendEvaluationRecord(
       input.cwd,
       buildEvaluationRecord(
         input.session_id,
-        matches,
+        rung2.remaining,
         turnText,
         "prose-turn",
         summarizeAskJustificationEvaluation(turnLines)
       )
     );
-    return toOutcome(matches, input.session_id, "prose-turn", turnText);
+    return toOutcome(
+      rung2.remaining,
+      input.session_id,
+      "prose-turn",
+      turnText,
+      suppressionReasons,
+      rung2.degradedReason
+    );
   } catch (err) {
     process.stderr.write(
       `[operator-deferral-detector] Detection error: ${err instanceof Error ? err.message : String(err)}\n`

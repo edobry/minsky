@@ -93,11 +93,11 @@ describe("PR #3531 R2 — the PRODUCTION path, not just the builder", () => {
   // prose-turn record. That is the gap the reviewer found: the only caller
   // that decides what "no prose" means was untested. These call `run()`.
 
-  test("a turn that fires on a TOOL CALL alone records no overlap field", () => {
+  test("a turn that fires on a TOOL CALL alone records no overlap field", async () => {
     // Surface E fires off the `asks_create` input, not off assistant prose, so
     // `extractAssistantText` returns "" for this turn. Before the fix every
     // such record carried `deferralOverlap: false`.
-    const outcome = run(
+    const outcome = await run(
       { session_id: "s-empty", transcript_path: FIXTURE_PATH } as ClaudeHookInput,
       ctxWith([userPrompt("open the ask"), ...askTurn({}), userPrompt("next")])
     );
@@ -108,8 +108,8 @@ describe("PR #3531 R2 — the PRODUCTION path, not just the builder", () => {
   // Negative controls. A guard that dropped the field unconditionally would
   // pass the test above and quietly destroy the measurement mt#4702 shipped —
   // so both VALUES have to survive on a turn that actually carries prose.
-  test("a prose turn with no overlap records a real false, not an absence", () => {
-    const outcome = run(
+  test("a prose turn with no overlap records a real false, not an absence", async () => {
+    const outcome = await run(
       { session_id: "s-prose-false", transcript_path: FIXTURE_PATH } as ClaudeHookInput,
       ctxWith([userPrompt("go"), assistantText(DEFERRAL_PROSE), userPrompt("next")])
     );
@@ -117,8 +117,8 @@ describe("PR #3531 R2 — the PRODUCTION path, not just the builder", () => {
     expect(outcome?.calibration?.["deferralOverlap"]).toBe(false);
   });
 
-  test("a prose turn the sibling also fires on records true", () => {
-    const outcome = run(
+  test("a prose turn the sibling also fires on records true", async () => {
+    const outcome = await run(
       { session_id: "s-prose-true", transcript_path: FIXTURE_PATH } as ClaudeHookInput,
       ctxWith([
         userPrompt("go"),

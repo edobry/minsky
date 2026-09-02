@@ -567,8 +567,8 @@ describe("fires on a tool-interleaved turn (mt#2057 dead-surface regression)", (
     userPrompt("why can't you fix this yourself?"),
   ];
 
-  test("the phrase before the tool calls is still scanned", () => {
-    const outcome = run(
+  test("the phrase before the tool calls is still scanned", async () => {
+    const outcome = await run(
       { session_id: "s1", transcript_path: FIXTURE_PATH } as ClaudeHookInput,
       ctxWith(interleaved)
     );
@@ -895,8 +895,8 @@ describe("calibration-first posture", () => {
     expect(INJECTION_ENABLED).toBe(false);
   });
 
-  test("no injection is emitted while the gate is closed", () => {
-    const outcome = run(
+  test("no injection is emitted while the gate is closed", async () => {
+    const outcome = await run(
       { session_id: "s3", transcript_path: FIXTURE_PATH } as ClaudeHookInput,
       ctxWith([userPrompt("go"), assistantText(DEFERRAL_PROSE), userPrompt("next")])
     );
@@ -946,8 +946,8 @@ describe("calibration-first posture", () => {
     expect(reminder).not.toContain(OVERRIDE_ENV_VAR);
   });
 
-  test("a clean turn produces no outcome", () => {
-    const outcome = run(
+  test("a clean turn produces no outcome", async () => {
+    const outcome = await run(
       { session_id: "s5", transcript_path: FIXTURE_PATH } as ClaudeHookInput,
       ctxWith([userPrompt("go"), assistantText("Merged and verified."), userPrompt("next")])
     );
@@ -1153,8 +1153,8 @@ describe("Surface D — denial-anchored deferral (mt#3533)", () => {
     expect(detectDenialAnchoredDeferral([assistantText("All green."), asksCreate()])).toEqual([]);
   });
 
-  test("run() reports the surface through the calibration record", () => {
-    const outcome = run(
+  test("run() reports the surface through the calibration record", async () => {
+    const outcome = await run(
       { session_id: "s-d", transcript_path: FIXTURE_PATH } as ClaudeHookInput,
       ctxWith([
         userPrompt("apply the setting"),
@@ -1372,12 +1372,12 @@ describe("surface E — ask-justification capability-absence (mt#3999)", () => {
     expect(detectAskJustificationAbsence(turn)).toHaveLength(1);
   });
 
-  test("run() actually reports surface E — the wiring, not just the detector", () => {
+  test("run() actually reports surface E — the wiring, not just the detector", async () => {
     // Every other test in this block calls `detectAskJustificationAbsence`
     // directly, so deleting the surface from `run()`'s match list would leave
     // them ALL green — the mt#3270 R1 shape this file's own comment warns
     // about. This is the test that fails when the wiring goes.
-    const outcome = run(
+    const outcome = await run(
       { session_id: "s-e", transcript_path: FIXTURE_PATH } as ClaudeHookInput,
       ctxWith([userPrompt("run the replay corpus"), ...askTurn({}), userPrompt("next")])
     );
