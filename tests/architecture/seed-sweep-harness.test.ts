@@ -12,7 +12,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
-  orderDependentFailures,
+  classifyFailures,
   ordersDiffer,
   parseFailureNames,
   parseSeedArg,
@@ -87,21 +87,48 @@ describe("parseFailureNames", () => {
   });
 });
 
-describe("orderDependentFailures", () => {
-  const BASELINE = ["mt#3377 provisioning A", "mt#3377 provisioning B"];
+describe("classifyFailures", () => {
+  const STANDING = "mt#3377 provisioning";
+  const ORDERED = "guardHealth not in registry";
 
-  test("subtracts the standing red set, leaving only what ordering caused", () => {
-    const seed = [...BASELINE, "guardHealth not in registry"];
+  test("a failure present under some orders and absent under others is order-dependent", () => {
+    const result = classifyFailures([[STANDING, ORDERED], [STANDING], [STANDING, ORDERED]]);
 
-    expect(orderDependentFailures(BASELINE, seed)).toEqual(["guardHealth not in registry"]);
+    expect(result.orderDependent).toEqual([ORDERED]);
+    expect(result.standingRed).toEqual([STANDING]);
   });
 
-  test("a seed that reproduces only baseline failures is clean", () => {
-    expect(orderDependentFailures(BASELINE, BASELINE)).toEqual([]);
+  test("a failure present under EVERY order is standing red, not this sweep's finding", () => {
+    const result = classifyFailures([[STANDING], [STANDING], [STANDING]]);
+
+    expect(result.orderDependent).toEqual([]);
+    expect(result.standingRed).toEqual([STANDING]);
   });
 
-  test("an empty baseline attributes every failure to ordering", () => {
-    expect(orderDependentFailures([], ["x"])).toEqual(["x"]);
+  test("all-clean seeds yield nothing in either bucket", () => {
+    expect(classifyFailures([[], [], []])).toEqual({ orderDependent: [], standingRed: [] });
+  });
+
+  test("a failure in exactly one of two seeds is order-dependent", () => {
+    // The minimum case the sweep can detect at all, and why <2 seeds is refused.
+    const result = classifyFailures([[ORDERED], []]);
+
+    expect(result.orderDependent).toEqual([ORDERED]);
+    expect(result.standingRed).toEqual([]);
+  });
+
+  test("a name repeated within one seed's output still counts as one observation", () => {
+    // Otherwise a test failing twice in one run would look like it failed in
+    // two orders, and a genuinely order-dependent failure would be misfiled as
+    // standing red — the direction that HIDES a finding.
+    const result = classifyFailures([[ORDERED, ORDERED], []]);
+
+    expect(result.orderDependent).toEqual([ORDERED]);
+    expect(result.standingRed).toEqual([]);
+  });
+
+  test("no seeds yields nothing rather than throwing", () => {
+    expect(classifyFailures([])).toEqual({ orderDependent: [], standingRed: [] });
   });
 });
 

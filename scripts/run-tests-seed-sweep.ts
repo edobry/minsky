@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
- * Run the main test suite under N random seeds and report order-dependent
- * failures, against a declaration-order baseline (mt#3575).
+ * Run the main test suite under N random seeds and report the tests whose
+ * outcome DEPENDS on the order (mt#3575).
  *
  * ## Why this exists rather than a shell loop
  *
@@ -23,21 +23,29 @@
  *
  * ## What it does
  *
- *   1. Self-check — run a generated probe file twice under two different seeds
- *      and require the observed test order to DIFFER. If it does not, exit 2:
- *      the sweep would be meaningless.
- *   2. Baseline — one run in declaration order, to collect failures that have
- *      nothing to do with ordering. On 2026-09-02 that was 2 (both mt#3377).
- *   3. Sweep — one run per seed; report failures NOT present in the baseline.
+ *   1. Self-check — confirm the repo's bunfig enables randomization AND that a
+ *      generated probe genuinely produces different orders under different
+ *      seeds. If either fails, exit 2: the sweep would be meaningless.
+ *   2. Sweep — one full run per seed, collecting each run's failures.
+ *   3. Classify by CROSS-SEED VARIANCE (`classifyFailures`). A test that fails
+ *      under some orders and passes under others is order-dependent; one that
+ *      fails under every order belongs to the suite's standing red set.
+ *
+ * There is deliberately no declaration-order baseline. Once this task succeeds
+ * and `randomize = true`, a seedless run is itself randomized — so a "baseline"
+ * would just be another sample wearing a different name — and Bun 1.3.14 offers
+ * no `--no-randomize` or config-path flag to force declaration order back.
+ * Variance answers the question directly instead of approximating it.
  *
  * Usage:
  *   bun scripts/run-tests-seed-sweep.ts                 # 20 seeds
  *   bun scripts/run-tests-seed-sweep.ts --seeds 5       # fewer, for a spot check
  *   bun scripts/run-tests-seed-sweep.ts --json
  *
- * Exit code: 0 = no order-dependent failures beyond the baseline; 1 = at least
- * one seed produced a failure the baseline did not; 2 = the sweep could not
- * establish that randomization is active, so it proves nothing.
+ * Exit code: 0 = no order-dependent test found across the seeds run; 1 = at
+ * least one test's outcome varied with the order; 2 = the sweep could not
+ * establish that randomization is active (or fewer than 2 seeds were asked
+ * for), so it proves nothing and its silence must not be read as a pass.
  */
 
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -58,19 +66,50 @@ export function parseFailureNames(output: string): string[] {
   return names;
 }
 
+export interface SweepClassification {
+  /** Failed under SOME seeds and passed under others — order-dependent by definition. */
+  readonly orderDependent: string[];
+  /** Failed under EVERY seed — the suite's standing red set, not this task's. */
+  readonly standingRed: string[];
+}
+
 /**
- * Failures a seed produced that the baseline did not.
+ * Classify failures by CROSS-SEED VARIANCE rather than against a baseline.
  *
- * Subtracting the baseline is what separates ORDER-dependence from the suite's
- * standing red set. Without it every seed inherits the baseline's failures and
- * the sweep reports a population that is mostly not this task's.
+ * The obvious design — subtract a declaration-order baseline — stops working the
+ * moment this task succeeds: once `bunfig.toml` says `randomize = true`, a
+ * seedless run is itself randomized, so the "baseline" is just another sample.
+ * Bun 1.3.14 offers no `--no-randomize` and no config-path flag to force
+ * declaration order back, so there is nothing to subtract.
+ *
+ * Variance needs no baseline and answers the question directly: a test that
+ * fails in one order and passes in another IS order-dependent — that is the
+ * definition, not a proxy for it. One that fails in every order is failing for
+ * some other reason, which is exactly what the baseline was being used to
+ * approximate.
+ *
+ * Bound worth stating: with N seeds this can only see order-dependence that at
+ * least one of those N orders exposes, and a test failing under all N is
+ * reported as standing-red even if a 21st order would have passed it. More
+ * seeds tighten both; neither is fixed by a baseline.
  */
-export function orderDependentFailures(
-  baseline: readonly string[],
-  seedFailures: readonly string[]
-): string[] {
-  const known = new Set(baseline);
-  return seedFailures.filter((name) => !known.has(name));
+export function classifyFailures(
+  perSeedFailures: ReadonlyArray<readonly string[]>
+): SweepClassification {
+  if (perSeedFailures.length === 0) return { orderDependent: [], standingRed: [] };
+
+  const counts = new Map<string, number>();
+  for (const failures of perSeedFailures) {
+    for (const name of new Set(failures)) counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+
+  const orderDependent: string[] = [];
+  const standingRed: string[] = [];
+  for (const [name, seenIn] of counts) {
+    if (seenIn === perSeedFailures.length) standingRed.push(name);
+    else orderDependent.push(name);
+  }
+  return { orderDependent: orderDependent.sort(), standingRed: standingRed.sort() };
 }
 
 /** Did two runs execute tests in a different order? The randomization self-check. */
@@ -200,38 +239,38 @@ function main(): never {
   }
   if (!json) console.log(`Randomization confirmed live — ${selfCheck.detail}\n`);
 
-  const baselineRun = runBunTest(["scripts/run-tests-main.ts"]);
-  const baseline = parseFailureNames(baselineRun.output);
-  if (!json) {
-    console.log(`Baseline (declaration order): ${baseline.length} failure(s)`);
-    for (const name of baseline) console.log(`  ${name}`);
-    console.log("");
+  if (seedCount < 2) {
+    console.error(
+      "run-tests-seed-sweep: at least 2 seeds are required — order-dependence is detected by " +
+        "DIFFERENCE between orders, so a single sample can never show it."
+    );
+    process.exit(2);
   }
 
-  const findings: { seed: number; failures: string[] }[] = [];
+  const perSeed: string[][] = [];
   for (let seed = 1; seed <= seedCount; seed++) {
     const run = runBunTest(["scripts/run-tests-main.ts", "--seed", String(seed)]);
-    const novel = orderDependentFailures(baseline, parseFailureNames(run.output));
-    if (novel.length > 0) findings.push({ seed, failures: novel });
-    if (!json) {
-      console.log(
-        `seed ${seed}: ${novel.length === 0 ? "clean" : `${novel.length} order-dependent`}`
-      );
-      for (const name of novel) console.log(`    ${name}`);
-    }
+    const failures = parseFailureNames(run.output);
+    perSeed.push(failures);
+    if (!json) console.log(`seed ${seed}: ${failures.length} failure(s)`);
   }
+
+  const { orderDependent, standingRed } = classifyFailures(perSeed);
 
   if (json) {
-    console.log(JSON.stringify({ selfCheck, seedCount, baseline, findings }, null, 2));
+    console.log(JSON.stringify({ selfCheck, seedCount, orderDependent, standingRed }, null, 2));
   } else {
-    const seedsWithFindings = findings.length;
     console.log(
-      `\n${seedCount - seedsWithFindings}/${seedCount} seeds clean; ` +
-        `${new Set(findings.flatMap((f) => f.failures)).size} distinct order-dependent test(s).`
+      `\nOrder-dependent (failed under some orders, passed under others): ${orderDependent.length}`
     );
+    for (const name of orderDependent) console.log(`  ${name}`);
+    console.log(
+      `\nStanding red set (failed under EVERY order — not this sweep's concern): ${standingRed.length}`
+    );
+    for (const name of standingRed) console.log(`  ${name}`);
   }
 
-  process.exit(findings.length > 0 ? 1 : 0);
+  process.exit(orderDependent.length > 0 ? 1 : 0);
 }
 
 if (import.meta.main) {
