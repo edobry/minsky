@@ -85,6 +85,27 @@ describe("correlatePeerMessages — the window (AT4)", () => {
       counterpartKey: sentKey(sent),
     });
     expect(feed.counts.paired).toBe(2);
+
+    // SC7 — each end carries the OTHER end's conversation, so both are
+    // linkable without a consumer parsing the composite counterpart key.
+    expect(sentEntry?.counterpartSessionId).toBe("receiver-session");
+    expect(receivedEntry?.counterpartSessionId).toBe("sender-session");
+  });
+
+  test("an AMBIGUOUS entry names no counterpart — the guess is refused in the data, not the UI", () => {
+    const feed = correlatePeerMessages(
+      [makeSent({ ordinal: 0 }), makeSent({ ordinal: 1 })],
+      [makeReceived()]
+    );
+    for (const entry of feed.entries) {
+      expect(entry.correlation.state).toBe("ambiguous");
+      expect(entry.counterpartSessionId).toBeNull();
+    }
+  });
+
+  test("an UNMATCHED entry names no counterpart", () => {
+    const feed = correlatePeerMessages([makeSent()], []);
+    expect(feed.entries[0]?.counterpartSessionId).toBeNull();
   });
 
   test("a delivery one millisecond past the window does NOT pair", () => {

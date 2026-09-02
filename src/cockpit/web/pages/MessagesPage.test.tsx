@@ -71,6 +71,7 @@ function sentEntry(overrides: Partial<PeerMessageFeedEntry> = {}): PeerMessageFe
     direction: "sent",
     at: "2026-09-01T12:00:10.000Z",
     agentSessionId: "11111111-1111-4111-8111-111111111111",
+    counterpartSessionId: "22222222-2222-4222-8222-222222222222",
     body: "please pick up mt#4874",
     recipient: "agent-7",
     origin: null,
@@ -86,6 +87,7 @@ function receivedEntry(overrides: Partial<PeerMessageFeedEntry> = {}): PeerMessa
     direction: "received",
     at: "2026-09-01T12:00:12.000Z",
     agentSessionId: "22222222-2222-4222-8222-222222222222",
+    counterpartSessionId: "11111111-1111-4111-8111-111111111111",
     body: "please pick up mt#4874",
     recipient: null,
     origin: {
@@ -168,6 +170,46 @@ describe("MessagesPage — the feed", () => {
     expect(screen.getAllByTestId("messages-correlation-paired")).toHaveLength(2);
   });
 
+  test("a paired row links BOTH conversations, not just its own (SC7)", async () => {
+    mockWidgetData({ state: "ok", payload: okPayload([sentEntry(), receivedEntry()]) });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByTestId("messages-feed")).toBeDefined());
+
+    // One counterpart block per paired row, and each names the OTHER end.
+    const counterparts = screen.getAllByTestId("messages-counterpart-conversation");
+    expect(counterparts).toHaveLength(2);
+
+    const sentRow = screen.getByTestId("messages-row-sent:sender:7:0");
+    const receivedRow = screen.getByTestId("messages-row-received:receiver:412");
+    // Both ends are reachable as links from either row.
+    const hrefs = (row: HTMLElement) =>
+      Array.from(row.querySelectorAll("a")).map((a) => a.getAttribute("href") ?? "");
+    expect(hrefs(sentRow).some((h) => h.includes("11111111"))).toBe(true);
+    expect(hrefs(sentRow).some((h) => h.includes("22222222"))).toBe(true);
+    expect(hrefs(receivedRow).some((h) => h.includes("22222222"))).toBe(true);
+    expect(hrefs(receivedRow).some((h) => h.includes("11111111"))).toBe(true);
+  });
+
+  test("an unpaired or ambiguous row links only its own conversation", async () => {
+    mockWidgetData({
+      state: "ok",
+      payload: okPayload([
+        sentEntry({ correlation: { state: "unmatched" }, counterpartSessionId: null }),
+        receivedEntry({
+          correlation: { state: "ambiguous", candidateCount: 2 },
+          counterpartSessionId: null,
+        }),
+      ]),
+    });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByTestId("messages-feed")).toBeDefined());
+    // Naming one of several candidates would be SC5's forbidden guess moved
+    // into the UI, so no counterpart link is offered at all.
+    expect(screen.queryByTestId("messages-counterpart-conversation")).toBeNull();
+  });
+
   test("a session peer and an in-session agent are visually distinguished (SC8)", async () => {
     const agentPeer = receivedEntry({
       key: "received:receiver:500",
@@ -185,6 +227,7 @@ describe("MessagesPage — the feed", () => {
       },
       body: "on it",
       correlation: { state: "unmatched" },
+      counterpartSessionId: null,
     });
     mockWidgetData({ state: "ok", payload: okPayload([receivedEntry(), agentPeer]) });
     renderPage();
@@ -195,7 +238,10 @@ describe("MessagesPage — the feed", () => {
   });
 
   test("an unpaired send reads as 'no delivery record found' and is not totalled as undelivered", async () => {
-    const unmatched = sentEntry({ correlation: { state: "unmatched" } });
+    const unmatched = sentEntry({
+      correlation: { state: "unmatched" },
+      counterpartSessionId: null,
+    });
     mockWidgetData({ state: "ok", payload: okPayload([unmatched]) });
     renderPage();
 
@@ -216,6 +262,7 @@ describe("MessagesPage — the feed", () => {
   test("an ambiguous pairing says so and names the candidate count, rather than picking one", async () => {
     const ambiguous = receivedEntry({
       correlation: { state: "ambiguous", candidateCount: 2 },
+      counterpartSessionId: null,
     });
     mockWidgetData({ state: "ok", payload: okPayload([ambiguous]) });
     renderPage();

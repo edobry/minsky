@@ -136,6 +136,19 @@ export interface PeerMessageFeedEntry {
   /** ISO timestamp this entry is ordered by; null when the source carried none. */
   at: string | null;
   agentSessionId: string;
+  /**
+   * The conversation at the OTHER end, when this entry is exclusively paired.
+   *
+   * `counterpartKey` above already encodes it, but only as one field of a
+   * composite string — a consumer that wants the id would have to parse that
+   * key, which makes the key's format a public contract by accident. This
+   * carries it directly so both ends of a pair are linkable (SC7).
+   *
+   * Null unless `correlation.state === "paired"`: an ambiguous entry has
+   * several candidate counterparts and naming one would be the guess SC5
+   * forbids, in the UI instead of in the correlator.
+   */
+  counterpartSessionId: string | null;
   /** The message text — `input.message` when sent, `origin.body` when received. */
   body: string | null;
   /** Sent only: whom the sender addressed. */
@@ -297,16 +310,19 @@ export function correlatePeerMessages(
       only === undefined
         ? null
         : { key: sentKey(only), claimants: (claimantsBySent.get(sentKey(only)) ?? []).length };
+    const correlation = resolve(candidates.length, counterpart);
     return {
       key: rKey,
       direction: "received" as const,
       at: toIso(r.receivedAtMs),
       agentSessionId: r.agentSessionId,
+      counterpartSessionId:
+        correlation.state === "paired" && only !== undefined ? only.agentSessionId : null,
       body: r.origin.body,
       recipient: null,
       origin: r.origin,
       fromKind: r.origin.fromKind,
-      correlation: resolve(candidates.length, counterpart),
+      correlation,
     };
   });
 
@@ -321,6 +337,7 @@ export function correlatePeerMessages(
             key: receivedKey(only),
             claimants: (candidatesByReceived.get(receivedKey(only)) ?? []).length,
           };
+    const correlation = resolve(claimants.length, counterpart);
     return {
       key: sKey,
       direction: "sent" as const,
@@ -329,11 +346,13 @@ export function correlatePeerMessages(
       // merely because one bound is missing.
       at: toIso(s.endedAtMs ?? s.startedAtMs),
       agentSessionId: s.agentSessionId,
+      counterpartSessionId:
+        correlation.state === "paired" && only !== undefined ? only.agentSessionId : null,
       body: s.message,
       recipient: s.recipient,
       origin: null,
       fromKind: null,
-      correlation: resolve(claimants.length, counterpart),
+      correlation,
     };
   });
 

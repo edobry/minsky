@@ -217,6 +217,21 @@ export function MessageRow({ entry }: { entry: PeerMessageFeedEntry }) {
             </span>
           </>
         ) : null}
+        {/* SC7 — both ends of a pair are linkable, not just the row's own end.
+            Present only on an exclusively-paired entry: an ambiguous one has
+            several candidate counterparts, and linking one of them would be
+            the guess SC5 forbids, relocated into the UI. */}
+        {entry.counterpartSessionId !== null ? (
+          <span
+            className="flex items-center gap-x-2"
+            data-testid="messages-counterpart-conversation"
+          >
+            <span className="text-muted-foreground">
+              {entry.direction === "sent" ? "delivered into" : "sent from"}
+            </span>
+            <EntityRef type="conversation" id={entry.counterpartSessionId} />
+          </span>
+        ) : null}
       </div>
 
       {entry.body === null ? (
