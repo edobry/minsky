@@ -109,6 +109,40 @@ export const SYSTEM_REMINDER_TAGS = ["system-reminder"] as const;
 export const TASK_NOTIFICATION_TAGS = ["task-notification"] as const;
 
 /**
+ * The preamble the harness prepends to a worker fork's opening turn (mt#4072).
+ *
+ * Same class as `local-command-caveat`: addressed to the MODEL throughout —
+ * "You are a worker fork. The transcript above is the parent's history —
+ * inherited reference, not your situation… Do NOT spawn subagents with the
+ * Agent tool… One shot: report once and stop." The operator wrote none of it,
+ * and it carries `isMeta: undefined`, so the mt#3809 `isMeta` precedence branch
+ * does not catch it and it rendered under the operator's own label.
+ *
+ * Corpus counts (measured 2026-09-02 over 1,744 `~/.claude/projects/**\/*.jsonl`
+ * files, turn-start-anchored exactly as `scripts/audit-unknown-harness-tags.ts`
+ * counts): **15 turns in 15 conversations, all under `subagents/`**, and the
+ * block is INVARIANT at 947 characters — one variant, no drift.
+ *
+ * Two properties a consumer must not get wrong, both measured:
+ *
+ * - **Every occurrence is followed by the parent's actual directive** (15 of 15,
+ *   89–4,196 chars), inside a two-block `[tool_result, text]` content array. A
+ *   boilerplate-ONLY turn does not occur in the corpus. So a consumer that
+ *   consumes to end-of-turn eats real content; the block must be split off and
+ *   the remainder kept as prose.
+ * - **The population is historical and shrinking**, unlike every other family
+ *   here: all 15 are from 2026-07 and none has arrived since. It measured 29 on
+ *   2026-08-13, so these transcripts are aging out. Do not read the count as a
+ *   live rate.
+ *
+ * Counting caveat (mem#1022): a line-level `grep -rl fork-boilerplate` over the
+ * corpus returns ~161 files, because it counts every transcript DISCUSSING the
+ * tag — including this task's own planning conversations. Count turn-start
+ * anchored, or just run the sweep.
+ */
+export const FORK_BOILERPLATE_TAGS = ["fork-boilerplate"] as const;
+
+/**
  * Every harness markup tag, flattened. This is the DISCARD set for the label
  * surface: a tag here has contents that are never operator prose, so the
  * whole block (markers and body) is dropped rather than unwrapped.
@@ -119,6 +153,7 @@ export const HARNESS_MARKUP_TAGS = [
   ...BASH_MODE_TAGS,
   ...SYSTEM_REMINDER_TAGS,
   ...TASK_NOTIFICATION_TAGS,
+  ...FORK_BOILERPLATE_TAGS,
 ] as const;
 
 export type HarnessMarkupTag = (typeof HARNESS_MARKUP_TAGS)[number];

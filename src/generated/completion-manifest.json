@@ -7234,7 +7234,7 @@
         },
         {
           "name": "get",
-          "description": "Return all turns for a harness conversation in turn_index order. Optionally slice to a turn range using the turnRange parameter (format: 'start-end', e.g. '10-20'). Optionally filter to a role ('user' or 'assistant', mt#2818) and/or request a lean text-only projection (projection: 'text') that excludes tool-call payloads (already excluded from userText/assistantText by construction) and strips/flags detectable harness-injected markup (system-reminder / command wrappers — heuristic, see docs). Throws if the conversation is not found. Coverage: conversations are auto-ingested on MCP server boot; if a conversation is missing, run `transcripts_ingest --all` to force a full sweep.",
+          "description": "Return all turns for a harness conversation in turn_index order. Optionally slice to a turn range using the turnRange parameter (format: 'start-end', e.g. '10-20'). Optionally filter to a role ('user' or 'assistant', mt#2818) and/or request a lean text-only projection (projection: 'text') that excludes tool-call payloads (already excluded from userText/assistantText by construction) and strips/flags detectable harness-injected markup (system-reminder / command wrappers — heuristic, see docs). On USER entries it additionally strips Minsky's own prompt watermarks and reports `userOrigin`, so a generated dispatch prompt is not returned as operator prose (mt#4072); the human-paste watermark is deliberately left in place. Throws if the conversation is not found. Coverage: conversations are auto-ingested on MCP server boot; if a conversation is missing, run `transcripts_ingest --all` to force a full sweep.",
           "options": [
             {
               "flags": ["--conversation-id"],
@@ -7259,7 +7259,7 @@
             },
             {
               "flags": ["--projection"],
-              "description": "'full' (default) returns the structured TranscriptTurnResult[] shape (session metadata, timestamps, spawn-boundary flag). 'text' returns a lean { turnIndex, role, text, injected }[] — see the command description for the injected-markup heuristic and its documented limits.",
+              "description": "'full' (default) returns the structured TranscriptTurnResult[] shape (session metadata, timestamps, spawn-boundary flag). 'text' returns a lean { turnIndex, role, text, injected, userOrigin? }[] — see the command description for the injected-markup heuristic and its documented limits. `userOrigin` is present on USER entries only and names who authored the text (mt#4072); 'human' is a fail-open default, so only a non-'human' value carries information.",
               "takesValue": true,
               "values": ["full", "text"]
             }

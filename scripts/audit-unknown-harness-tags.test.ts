@@ -107,6 +107,13 @@ describe("isUnknownTag — known and recorded-prose tags are not nominated", () 
     expect(isUnknownTag("bash-stderr")).toBe(false);
   });
 
+  test("fork-boilerplate, added by mt#4072, is not re-nominated", () => {
+    // The sibling of the assertion above, for the one tag THIS sweep's first
+    // run nominated (2026-08-12). Adding it to the inventory is what closes the
+    // loop the sweep opened, so this is the check that the loop actually closed.
+    expect(isUnknownTag("fork-boilerplate")).toBe(false);
+  });
+
   test("the three recorded prose lookalikes are excluded by name as well", () => {
     // Belt and braces: the close-tag requirement already excludes CLI help
     // text, but a prose sample that happens to close its tag would slip past

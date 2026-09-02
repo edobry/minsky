@@ -3,6 +3,10 @@ import { createSharedCommandRegistry, CommandCategory } from "../../command-regi
 import { registerTranscriptGetCommand, projectTurnsToText } from "./get-command";
 import type { TranscriptTextProjectionEntry } from "./get-command";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
+// mt#4072 — imported rather than hard-coded so a change to either marker's
+// spelling fails these tests instead of quietly making them assert nothing.
+import { DISPATCH_STAMP_VERSION } from "@minsky/shared/dispatch-stamp";
+import { PROMPT_WATERMARK } from "@minsky/domain/session/prompt-generation";
 
 const COMMAND_ID = "transcripts.get";
 
@@ -149,10 +153,27 @@ describe("transcripts.get command", () => {
 
 // ── projectTurnsToText (mt#2818) ─────────────────────────────────────────────
 
+/**
+ * A turn row for the projection, with `userOrigin` defaulted (mt#4072).
+ *
+ * The projection REQUIRES the field rather than treating it as optional — its
+ * whole point is that attribution must not be silently dropped — so the default
+ * here is `null`, which is what a turn carrying no `userText` gets in the DB.
+ * Cases that care about attribution pass it explicitly.
+ */
+function turnRow(row: {
+  turnIndex: number;
+  userText: string | null;
+  assistantText: string | null;
+  userOrigin?: string | null;
+}) {
+  return { userOrigin: null, ...row };
+}
+
 describe("projectTurnsToText", () => {
   test("emits one entry per present role when no role filter is given", () => {
     const entries = projectTurnsToText([
-      { turnIndex: 0, userText: "hello", assistantText: "hi there" },
+      turnRow({ turnIndex: 0, userText: "hello", assistantText: "hi there" }),
     ]);
     expect(entries).toHaveLength(2);
     expect(entries[0]).toEqual({ turnIndex: 0, role: "user", text: "hello", injected: false });
@@ -166,7 +187,7 @@ describe("projectTurnsToText", () => {
 
   test("role filter restricts to only that role's text", () => {
     const entries = projectTurnsToText(
-      [{ turnIndex: 0, userText: "hello", assistantText: "hi there" }],
+      [turnRow({ turnIndex: 0, userText: "hello", assistantText: "hi there" })],
       "user"
     );
     expect(entries).toHaveLength(1);
@@ -176,7 +197,9 @@ describe("projectTurnsToText", () => {
   });
 
   test("a turn with a null role-text is skipped, not emitted as empty", () => {
-    const entries = projectTurnsToText([{ turnIndex: 0, userText: null, assistantText: "hi" }]);
+    const entries = projectTurnsToText([
+      turnRow({ turnIndex: 0, userText: null, assistantText: "hi" }),
+    ]);
     expect(entries).toHaveLength(1);
     const entry = entries[0] as TranscriptTextProjectionEntry;
     expect(entry.role).toBe("assistant");
@@ -184,22 +207,22 @@ describe("projectTurnsToText", () => {
 
   test("a turn whose text is ENTIRELY harness markup is excluded", () => {
     const entries = projectTurnsToText([
-      {
+      turnRow({
         turnIndex: 0,
         userText: "<system-reminder>injected context</system-reminder>",
         assistantText: null,
-      },
+      }),
     ]);
     expect(entries).toHaveLength(0);
   });
 
   test("a turn MIXING real content with markup is included, markup stripped, injected: true", () => {
     const entries = projectTurnsToText([
-      {
+      turnRow({
         turnIndex: 0,
         userText: "please fix the bug <system-reminder>ignore this</system-reminder>",
         assistantText: null,
-      },
+      }),
     ]);
     expect(entries).toHaveLength(1);
     const entry = entries[0] as TranscriptTextProjectionEntry;
@@ -210,7 +233,7 @@ describe("projectTurnsToText", () => {
 
   test("a turn with no markup is included verbatim with injected: false", () => {
     const entries = projectTurnsToText([
-      { turnIndex: 0, userText: "plain user prompt", assistantText: null },
+      turnRow({ turnIndex: 0, userText: "plain user prompt", assistantText: null }),
     ]);
     expect(entries).toHaveLength(1);
     const entry = entries[0] as TranscriptTextProjectionEntry;
@@ -221,8 +244,8 @@ describe("projectTurnsToText", () => {
   test("multiple turns preserve turnIndex ordering in output", () => {
     const entries = projectTurnsToText(
       [
-        { turnIndex: 0, userText: "first", assistantText: null },
-        { turnIndex: 1, userText: "second", assistantText: null },
+        turnRow({ turnIndex: 0, userText: "first", assistantText: null }),
+        turnRow({ turnIndex: 1, userText: "second", assistantText: null }),
       ],
       "user"
     );
@@ -232,13 +255,124 @@ describe("projectTurnsToText", () => {
 
   test("a slash-command turn (<command-message> wrapper) is excluded entirely", () => {
     const entries = projectTurnsToText([
-      {
+      turnRow({
         turnIndex: 0,
         userText:
           "<command-message>error-handling</command-message>\n<command-name>error-handling</command-name>",
         assistantText: null,
-      },
+      }),
     ]);
     expect(entries).toHaveLength(0);
+  });
+
+  // ── mt#4072: Minsky's own prompt watermarks ────────────────────────────────
+  //
+  // `stripHarnessMarkup` strips harness TAGS; these are HTML COMMENTS, so it
+  // never touched them. Measured 2026-09-02: 283 turns in the local corpus carry
+  // one, 94 of them in 2026-08 — every one projected with markers intact and
+  // `injected: false`, i.e. as the operator's own words.
+
+  test("a dispatch prompt's watermark is stripped from the projected text", () => {
+    const entries = projectTurnsToText([
+      turnRow({
+        turnIndex: 0,
+        userText: `You are working in Minsky session abc.\n\n${PROMPT_WATERMARK}`,
+        assistantText: null,
+        userOrigin: "dispatch_brief",
+      }),
+    ]);
+
+    expect(entries).toHaveLength(1);
+    const entry = entries[0] as TranscriptTextProjectionEntry;
+    expect(entry.text).not.toContain("minsky:prompt:v1");
+    expect(entry.text).toContain("You are working in Minsky session abc.");
+  });
+
+  test("the dispatch stamp is stripped too, not just the prompt watermark", () => {
+    const entries = projectTurnsToText([
+      turnRow({
+        turnIndex: 0,
+        userText: `Do the thing.\n\n<!-- ${DISPATCH_STAMP_VERSION} parent=abc call=toolu_1 -->`,
+        assistantText: null,
+        userOrigin: "dispatch_brief",
+      }),
+    ]);
+
+    const entry = entries[0] as TranscriptTextProjectionEntry;
+    expect(entry.text).not.toContain(DISPATCH_STAMP_VERSION);
+    expect(entry.text).toBe("Do the thing.");
+  });
+
+  test("userOrigin is carried through, so a dispatch prompt is not read as operator text", () => {
+    const entries = projectTurnsToText([
+      turnRow({
+        turnIndex: 0,
+        userText: `Audit the retry path.\n\n${PROMPT_WATERMARK}`,
+        assistantText: null,
+        userOrigin: "dispatch_brief",
+      }),
+    ]);
+
+    const entry = entries[0] as TranscriptTextProjectionEntry;
+    expect(entry.userOrigin).toBe("dispatch_brief");
+    // `injected` stays FALSE deliberately — it means "harness markup was
+    // stripped", and a Minsky-authored prompt is not harness markup. The
+    // attribution answer is `userOrigin`, not this flag.
+    expect(entry.injected).toBe(false);
+  });
+
+  test("an ASSISTANT entry keeps a quoted watermark — stripping is user-only", () => {
+    // PR #3589 R1, BLOCKING. The first cut applied `stripPromptMarkers` to both
+    // roles. Minsky writes these into PROMPTS, which are user turns, so the
+    // assistant side had nothing to gain — and an assistant EXPLAINING the
+    // dispatch format would have had its own quotation silently deleted.
+    const explanation = `Dispatch prompts end with ${PROMPT_WATERMARK} so the classifier can see them.`;
+    const entries = projectTurnsToText([
+      turnRow({ turnIndex: 0, userText: null, assistantText: explanation }),
+    ]);
+
+    const entry = entries[0] as TranscriptTextProjectionEntry;
+    expect(entry.role).toBe("assistant");
+    expect(entry.text).toBe(explanation);
+    expect(entry.text).toContain("minsky:prompt:v1");
+  });
+
+  test("an assistant entry carries no userOrigin", () => {
+    const entries = projectTurnsToText([
+      turnRow({
+        turnIndex: 0,
+        userText: null,
+        assistantText: "on it",
+        userOrigin: "dispatch_brief",
+      }),
+    ]);
+
+    const entry = entries[0] as TranscriptTextProjectionEntry;
+    expect(entry.role).toBe("assistant");
+    expect(entry.userOrigin).toBeUndefined();
+  });
+
+  test("a HUMAN-paste prompt watermark is NOT stripped — that turn is the operator", () => {
+    // `minsky:task-prompt:v1` marks prompts generated for a human to paste
+    // (`tasks decompose|estimate|analyze`), and `stripPromptMarkers` spares it
+    // on purpose. Stripping it would relabel genuine operator speech.
+    const raw = "Here is the plan.\n\n<!-- minsky:task-prompt:v1 -->";
+    const entries = projectTurnsToText([
+      turnRow({ turnIndex: 0, userText: raw, assistantText: null, userOrigin: "human" }),
+    ]);
+
+    const entry = entries[0] as TranscriptTextProjectionEntry;
+    expect(entry.text).toContain("minsky:task-prompt:v1");
+    expect(entry.userOrigin).toBe("human");
+  });
+
+  test("a turn with no watermark is unchanged", () => {
+    const entries = projectTurnsToText([
+      turnRow({ turnIndex: 0, userText: "just a message", assistantText: null }),
+    ]);
+
+    const entry = entries[0] as TranscriptTextProjectionEntry;
+    expect(entry.text).toBe("just a message");
+    expect(entry.userOrigin).toBeUndefined();
   });
 });
