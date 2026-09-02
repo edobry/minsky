@@ -15,8 +15,10 @@
  *   - The pure sweep logic lives in `src/domain/calibration/calibration-sweep.ts`
  *     (unit-testable, no filesystem I/O).
  *
- * Watermark persistence: `.minsky/calibration-review-watermarks.json` (keyed
- * by log path → { lastReviewedCount, lastReviewedAt }).
+ * Watermark persistence: `calibration-review-watermarks.json` under
+ * `getMinskyStateDir()/projects/<key>/` (mt#4880 — it was repo-rooted at
+ * `.minsky/` until then), keyed by log path → { lastReviewedCount,
+ * lastReviewedAt }. The KEY stays repo-relative on purpose; only the file moved.
  *
  * @see mt#2483 — tracking task
  * @see src/domain/calibration/calibration-sweep.ts — pure logic
@@ -162,10 +164,12 @@ function buildRecordContextLines(rec: CalibrationRecord): string[] {
 function resolveWorkspacePath(ctx?: CommandExecutionContext): string {
   // Prefer the workspace resolved by the execution context (correct for MCP /
   // session-scoped invocations where the server cwd is not the user's workspace);
-  // fall back to cwd for plain CLI use. Still used as the repo-root INPUT for
-  // watermark/claim-store paths (those stay repo-relative, mt#4748 does not
-  // move them) and as the key input for calibration/evaluation log
-  // resolution below (mt#4748 R1 — those are no longer repo-relative reads).
+  // fall back to cwd for plain CLI use. Used as the repo-root INPUT for BOTH the
+  // calibration/evaluation log resolution (mt#4748 R1) and the watermark/claim
+  // stores (mt#4880) — the sentence here used to say the stores "stay
+  // repo-relative, mt#4748 does not move them", which mt#4880 made false.
+  // Both now go through the same `findGitRepoRoot` derivation, which is what
+  // keeps a store beside the logs it indexes.
   return ctx?.workspacePath ?? process.cwd();
 }
 
