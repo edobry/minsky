@@ -27,7 +27,7 @@
 // @see mt#3046 — the missing domain bootstrap that made `loadTranscript` below
 //      always return null (found by the lint rule this task ships)
 
-import { readInput, findRepoRoot } from "./types";
+import { readInput } from "./types";
 import type { ToolHookInput } from "./types";
 // mt#3046: STATIC — installs the tsyringe reflect polyfill before any domain
 // module loads. `loadTranscript`'s dynamic persistence import needs it, and a
@@ -42,6 +42,7 @@ import {
 import {
   writeFailedRun,
   writeFindings,
+  resolveUnaskedDirectionRoot,
 } from "../../packages/domain/src/detectors/unasked-direction-store";
 import type { TranscriptMessage } from "../../packages/domain/src/provenance/transcript-service";
 import type { ConversationId } from "../../packages/domain/src/ids";
@@ -395,11 +396,21 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  // mt#2710: `input.cwd` is routinely a repo SUBDIRECTORY — writeFindings
-  // joins `projectRoot` with `.minsky/state/unasked-directions/`, so a raw
-  // subdirectory cwd would scatter findings into a stray `.minsky/` there
-  // instead of the real repo root.
-  const projectRoot = findRepoRoot(input.cwd);
+  // mt#4778: the store root no longer derives from `input.cwd` AT ALL.
+  //
+  // This was `findRepoRoot(input.cwd)`, added by mt#2710 because a raw
+  // subdirectory cwd scattered findings into a stray `.minsky/`. That fixed the
+  // SUBDIRECTORY case and left the WORKSPACE case: `findRepoRoot` resolves a
+  // session clone to the CLONE's root, so a post-merge run from a session
+  // workspace wrote its findings there while `unasked-direction_list` — the
+  // only reader — resolved a single root. Measured: 13 findings across 5 clones
+  // the triage tool could not see, each dying with its workspace on
+  // `session_delete`. Note the shape — mt#2710's fix made the failure RARER and
+  // therefore harder to notice, without removing it.
+  //
+  // Resolving from the state dir removes the cwd from the question entirely, so
+  // neither case can recur.
+  const projectRoot = resolveUnaskedDirectionRoot();
 
   const transcript = await loadTranscript(conversationId);
   if (!transcript || transcript.length === 0) {

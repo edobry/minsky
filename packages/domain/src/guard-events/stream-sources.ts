@@ -378,6 +378,34 @@ const ADJACENT_STATE_DIR_STREAMS: GuardEventStreamSource[] = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Deliberately ABSENT: the unasked-direction store (mt#4778)
+// ---------------------------------------------------------------------------
+//
+// `~/.local/state/minsky/unasked-directions/` and its `-signatures/` sibling are
+// state-dir stores under this file's roots, and they have NO row here on purpose.
+// Recorded so the next person who notices the gap does not "fix" it — an absence
+// with no reason is indistinguishable from an oversight, which is what let the
+// store go unmanifested through mt#4752 and mt#4748 in the first place.
+//
+// A row is not EXPRESSIBLE, not merely unwanted. `relativePath` names one FILE:
+// `resolveStreamPath` joins it onto the state dir and `realReadTail` calls
+// `existsSync` → `statSync().size` → a byte-offset tail read on the result. These
+// stores are DIRECTORIES of per-session JSON files that are OVERWRITTEN in place
+// (the analyzer re-runs; the operator assigns a verdict), so a row would be
+// type-valid and mis-resolved: a directory `statSync`s fine and tail-reads to
+// nothing. Ingest is watermark-based and has no "since" to read from a value that
+// is replaced rather than appended.
+//
+// mt#4778's own SC4 asked for a row here; its `## Success Criteria` records why
+// that criterion was wrong. The store is classified in
+// `docs/architecture/guard-calibration-stream-inventory.md` §F (mutable state
+// stores, state-not-stream, out of ingest scope) beside `two-strikes/`'s
+// per-conversation files, which are the same shape.
+//
+// What would change this: making the manifest able to express a directory-of-
+// records source, which is a schema decision for the ingest, not a row.
+
 /**
  * The complete guard/calibration exhaust stream set — every row from
  * inventory §A–§E. The count is deliberately NOT written here: this comment

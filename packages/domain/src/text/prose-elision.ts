@@ -35,7 +35,9 @@
  *
  * @see docs/architecture/adr-024-detection-mechanism-ladder-for-guidance-hooks.md — the ladder
  * @see mt#4454 — the memory-staleness consumer that forced the hoist
- * @see mt#4386 — the `bare-prohibition` consumer queued behind it
+ * @see mt#4386 — the `bare-prohibition` consumer, wired 2026-09-02 (it calls
+ *   {@link elideQuotedAndMarkdown} for its prohibition matcher only, keeping its basis window on
+ *   raw text so a citation marker is never elided away)
  */
 
 /**
