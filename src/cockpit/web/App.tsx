@@ -36,6 +36,9 @@ const DrivenSessionPage = lazy(() =>
 const DrivenSessionCostPage = lazy(() =>
   import("./pages/DrivenSessionCostPage").then((m) => ({ default: m.DrivenSessionCostPage }))
 );
+const MessagesPage = lazy(() =>
+  import("./pages/MessagesPage").then((m) => ({ default: m.MessagesPage }))
+);
 const SettingsPage = lazy(() =>
   import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage }))
 );
@@ -465,6 +468,19 @@ export function App() {
             element={
               <ErrorBoundary id="driven-session-cost-page">
                 <DrivenSessionCostPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* Cross-session peer messages (mt#4874): sends and deliveries
+              correlated against each other. A TOP-LEVEL route, deliberately not
+              nested under /conversation/:id — it is about the traffic BETWEEN
+              conversations, so there is no single conversation it belongs to.
+              Project-scoped like the rest of the browse surfaces. */}
+          <Route
+            path="/messages"
+            element={
+              <ErrorBoundary id="messages-page">
+                <MessagesPage />
               </ErrorBoundary>
             }
           />

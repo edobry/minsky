@@ -8,7 +8,13 @@
 
 import { describe, test, expect, mock } from "bun:test";
 import { captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
-import { isAuthError, AuthHealthTracker, githubAuthHealth } from "./auth-health";
+import {
+  isAuthError,
+  AuthHealthTracker,
+  githubAuthHealth,
+  configureGithubAuthHealthAskEmitter,
+} from "./auth-health";
+import { GITHUB_APP_SETTINGS_URL, type OperatorIncidentContext } from "./ask-emitter";
 
 /** Build an Error carrying an Octokit-style numeric `status`. */
 function httpError(message: string, status: number): Error {
@@ -187,6 +193,71 @@ describe("githubAuthHealth singleton", () => {
       expect(githubAuthHealth.isTripped).toBe(false);
     } finally {
       captured.restore();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The operator paging tier (mt#2719)
+// ---------------------------------------------------------------------------
+
+describe("githubAuthHealth operator paging (mt#2719)", () => {
+  test("a trip emits exactly one operator incident, with the GitHub remediation link", async () => {
+    const captured: OperatorIncidentContext[] = [];
+    configureGithubAuthHealthAskEmitter({
+      emitCircuitBreakerAlert: () => Promise.resolve("created" as const),
+      emitReviewFailureAlert: () => Promise.resolve("created" as const),
+      emitOperatorIncidentAlert: (ctx: OperatorIncidentContext) => {
+        captured.push(ctx);
+        return Promise.resolve("created" as const);
+      },
+    });
+
+    const capturedLogs = captureConsoleLogs();
+    try {
+      // Four failures, one threshold. The emit is deduped by the tracker's own
+      // `tripped` flag, so the 4th must NOT produce a second page — a paging
+      // tier that re-fires per failure is worse than no paging tier.
+      githubAuthHealth.recordFailure(SRC, badCreds());
+      githubAuthHealth.recordFailure(SRC, badCreds());
+      githubAuthHealth.recordFailure(SRC, badCreds());
+      githubAuthHealth.recordFailure(SRC, badCreds());
+
+      // The emit is fire-and-forget by design (onTrip is synchronous, on the
+      // sweepers' error path), so let the microtask queue drain.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.source).toBe("github_auth");
+      expect(captured[0]?.remediationUrl).toBe(GITHUB_APP_SETTINGS_URL);
+      if (captured[0]?.source === "github_auth") {
+        expect(captured[0].consecutiveFailures).toBe(3);
+        expect(captured[0].observedBy).toBe(SRC);
+      }
+    } finally {
+      capturedLogs.restore();
+      // Reset the process-wide singleton and unwire the emitter, so a later
+      // test in the run sees neither a tripped tracker nor this fake.
+      githubAuthHealth.recordSuccess();
+      configureGithubAuthHealthAskEmitter(null);
+    }
+  });
+
+  test("with no emitter wired, a trip still logs and does not throw", () => {
+    configureGithubAuthHealthAskEmitter(null);
+    const capturedLogs = captureConsoleLogs();
+    try {
+      // The degradation contract: the ask is ADDITIVE. No container, no DB, no
+      // emitter — the distinct error log is still produced.
+      githubAuthHealth.recordFailure(SRC, badCreds());
+      githubAuthHealth.recordFailure(SRC, badCreds());
+      githubAuthHealth.recordFailure(SRC, badCreds());
+
+      expect(findLogEvent(capturedLogs.logs, "reviewer.auth_health_failing")).not.toBeNull();
+    } finally {
+      capturedLogs.restore();
+      githubAuthHealth.recordSuccess();
     }
   });
 });

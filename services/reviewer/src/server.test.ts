@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { sign } from "@octokit/webhooks-methods";
 import type { ReviewerConfig } from "./config";
 import type { ReviewResult } from "./review-worker";
-import { createApp, type RunReviewFn } from "./server";
+import { createApp, type RunReviewFn, type TerminalCheckRunPublication } from "./server";
 import type { AlertSink } from "./alert-sink";
 import { recoverPendingReviews } from "./boot-recovery";
 
@@ -353,6 +353,76 @@ describe("webhook handler", () => {
 // ---------------------------------------------------------------------------
 // Graceful shutdown
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Terminal check-run publication wiring (mt#4271, PR #3563 R1)
+//
+// The payload builder is unit-tested in check-run-publisher.test.ts. This
+// covers the half those tests structurally cannot reach: whether the server's
+// skip branch actually CALLS the publisher. A publisher that is never invoked
+// produces exactly the `reviewerCheckRunState: "absent"` this change exists to
+// end — with every payload test still green, which is why the reviewer flagged
+// its absence as blocking rather than cosmetic.
+//
+// Drain rather than sleep: `gracefulShutdown()` awaits the in-flight review
+// promise, and the injected publisher records synchronously before its first
+// await, so the assertion is deterministic instead of timing-dependent.
+// ---------------------------------------------------------------------------
+
+describe("terminal check-run publication wiring (mt#4271)", () => {
+  let server: ReturnType<typeof Bun.serve> | undefined;
+  let shutdown: (() => Promise<void>) | undefined;
+  let published: TerminalCheckRunPublication[];
+  let baseUrl: string;
+
+  function startWithResult(result: ReviewResult): void {
+    published = [];
+    const runReviewFn: RunReviewFn = async () => result;
+    const app = createApp(BASE_CONFIG, runReviewFn, undefined, undefined, undefined, async (p) => {
+      published.push(p);
+    });
+    server = app.server;
+    shutdown = app.gracefulShutdown;
+    baseUrl = `http://localhost:${server.port}`;
+  }
+
+  afterEach(() => {
+    server?.stop(true);
+    server = undefined;
+    shutdown = undefined;
+  });
+
+  test("a DECLINED review publishes a skip check-run carrying the reason", async () => {
+    startWithResult({ status: "skipped", reason: "concurrent_inflight", tier: 3 });
+
+    const res = await sendWebhook(baseUrl, buildPRPayload({ prNumber: 4271 }));
+    expect(res.status).toBe(200);
+    await shutdown?.();
+
+    expect(published).toHaveLength(1);
+    expect(published[0]).toMatchObject({
+      kind: "skip",
+      detail: "concurrent_inflight",
+      prNumber: 4271,
+      headSha: "abc123",
+      owner: "edobry",
+      repo: "minsky",
+    });
+  });
+
+  test("a REVIEWED review publishes no terminal check-run — finalize owns that path", async () => {
+    // The control for the test above: without it, a wiring that fired on every
+    // outcome would pass the skip assertion while overwriting the real findings
+    // conclusion on every successful review.
+    startWithResult(STUB_REVIEW_RESULT);
+
+    const res = await sendWebhook(baseUrl, buildPRPayload({ prNumber: 4272 }));
+    expect(res.status).toBe(200);
+    await shutdown?.();
+
+    expect(published).toHaveLength(0);
+  });
+});
 
 describe("gracefulShutdown", () => {
   test("logs shutdown_drain_start with correct inflightCount, then shutdown_drain_complete", async () => {

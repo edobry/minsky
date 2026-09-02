@@ -18,11 +18,31 @@ import { reviewerSchema as schema } from "./schema";
  *   3. MINSKY_POSTGRES_URL             — broader legacy fallback
  *   4. Development default
  */
+/**
+ * The env vars this service reads a connection string from, in resolution
+ * order. Exported so a script that GATES on "is a DB reachable?" can ask the
+ * same question the service answers, instead of hand-copying the list and
+ * drifting from it.
+ *
+ * Note what is deliberately NOT here: `DATABASE_URL`. It is a common convention
+ * and this service has never honored it, so a script that accepted it would
+ * connect where the service would not — which is worse than skipping. A gate
+ * built on this list can say exactly which vars it honors (mt#4881 PR #3561 R1).
+ */
+export const CONNECTION_STRING_ENV_VARS = [
+  "MINSKY_PERSISTENCE_POSTGRES_URL",
+  "MINSKY_SESSIONDB_POSTGRES_URL",
+  "MINSKY_POSTGRES_URL",
+] as const;
+
+/** First set value among `CONNECTION_STRING_ENV_VARS`, or undefined. */
+export function findConnectionStringEnvVar(): string | undefined {
+  return CONNECTION_STRING_ENV_VARS.find((name) => Boolean(process.env[name]));
+}
+
 function resolveConnectionString(): string {
-  const url =
-    process.env.MINSKY_PERSISTENCE_POSTGRES_URL ||
-    process.env.MINSKY_SESSIONDB_POSTGRES_URL ||
-    process.env.MINSKY_POSTGRES_URL;
+  const name = findConnectionStringEnvVar();
+  const url = name ? process.env[name] : undefined;
   if (url) {
     return url;
   }

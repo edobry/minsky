@@ -342,6 +342,31 @@ export interface RunReviewDeps {
    * pairs without triggering real GitHub API calls.
    */
   changedFilesFetcher?: ChangedFilesFetcherFn;
+
+  /**
+   * Test seams for the three GitHub calls that run BEFORE the in-flight-marker
+   * check, so the `concurrent_inflight` skip path can be driven end-to-end
+   * without a network (mt#4895 SC1).
+   *
+   * The marker is keyed on `pr.headSha`, which does not exist until
+   * `fetchPullRequestContext` returns — so `createOctokit` and the PR fetch
+   * necessarily precede `acquireMarker`, and a test that stops short of them
+   * cannot reach the branch at all. `appIdentityFetcher` covers the first call
+   * INSIDE `runReviewBody`, which is what lets the negative control (marker
+   * available) prove it got PAST the marker gate without proceeding into the
+   * model call.
+   *
+   * Why injected rather than module-patched: ADR-036 §2 rule 2 — a seam that can
+   * be added by changing one production file with no exported-type change is
+   * required, and patching is banned at such a site. These are optional fields
+   * with real defaults, so every existing caller is unaffected.
+   *
+   * `appIdentityFetcher` additionally bypasses `getAppIdentity`'s module-level
+   * `cachedAppIdentity` memo, which would otherwise leak across test files.
+   */
+  octokitFactory?: typeof createOctokit;
+  prContextFetcher?: typeof fetchPullRequestContext;
+  appIdentityFetcher?: typeof getAppIdentity;
 }
 
 export async function runReview(
@@ -399,9 +424,15 @@ export async function runReview(
 
   const runReviewStart = Date.now();
 
-  const octokit = await createOctokit(config);
+  const octokit = await (deps.octokitFactory ?? createOctokit)(config);
 
-  const pr = await fetchPullRequestContext(octokit, owner, repo, prNumber, config.githubTimeoutMs);
+  const pr = await (deps.prContextFetcher ?? fetchPullRequestContext)(
+    octokit,
+    owner,
+    repo,
+    prNumber,
+    config.githubTimeoutMs
+  );
   const tier = await resolveTier(prNumber, pr.body, deps.persistenceProvider ?? null);
 
   // Classify the PR scope (mt#1188): drives prompt-variant selection to
@@ -596,7 +627,7 @@ async function runReviewBody(
   // self-approval at the platform level. Comparison is case-insensitive
   // because GitHub usernames are case-insensitive at the platform level and
   // API responses can return inconsistent casing.
-  const reviewerIdentity = await getAppIdentity(config);
+  const reviewerIdentity = await (deps.appIdentityFetcher ?? getAppIdentity)(config);
   const isSelfReview = reviewerIdentity.login.toLowerCase() === prAuthorLogin.toLowerCase();
 
   // pr.review_posted emitter (mt#2725): injected seam in tests, real MCP-backed

@@ -22,7 +22,10 @@ import type { ReviewResult } from "./review-worker";
 import { runReview } from "./review-worker";
 import { loadSweeperConfig, startSweeper } from "./sweeper";
 import { buildAlertSink, loadAlertSinkConfig, type AlertSink } from "./alert-sink";
-import { configureGithubAuthHealthAlertSink } from "./auth-health";
+import {
+  configureGithubAuthHealthAlertSink,
+  configureGithubAuthHealthAskEmitter,
+} from "./auth-health";
 import { loadPrWatchSchedulerConfig, startPrWatchScheduler } from "./pr-watch-scheduler";
 import {
   loadAsksReconcileSchedulerConfig,
@@ -46,6 +49,9 @@ import {
   pruneOldRows,
   extractPersistedHeaders,
 } from "./webhook-events";
+import { recordReviewFailure } from "./failure-alert";
+import { DomainAskEmitter, makeContainerAskRepoProvider, type AskEmitter } from "./ask-emitter";
+import { publishCheckRun } from "./check-run-publisher";
 import {
   createOctokit,
   getAppIdentity,
@@ -180,6 +186,37 @@ export type RunReviewFn = (
  * Exported for testability; the module-level startup below calls this with
  * the real config and the real runReview.
  */
+/**
+ * A terminal outcome that must set a check-run conclusion (mt#4271).
+ *
+ * Two kinds, one shape: a review that THREW (mt#4881) and a review that was
+ * DECLINED. Both reach GitHub through the same call, because both had the same
+ * defect — no conclusion published, so `reviewerCheckRunState` read `absent`,
+ * the signature of reviewer silence and a documented bypass condition.
+ */
+export interface TerminalCheckRunPublication {
+  kind: "skip" | "failure";
+  owner: string;
+  repo: string;
+  prNumber: number;
+  headSha: string;
+  /** The skip reason, or the failure summary — whichever `kind` names. */
+  detail: string;
+}
+
+/**
+ * Test seam for terminal check-run publication (mt#4271, PR #3563 R1).
+ *
+ * The wiring — "does the skip branch actually publish?" — is the half that
+ * matters and the half unit tests on the payload builder cannot reach: a
+ * publisher that is never called produces exactly the `absent` state this
+ * change exists to end, with every payload test still green. It has to be
+ * injected ABOVE `createOctokit`, not below: the real path mints an App
+ * installation token, which no test holds, so a seam placed after that call is
+ * unreachable and would verify nothing.
+ */
+export type TerminalCheckRunPublisher = (p: TerminalCheckRunPublication) => Promise<void>;
+
 export function createApp(
   cfg: ReviewerConfig,
   runReviewFn: RunReviewFn = runReview,
@@ -188,7 +225,10 @@ export function createApp(
   // mt#2451: the external alert sink, shared with the sweeper (single instance
   // built once at server start). When omitted (tests / standalone createApp),
   // the /alert-test route builds one from env via loadAlertSinkConfig().
-  alertSink?: AlertSink | null
+  alertSink?: AlertSink | null,
+  // mt#4271: injected only by tests; production leaves it undefined and the
+  // real Octokit + publishCheckRun path runs.
+  terminalCheckRunPublisher?: TerminalCheckRunPublisher
 ): {
   server: ReturnType<typeof Bun.serve>;
   gracefulShutdown: () => Promise<void>;
@@ -208,6 +248,123 @@ export function createApp(
    * drain window in gracefulShutdown below).
    */
   let draining = false;
+
+  /**
+   * mt#4881: operator alerting for reviewer failures that never reach submission.
+   *
+   * Built the same way the sweeper builds its emitter (`sweeper.ts`) — a
+   * `DrizzleAskRepository` over the booted domain container's persistence
+   * provider — so the two emit points share one construction path. Undefined when
+   * no container was booted (tests, DB-less environments); `recordReviewFailure`
+   * degrades to a warning rather than failing in that case.
+   */
+  const askEmitter: AskEmitter | undefined = domainServices
+    ? new DomainAskEmitter(makeContainerAskRepoProvider(domainServices.container))
+    : undefined;
+
+  /**
+   * Publish a check-run conclusion for a terminal outcome that never reached
+   * `review-finalize.ts` — a review that THREW (mt#4881 SC7) or one that was
+   * DECLINED (mt#4271). One function because it was one defect: neither set a
+   * conclusion, so both read as `absent`.
+   *
+   * `finalizeReviewError` (`review-finalize.ts`) already publishes one for the
+   * empty-output and CoT-leakage paths, but a throw from the model call or the
+   * diff fetch is caught at `review-worker.ts`'s unrecovered-timing handler and
+   * rethrown, so it never reaches that finalize — which left the two dominant
+   * failure classes (provider errors, the GitHub 406) setting no check-run
+   * conclusion at all. ADR-030 assigns "status, convergence, and liveness of
+   * record" to the check-run channel, and its follow-up 1 names failure/liveness
+   * surfacing as the open gap; this is that slice.
+   *
+   * The status comment written beside this is NOT a substitute: it is a single
+   * update-in-place comment, so the next review overwrites the failure entirely
+   * (verified on `edobry/peezombie.me` PR #2, whose comment was created at the
+   * first failure and now reads APPROVED). The check run is the durable mark.
+   *
+   * Fail-open: a check-run write must never affect the review path, and fork PRs
+   * legitimately lack the permission.
+   */
+  async function publishTerminalCheckRunSafe(p: TerminalCheckRunPublication): Promise<void> {
+    const { kind, owner, repo, prNumber, headSha, detail } = p;
+    const event =
+      kind === "skip" ? "review_skip_check_run_failed" : "review_failure_check_run_failed";
+    try {
+      if (terminalCheckRunPublisher) {
+        await terminalCheckRunPublisher(p);
+        return;
+      }
+      const octokit = await createOctokit(cfg);
+      await publishCheckRun({
+        octokit,
+        owner,
+        repo,
+        headSha,
+        prNumber,
+        toolCalls: [],
+        // Round is genuinely unknown on both paths — nothing has ingested the
+        // prior reviews, because the review threw or never ran. `null` renders
+        // without the round parenthetical rather than fabricating "round 1".
+        convergenceState: { roundNumber: null, blockingCount: 0 },
+        ...(kind === "skip" ? { skipReason: detail } : { failureSummary: detail }),
+      });
+    } catch (err: unknown) {
+      log.warn(event, {
+        event,
+        pr: prNumber,
+        headSha,
+        detail,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * mt#4271: publish a `skipped`-conclusion check run when the reviewer DECLINED
+   * to run.
+   *
+   * `runReview` returns `{ status: "skipped", reason: "concurrent_inflight" }`
+   * from `review-worker.ts` BEFORE `review-finalize.ts`, which is the only path
+   * that publishes on the reviewed and errored outcomes. So this outcome set no
+   * check-run conclusion at all, and `session_pr_wait-for-review` reported
+   * `reviewerCheckRunState: { status: "absent" }` — byte-identical to genuine
+   * reviewer silence, which is a documented bypass-merge condition. An agent
+   * walking that ladder honestly arrives at "reviewer absent" on a PR the bot
+   * REFUSED rather than missed (mem#1093, PR #3107: three consecutive waits over
+   * ~35 minutes, all reading `absent`).
+   *
+   * The status comment beside this is not a substitute, for the same reason
+   * `publishFailureCheckRunSafe` gives: it is one update-in-place comment that
+   * the next review overwrites, and repo-wide it has no reader outside
+   * `status-comment.ts`. The check-run is the durable, machine-readable mark,
+   * and ADR-030 assigns "status, convergence, and liveness of record" to that
+   * channel — this is the last leg of its follow-up 1, after mt#4881 took the
+   * thrown-review leg.
+   *
+   * `skipped` does not block: GitHub's protected-branches doc lists it beside
+   * `successful` and `neutral` as satisfying a required status check, and
+   * `minsky-reviewer/findings` IS required. Publishing `failure` here would turn
+   * a transient refusal into a merge blocker.
+   *
+   * Fail-open, exactly like its failure sibling: a check-run write must never
+   * affect the review path, and fork PRs legitimately lack the permission.
+   */
+  async function publishSkipCheckRunSafe(
+    owner: string,
+    repo: string,
+    prNumber: number,
+    headSha: string,
+    skipReason: string
+  ): Promise<void> {
+    await publishTerminalCheckRunSafe({
+      kind: "skip",
+      owner,
+      repo,
+      prNumber,
+      headSha,
+      detail: skipReason,
+    });
+  }
 
   async function updateStatusCommentSafe(
     owner: string,
@@ -459,24 +616,43 @@ export function createApp(
           );
         } else if (result.status === "skipped") {
           void updateStatusCommentSafe(owner, repo, prNumber, buildSkippedBody(result.reason));
+          // mt#4271: and the durable half. Without this the skip sets no
+          // check-run conclusion, so `reviewerCheckRunState` reads `absent` —
+          // indistinguishable from reviewer silence, which is a bypass condition.
+          void publishSkipCheckRunSafe(
+            owner,
+            repo,
+            prNumber,
+            headSha,
+            result.reason ?? "unspecified"
+          );
         } else {
           void updateStatusCommentSafe(owner, repo, prNumber, buildErrorBody(result.reason));
         }
 
         // Persist final outcome: review_submitted on success, failed_at_reviewer otherwise.
         if (db !== undefined) {
-          const outcome = result.status === "reviewed" ? "review_submitted" : "failed_at_reviewer";
-          void updateOutcome(
-            db,
-            deliveryId,
-            outcome,
-            outcome === "failed_at_reviewer"
-              ? {
-                  message: result.reason ?? "review did not complete with status=reviewed",
-                  stage: "reviewer",
-                }
-              : undefined
-          );
+          const reason = result.reason ?? "review did not complete with status=reviewed";
+          if (result.status === "reviewed") {
+            void updateOutcome(db, deliveryId, "review_submitted");
+          } else if (result.status === "skipped") {
+            // Unchanged pre-existing behavior: a skip resolved AFTER dispatch
+            // lands as failed_at_reviewer here (the dedicated "skipped" outcome
+            // is written on the pre-dispatch path). Deliberately NOT alerted —
+            // a skip is not a failure, and `concurrent_inflight` is the common
+            // one (it appears in the measured 88 for exactly this reason).
+            void updateOutcome(db, deliveryId, "failed_at_reviewer", {
+              message: reason,
+              stage: "reviewer",
+            });
+          } else {
+            // mt#4881: the non-thrown error path (empty output / CoT leakage).
+            void recordReviewFailure(
+              db,
+              { owner, repo, prNumber, headSha, deliveryId, stage: "reviewer", message: reason },
+              { askEmitter }
+            );
+          }
         }
       })
       .catch((err: unknown) => {
@@ -496,17 +672,36 @@ export function createApp(
         });
 
         // Persist failure and surface as operator-visible alert.
-        // This is the service-side OperatorNotify equivalent (mt#1372):
-        // the reviewer service runs on Railway where structured log.error
-        // is the operator-visible channel. Distinct from mt#1310 (missing
-        // review alert) — this fires on service-side processing failure.
+        //
+        // mt#1372 made the structured log.error above the "service-side
+        // OperatorNotify" — but a Railway log line reaches a human only if one
+        // is reading Railway logs, which is the gap mt#1596 escalated and
+        // mt#4881 measured: 88 failures in 30 days, none of which produced an
+        // ask, an external alert, or a durable PR signal.
+        //
+        // `recordReviewFailure` writes the SAME failed_at_reviewer row this used
+        // to write and additionally classifies, dedups, and routes an operator
+        // Ask. This is the THROWN path — the dominant classes (provider errors,
+        // the GitHub diff 406, the tool-loop timeout) all arrive here.
         if (db !== undefined) {
-          void updateOutcome(db, deliveryId, "failed_at_reviewer", {
-            message,
-            stage: "reviewer",
-            stack,
-          });
+          void recordReviewFailure(
+            db,
+            { owner, repo, prNumber, headSha, deliveryId, stage: "reviewer", message, stack },
+            { askEmitter }
+          );
         }
+
+        // mt#4881 SC7 / ADR-030 channel 2: leave a DURABLE in-PR mark. The
+        // status comment updated above is overwritten in place by the next
+        // review; a check-run conclusion is not.
+        void publishTerminalCheckRunSafe({
+          kind: "failure",
+          owner,
+          repo,
+          prNumber,
+          headSha,
+          detail: message,
+        });
         log.error("webhook_processing_failed", {
           event: "webhook_processing_failed",
           delivery_id: deliveryId,
@@ -1543,6 +1738,22 @@ if (import.meta.main) {
   // (in addition to the distinct `reviewer.auth_health_failing` error log).
   configureGithubAuthHealthAlertSink(alertSink);
 
+  // mt#2719: wire the operator-incident ask emitter into the SAME tracker, so a
+  // sustained credential failure also lands as a `severity: "incident"` ask and
+  // pages the principal. Additive to the sink above and independent of it — the
+  // sink is fire-and-forget prose, this is a durable respondable record that
+  // carries the severity marker into the substrate's paging machinery.
+  //
+  // Built from the same container as the sweeper's and boot-recovery's emitters
+  // (mt#2451 single-instance convention). `undefined` when no container booted,
+  // in which case the tracker keeps logging and keeps using the sink — the
+  // degradation is per-surface, never all-or-nothing.
+  configureGithubAuthHealthAskEmitter(
+    domainServices
+      ? new DomainAskEmitter(makeContainerAskRepoProvider(domainServices.container))
+      : null
+  );
+
   const { server, gracefulShutdown } = createApp(config, runReview, db, domainServices, alertSink);
 
   log.info("server_started", {
@@ -1563,18 +1774,30 @@ if (import.meta.main) {
   // Dispatch is synchronous with respect to this call (the reviews
   // themselves run detached), satisfying mt#2799 AT#3's "dispatches within
   // 30s of boot." See boot-recovery.ts for the full design.
-  void recoverPendingReviews(db, config, loadBootRecoveryConfig(), runReview, {
-    ...(domainServices
-      ? {
-          taskService: domainServices.taskService,
-          persistenceProvider: domainServices.persistenceProvider,
-          // mt#3964: mem#N / ask#N / ws#N criteria-reference resolution.
-          memoryLookup: domainServices.memoryLookup,
-          askLookup: domainServices.askLookup,
-          sessionLookup: domainServices.sessionProvider,
-        }
-      : {}),
-  }).catch((err: unknown) => {
+  void recoverPendingReviews(
+    db,
+    config,
+    loadBootRecoveryConfig(),
+    runReview,
+    {
+      ...(domainServices
+        ? {
+            taskService: domainServices.taskService,
+            persistenceProvider: domainServices.persistenceProvider,
+            // mt#3964: mem#N / ask#N / ws#N criteria-reference resolution.
+            memoryLookup: domainServices.memoryLookup,
+            askLookup: domainServices.askLookup,
+            sessionLookup: domainServices.sessionProvider,
+          }
+        : {}),
+    },
+    // mt#4881: a recovered review that fails must reach the operator the same
+    // way a live one does. Built here from the same container the sweeper and
+    // createApp use; undefined when no container booted.
+    domainServices
+      ? new DomainAskEmitter(makeContainerAskRepoProvider(domainServices.container))
+      : undefined
+  ).catch((err: unknown) => {
     log.error("boot_recovery.unhandled_error", {
       event: "boot_recovery.unhandled_error",
       error: err instanceof Error ? err.message : String(err),

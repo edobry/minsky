@@ -6312,6 +6312,42 @@
           "commandId": "observability.reviewer-cost"
         },
         {
+          "name": "reviewer-events",
+          "description": "Read the reviewer service's per-delivery outcome record (`reviewer_webhook_events`) to distinguish 'the reviewer never ran' from 'the reviewer ran and failed'. Both look identical to session_pr_wait-for-review, which reports reviewerCheckRunState 'absent' for each — and 'absent' is a bypass-merge condition. Returns a per-PR verdict, the classified delivery rows, repo-wide failure classes in the window (systemic vs one PR), and the coverage bounds that stop an empty result being read as proof of silence. Reads through the daemon's existing database connection; no credential is passed by the caller and none appears in the output. SELECTs only.",
+          "options": [
+            {
+              "flags": ["--owner"],
+              "description": "GitHub repo owner (e.g. 'edobry'). Required to scope to a repo.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--repo"],
+              "description": "GitHub repo name (e.g. 'minsky').",
+              "takesValue": true
+            },
+            {
+              "flags": ["--pr"],
+              "description": "PR number. Matched across every event shape that carries one — pull_request, issue_comment (comment-triggered reviews), check_run and check_suite — because the PR number lives at a different JSON path in each.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--since"],
+              "description": "Lower bound on received_at (ISO 8601). Defaults to 7 days ago. A bound is always applied and the effective value is echoed in the result, so \"no record\" is never ambiguous about its window.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--limit"],
+              "description": "Maximum delivery rows to return, newest first (default 20, max 200).",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Return the structured report instead of the human-readable summary."
+            }
+          ],
+          "commandId": "observability.reviewer-events"
+        },
+        {
           "name": "smoke-test",
           "description": "Send a single test event to the configured Braintrust project to validate auth and ingestion",
           "options": [
