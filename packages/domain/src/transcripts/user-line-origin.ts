@@ -115,8 +115,19 @@ export const DISPATCH_BRIEF_ORIGIN: UserTextOrigin = "dispatch_brief";
  * (`block-nested-fork-dispatch.ts`, `dispatch-intent-store.ts`), so the
  * dependency inverts cleanly and one definition serves both. A sync test is a
  * detector for drift; a single definition makes drift unrepresentable.
+ *
+ * **Amended by mt#4354: the definition moved once more, to `@minsky/shared`.**
+ * The reasoning above is correct and its conclusion held for two consumers; a
+ * THIRD arrived. The cockpit's browser bundle parses a stamp to build the ascent
+ * link out of a subagent conversation, and `custom/no-node-import-in-cockpit-web`
+ * (mt#3239) bars the bundle from importing `@minsky/domain` at all — so keeping
+ * the definition here would have forced the browser to re-declare it, restoring
+ * exactly the drift this note argues against, one consumer over. `@minsky/shared`
+ * is the only home reachable by all three. Re-exported below so every existing
+ * importer of THIS module is unaffected.
  */
-export const DISPATCH_STAMP_VERSION = "minsky:dispatch:v1";
+export { DISPATCH_STAMP_VERSION } from "@minsky/shared/dispatch-stamp";
+import { DISPATCH_STAMP_VERSION } from "@minsky/shared/dispatch-stamp";
 
 /**
  * Does this text carry a marker Minsky itself wrote to mark an agent-composed

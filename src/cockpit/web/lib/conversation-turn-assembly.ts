@@ -26,6 +26,8 @@ import {
   type InjectedContentKind,
   type InjectedSpan,
 } from "./injected-content";
+import { splitDispatchBrief } from "./dispatch-brief";
+import { DISPATCH_BRIEF_ORIGIN } from "./turn-origin";
 
 // ── Tool-invocation pairing (mt#2790) ───────────────────────────────────────────
 //
@@ -56,6 +58,12 @@ export interface PreparedTurn {
   isCompactSummary?: boolean;
   /** The harness, not the operator, generated this turn (mt#3322). */
   isMeta?: boolean;
+  /**
+   * Who authored this `user` turn's text (mt#4354), from the one classifier
+   * that also writes `agent_transcript_turns.user_origin` (mt#4289).
+   * `"human"` is its FAIL-OPEN default — only a non-`"human"` value informs.
+   */
+  userOrigin?: string;
   /** Assistant model; `<synthetic>` marks a harness retry turn (mt#3260). */
   model?: string;
 }
@@ -179,15 +187,57 @@ export function pairToolInvocations(
       blockId: turn.blockId,
       role: turn.role,
       timestamp: turn.timestamp,
-      elements,
+      elements: asDispatchBrief(turn.userOrigin, elements),
       isSpawnBoundary: turn.isSpawnBoundary,
       spawnAgentKind: turn.spawnAgentKind,
       spawnChildAgentSessionId: turn.spawnChildAgentSessionId,
       isCompactSummary: turn.isCompactSummary,
       isMeta: turn.isMeta,
+      userOrigin: turn.userOrigin,
       model: turn.model,
     };
   });
+}
+
+/**
+ * Re-shape a dispatch brief's prose into its own element kind (mt#4354).
+ *
+ * Runs only when the origin classifier says `dispatch_brief`, so the trigger is
+ * the same first-party signal the turn's LABEL uses — not a second guess at the
+ * text. Every other turn is returned byte-identical.
+ *
+ * Only `text` elements are folded in; anything else the turn carries (an image,
+ * a tool result) passes through untouched, because the brief is about the PROSE
+ * and eating a sibling element would lose content.
+ */
+function asDispatchBrief(
+  userOrigin: string | undefined,
+  elements: PreparedElement[]
+): PreparedElement[] {
+  if (userOrigin !== DISPATCH_BRIEF_ORIGIN) return elements;
+
+  const prose = elements
+    .filter((el): el is Extract<PreparedElement, { kind: "text" }> => el.kind === "text")
+    .map((el) => el.text)
+    .join("\n\n");
+  if (prose.trim().length === 0) return elements;
+
+  const parts = splitDispatchBrief(prose);
+  const brief: PreparedElement = {
+    kind: "dispatch-brief",
+    body: parts.body,
+    sections: parts.sections,
+    ...(parts.stamp ? { stamp: parts.stamp } : {}),
+    facts: parts.facts,
+  };
+  // The brief replaces the text run in place, at the position the first text
+  // element held, so a turn that mixes prose with another element keeps its
+  // original reading order.
+  const rest = elements.filter((el) => el.kind !== "text");
+  const firstTextAt = elements.findIndex((el) => el.kind === "text");
+  return firstTextAt <= 0
+    ? [brief, ...rest]
+    : [...rest.slice(0, firstTextAt), brief, ...rest.slice(firstTextAt)];
 }
 
 // ── Command-invocation merging (mt#3322) ────────────────────────────────────

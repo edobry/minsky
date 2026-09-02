@@ -25,6 +25,7 @@ import { agentSpawnsTable } from "../storage/schemas/agent-spawns-schema";
 import { getLoggableErrorSummary } from "../errors/index";
 import type { AgentSessionId } from "./transcript-source";
 import { MAX_SNAPSHOT_WINDOW_LIMIT } from "./snapshot-window-limit";
+import { classifyUserLineOrigin } from "./user-line-origin";
 import {
   applyAbandonedBlockIds,
   computeAbandonedBlockIds,
@@ -137,6 +138,42 @@ export function assistantContentKind(message: unknown): "text" | "thinking" {
  * pulls the timestamp + parentUuid + content into the unified block shape
  * and resolves the assistant kind via `assistantContentKind`.
  */
+/**
+ * Does this `user` line's message actually carry TEXT (mt#4354)?
+ *
+ * The gate on `userOrigin`, mirroring `turn-extractor.ts`'s invariant that the
+ * origin describes the TEXT and is therefore null exactly when the text is. A
+ * `user` line whose content is entirely `tool_result` blocks contributes none.
+ *
+ * Takes the line's `message`, which is ALWAYS an object — measured across 400
+ * recent transcripts, 80,755 `user` lines, `typeof message === "object"` in
+ * every one. The early return for a non-object is a defensive guard on
+ * malformed input, not a supported shape.
+ *
+ * It is `message.CONTENT` that has two shapes, and both are handled: a bare
+ * STRING (how a dispatched subagent's first turn arrives — verified against
+ * `subagents/agent-a335fb8b0e7586511.jsonl` line 1, a 6,661-char string), and
+ * the usual ARRAY of typed blocks.
+ *
+ * PR #3574 R1 flagged this docblock as claiming the STRING case applied to
+ * `message` itself, which would have meant the origin was never stamped for a
+ * dispatch brief. The claim was about `content` and the code is correct — the
+ * end-to-end run stamps `dispatch_brief` on exactly that record — but the
+ * sentence did not say so, and a comment that misdescribes its own guard is
+ * worth fixing rather than explaining.
+ */
+function userLineCarriesText(message: unknown): boolean {
+  if (message === null || typeof message !== "object") return false;
+  const content = (message as Record<string, unknown>)["content"];
+  if (typeof content === "string") return content.trim().length > 0;
+  if (!Array.isArray(content)) return false;
+  return content.some((block) => {
+    if (block === null || typeof block !== "object") return false;
+    const b = block as Record<string, unknown>;
+    return b["type"] === "text" && typeof b["text"] === "string" && b["text"].trim().length > 0;
+  });
+}
+
 export function turnLineToBlock(
   agentSessionId: string,
   turnIndex: number,
@@ -167,6 +204,15 @@ export function turnLineToBlock(
   // mt#3322: same defensive/additive shape — `isMeta` is a TOP-LEVEL boolean on
   // a `user` line marking harness-generated (not operator-typed) content.
   const isMeta = l.isMeta === true ? true : undefined;
+  // mt#4354: who authored this user line's text, via the SAME classifier that
+  // writes `agent_transcript_turns.user_origin` (mt#4289) — one classifier, two
+  // call sites. Gated on the line actually carrying text so this mirrors that
+  // column's invariant rather than stamping a `tool_result`-only line; see the
+  // field's docblock in `../context/types.ts` for why that distinction matters.
+  const userOrigin =
+    rawJsonlType === "user" && userLineCarriesText(l.message)
+      ? classifyUserLineOrigin(l)
+      : undefined;
 
   return {
     id: turnBlockId(agentSessionId, turnIndex),
@@ -175,6 +221,7 @@ export function turnLineToBlock(
     content: l.message ?? l,
     ...(isCompactSummary ? { isCompactSummary } : {}),
     ...(isMeta ? { isMeta } : {}),
+    ...(userOrigin ? { userOrigin } : {}),
     ...(model ? { model } : {}),
     uuid,
     parentUuid,
