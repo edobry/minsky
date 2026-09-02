@@ -110,12 +110,35 @@ After pushing a follow-up commit that addresses BLOCKING findings, \`minsky-revi
    If the body lacks the reviewer signature, **stop working this ladder** — this is not a webhook miss, and neither retriggering nor bypassing addresses it. It is a deploy/source problem: route to the \`railway:use-railway\` skill and memory \`mem#700\`, and recover by forcing a fresh deploy from the CURRENT source via a service-VARIABLE change (e.g. set then remove a throwaway variable).
 
    **Do NOT reach for \`railway redeploy\`.** It replays the last build artifact — which on a source-cutover IS the wrong app — so it cheerfully re-deploys the same wrong image and reports success. Two exit-0 attempts that leave the served app unchanged is a wrong-OUTCOME 2-strikes trip: stop improvising and load the skill (see \`error-investigation.mdc\`).
-4. Wait at most 5 minutes. Do not loop indefinitely.
+4. **Read the reviewer's own status comment on the PR (mem#1093).** The bot maintains one per PR (\`<!-- minsky-reviewer-status -->\`). \`Review skipped — concurrent_inflight\`, \`Review failed — …\` and \`Review in progress\` each mean it is NOT silent. Cheapest discriminator — and **best-effort**: the write is fire-and-forget, and on 2026-09-01 no status comment existed at all while the service had already failed four times on that PR. A comment answering "not silent" is conclusive; no comment is not an answer, and step 5 is what settles it.
+5. **Read the reviewer's delivery record — the authoritative rung (mt#4118). Do not skip it to reach the bypass.**
+
+   \`\`\`
+   mcp__minsky__observability_reviewer-events(owner: "<owner>", repo: "<repo>", pr: <n>)
+   \`\`\`
+
+   It reads \`reviewer_webhook_events\`, the service's per-delivery outcome record, and returns a \`verdict\` plus the classified rows, the repo-wide failure classes, and the coverage bounds. **\`verdict.isSilence\` is true for exactly one value — \`no-record\`. Every other verdict means the service saw the delivery, so this section's webhook-miss class does not apply and §8's bypass condition (c) does not hold.**
+
+   | \`verdict.kind\` | What happened | What to do |
+   | --- | --- | --- |
+   | \`no-record\` | No delivery recorded in the window | Genuine silence — continue this ladder |
+   | \`delivered-not-dispatched\` | Arrived and verified, never routed | A routing stall, not a webhook miss — do not bypass |
+   | \`awaiting-routing\` | Arrived, still in flight | Too recent to diagnose — wait |
+   | \`deliberately-skipped\` | Draft PR, or tier=skip | Not silence, and not reviewable in this state |
+   | \`declined-to-run\` | Another caller held the in-flight marker | Push a NEW HEAD; a retrigger is refused (mem#1093) |
+   | \`dispatched-never-finished\` | Dispatched, killed mid-review | mt#1897 (tool-loop timeout) — retrigger, then escalate |
+   | \`ran-and-failed\` | **Ran and could not complete** | **Do not bypass** — see below |
+   | \`review-submitted\` | A review was posted for this delivery | Read it (§7b); if none is on the PR, that is a different problem |
+
+   **\`ran-and-failed\` is what this rung exists for, and it routes AWAY from merging.** Read \`repoWideFailures\` in the same result: the same message class across several PRs is a service-side outage — mt#3852 was 32 submit-path 422s repo-wide, every affected PR permanently unmergeable — and bypassing one PR treats a systemic failure as a per-PR anomaly. One PR with one message is a PR-specific cause (mt#4879: one oversized diff, provider 400). Either way the reviewer is not silent: fix the cause, or leave the PR unmerged and report it, per §8's zero-review terminal state.
+
+   **Read \`bounds\` before treating \`no-record\` as absence.** Three cases produce an empty result while the reviewer did run: a retrigger-initiated review writes no row at all (measured: 0 of 36,609 rows carry a \`retrigger-\` delivery id, and \`reviewer_retrigger\` is the rung right before this one); the window is bounded (default 7 days — pass \`since\` to widen); and rows are pruned at 90 days. Past that horizon the deployment logs are the fallback — \`mcp__minsky__deployment_status(service: "reviewer")\` for the id, then \`mcp__minsky__deployment_logs(deploymentId, type: "deploy", service: "reviewer")\`.
+6. Wait at most 5 minutes. Do not loop indefinitely.
 
 **Unblock options** (in preference order):
 
 - **Empty commit to wake the webhook**: push an empty commit (\`session_commit\` with \`noFiles: true\` and \`noStage: true\`) and wait again. Often resolves the miss.
-- **Bypass merge** via \`gh api PUT /repos/.../pulls/N/merge\` (\`merge_method=merge\`, with audit message naming the substantive fixes that landed). Only after BLOCKING findings are addressed and the remaining gap is the missing reviewer signal.
+- **Bypass merge** via \`gh api PUT /repos/.../pulls/N/merge\` (\`merge_method=merge\`, with audit message naming the substantive fixes that landed). Only after BLOCKING findings are addressed and the remaining gap is the missing reviewer signal — and **only when step 5 returned \`verdict.isSilence: true\`.** Any other verdict falsifies the silence premise outright. If a bypass proceeds anyway on some other documented condition, the \`bypassReason\` must name the verdict step 5 returned: the audit trail must never record "reviewer silent" for a reviewer that ran and was rejected.
 - **Track the instance** in the agent memory store (\`mcp__minsky__memory_create\`) so the calibration work has data points.
 
 The webhook-miss class is distinct from the same-App-identity APPROVE block above: same-App is a _structural_ gate (when \`minsky-ai[bot]\` is both author and reviewer, GitHub rejects the APPROVE — see step 8 event selection), webhook-miss is a _reliability_ gate against the cross-identity \`minsky-reviewer[bot]\` failing to fire. Recognize which one you're hitting before choosing a recovery path.
@@ -165,7 +188,7 @@ Use \`mcp__minsky__session_pr_merge\`. This succeeds after reviewer-bot APPROVE 
 
 1. **Self-reversal** — round N's BLOCKING finding contradicts an earlier round's ACCEPTED fix ON THE SAME ARTIFACT STATE. The reviewer re-reviewing DIFFERENT commit states the agent itself created (e.g. an add-then-revert churn across rounds) is NOT self-reversal — each round reviewed genuinely different code, so there is no contradiction to resolve by bypassing.
 2. **CoT-leakage** — the reviewer emitted raw reasoning / chain-of-thought prose instead of structured findings, on the SAME HEAD, at least twice consecutively.
-3. **Webhook-silence** — the reviewer has been absent for >5 minutes AFTER completing the full §7a diagnosis ladder, which now INCLUDES the direct reviews-list read above.
+3. **Webhook-silence** — the reviewer has been absent for >5 minutes AFTER completing the full §7a diagnosis ladder, which now INCLUDES the direct reviews-list read above AND §7a step 5's delivery-record read. **That read must have returned \`verdict.isSilence: true\` (kind \`no-record\`) (mt#4118).** Any other verdict says the service received the delivery and ran, declined, or stalled — this condition is then false by definition, however empty the reviews list looks. An empty reviews list is the SHARED signature of silence and of submission failure; it discriminates neither.
 4. **Verified-false-positive** — the cited code, when actually re-read, does NOT contain the claimed defect. An out-of-diff, pre-existing, but FACTUALLY TRUE finding is NOT a false positive — surface and file it (per mt#1882) rather than bypassing. **Before escalating this condition, retrigger once — see §8a.**
 
 If the named condition, once checked against its definition, does not actually hold, the bypass is refused — continue waiting, fix the finding, or escalate instead.
@@ -214,7 +237,7 @@ The \`merge_method=merge\` flag is **required**. Minsky preserves merge commits 
 
 **Reachability first — at ZERO reviews, nothing below is reachable (mt#4266).** The \`R ≥ 1\` precondition fails outright, so none of the three alternatives (a)/(b)/(c) can be reached either. Every bypass on this page requires a review to exist: \`forceBypass\` needs a present \`CHANGES_REQUESTED\`, \`acceptStaleReviewerSilence\` needs a review that is STALE rather than absent (it refuses with \`"No review on PR #<n>"\`), and the raw \`gh api PUT\` fails the R ≥ 1 floor. Condition (c) below reads like it covers reviewer absence and does NOT — it covers a bot that reviewed and then went quiet. If the reviewer never posted, stop here and follow \`/implement-task\` §9's zero-review branch: confirm via a direct \`get_reviews\`, retrigger once (plus the bot's own \`/review\` retry if its status comment names one), diagnose the service, record on mt#1697, and leave the PR unmerged. That is the terminal state, not a failure to find the right flag.
 
-**Bypass conditions** (per \`feedback_self_authored_pr_merge_constraints\`): R ≥ 1 substantive review rounds have completed AND any one of: (a) reviewer-bot fired CoT-leakage errors twice consecutively on the same HEAD; OR (b) round-N self-reversal — round N's BLOCKING contradicts an earlier round's accepted fix; OR (c) reviewer-bot silent for >5 minutes after diagnosing the silence per §7a above. **Verify the fired condition against its precise definition** in the numbered step above before invoking either bypass path — a name-level match to "self-reversal," "CoT-leakage," or "silence" is not sufficient; the mt#2477 originating incident (PR #1688 add-then-revert churn) was reviewing genuinely different commit states across rounds, which fails the same-artifact-state check and is NOT self-reversal.
+**Bypass conditions** (per \`feedback_self_authored_pr_merge_constraints\`): R ≥ 1 substantive review rounds have completed AND any one of: (a) reviewer-bot fired CoT-leakage errors twice consecutively on the same HEAD; OR (b) round-N self-reversal — round N's BLOCKING contradicts an earlier round's accepted fix; OR (c) reviewer-bot silent for >5 minutes after diagnosing the silence per §7a above — which since mt#4118 requires §7a step 5's delivery-record read to have returned \`verdict.isSilence: true\`, and requires the \`bypassReason\` to name that verdict rather than asserting a bare "reviewer silent". **Verify the fired condition against its precise definition** in the numbered step above before invoking either bypass path — a name-level match to "self-reversal," "CoT-leakage," or "silence" is not sufficient; the mt#2477 originating incident (PR #1688 add-then-revert churn) was reviewing genuinely different commit states across rounds, which fails the same-artifact-state check and is NOT self-reversal.
 
 **Audit trail requirement:** The commit message must document the bypass:
 

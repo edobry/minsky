@@ -40,6 +40,7 @@ import { registerWorkspaceCommands } from "./workspace/info-command";
 import { registerTranscriptCommands } from "./transcripts";
 import { registerGuardEventsCommands } from "./guard-events";
 import { registerReviewerCostCommands } from "./reviewer-cost";
+import { registerReviewerEventsCommands } from "./reviewer-events";
 import { registerAttentionCommands } from "./attention";
 import { registerWindowCommands } from "./window";
 import { registerUnaskedDirectionCommands } from "./unasked-direction";
@@ -154,6 +155,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register guard-events commands (guard-events.ingest — mt#4035 / mt#3334 phase 3)
   registerGuardEventsCommands(container);
   registerReviewerCostCommands(container);
+
+  // Register reviewer webhook-outcome commands (observability.reviewer-events — mt#4118)
+  registerReviewerEventsCommands(container);
 
   // Register attention commands (attention.report — mt#1071 / ADR-008)
   registerAttentionCommands(container);
