@@ -27,9 +27,12 @@
  *      generated probe genuinely produces different orders under different
  *      seeds. If either fails, exit 2: the sweep would be meaningless.
  *   2. Sweep — one full run per seed, collecting each run's failures.
- *   3. Classify by CROSS-SEED VARIANCE (`classifyFailures`). A test that fails
- *      under some orders and passes under others is order-dependent; one that
- *      fails under every order belongs to the suite's standing red set.
+ *   3. Discriminate — for every seed that produced a failure, run that SAME seed
+ *      a second time. Same seed means the same order, so a failure that comes
+ *      back is caused by the order and one that comes and goes is not.
+ *   4. Classify on both axes (`classifySweep`): variance ACROSS seeds separates
+ *      order-sensitive tests from the standing red set; repeatability WITHIN a
+ *      seed separates genuine order-dependence from load-sensitivity.
  *
  * There is deliberately no declaration-order baseline. Once this task succeeds
  * and `randomize = true`, a seedless run is itself randomized — so a "baseline"
@@ -43,9 +46,14 @@
  *   bun scripts/run-tests-seed-sweep.ts --json
  *
  * Exit code: 0 = no order-dependent test found across the seeds run; 1 = at
- * least one test's outcome varied with the order; 2 = the sweep could not
- * establish that randomization is active (or fewer than 2 seeds were asked
- * for), so it proves nothing and its silence must not be read as a pass.
+ * least one test's outcome varied with the order, or a finding could not be
+ * classified; 2 = the sweep could not establish that randomization is active (or
+ * fewer than 2 seeds were asked for), so it proves nothing and its silence must
+ * not be read as a pass.
+ *
+ * Load-sensitive findings do NOT fail the run: they are mt#3501 / mt#3494's
+ * population, out of this task's scope and owned elsewhere. They are printed
+ * loudly so a nightly does not silently swallow them.
  */
 
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -66,50 +74,138 @@ export function parseFailureNames(output: string): string[] {
   return names;
 }
 
+/** What one seed produced: a run, plus a SECOND run at that same seed when one was taken. */
+export interface SeedObservation {
+  readonly seed: number;
+  readonly failures: readonly string[];
+  /**
+   * A repeat run at the SAME seed — i.e. the same execution order. Absent when
+   * the first run was clean (nothing to discriminate) or the repeat was not
+   * taken, and that absence is what puts a finding in `unclassified` rather than
+   * silently promoting it to a verdict the evidence does not support.
+   */
+  readonly repeatFailures?: readonly string[];
+}
+
 export interface SweepClassification {
-  /** Failed under SOME seeds and passed under others — order-dependent by definition. */
+  /** Varied across seeds AND reproduced under its own seed — order-dependent. */
   readonly orderDependent: string[];
+  /** Came and went under a FIXED seed — contention, not order (mt#3501's class). */
+  readonly loadSensitive: string[];
   /** Failed under EVERY seed — the suite's standing red set, not this task's. */
   readonly standingRed: string[];
+  /** Varied across seeds, but no fixed-seed repeat covered it. Class UNKNOWN. */
+  readonly unclassified: string[];
 }
 
 /**
- * Classify failures by CROSS-SEED VARIANCE rather than against a baseline.
+ * Classify failures on TWO axes: variance across seeds, and repeatability under
+ * a fixed one.
  *
- * The obvious design — subtract a declaration-order baseline — stops working the
- * moment this task succeeds: once `bunfig.toml` says `randomize = true`, a
- * seedless run is itself randomized, so the "baseline" is just another sample.
- * Bun 1.3.14 offers no `--no-randomize` and no config-path flag to force
- * declaration order back, so there is nothing to subtract.
+ * ## Why cross-seed variance alone is not enough
  *
- * Variance needs no baseline and answers the question directly: a test that
- * fails in one order and passes in another IS order-dependent — that is the
- * definition, not a proxy for it. One that fails in every order is failing for
- * some other reason, which is exactly what the baseline was being used to
- * approximate.
+ * The first axis needs no declaration-order baseline, which is the whole reason
+ * it was chosen: once `bunfig.toml` says `randomize = true`, a seedless run is
+ * itself randomized, so a "baseline" is just another sample wearing a different
+ * name, and Bun 1.3.14 offers no `--no-randomize` to force declaration order
+ * back. Variance answers "does this test's outcome vary?" directly.
  *
- * Bound worth stating: with N seeds this can only see order-dependence that at
- * least one of those N orders exposes, and a test failing under all N is
- * reported as standing-red even if a 21st order would have passed it. More
- * seeds tighten both; neither is fixed by a baseline.
+ * But a LOAD-SENSITIVE test varies too. So variance over-reports by exactly the
+ * class this task's `## Scope` puts out of scope (mt#3501 / mt#3494), and it did:
+ * the 4-seed sweep on 2026-09-02 reported three order-dependent findings, two of
+ * which mt#3501's spec names verbatim as its own load-dependent population.
+ *
+ * ## The second axis
+ *
+ * mem#942 states the discriminator: a load-sensitive assertion ROTATES, while an
+ * order-dependent one fails identically for a given order. So re-run the SAME
+ * seed — the same order — and see whether the failure comes back.
+ *
+ *   - reproduces under its own seed  → the ORDER causes it → order-dependent
+ *   - comes and goes under that seed → something other than order → contention
+ *
+ * ## Precedence, and why it points this way
+ *
+ * A flip under a fixed seed WINS over a repeat under some other seed. Seeing a
+ * failure twice is consistent with order-dependence and equally consistent with
+ * contention that happened to land twice; seeing it flip while the order is held
+ * constant is positive evidence that something other than the order moved. The
+ * asymmetry is deliberate, and its cost is the honest one: this can file a
+ * genuinely order-dependent test as `loadSensitive` when it is ALSO
+ * load-sensitive. Both buckets are printed with their per-seed evidence so a
+ * reader can re-form the judgment rather than inherit it.
+ *
+ * ## Bounds
+ *
+ * With N seeds this can only see order-dependence that one of those N orders
+ * exposes, and a test failing under all N is reported as standing-red even if a
+ * 21st order would have passed it. `standingRed` is computed from FIRST runs
+ * only — one sample per order — so the repeat runs cannot skew that axis. More
+ * seeds tighten both bounds; neither is fixed by a baseline.
  */
-export function classifyFailures(
-  perSeedFailures: ReadonlyArray<readonly string[]>
-): SweepClassification {
-  if (perSeedFailures.length === 0) return { orderDependent: [], standingRed: [] };
+export function classifySweep(observations: readonly SeedObservation[]): SweepClassification {
+  if (observations.length === 0) {
+    return { orderDependent: [], loadSensitive: [], standingRed: [], unclassified: [] };
+  }
 
-  const counts = new Map<string, number>();
-  for (const failures of perSeedFailures) {
-    for (const name of new Set(failures)) counts.set(name, (counts.get(name) ?? 0) + 1);
+  const names = new Set<string>();
+  for (const observation of observations) {
+    for (const name of observation.failures) names.add(name);
+    for (const name of observation.repeatFailures ?? []) names.add(name);
   }
 
   const orderDependent: string[] = [];
+  const loadSensitive: string[] = [];
   const standingRed: string[] = [];
-  for (const [name, seenIn] of counts) {
-    if (seenIn === perSeedFailures.length) standingRed.push(name);
-    else orderDependent.push(name);
+  const unclassified: string[] = [];
+
+  for (const name of names) {
+    const seedsFailingFirstRun = observations.filter((o) => o.failures.includes(name)).length;
+    if (seedsFailingFirstRun === observations.length) {
+      standingRed.push(name);
+      continue;
+    }
+
+    let flippedUnderFixedSeed = false;
+    let reproducedUnderFixedSeed = false;
+    for (const observation of observations) {
+      if (observation.repeatFailures === undefined) continue;
+      const inFirst = observation.failures.includes(name);
+      const inRepeat = observation.repeatFailures.includes(name);
+      if (inFirst !== inRepeat) flippedUnderFixedSeed = true;
+      else if (inFirst) reproducedUnderFixedSeed = true;
+    }
+
+    if (flippedUnderFixedSeed) loadSensitive.push(name);
+    else if (reproducedUnderFixedSeed) orderDependent.push(name);
+    else unclassified.push(name);
   }
-  return { orderDependent: orderDependent.sort(), standingRed: standingRed.sort() };
+
+  return {
+    orderDependent: orderDependent.sort(),
+    loadSensitive: loadSensitive.sort(),
+    standingRed: standingRed.sort(),
+    unclassified: unclassified.sort(),
+  };
+}
+
+/**
+ * Per-seed evidence for one finding, so a reader can re-form the verdict instead
+ * of inheriting it. `"—"` marks a seed whose repeat was never taken.
+ */
+export function evidenceFor(name: string, observations: readonly SeedObservation[]): string {
+  const cells: string[] = [];
+  for (const observation of observations) {
+    const first = observation.failures.includes(name) ? "F" : ".";
+    const repeat =
+      observation.repeatFailures === undefined
+        ? "—"
+        : observation.repeatFailures.includes(name)
+          ? "F"
+          : ".";
+    cells.push(`s${observation.seed}:${first}${repeat}`);
+  }
+  return cells.join(" ");
 }
 
 /** Did two runs execute tests in a different order? The randomization self-check. */
@@ -144,11 +240,6 @@ function runBunTest(args: readonly string[], cwd = REPO_ROOT): RunResult {
 }
 
 /**
- * Prove `[test] randomize` is actually shuffling, in a throwaway directory with
- * its OWN bunfig — so the answer does not depend on the repo's current setting
- * and the check cannot be silently disabled by the very flag it is testing.
- */
-/**
  * Is `[test] randomize` TRUE in the repo's own bunfig?
  *
  * The sandbox probe below proves this Bun BUILD can shuffle. That is a
@@ -168,6 +259,11 @@ export function repoRandomizeEnabled(bunfigText: string): boolean {
   return match?.[1] === "true";
 }
 
+/**
+ * Prove `[test] randomize` is actually shuffling, in a throwaway directory with
+ * its OWN bunfig — so the answer does not depend on the repo's current setting
+ * and the check cannot be silently disabled by the very flag it is testing.
+ */
 export function randomizationIsLive(): { live: boolean; detail: string } {
   const bunfigPath = join(REPO_ROOT, "bunfig.toml");
   const bunfigText = existsSync(bunfigPath) ? readFileSync(bunfigPath, "utf8").toString() : "";
@@ -247,30 +343,69 @@ function main(): never {
     process.exit(2);
   }
 
-  const perSeed: string[][] = [];
+  const observations: SeedObservation[] = [];
   for (let seed = 1; seed <= seedCount; seed++) {
     const run = runBunTest(["scripts/run-tests-main.ts", "--seed", String(seed)]);
     const failures = parseFailureNames(run.output);
-    perSeed.push(failures);
     if (!json) console.log(`seed ${seed}: ${failures.length} failure(s)`);
+
+    if (failures.length === 0) {
+      observations.push({ seed, failures });
+      continue;
+    }
+
+    // The discriminator. Re-running the SAME seed re-runs the SAME order, so a
+    // failure that comes back is caused by the order and one that comes and goes
+    // is caused by something else — contention, typically (mem#942). Only failing
+    // seeds pay for this, so a clean sweep costs nothing extra.
+    const repeat = runBunTest(["scripts/run-tests-main.ts", "--seed", String(seed)]);
+    const repeatFailures = parseFailureNames(repeat.output);
+    if (!json) {
+      console.log(`seed ${seed} (fixed-seed repeat): ${repeatFailures.length} failure(s)`);
+    }
+    observations.push({ seed, failures, repeatFailures });
   }
 
-  const { orderDependent, standingRed } = classifyFailures(perSeed);
+  const { orderDependent, loadSensitive, standingRed, unclassified } = classifySweep(observations);
 
   if (json) {
-    console.log(JSON.stringify({ selfCheck, seedCount, orderDependent, standingRed }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          selfCheck,
+          seedCount,
+          observations,
+          orderDependent,
+          loadSensitive,
+          standingRed,
+          unclassified,
+        },
+        null,
+        2
+      )
+    );
   } else {
+    const report = (heading: string, names: readonly string[]): void => {
+      console.log(`\n${heading}: ${names.length}`);
+      for (const name of names) console.log(`  ${name}\n    ${evidenceFor(name, observations)}`);
+    };
     console.log(
-      `\nOrder-dependent (failed under some orders, passed under others): ${orderDependent.length}`
+      "\n(evidence key: sN:XY — X = first run at seed N, Y = fixed-seed repeat; F = failed)"
     );
-    for (const name of orderDependent) console.log(`  ${name}`);
-    console.log(
-      `\nStanding red set (failed under EVERY order — not this sweep's concern): ${standingRed.length}`
+    report("Order-dependent (varied across seeds, reproduced under its own seed)", orderDependent);
+    report(
+      "Load-sensitive (flipped under a FIXED seed — mt#3501's class, not this task's)",
+      loadSensitive
     );
-    for (const name of standingRed) console.log(`  ${name}`);
+    report("Standing red set (failed under EVERY order — not this sweep's concern)", standingRed);
+    report("UNCLASSIFIED (varied across seeds, no fixed-seed repeat covered it)", unclassified);
   }
 
-  process.exit(orderDependent.length > 0 ? 1 : 0);
+  // Load-sensitive findings are deliberately not a failure signal here: they are
+  // owned by mt#3501 / mt#3494 and this task's `## Scope` excludes them. An
+  // unclassified finding IS a failure signal — the sweep did not establish a
+  // class for it, and silence must not read as a pass.
+  process.exit(orderDependent.length > 0 || unclassified.length > 0 ? 1 : 0);
 }
 
 if (import.meta.main) {

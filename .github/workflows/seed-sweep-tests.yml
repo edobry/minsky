@@ -27,10 +27,23 @@ name: Seed-Sweep Tests
 # until it has PROVEN both halves — the repo's bunfig enables randomization, and
 # a probe run genuinely produces different orders under different seeds.
 #
-# Exit codes: 0 = no order-dependent failure beyond the declaration-order
-# baseline; 1 = at least one seed produced a failure the baseline did not;
-# 2 = the sweep could not establish that randomization is active, so it proves
-# nothing and its silence must not be read as a pass.
+# ## Variance alone over-reports, so every failing seed is re-run at that seed
+#
+# A cross-seed difference says a test's outcome VARIES; it does not say the order
+# caused it, because a load-sensitive test varies too. The first 4-seed sweep
+# (2026-09-02) reported three findings, two of which mt#3501's spec names
+# verbatim as its own load-dependent population. So the harness re-runs each
+# failing seed a second time — same seed, same order — and only calls a failure
+# order-dependent when it reproduces under its own order (mem#942). One that
+# comes and goes under a FIXED order is contention, reported separately and
+# owned by mt#3501 / mt#3494.
+#
+# Exit codes: 0 = no order-dependent failure found; 1 = at least one failure
+# reproduced under its own seed, or a finding could not be classified because no
+# fixed-seed repeat covered it; 2 = the sweep could not establish that
+# randomization is active, so it proves nothing and its silence must not be read
+# as a pass. Load-sensitive findings do not fail the job — they are out of
+# mt#3575's scope — but they are printed in full.
 #
 # GitHub's documented `schedule` behaviour shapes the same three choices the
 # clock-shifted job records: scheduled runs use the default branch (use
@@ -59,10 +72,13 @@ permissions:
 jobs:
   seed-sweep:
     runs-on: ubuntu-latest
-    # The sweep runs the suite once for the baseline plus once per seed. At the
-    # observed ~6 min per full run, the default 5 seeds is ~36 min; 60 leaves
-    # headroom for a slow runner without letting a hung run sit all day.
-    timeout-minutes: 60
+    # The sweep runs the suite once per seed, plus a second run for each seed
+    # that produced a failure — so 5 seeds is 5 runs when the suite is clean and
+    # 10 in the worst case. At the observed ~6 min per full run that worst case
+    # is ~60 min, which is exactly why the cap is not 60: a limit equal to the
+    # worst case kills the run that most needs to finish. 90 leaves headroom for
+    # a slow runner without letting a hung run sit all day.
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v4
