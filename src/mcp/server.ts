@@ -1,6 +1,16 @@
-import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
+import {
+  NodeStreamableHTTPServerTransport,
+  toNodeHandler,
+  type NodeMcpRequestHandler,
+} from "@modelcontextprotocol/node";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
-import { Server, isInitializeRequest, ProtocolError } from "@modelcontextprotocol/server";
+import {
+  Server,
+  isInitializeRequest,
+  ProtocolError,
+  createMcpHandler,
+} from "@modelcontextprotocol/server";
+import { isModernEraRequest } from "./era-routing";
 import type { ServerNotification } from "@modelcontextprotocol/server";
 import { log } from "@minsky/shared/logger";
 import type { ProjectContext } from "../types/project";
@@ -925,6 +935,63 @@ export class MinskyMCPServer {
   }
 
   /**
+   * Lazily-built handler for MODERN (2026-07-28) traffic, adapted to Node.
+   *
+   * mt#4608: the 2026-07-28 revision removes the `initialize` handshake, so a
+   * modern request carries no `Mcp-Session-Id` and there is no session for the
+   * wiring below to look up. `createMcpHandler` owns instance lifecycle for this
+   * era — which is why it takes a FACTORY rather than a Server.
+   *
+   * `legacy: "reject"` is deliberate, and is the shape the vendor prescribes for
+   * exactly our case. `CreateMcpHandlerOptions.legacy`'s own docblock: "to keep
+   * an existing legacy deployment (for example a sessionful streamable HTTP
+   * wiring) serving 2025 traffic next to this entry, route in user land with
+   * `isLegacyRequest()` in front of a `legacy: 'reject'` handler." The DEFAULT
+   * (`'stateless'`) would serve 2025 traffic per-request and answer GET and
+   * DELETE — the 2025 session operations — with 405, deleting session semantics
+   * for every client still on `Mcp-Session-Id`.
+   */
+  private modernHttpHandler: NodeMcpRequestHandler | null = null;
+
+  private getModernHttpHandler(): NodeMcpRequestHandler {
+    if (!this.modernHttpHandler) {
+      const handler = createMcpHandler(
+        () => {
+          const server = this.createConfiguredServer(randomUUID());
+
+          // `createConfiguredServer` registers with the capability registry
+          // unconditionally (mt#1457) and the HTTP session path unregisters via
+          // its onclose / reaper. A modern instance is per-REQUEST and reaches
+          // neither, so chain the unregister here or leak one registry entry per
+          // request — an entry the Ask router reads. The handler does close every
+          // instance it makes (`product.close()` / `server.close()` on each
+          // terminal path in the installed dist), so this fires.
+          const prevOnclose = server.onclose;
+          server.onclose = () => {
+            prevOnclose?.();
+            this.connectionTracker?.unregisterServer(server);
+          };
+
+          // Deliberately NOT calling wireDisconnectHooks here. Those record a
+          // client DISCONNECT keyed by session; a per-request modern instance
+          // closing is the normal end of one exchange, not a disconnect, and
+          // wiring it would write one spurious record per request into the
+          // telemetry `debug.systemInfo` and `mcp-disconnect-cadence` read.
+          return server;
+        },
+        {
+          legacy: "reject",
+          onerror: (error: Error) => {
+            log.error("Modern MCP handler error", { error: getErrorMessage(error) });
+          },
+        }
+      );
+      this.modernHttpHandler = toNodeHandler(handler);
+    }
+    return this.modernHttpHandler;
+  }
+
+  /**
    * Handle HTTP requests for StreamableHTTP transport
    * This handles both GET and POST requests on a single endpoint
    */
@@ -935,6 +1002,19 @@ export class MinskyMCPServer {
     }
 
     try {
+      // Era routing (mt#4608). A modern (2026-07-28) exchange has no
+      // `initialize` handshake and carries no `Mcp-Session-Id`, so it must not
+      // enter the sessionful path below — there is nothing for it to look up.
+      //
+      // The classification is the vendor's own predicate, so this endpoint and
+      // `createMcpHandler` cannot disagree about which era a request belongs to.
+      // See `era-routing.ts` for what it actually reads, and for why re-deriving
+      // the rules locally would be a silent divergence rather than a shortcut.
+      if (await isModernEraRequest(req, req.body)) {
+        await this.getModernHttpHandler()(req, res, req.body);
+        return;
+      }
+
       const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
       if (req.method === "POST") {
