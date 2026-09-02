@@ -27,6 +27,7 @@ import {
   readSignatureSeeds,
   findingsPathFor,
   signaturesPathFor,
+  resolveUnaskedDirectionRoot,
   __TEST_ONLY,
   type FindingsRecord,
 } from "./unasked-direction-store";
@@ -320,6 +321,58 @@ describe("appendSignatureSeed / readSignatureSeeds", () => {
     await writeFile(path, "not json", "utf-8");
     const seeds = await readSignatureSeeds(tempRoot, "broken");
     expect(seeds).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4778 — the store root is the STATE DIR, and both stores share it
+// ---------------------------------------------------------------------------
+//
+// Every test above passes an explicit `tempRoot`, which is right for exercising
+// the read/write logic and is precisely why the rooting defect survived: no test
+// ever asked what root PRODUCTION resolves. These three do.
+//
+// The defect: the writer used `findRepoRoot(input.cwd)` and the reader defaulted
+// to `process.cwd()`, so a post-merge run from a session workspace wrote into
+// that clone while the reader looked elsewhere. 13 findings were stranded across
+// 5 clones, invisible to the only tool that triages them.
+
+describe("resolveUnaskedDirectionRoot (mt#4778)", () => {
+  const previousXdg = process.env["XDG_STATE_HOME"];
+
+  afterEach(() => {
+    if (previousXdg === undefined) delete process.env["XDG_STATE_HOME"];
+    else process.env["XDG_STATE_HOME"] = previousXdg;
+  });
+
+  it("resolves under the state dir, not the repo working tree", () => {
+    process.env["XDG_STATE_HOME"] = "/fake/state";
+    expect(resolveUnaskedDirectionRoot()).toBe("/fake/state/minsky");
+  });
+
+  it("both stores sit directly under that root — no .minsky/state/ prefix", () => {
+    process.env["XDG_STATE_HOME"] = "/fake/state";
+    const root = resolveUnaskedDirectionRoot();
+    // The ABSENCE half: a repo-rooted layout would reintroduce the split this
+    // task closed, so assert the retired shape is gone as well as the new one.
+    expect(findingsPathFor(root, "s")).toBe("/fake/state/minsky/unasked-directions/s.json");
+    expect(findingsPathFor(root, "s")).not.toContain(".minsky/state");
+    expect(signaturesPathFor(root, "s")).toBe(
+      "/fake/state/minsky/unasked-direction-signatures/s.json"
+    );
+    expect(signaturesPathFor(root, "s")).not.toContain(".minsky/state");
+  });
+
+  it("is independent of cwd — the property that keeps writer and reader agreed", () => {
+    process.env["XDG_STATE_HOME"] = "/fake/state";
+    const fromHere = resolveUnaskedDirectionRoot();
+    const previousCwd = process.cwd();
+    try {
+      process.chdir("/tmp");
+      expect(resolveUnaskedDirectionRoot()).toBe(fromHere);
+    } finally {
+      process.chdir(previousCwd);
+    }
   });
 });
 

@@ -244,6 +244,28 @@ covering the spec's named categories:
   missed by classifying the directory wholesale — that stream is a §D row
   now, disposition `ingest`. Only the per-conversation state files are
   state-not-stream.
+- **`~/.local/state/minsky/unasked-directions/`** and
+  **`~/.local/state/minsky/unasked-direction-signatures/`** — 977 + 12
+  per-session JSON files (Surface 4 of the System 3\* detector; one record per
+  session, **overwritten** when the analyzer re-runs and again when the operator
+  assigns a verdict). Written by `.minsky/hooks/post-merge-unasked-direction-scan.ts`
+  via `packages/domain/src/detectors/unasked-direction-store.ts`; read by the
+  `unasked-direction.*` commands. Same shape as the `two-strikes/`
+  per-conversation files above, and classified the same way: **state-not-stream,
+  out of ingest scope.**
+
+  **Added 2026-09-01 by mt#4778, which corrects that task's own premise.** Its
+  SC4 called for a `stream-sources.ts` row, reasoning that this inventory's
+  scope sentence — "every guard/calibration/observability JSONL (and JSON-array)
+  stream" — covers it. It does not: a DIRECTORY of per-session files that are
+  overwritten in place is neither a JSONL stream nor a whole-file JSON array,
+  and `§F`'s `two-strikes/` precedent is the direct analogue. A manifest row is
+  also not expressible — `resolveStreamPath` (`guard-events/ingest-runtime.ts:93-95`)
+  joins `relativePath` onto the state dir and hands the result to a file read, so
+  a directory there would be a type-valid row the ingest mis-resolves. The store
+  belongs here instead, which is what SC4's underlying goal — that a
+  manifest-driven sweep not skip it silently — actually needs.
+
 - **`.minsky/calibration-review-watermarks.json`** — single JSON object keyed
   by calibration-log path, `{lastReviewedCount, lastReviewedAt}` per key,
   overwritten in place on every `/calibration-review` pass.
