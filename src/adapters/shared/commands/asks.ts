@@ -1058,9 +1058,19 @@ export function validateAuthorizationApproveOptions(params: {
  * its URLs comes back unchanged, so applying this twice is a no-op rather than
  * a double-append.
  */
-export function normalizeQuestionForLint<T extends { question?: string }>(params: T): T {
+export function normalizeQuestionForLint<
+  T extends { question?: string; contextRefs?: readonly { ref?: string }[] },
+>(params: T): T {
   if (typeof params.question !== "string") return params;
-  const { text } = linkifyExternalRefs(params.question);
+  // mt#4901: the ask's own contextRefs are a resolution source. A body that
+  // cites a page by a short id prefix while carrying the full URL in
+  // contextRefs IS reachable — resolving it here makes the persisted body
+  // carry the URL (mt#2918's actual goal), and the `unlinkified-reference`
+  // warning then stops firing as a consequence rather than by exemption.
+  const knownRefs = (params.contextRefs ?? [])
+    .map((r) => r?.ref)
+    .filter((r): r is string => typeof r === "string");
+  const { text } = linkifyExternalRefs(params.question, { knownRefs });
   return text === params.question ? params : { ...params, question: text };
 }
 
