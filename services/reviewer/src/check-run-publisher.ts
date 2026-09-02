@@ -206,11 +206,20 @@ export function buildCheckRunPayload(params: BuildCheckRunPayloadParams): CheckR
     // partway down a silence ladder whose next documented step is a bypass
     // merge, so the summary has to rule that out rather than merely describe
     // the state: no review ran, and this is not reviewer silence.
+    // The remedy is reason-SPECIFIC, so it is only asserted for the reason it
+    // is true of. `concurrent_inflight` clears on a new head; a future reason
+    // (a permission, a rate limit) would need a different one, and stating this
+    // one for it would send an operator confidently the wrong way — the same
+    // shape of error as the `absent` this whole change exists to fix, one layer
+    // up. Only the reason-independent half is unconditional. (PR #3563 R1.)
+    const remedy =
+      skipReason === "concurrent_inflight"
+        ? " A concurrent_inflight refusal clears on a new head; a retrigger is refused while the marker is held."
+        : "";
     summary =
       `Reviewer declined to run${roundSuffix}: ${skipReason}. ` +
       `No review was performed on this commit — this is NOT reviewer silence, ` +
-      `and it is not a bypass condition. A concurrent_inflight refusal clears ` +
-      `on a new head; a retrigger is refused while the marker is held.`;
+      `and it is not a bypass condition.${remedy}`;
   } else if (blockingCount === 0) {
     summary = `${roundPrefix}: no blocking findings — approved.`;
   } else {

@@ -495,10 +495,12 @@ describe("buildCheckRunPayload: declined-to-run path (mt#4271)", () => {
     expect(payload.conclusion).not.toBe("success");
   });
 
-  test("the summary rules out the bypass explicitly, and names what clears it", () => {
+  test("the summary names the reason and marks the state as not-silence", () => {
     // An agent reading this is partway down a ladder whose next documented step
     // is a bypass merge. Describing the state is not enough — it has to say the
-    // state is not silence.
+    // state is not silence. Narrowed to the signals that carry that contract
+    // rather than the full phrasing, so a copy edit does not fail the suite
+    // (PR #3563 R1, non-blocking).
     const payload = buildCheckRunPayload({
       toolCalls: [],
       convergenceState: { roundNumber: null, blockingCount: 0 },
@@ -506,9 +508,33 @@ describe("buildCheckRunPayload: declined-to-run path (mt#4271)", () => {
     });
     expect(payload.output.summary).toContain(SKIP_REASON_CONCURRENT_INFLIGHT);
     expect(payload.output.summary).toContain("NOT reviewer silence");
-    expect(payload.output.summary).toContain("not a bypass condition");
-    expect(payload.output.summary).toContain("new head");
     expect(payload.output.title).toContain("skipped");
+  });
+
+  test("the concurrent_inflight remedy is asserted ONLY for that reason", () => {
+    // PR #3563 R1: the remedy sentence ("clears on a new head; a retrigger is
+    // refused") is true of concurrent_inflight and of nothing else yet. Asserting
+    // it for a future reason — a permission, a rate limit — would send an
+    // operator confidently the wrong way, which is the same shape of error as
+    // the `absent` this whole change exists to fix.
+    const inflight = buildCheckRunPayload({
+      toolCalls: [],
+      convergenceState: { roundNumber: null, blockingCount: 0 },
+      skipReason: SKIP_REASON_CONCURRENT_INFLIGHT,
+    });
+    expect(inflight.output.summary).toContain("new head");
+
+    const other = buildCheckRunPayload({
+      toolCalls: [],
+      convergenceState: { roundNumber: null, blockingCount: 0 },
+      skipReason: "rate_limited",
+    });
+    expect(other.output.summary).not.toContain("new head");
+    expect(other.output.summary).not.toContain(SKIP_REASON_CONCURRENT_INFLIGHT);
+    // The reason-independent half still holds for every reason.
+    expect(other.output.summary).toContain("rate_limited");
+    expect(other.output.summary).toContain("NOT reviewer silence");
+    expect(other.conclusion).toBe("skipped");
   });
 
   test("no round parenthetical when the round is unknown", () => {
