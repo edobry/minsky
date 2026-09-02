@@ -1718,9 +1718,19 @@ const PERMISSION_RUNG2_MAX_CONTEXTS = 4;
  * and a genuinely-reserved one are identical, and only the ACTION discriminates.
  * So this band is set from this detector's own AT1/AT2 populations.
  *
- * MEASUREMENT PENDING — this value is a placeholder and MUST be replaced by
- * `scripts/replay-permission-settled.ts`'s measured midpoint before this ships.
- * Shipping the placeholder is exactly the inheritance SC3 forbids.
+ * **MEASUREMENT PENDING — mt#4920 owns it, by the principal's decision.** Asked
+ * on 2026-09-02 how phase 2 should proceed, the principal chose *"Pause the
+ * measurement"*: replaying this detector's calibration log through its CURRENT
+ * code (mem#1125) reduced the must-suppress corpus from the spec's "4 of ~5" to
+ * THREE records, and a band fitted to three points is arithmetic rather than a
+ * measurement — for a number that decides whether to silence a permission ask.
+ *
+ * `NaN` is the deliberate placeholder and it is FAIL-SAFE by construction: every
+ * comparison against `NaN` is false, so nothing is ever nominated and nothing is
+ * ever suppressed. Together with the opt-in flag being off, the path is inert in
+ * two independent ways. Do not "fix" this to a plausible number — a borrowed or
+ * fitted-to-three-points value is precisely the inheritance SC3 forbids and
+ * mt#4280 records the cost of.
  */
 export const PERMISSION_SETTLED_RUNG2_THRESHOLD = Number.NaN;
 
