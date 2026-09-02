@@ -23,7 +23,11 @@ import {
   type AskRepository,
   type CreateAskInput,
 } from "@minsky/domain/ask/repository";
-import type { PageMessage, PrincipalPageDeps } from "@minsky/domain/ask/principal-page";
+import {
+  buildPageMessage,
+  type PageMessage,
+  type PrincipalPageDeps,
+} from "@minsky/domain/ask/principal-page";
 
 const CTX: CircuitBreakerAlertContext = {
   owner: "edobry",
@@ -284,6 +288,24 @@ describe("operator-incident ask body (mt#2719)", () => {
       const body = buildOperatorIncidentQuestion(ctx);
       expect(body).toContain("Only you can clear this");
       expect(body).toContain(ctx.remediationUrl);
+    }
+  });
+
+  test("REGRESSION: the remediation URL survives into the PAGE, not just the ask", () => {
+    // The gap the live smoke found and these tests did not. `buildPageMessage`
+    // excerpts the question at PAGE_QUESTION_EXCERPT_CHARS, so asserting the URL
+    // is in `ask.question` proves nothing about the notification the principal
+    // actually reads — with the remediation trailing, it was cut. Assert the
+    // rendered page body, which is the artifact the requirement is about.
+    for (const ctx of [AUTH_CTX, PROVIDER_CTX]) {
+      const ask = {
+        id: "11111111-2222-3333-4444-555555555555",
+        title: buildOperatorIncidentTitle(ctx),
+        question: buildOperatorIncidentQuestion(ctx),
+        metadata: {},
+      } as unknown as Parameters<typeof buildPageMessage>[0];
+
+      expect(buildPageMessage(ask).message).toContain(ctx.remediationUrl);
     }
   });
 

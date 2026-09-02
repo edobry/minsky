@@ -553,25 +553,41 @@ export function buildOperatorIncidentTitle(ctx: OperatorIncidentContext): string
     : `Reviewer is down — ${ctx.errorClass}`;
 }
 
-/** Body for an operator-incident ask. Pure, for the same reason as the title. */
+/**
+ * Body for an operator-incident ask. Pure, for the same reason as the title.
+ *
+ * **The remediation leads, and that ordering is load-bearing rather than
+ * stylistic.** The page body is built by `buildPageMessage`, which excerpts the
+ * question to `PAGE_QUESTION_EXCERPT_CHARS` (300) — so anything past that is
+ * simply absent from the notification the principal actually reads on a phone.
+ * With the remediation trailing, as this function first had it, the URL was cut
+ * and SC7's whole purpose ("act from the notification without investigation")
+ * was silently defeated: the ask carried the link, the page did not.
+ *
+ * Caught by `scripts/smoke-operator-incident-page.ts`, not by the unit tests —
+ * they asserted the URL was in the ASK's question, which was true and was not
+ * the requirement. Widening the shared excerpt was the wrong fix: it is a
+ * deliberate bound on every page, and one caller's prose is not a reason to move
+ * it. Leading with the action is also just better for the reader.
+ */
 export function buildOperatorIncidentQuestion(ctx: OperatorIncidentContext): string {
-  const remediation =
+  const lead =
     `Only you can clear this — the reviewer cannot recover on its own. ` +
     `Remediation: ${ctx.remediationUrl}`;
 
   if (ctx.source === "github_auth") {
     return (
-      `The reviewer's GitHub App authentication has failed ` +
+      `${lead} The reviewer's GitHub App authentication has failed ` +
       `${ctx.consecutiveFailures} consecutive times (threshold ${ctx.threshold}), latest ` +
       `observed by ${ctx.observedBy}. Every session-level GitHub call is failing, so no PR ` +
-      `is being reviewed. ${remediation} Latest error: ${ctx.lastError}`
+      `is being reviewed. Latest error: ${ctx.lastError}`
     );
   }
 
   return (
-    `The reviewer has failed ${ctx.occurrencesInWindow} times in the last ` +
+    `${lead} The reviewer has failed ${ctx.occurrencesInWindow} times in the last ` +
     `${ctx.windowMinutes} minutes with "${ctx.errorClass}" (threshold ${ctx.threshold}), which ` +
     `means it is not a transient blip. ${ctx.errorSummary} No PR is being reviewed while this ` +
-    `persists. ${remediation} Latest error: ${ctx.lastError}`
+    `persists. Latest error: ${ctx.lastError}`
   );
 }
