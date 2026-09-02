@@ -54,9 +54,12 @@ import {
   createRealPrincipalChannelDeps,
 } from "@minsky/domain/notify/principal-channel";
 import type { PageMessage, PrincipalPageDeps } from "@minsky/domain/ask/principal-page";
+import { resolvePersistenceProvider } from "@minsky/domain/persistence/factory";
+import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 import {
   DomainAskEmitter,
   GITHUB_APP_SETTINGS_URL,
+  OPERATOR_INCIDENT_CLASSIFIER_VERSION,
   type OperatorIncidentContext,
 } from "../src/ask-emitter";
 
@@ -127,8 +130,26 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.log("--execute: this WILL create a real ask and notify the principal's phone.");
-  const repo = new FakeAskRepository();
+  console.log("--execute: this WILL persist a real ask row AND notify the principal's phone.");
+
+  // The REAL repository, not the in-memory one the dry path uses. `--execute`
+  // means the production path in this repo (`operational-safety-dry-run-first`),
+  // and a mode that skipped persistence would exercise neither the insert nor
+  // the `severity`/`forceImmediate` columns — leaving the smoke unable to catch
+  // a persistence-layer rejection, which is one of the two things it is for.
+  const provider = await resolvePersistenceProvider();
+  if (!provider) {
+    console.log("SKIP: no persistence provider — set MINSKY_PERSISTENCE_POSTGRES_URL");
+    process.exit(0);
+  }
+  const db = await (provider as SqlCapablePersistenceProvider).getDatabaseConnection();
+  if (!db) {
+    console.log("SKIP: persistence provider has no database connection");
+    process.exit(0);
+  }
+  const { DrizzleAskRepository } = await import("@minsky/domain/ask/repository");
+  const repo = new DrizzleAskRepository(db);
+
   // Production page deps (omitted third arg) — the real transport.
   const emitter = new DomainAskEmitter(() => Promise.resolve(repo));
   const outcome = await emitter.emitOperatorIncidentAlert({
@@ -137,11 +158,18 @@ async function main(): Promise<void> {
   });
 
   if (outcome !== "created") fail(`expected outcome "created", got "${outcome}"`);
-  const [ask] = repo.all;
-  if (!ask?.principalPagedAt) {
-    fail("the ask was created but no page was claimed — the dispatch did not run");
+
+  // Read the row BACK rather than trusting the emit's return value: the whole
+  // subject of this task is a path that reported success while doing nothing.
+  const persisted = await repo.listByClassifierVersion(OPERATOR_INCIDENT_CLASSIFIER_VERSION);
+  const ask = persisted.at(-1);
+  if (!ask) fail("emit returned 'created' but no row came back — nothing was persisted");
+  if (ask.severity !== "incident") fail(`persisted severity is "${ask.severity}"`);
+  if (!ask.principalPagedAt) {
+    fail("the ask was persisted but no page was claimed — the dispatch did not run");
   }
-  console.log(`PASS (execute): ask ${ask.id} created and paged at ${ask.principalPagedAt}`);
+  console.log(`PASS (execute): ask ${ask.id} persisted and paged at ${ask.principalPagedAt}`);
+  console.log("  NOTE: this left a real (TEST-labelled) incident ask in the operator inbox.");
 }
 
 main().catch((err: unknown) => {
