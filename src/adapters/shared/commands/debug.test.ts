@@ -28,7 +28,7 @@
  */
 /* eslint-disable custom/no-real-fs-in-tests */
 
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, afterAll } from "bun:test";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -44,7 +44,7 @@ import {
   subagentInvocationsTable,
 } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
 import { registerDebugCommands } from "./debug";
-import { sharedCommandRegistry } from "../command-registry";
+import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
 
 // ---------------------------------------------------------------------------
 // Outcome class constants
@@ -460,17 +460,56 @@ async function callSystemInfo(): Promise<Record<string, unknown>> {
  *
  * which denies the block its siblings and failed 5/5 before this helper existed.
  */
-const DEBUG_COMMAND_IDS = ["debug.systemInfo", "debug.echo", "debug.listMethods"] as const;
+const DEBUG_ECHO_ID = "debug.echo";
+const DEBUG_LIST_METHODS_ID = "debug.listMethods";
+const DEBUG_COMMAND_IDS = ["debug.systemInfo", DEBUG_ECHO_ID, DEBUG_LIST_METHODS_ID] as const;
+
+/**
+ * What the registry held for each debug id BEFORE this file first touched it.
+ *
+ * `undefined` for an id that was ABSENT, which is a different restoration than
+ * "present with some command" and must not be collapsed into it: the first owes
+ * an unregister, the second owes the original object back.
+ */
+let displacedDebugCommands: ReadonlyArray<
+  readonly [string, ReturnType<typeof sharedCommandRegistry.getCommand>]
+> = [];
 
 function ensureDebugCommandsRegistered(): void {
-  try {
-    registerDebugCommands();
-  } catch {
-    // Already present — replace, so every test sees a freshly-built command
-    // rather than one a previous file may have registered differently.
-    for (const id of DEBUG_COMMAND_IDS) sharedCommandRegistry.unregisterCommand(id);
-    registerDebugCommands();
+  // Capture ONCE, before the first mutation — what we displace is what we owe
+  // back. Capturing on every call would record this file's own registrations
+  // from the second call onward and restore them as though they were someone
+  // else's.
+  if (displacedDebugCommands.length === 0) {
+    displacedDebugCommands = DEBUG_COMMAND_IDS.map(
+      (id) => [id, sharedCommandRegistry.getCommand(id)] as const
+    );
   }
+  for (const id of DEBUG_COMMAND_IDS) sharedCommandRegistry.unregisterCommand(id);
+  registerDebugCommands();
+}
+
+/**
+ * Put back exactly what this file displaced.
+ *
+ * `sharedCommandRegistry` is a process global and `bun test` shares one process
+ * across files, so without this the file leaks in BOTH directions: it leaves its
+ * own `debug.*` commands in the registry for every later file, and it deletes
+ * whichever ones an earlier file had registered. Each is cross-file
+ * order-dependence — the class this task exists to remove — so introducing one
+ * while fixing another would be a net loss.
+ *
+ * mt#4076 states the rule this follows: for a shared REGISTRY, as opposed to
+ * shared module state, the correct teardown is restore-what-you-displaced, not
+ * delete-what-you-added. That task hit the delete-what-you-added version and it
+ * poisoned later files even when registration had succeeded.
+ */
+function restoreDisplacedDebugCommands(): void {
+  for (const [id, prior] of displacedDebugCommands) {
+    sharedCommandRegistry.unregisterCommand(id);
+    if (prior) sharedCommandRegistry.registerCommand(prior, { allowOverwrite: true });
+  }
+  displacedDebugCommands = [];
 }
 
 // ---------------------------------------------------------------------------
@@ -481,6 +520,64 @@ function ensureDebugCommandsRegistered(): void {
 // not register for themselves. A describe-level beforeEach still runs after
 // this one, so the existing blocks keep their own setup unchanged.
 beforeEach(ensureDebugCommandsRegistered);
+
+// File-level teardown: hand the process-global registry back in the state this
+// file found it. Without this the fix above would trade one cross-file
+// order-dependence for another (PR #3590 R1).
+afterAll(restoreDisplacedDebugCommands);
+
+describe("registry restoration (mt#3575, PR #3590 R1)", () => {
+  /**
+   * The mt#3575 fix made this file register `debug.*` into the process-global
+   * registry for every test. `bun test` shares one process across files, so the
+   * fix is only safe if the file hands the registry back as it found it —
+   * otherwise it trades the order-dependence it removed for a new one, which is
+   * the failure mt#4076 recorded for a shared REGISTRY.
+   *
+   * Drives the real displace→restore pair rather than a copy of it, so a change
+   * to either function is what this test observes.
+   */
+  test("a displaced command is put back, and one this file added is removed", () => {
+    const sentinel = defineCommand({
+      id: DEBUG_ECHO_ID,
+      category: CommandCategory.DEBUG,
+      name: DEBUG_ECHO_ID,
+      description: "sentinel standing in for a command an earlier file registered",
+      parameters: {},
+      execute: async () => ({ sentinel: true }),
+    });
+
+    // Start from a clean capture: the file-level beforeEach already ran one.
+    restoreDisplacedDebugCommands();
+    sharedCommandRegistry.registerCommand(sentinel, { allowOverwrite: true });
+    expect(sharedCommandRegistry.getCommand(DEBUG_ECHO_ID)).toBe(sentinel);
+
+    // An earlier file's command is genuinely displaced, not left in place...
+    ensureDebugCommandsRegistered();
+    expect(sharedCommandRegistry.getCommand(DEBUG_ECHO_ID)).not.toBe(sentinel);
+    expect(sharedCommandRegistry.getCommand(DEBUG_ECHO_ID)).toBeDefined();
+
+    // ...and restored on the way out, byte-for-byte the same object.
+    restoreDisplacedDebugCommands();
+    expect(sharedCommandRegistry.getCommand(DEBUG_ECHO_ID)).toBe(sentinel);
+
+    // The ABSENT direction: an id nobody held must end up unregistered, not
+    // left carrying this file's registration. `debug.listMethods` was captured
+    // as undefined above only if it was absent, so assert against the capture
+    // rather than assuming — establish the state, then check it.
+    sharedCommandRegistry.unregisterCommand(DEBUG_LIST_METHODS_ID);
+    restoreDisplacedDebugCommands();
+    ensureDebugCommandsRegistered();
+    expect(sharedCommandRegistry.getCommand(DEBUG_LIST_METHODS_ID)).toBeDefined();
+    restoreDisplacedDebugCommands();
+    expect(sharedCommandRegistry.getCommand(DEBUG_LIST_METHODS_ID)).toBeUndefined();
+
+    // Leave the registry usable for whatever runs next in this file.
+    sharedCommandRegistry.unregisterCommand(DEBUG_ECHO_ID);
+    restoreDisplacedDebugCommands();
+    ensureDebugCommandsRegistered();
+  });
+});
 
 describe("debug.systemInfo subagentDispatches surface (mt#1738)", () => {
   let store: Map<string, FakeRow>;

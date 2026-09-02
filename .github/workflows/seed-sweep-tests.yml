@@ -83,6 +83,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The pin is a floor with a reason, not a copied constant (PR #3590 R1).
+      # `[test] randomize` only takes effect from Bun **v1.2.23**
+      # (https://bun.com/blog/bun-v1.2.23); on anything older it is silently
+      # ignored and this whole job becomes a probe that cannot fail. The harness
+      # is the drift guard rather than this pin: `randomizationIsLive()` runs a
+      # sandbox probe before any suite and exits 2 if two seeds produce the same
+      # order, so a downgrade below the floor FAILS the job instead of passing
+      # it. Raise this pin freely to match the repo's Bun; do not lower it below
+      # 1.2.23, and do not remove the pin without keeping the self-check.
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
