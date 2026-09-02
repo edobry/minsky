@@ -307,7 +307,6 @@ async function getDb(): Promise<PostgresJsDatabase> {
     "@minsky/domain/configuration"
   );
   const { createCliContainer } = await import("../src/composition/cli");
-  const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
 
   await initializeConfiguration(new CustomConfigFactory(), {
     workingDirectory: process.cwd(),
@@ -316,14 +315,27 @@ async function getDb(): Promise<PostgresJsDatabase> {
   const container = await createCliContainer();
   await container.initialize();
 
+  // Checked by CAPABILITY, not by `instanceof PersistenceProvider` (PR #3575 R1, NON-BLOCKING).
+  //
+  // The sibling backfills all do the `instanceof` check first; it is dropped here deliberately
+  // rather than by oversight. `instanceof` compares constructor identity, so it answers "did this
+  // object come from the same module instance I just imported?" — and under a DI container plus a
+  // dynamic import there is no guarantee of that, which makes a spurious throw possible for an
+  // object that is in every functional sense the right provider.
+  //
+  // The two checks below are what this script actually needs and are immune to that: the SQL
+  // capability flag and the presence of the accessor. Nothing the `instanceof` covered is lost —
+  // a non-provider object fails them too.
   const persistence = container.has("persistence") ? container.get("persistence") : undefined;
-  if (!persistence || !(persistence instanceof PersistenceProvider)) {
+  const candidate = persistence as Partial<SqlCapablePersistenceProvider> | undefined;
+  if (
+    !candidate ||
+    !candidate.capabilities?.sql ||
+    typeof candidate.getDatabaseConnection !== "function"
+  ) {
     throw new Error("Backfill requires a SQL-capable persistence provider (Postgres).");
   }
-  if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
-    throw new Error("Backfill requires a SQL-capable persistence provider (Postgres).");
-  }
-  const sqlProvider = persistence as SqlCapablePersistenceProvider;
+  const sqlProvider = candidate as SqlCapablePersistenceProvider;
   const connection = await sqlProvider.getDatabaseConnection();
   if (!connection) {
     throw new Error("Backfill requires an initialized Postgres database connection.");

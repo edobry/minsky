@@ -13,6 +13,7 @@
 import { describe, test, expect } from "bun:test";
 import type { SQL } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { PgDialect } from "drizzle-orm/pg-core";
 import {
   checkScopeMatch,
   parseIntFlag,
@@ -32,33 +33,19 @@ import { ASK_STATE_VALUES } from "@minsky/domain/storage/schemas/ask-schema";
 // ---------------------------------------------------------------------------
 
 /**
- * Concatenate the literal SQL text of a drizzle `SQL` object, discarding bound parameters.
- * Asserting on the literal text is what lets these tests check that the UPDATE carries its own
- * eligibility clauses — the property that makes a mid-flight close or a peer write safe.
+ * Render a drizzle `SQL` object to the statement Postgres would receive, with bound values as
+ * `$n` placeholders. Asserting on that text is what lets these tests check that the UPDATE carries
+ * its own eligibility clauses — the property that makes a mid-flight close or a peer write safe.
+ *
+ * Uses `PgDialect#sqlToQuery`, drizzle's public rendering API — the same entry point the driver
+ * itself goes through (PR #3575 R1, NON-BLOCKING). An earlier revision walked the `queryChunks`
+ * internals by hand, which read the right text today and would drift silently on a drizzle
+ * upgrade; the point of these assertions is that they keep meaning what they say.
  */
+const dialect = new PgDialect();
+
 function sqlText(query: SQL): string {
-  const chunks = (query as unknown as { queryChunks: unknown[] }).queryChunks;
-  const out: string[] = [];
-  const walk = (chunk: unknown): void => {
-    if (chunk == null) return;
-    if (Array.isArray(chunk)) {
-      for (const inner of chunk) walk(inner);
-      return;
-    }
-    const value = (chunk as { value?: unknown }).value;
-    if (typeof value === "string") {
-      out.push(value);
-      return;
-    }
-    if (Array.isArray(value)) {
-      for (const inner of value) if (typeof inner === "string") out.push(inner);
-      return;
-    }
-    const nested = (chunk as { queryChunks?: unknown[] }).queryChunks;
-    if (Array.isArray(nested)) for (const inner of nested) walk(inner);
-  };
-  for (const chunk of chunks) walk(chunk);
-  return out.join(" ").replace(/\s+/g, " ").trim();
+  return dialect.sqlToQuery(query).sql.replace(/\s+/g, " ").trim();
 }
 
 interface FakeCall {
