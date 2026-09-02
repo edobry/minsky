@@ -27,7 +27,7 @@ import type { AppProvisioner } from "./provisioner";
 import { BrowserCancelledError } from "./provisioner";
 import type { AppManifestSpec, AppCredentials } from "./types";
 import { pemToPkcs8ArrayBuffer } from "./pem-utils";
-import { escapeHtml } from "./html-escape";
+import { escapeHtmlAttribute } from "../../html/escape";
 import { trustedGitHubUrl } from "../../github/trusted-url";
 
 /** Default timeout: 5 minutes */
@@ -104,9 +104,9 @@ export class ManifestFlowProvisioner implements AppProvisioner {
     // and `repo` are operator-supplied rather than API-sourced, which is an
     // argument about today's callers, not about the template — and a per-value
     // exemption is exactly the reasoning that goes stale when a caller changes.
-    const manifestHtmlSafe = escapeHtml(JSON.stringify(manifest));
-    const nameHtml = escapeHtml(name);
-    const repoHtml = escapeHtml(repo);
+    const manifestHtmlSafe = escapeHtmlAttribute(JSON.stringify(manifest));
+    const nameHtml = escapeHtmlAttribute(name);
+    const repoHtml = escapeHtmlAttribute(repo);
 
     const html = `<!DOCTYPE html>
 <html>
@@ -254,8 +254,8 @@ export class ManifestFlowProvisioner implements AppProvisioner {
                   settle(creds, this.port);
                   const okHtml = `<!DOCTYPE html><html><body style="font-family:system-ui;max-width:600px;margin:40px auto;padding:0 20px">
 <h1>Done!</h1>
-<p><b>App ID:</b> ${escapeHtml(app.id)}</p>
-<p><b>Installation ID:</b> ${escapeHtml(installationId)}</p>
+<p><b>App ID:</b> ${escapeHtmlAttribute(app.id)}</p>
+<p><b>Installation ID:</b> ${escapeHtmlAttribute(installationId)}</p>
 <p>You can close this tab. Everything has been saved.</p>
 </body></html>`;
                   return new Response(okHtml, {
@@ -273,10 +273,10 @@ export class ManifestFlowProvisioner implements AppProvisioner {
                 const checkUrl = `http://localhost:${this.port}/check-install`;
                 const partialHtml = `<!DOCTYPE html><html><body style="font-family:system-ui;max-width:600px;margin:40px auto;padding:0 20px">
 <h1>App Created!</h1>
-<p><b>App ID:</b> ${escapeHtml(app.id)}</p>
+<p><b>App ID:</b> ${escapeHtmlAttribute(app.id)}</p>
 <p>Now install it on <code>${repoHtml}</code>:</p>
-<a href="${escapeHtml(installUrl)}" style="display:inline-block;padding:12px 24px;font-size:16px;background:#238636;color:#fff;text-decoration:none;border-radius:6px">Install App</a>
-<p style="margin-top:20px;color:#666">After installing, return to this tab and visit <a href="${escapeHtml(checkUrl)}">${escapeHtml(checkUrl)}</a> to finish setup.</p>
+<a href="${escapeHtmlAttribute(installUrl)}" style="display:inline-block;padding:12px 24px;font-size:16px;background:#238636;color:#fff;text-decoration:none;border-radius:6px">Install App</a>
+<p style="margin-top:20px;color:#666">After installing, return to this tab and visit <a href="${escapeHtmlAttribute(checkUrl)}">${escapeHtmlAttribute(checkUrl)}</a> to finish setup.</p>
 </body></html>`;
                 return new Response(partialHtml, {
                   headers: { "Content-Type": "text/html" },
@@ -305,8 +305,8 @@ export class ManifestFlowProvisioner implements AppProvisioner {
                 settle(completed, this.port);
                 const doneHtml = `<!DOCTYPE html><html><body style="font-family:system-ui;max-width:600px;margin:40px auto;padding:0 20px">
 <h1>All Done!</h1>
-<p><b>App ID:</b> ${escapeHtml(pendingApp.appId)}</p>
-<p><b>Installation ID:</b> ${escapeHtml(installationId)}</p>
+<p><b>App ID:</b> ${escapeHtmlAttribute(pendingApp.appId)}</p>
+<p><b>Installation ID:</b> ${escapeHtmlAttribute(installationId)}</p>
 <p>You can close this tab.</p></body></html>`;
                 return new Response(doneHtml, {
                   headers: { "Content-Type": "text/html" },

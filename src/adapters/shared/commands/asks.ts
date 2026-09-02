@@ -1058,9 +1058,19 @@ export function validateAuthorizationApproveOptions(params: {
  * its URLs comes back unchanged, so applying this twice is a no-op rather than
  * a double-append.
  */
-export function normalizeQuestionForLint<T extends { question?: string }>(params: T): T {
+export function normalizeQuestionForLint<
+  T extends { question?: string; contextRefs?: readonly { ref?: string }[] },
+>(params: T): T {
   if (typeof params.question !== "string") return params;
-  const { text } = linkifyExternalRefs(params.question);
+  // mt#4901: the ask's own contextRefs are a resolution source. A body that
+  // cites a page by a short id prefix while carrying the full URL in
+  // contextRefs IS reachable — resolving it here makes the persisted body
+  // carry the URL (mt#2918's actual goal), and the `unlinkified-reference`
+  // warning then stops firing as a consequence rather than by exemption.
+  const knownRefs = (params.contextRefs ?? [])
+    .map((r) => r?.ref)
+    .filter((r): r is string => typeof r === "string");
+  const { text } = linkifyExternalRefs(params.question, { knownRefs });
   return text === params.question ? params : { ...params, question: text };
 }
 
@@ -1218,6 +1228,16 @@ export function validateFormLintNotViolated(params: {
   forceImmediate?: boolean;
   acknowledgeFormWarnings?: boolean;
   /**
+   * The ask's context references (mt#4901), threaded so this path normalizes
+   * with the same resolution source the create path uses.
+   *
+   * Optional because a caller that omits it gets the pre-mt#4901 behavior —
+   * un-resolved, which only ever over-reports. Both production callers supply
+   * it: `asks.create` through `normalizeQuestionForLint(params)`, and
+   * `asks.edit` from the fetched ask.
+   */
+  contextRefs?: readonly { ref?: string }[];
+  /**
    * Which command boundary is rejecting, for the error text (mt#3929). Defaults to
    * `asks.create` — the only surface that enforced this until the edit path joined it.
    */
@@ -1251,7 +1271,17 @@ export function validateFormLintNotViolated(params: {
   // consequence worth naming: `over-word-budget` now counts the appended URLs.
   // That is correct — the budget should measure the body the principal
   // actually receives.
-  const { text: normalizedQuestion } = linkifyExternalRefs(params.question);
+  // mt#4901 (PR #3571 R1): normalize through the SHARED seam rather than
+  // calling `linkifyExternalRefs` bare, so this path resolves against the ask's
+  // own `contextRefs` exactly as the create path does. Calling the transform
+  // directly here left the EDIT surface judging an un-normalized body — the
+  // same false positive this change removes, reintroduced one call site over,
+  // and invisible from the create path because its caller normalizes first.
+  //
+  // `?? params.question` is a type narrowing, not a fallback: the guard above
+  // has already established `params.question` is a non-empty string, but that
+  // narrowing does not flow through the generic's return type.
+  const normalizedQuestion = normalizeQuestionForLint(params).question ?? params.question;
 
   const matches = computeFormLintMatches({
     kind: params.kind,
@@ -2034,6 +2064,11 @@ export async function validateEditFormLintAgainstExistingAsk(
     // it off the ask keeps a check that consults it (severity/transport shape)
     // judging the real record rather than a default.
     forceImmediate: existing.forceImmediate,
+    // mt#4901 (PR #3571 R1): the existing ask's refs are the resolution source
+    // for a truncated artifact id in the edited body. `contextRefs` is not
+    // editable through this surface, so the stored value governs — and it was
+    // already fetched above, which is what made omitting it easy to miss.
+    contextRefs: existing.contextRefs,
     surface: "asks.edit",
   });
 }
