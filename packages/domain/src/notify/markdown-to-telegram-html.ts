@@ -35,6 +35,8 @@
  * @see mt#3465
  */
 
+import { escapeHtmlText } from "../html/escape";
+
 const HEADING_RE = /^(#{1,6})\s+(.*)$/;
 const BLOCKQUOTE_RE = /^>\s?(.*)$/;
 const UNORDERED_ITEM_RE = /^(\s*)[-*+]\s+(.*)$/;
@@ -54,11 +56,6 @@ const FENCE_RE = /^\s*```(\S*)\s*$/;
  */
 const MARK = String.fromCharCode(0xe000);
 
-/** Escape the three characters HTML mode reserves. `&` first, or it double-escapes. */
-export function escapeHtml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
 /**
  * Escape for use INSIDE a double-quoted attribute value (PR #2505 R1).
  *
@@ -67,9 +64,15 @@ export function escapeHtml(text: string): string {
  * a lost message — and in the `href` case lets link text inject further
  * attributes. `&quot;` is one of the four named entities the Bot API documents
  * as supported ("&lt;, &gt;, &amp; and &quot;").
+ *
+ * Telegram-specific, so it deliberately does NOT consume `escapeHtmlAttribute`
+ * from `../html/escape` (mt#4832). That escaper also emits `&#39;` for `'`, and
+ * the Bot API documents exactly four supported entities — the apostrophe is not
+ * among them. The shared TEXT escaper is byte-for-byte what this needs, so that
+ * half is shared and only this wrapper stays local.
  */
-function escapeAttribute(value: string): string {
-  return escapeHtml(value).replace(/"/g, "&quot;");
+function escapeTelegramAttribute(value: string): string {
+  return escapeHtmlText(value).replace(/"/g, "&quot;");
 }
 
 /**
@@ -161,11 +164,11 @@ export function markdownToTelegramHtml(markdown: string): string {
 }
 
 function renderCodeBlock(body: string, language: string): string {
-  const escaped = escapeHtml(body);
+  const escaped = escapeHtmlText(body);
   // Nested pre+code is how the docs specify a language: "Use nested pre and
   // code tags, to define programming language for pre entity."
   return language.length > 0
-    ? `<pre><code class="language-${escapeAttribute(language)}">${escaped}</code></pre>`
+    ? `<pre><code class="language-${escapeTelegramAttribute(language)}">${escaped}</code></pre>`
     : `<pre>${escaped}</pre>`;
 }
 
@@ -182,7 +185,7 @@ function renderInline(text: string): string {
 
   // 1. Code spans, verbatim.
   let working = text.replace(/`([^`]+)`/g, (_match, code: string) =>
-    stash(spans, `<code>${escapeHtml(code)}</code>`)
+    stash(spans, `<code>${escapeHtmlText(code)}</code>`)
   );
 
   // 2. Links -- captured before escaping so the URL is not mangled, and stashed
@@ -196,11 +199,11 @@ function renderInline(text: string): string {
   working = working.replace(
     /\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))+)\)/g,
     (_match, label: string, href: string) =>
-      stash(spans, `<a href="${escapeAttribute(href)}">${renderInline(label)}</a>`)
+      stash(spans, `<a href="${escapeTelegramAttribute(href)}">${renderInline(label)}</a>`)
   );
 
   // 3. Everything left is literal text.
-  working = escapeHtml(working);
+  working = escapeHtmlText(working);
 
   // 4. Emphasis, longest marker first so `**` is not eaten by `*`.
   //
