@@ -123,6 +123,29 @@ export interface PersistenceCommandOverrides {
 }
 
 /**
+ * Render the resolved persistence target HOST for operator output (mt#4789).
+ *
+ * Host only: the connection string carries the password, and this text goes to
+ * a terminal whose output is persisted and ingested.
+ *
+ * **Never throws.** A diagnostic line must not be able to fail the operation it
+ * describes — and `getConfiguration()` DOES throw when configuration was never
+ * initialized, which is the normal state for the handler tests that exercise
+ * these commands through DI overrides. Reporting a migrate as failed because
+ * its "which database?" banner could not render would be strictly worse than
+ * the silence this task set out to fix. The reason is surfaced in the line
+ * rather than swallowed.
+ */
+async function describeResolvedTargetHost(): Promise<string> {
+  try {
+    const { getConfiguration } = await import("@minsky/domain/configuration/index");
+    return resolvePersistenceTargetHost(getConfiguration()) ?? "(none configured)";
+  } catch (err) {
+    return `(unresolved: ${getErrorMessage(err)})`;
+  }
+}
+
+/**
  * Register all persistence commands.
  *
  * `registry` mirrors the `registerProvenanceCommands(container?, registry?)`
@@ -173,6 +196,12 @@ export function registerPersistenceCommands(
       // (Postgres-only, ADR-018 / mt#2349) backend.
       if (!to) {
         try {
+          // mt#4789 (PR #3573 R1): this path APPLIES MIGRATIONS to whatever the
+          // configuration resolves to, and was the one branch of this family
+          // that never said which database that is — the most expensive place
+          // to stay silent, not the least.
+          log.cli(`🎯 Resolved target host: ${await describeResolvedTargetHost()}`);
+
           const result = await runSchemaMigrations({ dryRun: isPreviewMode });
 
           if (context.format === "human") {
@@ -442,10 +471,11 @@ export function registerPersistenceCommands(
         log.cli(`🔍 Persistence Check - ${sourceInfo}`);
 
         // mt#4789: "which database am I about to talk to?" is the question whose
-        // silent wrong answer is production. HOST only — the connection string
-        // carries the password, and this output is persisted and ingested.
-        const targetHost = resolvePersistenceTargetHost(getConfiguration());
-        log.cli(`🎯 Resolved target host: ${targetHost ?? "(none configured)"}`);
+        // silent wrong answer is production. Routed through the same non-throwing
+        // helper as the migrate paths — with `--backend` forced, this command
+        // never reads config, so an unconditional `getConfiguration()` here had
+        // the same latent throw the reviewer found on the schema-only path.
+        log.cli(`🎯 Resolved target host: ${await describeResolvedTargetHost()}`);
 
         const { persistence: persistenceProvider } = getPersistenceDeps();
         if (!persistenceProvider) {
