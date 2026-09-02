@@ -52,7 +52,16 @@ Harder / now committed:
 
 Implementation follow-ups (filed as their own tasks, not phases of this ADR):
 
-1. **Check-run surfacing first** — convergence state + failure/liveness as a check-run. This is the current gap; the activation gate is observable ("no check-run surfacing exists today").
+1. **Check-run surfacing first** — convergence state + failure/liveness as a check-run.
+
+   > _As originally written (2026-06-10): "This is the current gap; the activation gate is observable ('no check-run surfacing exists today')."_
+
+   **Status amendment 2026-09-02 — SHIPPED, except the action buttons.** Implemented by **mt#2435** ("Reviewer check-run surfacing: convergence state + failure/liveness as a GitHub check-run — ADR-030 follow-up 1"), which added `services/reviewer/src/check-run-publisher.ts`. Both halves named above are live: convergence state renders as "Round N: K blocking findings remain", and the liveness-failure path publishes a conclusion on terminal error. Two later tasks closed the terminal outcomes that still published nothing — and so left `reviewerCheckRunState` reading `absent`, which is indistinguishable from reviewer silence and is a documented bypass-merge condition: **mt#4881** (a review that THREW — provider errors, the GitHub 406) and **mt#4271** (a review DECLINED for `concurrent_inflight`).
+
+   mt#4271 also settled a question this follow-up left implicit: a non-blocking terminal conclusion is available, so a required check need not be failed in order to signal a skip. Per GitHub's protected-branches documentation — "Required status checks must have a `successful`, `skipped`, or `neutral` status before collaborators can make changes to a protected branch."
+
+   **Still open:** the Checks-API "requested actions" buttons named in Decision channel 2. No task owns them today.
+
 2. **Minimal comment-command grammar** — a first-class verb registry + author-gating replacing the per-verb regexes in `services/reviewer/src/server.ts`.
 3. **Forge-abstraction routing** — comment + check-run surfaces through `ForgeBackend`. This follow-up must define a minimal **capability contract per channel** in `ForgeBackend` terms (likely a `ChecksOperations` subinterface alongside the existing review-thread operations) and a **degradation policy** for forges lacking a primitive: a forge with no check-run-requested-actions equivalent omits the buttons and falls back to the minimal comment commands or MCP-only; a forge with no structured check-run surfaces status via the status comment. GitHub-specific richness (requested actions, review-thread semantics) is allowed _behind_ the capability contract, not leaked into the channel-allocation logic.
 

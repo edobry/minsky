@@ -178,3 +178,62 @@ describe("both edit guards run adjacent to the write (PR #2779 R1)", () => {
     expect(write).toBeGreaterThan(executeBody.indexOf(APPROVE_OPTIONS_GUARD));
   });
 });
+
+/**
+ * mt#4901 (PR #3571 R1) — the edit surface must normalize with the ask's own
+ * contextRefs, exactly as the create surface does.
+ *
+ * Reviewer-caught. `validateFormLintNotViolated` called `linkifyExternalRefs`
+ * bare, so it resolved nothing; the create path masked that because its caller
+ * normalizes first, and the EDIT path did not.
+ *
+ * These assert BLOCKING behavior rather than a warning count, because that is
+ * where the gap actually bit. `unlinkified-reference` is advisory and only ever
+ * over-reports — but `portal-no-link` HARD-REJECTS an `authorization.approve`
+ * question that names a portal action and carries no URL, which is precisely
+ * the state of a question whose only citation is a page id the transform was
+ * about to resolve. That is mt#2918's originating case, reintroduced on the
+ * one surface it had not been checked on.
+ */
+describe("validateEditFormLintAgainstExistingAsk — contextRefs resolution (mt#4901)", () => {
+  const PREFIX = "34f937f0";
+  const FULL_URL = "https://app.notion.com/p/34f937f03cb48108a95bdf3813f5ca84";
+  const KIND_AUTHORIZATION_APPROVE = "authorization.approve" as const;
+  /** Portal keyword + a truncated citation + no URL — the blocking shape. */
+  const PORTAL_QUESTION = `Grant the permission described in Notion ${PREFIX}.`;
+
+  async function seedApprovalAsk(
+    repo: FakeAskRepository,
+    contextRefs?: Array<{ kind: string; ref: string }>
+  ) {
+    const ask = await repo.create({
+      kind: KIND_AUTHORIZATION_APPROVE,
+      classifierVersion: "v1.0.0",
+      requestor: "minsky.agent:test",
+      title: "T",
+      question: "Q",
+      ...(contextRefs ? { contextRefs } : {}),
+      metadata: {},
+    });
+    await repo.transition(ask.id, "classified");
+    await repo.transition(ask.id, "routed");
+    await repo.transition(ask.id, "suspended");
+    return ask;
+  }
+
+  test("an edit citing a truncated id does NOT hard-reject when the ask carries the URL", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedApprovalAsk(repo, [{ kind: "url", ref: FULL_URL }]);
+
+    await validateEditFormLintAgainstExistingAsk(repo, ask.id, { question: PORTAL_QUESTION });
+  });
+
+  test("negative control: the same edit on an ask with NO contextRefs is rejected", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedApprovalAsk(repo);
+
+    await expect(
+      validateEditFormLintAgainstExistingAsk(repo, ask.id, { question: PORTAL_QUESTION })
+    ).rejects.toThrow(/portal-no-link/);
+  });
+});

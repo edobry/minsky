@@ -47,16 +47,25 @@
  *    there is minted once into structured data and is immune to every later fix (mt#4765).
  *    Trigger 3 is a sibling of trigger 2's `annotateMeasurementDecay` — read-path only — so
  *    its worst case is a transient advisory a reader dismisses, not a permanent association.
- * 2. **No quotation prefilter.** A status claim inside a code fence or a blockquote will
- *    match. That defect class is real and is owned by mt#4454 (gated on mt#4386's prose-
- *    quotation primitive); this trigger should adopt that primitive when it lands. It is
- *    tolerable here for exactly the reason in (1): the annotation is advisory and
- *    per-response, and it is NOT written back anywhere.
+ * 2. **Quotation prefilter: WIRED (mt#4785).** This paragraph used to read "No quotation
+ *    prefilter — a status claim inside a code fence or a blockquote will match", deferring the
+ *    class to mt#4454. That is discharged: `extractTaskStateAssertions` now matches the
+ *    ADR-024 Rung 1 residual via `elideQuotedAndMarkdown`, so a claim the record QUOTES no
+ *    longer reads as one it asserts. Measured over 1354 memories: 194 carry an assertion, 4
+ *    lose one, all 4 genuine false positives, 0 false negatives.
+ *
+ *    Naive composition is correct HERE and wrong for trigger 2 — `PARENTHETICAL_STATUS` is not
+ *    backtick-dependent, whereas trigger 2's cited-subject patterns require literal backticks
+ *    and need a raw/elided split. See `./measurement-decay.ts`.
  *
  * @see mt#4743 — this trigger's originating task
  * @see mt#4765 — why this stays off the write path
- * @see mt#4454 — the quotation prefilter this should consume when it exists
+ * @see mt#4454 — the quotation prefilter, hoisted to `../text/prose-elision`
+ * @see mt#4785 — wired the prefilter in here (see limitation 2 above, now discharged)
+ * @see ./measurement-decay.ts — trigger 2, which needs a raw/elided SPLIT rather than this
  */
+
+import { elideQuotedAndMarkdown } from "../text/prose-elision";
 
 /** The task statuses a memory can assert, exactly as the task record spells them. */
 const ASSERTABLE_STATUSES = [
@@ -115,7 +124,18 @@ export function extractTaskStateAssertions(record: {
   description?: string | null;
   content: string;
 }): TaskStateAssertion[] {
-  const haystack = `${record.description ?? ""}\n${record.content}`;
+  // ADR-024 Rung 1 (mt#4785): match on the RESIDUAL. A record that QUOTES someone else's
+  // `mt#N (STATUS)` claim — a superseded version of its own text, a guard's output, another
+  // spec's stale assertion — is not ASSERTING that status, and flagging it as drifted is
+  // backwards: the clearest instances are records written specifically to CORRECT a stale
+  // claim, which then get flagged for containing the claim they corrected.
+  //
+  // Naive composition is right here, unlike trigger 2's: PARENTHETICAL_STATUS is not
+  // backtick-dependent, so elision removes a claim only when the claim itself is quoted.
+  // Measured over the live corpus (1343 records, 2026-09-01): 197 records carry an assertion,
+  // 4 lose one, and all 4 are genuine false positives — see the module's test file for the
+  // verbatim fixtures. No record loses a genuine assertion.
+  const haystack = elideQuotedAndMarkdown(`${record.description ?? ""}\n${record.content}`);
   const seen = new Set<string>();
   const assertions: TaskStateAssertion[] = [];
 

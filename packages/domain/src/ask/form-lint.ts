@@ -155,6 +155,41 @@ export const DECISION_RECORD_REF_PATTERN = /\b(?:ADR|RFC)-\d+/;
 export const BACKTICKED_SYMBOL_PATTERN = /`[a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*`/;
 
 /**
+ * An inline gloss immediately following a term (mt#4901): a parenthetical, or a
+ * matched dash-pair apposition.
+ *
+ * CLOSURE is what keeps this bounded. An opener alone — "ADR-042 required
+ * measuring its trigger first" — is ordinary sentence punctuation rather than a
+ * definition, so accepting one would suppress the warning on exactly the shape
+ * it exists to catch.
+ *
+ * Deliberately STRUCTURAL, not semantic. `META_LEDE_PATTERN` below records the
+ * constraint this module works under: an unbounded natural-language surface is
+ * the axis ADR-024 assigns to embedding rather than regex. "Is this clause
+ * really a definition?" is that axis and does not belong here; "is the term
+ * followed by a closed apposition?" is punctuation, and decidable.
+ */
+export const INLINE_GLOSS_PATTERN = /^\s*(?:\(\s*[^)\n]{3,}?\)|[—–]\s*[^—–\n]{3,}?[—–])/;
+
+/**
+ * Whether `pattern`'s FIRST match in `question` is left unglossed — i.e.
+ * whether the jargon warning should fire for that class (mt#4901).
+ *
+ * First use, not any use: an author who defines a term where they introduce it
+ * has already done what the warning asks for, and the later bare uses that
+ * follow are ordinary prose. ask#10650 opened *"Decide whether ADR-042 — the
+ * record of which planning gates get a mechanical backstop — should be marked
+ * Accepted"* and was warned anyway; its author's rebuttal is recorded in the
+ * ask's own `metadata.formWarningDisposition`.
+ */
+export function firesUnglossed(question: string, pattern: RegExp): boolean {
+  pattern.lastIndex = 0;
+  const match = pattern.exec(question);
+  if (!match) return false;
+  return !INLINE_GLOSS_PATTERN.test(question.slice(match.index + match[0].length));
+}
+
+/**
  * Meta-commentary OPENING the question body (mt#4516).
  *
  * The edit path is reached because something was already wrong, so the sentence
@@ -733,9 +768,12 @@ export function computeFormLintMatches(input: FormLintInput): FormLintMatch[] {
   // single rewrite pass either way, and the check's own origin is an ask that
   // carried all three at once.
   const jargonClasses: string[] = [];
-  if (ASK_KIND_JARGON_PATTERN.test(question)) jargonClasses.push("ask-kind name");
-  if (DECISION_RECORD_REF_PATTERN.test(question)) jargonClasses.push("ADR/RFC number");
-  if (BACKTICKED_SYMBOL_PATTERN.test(question)) jargonClasses.push("code symbol");
+  // mt#4901: a term GLOSSED inline at its first use has already satisfied the
+  // warning's own first remedy ("say what it means"), so firing on it asks for
+  // something the author did. See `firesUnglossed`.
+  if (firesUnglossed(question, ASK_KIND_JARGON_PATTERN)) jargonClasses.push("ask-kind name");
+  if (firesUnglossed(question, DECISION_RECORD_REF_PATTERN)) jargonClasses.push("ADR/RFC number");
+  if (firesUnglossed(question, BACKTICKED_SYMBOL_PATTERN)) jargonClasses.push("code symbol");
   if (jargonClasses.length > 0) {
     matches.push({
       check: "domain-jargon",

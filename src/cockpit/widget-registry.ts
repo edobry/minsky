@@ -20,6 +20,7 @@ import { guardHealthWidget } from "./widgets/guard-health";
 import { interceptorAggregatesWidget } from "./widgets/interceptor-aggregates";
 import { interceptorsWidget } from "./widgets/interceptors";
 import { mcpServerStatusWidget } from "./widgets/mcp-server-status";
+import { messagesWidget } from "./widgets/messages";
 import { reviewerBotStatusWidget } from "./widgets/reviewer-bot-status";
 import { memoriesCurationWidget } from "./widgets/memories-curation";
 import { memoriesDetailWidget } from "./widgets/memories-detail";
@@ -53,6 +54,7 @@ export const WIDGET_REGISTRY: WidgetRegistry = {
   "interceptor-aggregates": interceptorAggregatesWidget,
   interceptors: interceptorsWidget,
   "mcp-server-status": mcpServerStatusWidget,
+  messages: messagesWidget,
   "reviewer-bot-status": reviewerBotStatusWidget,
   "memories-curation": memoriesCurationWidget,
   "memories-detail": memoriesDetailWidget,

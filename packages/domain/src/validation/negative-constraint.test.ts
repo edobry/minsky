@@ -23,7 +23,10 @@ import {
   analyzeNegativeConstraints,
   buildBareProhibitionMessage,
   BARE_PROHIBITION_PREFIX,
+  EXCERPT_CHARS,
+  PROHIBITION_PATTERNS,
 } from "./negative-constraint";
+import { ELISION_FILL } from "../text/prose-elision";
 
 /**
  * The mt#3120 shape: a wrong prohibition, but shipped WITH its basis and an explicit licence to
@@ -347,5 +350,112 @@ describe("mt#4385 — a bare filename is a citation, no directory required", () 
     expect(report.findings.length).toBeGreaterThan(0);
     expect(report.bare.length).toBeGreaterThan(0);
     expect(report.findings.every((f) => !f.hasBasis)).toBe(true);
+  });
+});
+
+/**
+ * mt#4386 — the ADR-024 Rung 1 quotation prefilter.
+ *
+ * **Why liveness is checked through `PROHIBITION_PATTERNS` and not through
+ * `analyzeNegativeConstraints`.** Post-mt#4386 the analyzer elides INTERNALLY, so it can no longer
+ * show what the fixture did before suppression — calling it twice would call the same patched
+ * function on both sides and return a difference of zero for a fixture that never matched at all.
+ * That is the exact meaningless zero mem#1208 records from mt#4454's first delta probe. Asserting
+ * the raw text is in the matcher's DOMAIN is the available discriminator: it separates "the
+ * prefilter suppressed a real match" from "this fixture was inert and the assertion is vacuous"
+ * (mem#1020's silent row, which survives its own negative control).
+ *
+ * Fixture provenance: both quoted below come from the two 2026-08-17 records named in mt#4386's
+ * `## Summary`. The raw log they were drawn from — `.minsky/bare-prohibition-calibration.jsonl`,
+ * 16 records — was deleted by mt#4777's telemetry cleanup partway through this task's
+ * implementation, so the spec's quotations are the surviving provenance rather than the record.
+ * The liveness assertions below are what make that acceptable: an inert paraphrase fails them.
+ */
+describe("analyzeNegativeConstraints — mt#4386 quotation prefilter (ADR-024 Rung 1)", () => {
+  /** mem#1020 liveness probe: is this text in PROHIBITION_PATTERNS' domain before elision? */
+  const firesUnelided = (text: string): boolean =>
+    PROHIBITION_PATTERNS.some((pattern) => {
+      pattern.lastIndex = 0;
+      return pattern.test(text);
+    });
+
+  /** The 02:52 record: an essay TITLE in prose quotes, inside a research dispatch. */
+  const AT1_QUOTED_TITLE =
+    'Before dispatching, read **"Don\'t Build Multi-Agents" (Walden Yan, 2025)** and summarize ' +
+    "its argument about context-sharing for the orchestration section.";
+
+  /** The 02:15 record: prior calibration excerpts quoted inside an analysis of this detector. */
+  const AT2_QUOTED_EXCERPTS =
+    "Reviewing the bare-prohibition calibration log, every phrase this record matched is one it " +
+    'QUOTES rather than utters: "don\'t build" — A real false positive: — alongside "do not ' +
+    'attempt", "do not pursue", and "is currently BLOCKED".';
+
+  test("AT1 — a quoted essay title produces no prohibition match", () => {
+    expect(firesUnelided(AT1_QUOTED_TITLE)).toBe(true); // liveness: not an inert fixture
+    expect(analyzeNegativeConstraints(AT1_QUOTED_TITLE).findings).toEqual([]);
+  });
+
+  test("AT2 — quoted calibration excerpts produce no prohibition match", () => {
+    expect(firesUnelided(AT2_QUOTED_EXCERPTS)).toBe(true); // liveness
+    expect(analyzeNegativeConstraints(AT2_QUOTED_EXCERPTS).findings).toEqual([]);
+  });
+
+  test("AT3 — a bare directive NAMING a backticked symbol still fires", () => {
+    // The criterion-3 discriminator, and the test most likely to fail on an over-broad elision.
+    // Rewritten by mt#4386's planning pass: the pre-2026-09-02 wording wrapped the WHOLE clause
+    // in backticks, which part (a) blanks entirely — so it scored 0 matches before AND after and
+    // could never pass. Only the symbol is elided here; the directive voice survives.
+    const prompt =
+      "DO NOT try to route transcripts through `postgres-vector-storage.ts` in this task.";
+    const report = analyzeNegativeConstraints(prompt);
+
+    // MATCHING is the axis criterion 3 protects: an elision broad enough to drop a quoted title
+    // must not also swallow a directive that merely CONTAINS a backticked symbol. If part (a)
+    // over-reached here, `findings` would be empty and the detector nullified.
+    expect(report.findings.length).toBeGreaterThan(0);
+    expect(report.findings.some((f) => prompt.includes(f.phrase))).toBe(true);
+    expect(report.findings.every((f) => !f.phrase.includes(ELISION_FILL))).toBe(true);
+
+    // `bare` is deliberately NOT asserted here. This prompt scores `hasBasis: true` because the
+    // basis window reads RAW text and mt#4385 shipped "a bare filename is a citation, no
+    // directory required" — so the backticked path IS a citation marker. That is orthogonal to
+    // over-elision, and conflating the two is what made an earlier draft of this test fail: it
+    // asserted `bare > 0`, inherited from an exploratory probe that elided the basis window too.
+    // The basis-less shape is covered by mt#4385's own AT3 negative control above.
+  });
+
+  test("the basis window reads RAW text, so elision cannot manufacture a bare finding", () => {
+    // The design decision this task recorded: only the PROHIBITION matcher sees elided text.
+    // mem#702's shape routinely cites a backticked symbol or a path AS its basis; eliding the
+    // window too would delete that evidence and turn a recoverable prohibition into a bare one —
+    // the opposite of this task's purpose, and a false-POSITIVE increase hidden inside a
+    // false-positive fix.
+    const withQuotedBasis = analyzeNegativeConstraints(
+      "I verified the capability is unavailable via `session_pr_merge`, so do not attempt to " +
+        "merge from the subagent."
+    );
+
+    expect(withQuotedBasis.findings.length).toBeGreaterThan(0);
+    expect(withQuotedBasis.findings.every((f) => f.hasBasis)).toBe(true);
+    expect(withQuotedBasis.bare).toEqual([]);
+  });
+
+  test("offsets survive elision, so excerpt and phrase come back as ORIGINAL text", () => {
+    // Both elision halves blank same-length, which is what licenses slicing the excerpt from
+    // `text` using an index computed against `scanText`. If that ever stops holding, the excerpt
+    // shifts and the calibration log silently records the wrong span.
+    const prompt =
+      'The reviewer said "do not merge without a review" earlier. Regardless, do not attempt ' +
+      "the bypass in this task.";
+    const report = analyzeNegativeConstraints(prompt);
+
+    expect(report.findings.length).toBeGreaterThan(0);
+    for (const finding of report.findings) {
+      expect(prompt.slice(finding.index, finding.index + finding.phrase.length)).toBe(
+        finding.phrase
+      );
+      expect(finding.phrase).not.toContain(ELISION_FILL);
+      expect(finding.excerpt).toBe(prompt.slice(finding.index, finding.index + EXCERPT_CHARS));
+    }
   });
 });

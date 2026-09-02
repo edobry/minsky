@@ -696,3 +696,95 @@ describe("ask#6589 replay (mt#3477 originating incident)", () => {
     ).toEqual([]);
   });
 });
+
+/**
+ * mt#4901 — `domain-jargon` must not fire on a term the author GLOSSED inline
+ * at its first use.
+ *
+ * Fixtures are verbatim clauses from the asks that produced the false positive
+ * and the true positives it must not disturb, read from the ask store during
+ * the 2026-09-02 calibration pass over `ask-form-lint-calibration.jsonl`.
+ */
+describe("domain-jargon — inline gloss at first use (mt#4901)", () => {
+  const CHECK_DOMAIN_JARGON = "domain-jargon" as const;
+
+  const jargonMatches = (question: string) =>
+    computeFormLintMatches({
+      kind: DIRECTION_DECIDE,
+      question,
+      options: [{ label: "Yes" }],
+    }).filter((m) => m.check === CHECK_DOMAIN_JARGON);
+
+  // AT1 — ask#10650's opening sentence. Its author's rebuttal is recorded in
+  // the ask's own metadata.formWarningDisposition.
+  test("AT1: a dash-pair gloss at first use suppresses the ADR/RFC class", () => {
+    expect(
+      jargonMatches(
+        "Decide whether ADR-042 — the record of which planning gates get a mechanical " +
+          "backstop — should be marked Accepted, or stay Proposed."
+      )
+    ).toEqual([]);
+  });
+
+  test("a parenthetical gloss suppresses it the same way", () => {
+    expect(
+      jargonMatches("Decide whether ADR-042 (the gate-battery enforcement record) should ship.")
+    ).toEqual([]);
+  });
+
+  // AT3 — recall floor, ask#10662.
+  test("AT3: a bare ADR reference with no gloss still fires", () => {
+    expect(
+      jargonMatches(
+        "**mt#4172 should not be built as specced.** ADR-042 required measuring its " +
+          "trigger first; I did."
+      )
+    ).toHaveLength(1);
+  });
+
+  // AT3 — recall floor, ask#11095.
+  test("AT3: a bare ADR reference mid-body still fires", () => {
+    expect(
+      jargonMatches(
+        "Yours: a scope change to filed work and to a row an accepted ADR assigns. " +
+          "Third ADR-042 row whose assigned mechanism did not survive measurement."
+      )
+    ).toHaveLength(1);
+  });
+
+  // AT4 — the load-bearing negative control: ask#10657's ORIGINAL body, whose
+  // author responded to this warning by removing the ADR number entirely. A
+  // gloss rule loose enough to suppress this would retire a real catch.
+  test("AT4: a possessive use is not a gloss", () => {
+    expect(
+      jargonMatches(
+        "Two review windows measured it at 73% and 77% false positives against a " +
+          "written 10% bar, which fired ADR-034's reopen condition. That record assumed " +
+          "the culprit was the word-admission step."
+      )
+    ).toHaveLength(1);
+  });
+
+  test("an UNCLOSED dash opener is not a gloss — closure is what bounds the rule", () => {
+    expect(
+      jargonMatches("ADR-042 — required measuring the trigger before building it.")
+    ).toHaveLength(1);
+  });
+
+  test("the gloss must sit at the FIRST use, not a later one", () => {
+    expect(
+      jargonMatches(
+        "ADR-042 assigns the row. ADR-042 — the gate-battery record — is where it lives."
+      )
+    ).toHaveLength(1);
+  });
+
+  test("a later bare use is ordinary prose once the term is glossed on introduction", () => {
+    expect(
+      jargonMatches(
+        "ADR-042 — the gate-battery enforcement record — assigns the row. ADR-042 also " +
+          "required the measurement."
+      )
+    ).toEqual([]);
+  });
+});

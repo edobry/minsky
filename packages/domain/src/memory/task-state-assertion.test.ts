@@ -229,3 +229,88 @@ describe("renderTaskStateNote (mt#4743)", () => {
     expect(note).toContain("terminal");
   });
 });
+
+/**
+ * ADR-024 Rung 1 — quotation prefilter (mt#4785).
+ *
+ * Every fixture below is the VERBATIM sentence from the live record that produced the
+ * behaviour, per this file's opening note. These four are the COMPLETE set of records whose
+ * assertions change under elision — measured over 1343 memories on 2026-09-01, 197 carry an
+ * assertion and exactly these 4 lose one. All four are false positives; none is a genuine
+ * assertion. That is the whole justification for composing the elider here, so the fixtures
+ * are the measurement rather than an illustration of it.
+ */
+describe("extractTaskStateAssertions — quotation prefilter (mt#4785)", () => {
+  test("mem#367: a record quoting a SUPERSEDED version of its own bullet", () => {
+    // The record says "previously read" and then quotes the old text. It is documenting a
+    // correction it already made — the opposite of asserting the stale status.
+    const content =
+      'gated on ask#8752.** Updated 2026-08-16. This bullet previously read "Enforcement-mode ' +
+      'graduation tracked by mt#2052 (PLANNING, stalled ~83 days as of 2026-08-16)."';
+    expect(assertedTaskIds(extractTaskStateAssertions(rec(content)))).not.toContain("mt#2052");
+  });
+
+  test("mem#1218: a record quoting a GUARD'S OWN OUTPUT, inside its fence", () => {
+    // The FENCE is load-bearing and is why this fixture carries it. An earlier draft quoted
+    // the bullet alone, which does not elide — in that form `mt#4471 (IN-REVIEW)` is bare
+    // prose — and the test failed against the live behaviour it was supposed to encode. The
+    // record wraps the guard's stdout in a code block; that is what makes it a quotation.
+    const content = [
+      "## What actually caught it",
+      "",
+      "The **`duplicate-signature-scan` PreToolUse guard**, firing on an unrelated",
+      "`tasks_create` two hours later:",
+      "",
+      "```",
+      "[duplicate-signature-scan] An active task's spec already contains this task's subject.",
+      '  - mt#4471 (IN-REVIEW) matched "contract/mcp-health-shape.json"',
+      "```",
+    ].join("\n");
+    expect(assertedTaskIds(extractTaskStateAssertions(rec(content)))).not.toContain("mt#4471");
+  });
+
+  test("mem#1091: a record quoting ANOTHER SPEC'S stale claim in order to correct it", () => {
+    // The sharpest case in the corpus: the sentence exists to say the claim was WRONG, and
+    // the un-elided detector flagged the record for containing the claim it was correcting.
+    const content =
+      'mt#4232\'s spec said **"mt#4186 (IN-REVIEW, Summary read)"**. mt#4186 was **DONE**.';
+    expect(assertedTaskIds(extractTaskStateAssertions(rec(content)))).not.toContain("mt#4186");
+  });
+
+  test("mem#1080: assertions inside a `>` blockquote line", () => {
+    const content =
+      "> filed the tune tasks — mt#3594 (PLANNING), mt#4109, mt#4175, mt#4249, mt#4110, " +
+      "mt#4256 (TODO)";
+    const ids = assertedTaskIds(extractTaskStateAssertions(rec(content)));
+    expect(ids).not.toContain("mt#3594");
+    expect(ids).not.toContain("mt#4256");
+  });
+
+  test("FALSE-NEGATIVE GUARD: an ordinary lineage assertion still fires", () => {
+    // The pair is the point (mem#1208). A change that only silences the four above is
+    // indistinguishable from one that silences the detector, and this is what separates them.
+    expect(
+      assertedTaskIds(
+        extractTaskStateAssertions(rec("Lineage: mt#1111 (TODO) is the blocker for this family."))
+      )
+    ).toEqual(["mt#1111"]);
+  });
+
+  test("FALSE-NEGATIVE GUARD: an assertion whose SENTENCE carries inline code still fires", () => {
+    // Records are dense with backticks; eliding a code span must not take the surrounding
+    // prose assertion with it.
+    expect(
+      assertedTaskIds(
+        extractTaskStateAssertions(
+          rec("`packages/domain/src/x.ts` is owned by mt#2222 (IN-PROGRESS).")
+        )
+      )
+    ).toEqual(["mt#2222"]);
+  });
+
+  test("a quoted assertion and a real one in the same record yields only the real one", () => {
+    const content =
+      'The old note said "mt#3333 (DONE)", which was wrong. Today mt#4444 (READY) blocks it.';
+    expect(assertedTaskIds(extractTaskStateAssertions(rec(content)))).toEqual(["mt#4444"]);
+  });
+});

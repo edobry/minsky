@@ -12,6 +12,8 @@ import {
   ASSOCIATION_TYPE_NAMES,
   TRACKS_TASK_ASSOCIATION,
   isKnownAssociationType,
+  planAssociationsUpdate,
+  removeAssociationKeys,
   summarizeAssociationIssues,
   validateAssociations,
 } from "./associations";
@@ -212,5 +214,87 @@ describe("module invariants", () => {
     );
     expect(summary).toContain("tasks");
     expect(summary).toContain("docs");
+  });
+});
+
+/**
+ * mt#4843 SC3 — the three cases of the update encoding, asserted against the real split.
+ *
+ * The third is the one nobody writes and the one that documents the trap: an ABSENT key reaches
+ * neither half, so it is a silent no-op rather than a removal. mt#4796 is what that cost — a live
+ * corrective pass reported `Applied: 9, Skipped: 0, Errors: 0` and changed 4.
+ */
+describe("planAssociationsUpdate — the three cases", () => {
+  test("a present, non-empty key MERGES", () => {
+    const plan = planAssociationsUpdate({ tracksTask: ["mt#1"] });
+    expect(plan.merge).toEqual({ tracksTask: ["mt#1"] });
+    expect(plan.remove).toEqual([]);
+  });
+
+  test("a present key with an EMPTY ARRAY is a REMOVAL", () => {
+    const plan = planAssociationsUpdate({ tracksTask: [] });
+    expect(plan.merge).toEqual({});
+    expect(plan.remove).toEqual(["tracksTask"]);
+  });
+
+  test("an ABSENT key is a NO-OP — it reaches neither half", () => {
+    // This is the trap. The payload is a perfectly ordinary partial map; nothing about it says
+    // "I meant to remove tracksTask", because nothing CAN.
+    const plan = planAssociationsUpdate({ relatedTask: ["mt#2"] });
+    expect(plan.merge).toEqual({ relatedTask: ["mt#2"] });
+    expect(plan.remove).toEqual([]);
+    // Stated as the property rather than as the absence of a key, so a future encoding that
+    // somehow treats absent-as-removal fails here rather than passing quietly.
+    expect(plan.remove).not.toContain("tracksTask");
+  });
+
+  test("`delete` produces the no-op case, not a removal", () => {
+    // The intuitive JavaScript move, shown end-to-end so the docstring's claim is executable.
+    const payload: Record<string, string[]> = { tracksTask: ["mt#1"], relatedTask: ["mt#2"] };
+    delete payload["tracksTask"];
+
+    const plan = planAssociationsUpdate(payload);
+    expect(plan.remove).toEqual([]); // NOT ["tracksTask"] — nothing will be removed
+    expect(plan.merge).toEqual({ relatedTask: ["mt#2"] });
+  });
+
+  test("mixed merge and removal in one payload are split, not ordered against each other", () => {
+    const plan = planAssociationsUpdate({ tracksTask: ["mt#1"], relatedTask: [] });
+    expect(plan.merge).toEqual({ tracksTask: ["mt#1"] });
+    expect(plan.remove).toEqual(["relatedTask"]);
+  });
+
+  test("an empty payload plans nothing", () => {
+    const plan = planAssociationsUpdate({});
+    expect(plan.merge).toEqual({});
+    expect(plan.remove).toEqual([]);
+  });
+});
+
+describe("removeAssociationKeys", () => {
+  test("builds the removal encoding, so the call site does not have to know it", () => {
+    expect(removeAssociationKeys(TRACKS_TASK_ASSOCIATION)).toEqual({ tracksTask: [] });
+  });
+
+  test("what it builds actually plans as a removal — the two agree by construction", () => {
+    // The helper is only worth having if it lands in the REMOVE half. Asserted through the plan
+    // rather than by comparing to a literal, so the pair stays correct if the encoding changes.
+    const plan = planAssociationsUpdate(removeAssociationKeys("tracksTask", "relatedTask"));
+    expect(plan.remove.sort()).toEqual(["relatedTask", "tracksTask"]);
+    expect(plan.merge).toEqual({});
+  });
+
+  test("composes with a merge in one call", () => {
+    const plan = planAssociationsUpdate({
+      ...removeAssociationKeys("relatedTask"),
+      tracksTask: ["mt#1"],
+    });
+    expect(plan.merge).toEqual({ tracksTask: ["mt#1"] });
+    expect(plan.remove).toEqual(["relatedTask"]);
+  });
+
+  test("no keys builds an empty map, which plans as no change", () => {
+    expect(removeAssociationKeys()).toEqual({});
+    expect(planAssociationsUpdate(removeAssociationKeys())).toEqual({ merge: {}, remove: [] });
   });
 });

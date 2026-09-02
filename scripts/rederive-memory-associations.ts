@@ -29,7 +29,10 @@ import { createHash } from "node:crypto";
 
 import type { MemoryServiceSurface, MemoryServiceDb } from "@minsky/domain/memory/memory-service";
 import { extractTrackingTaskRefs } from "@minsky/domain/memory/staleness";
-import { TRACKS_TASK_ASSOCIATION } from "@minsky/domain/memory/associations";
+import {
+  TRACKS_TASK_ASSOCIATION,
+  planAssociationsUpdate,
+} from "@minsky/domain/memory/associations";
 import { listEveryMemory } from "./lib/list-every-memory";
 
 // ── Pure core ───────────────────────────────────────────────────────────────────────────────
@@ -123,19 +126,26 @@ export function buildAssociationsUpdate(afterRefs: string[]): Record<string, str
 }
 
 /**
- * `MemoryService.update`'s associations semantics, reproduced for tests.
+ * `MemoryService.update`'s associations semantics, applied in memory for tests.
  *
  * Not a convenience stub: a fake that simply assigned the payload would accept the deleted-key
- * bug this function exists to catch. Mirrors `memory-service.ts:935-944` exactly.
+ * bug this function exists to catch.
+ *
+ * **It now DELEGATES rather than mirrors (mt#4843).** This used to hand-reproduce the merge/remove
+ * split and say it "mirrors `memory-service.ts:935-944` exactly" — a claim that was already false
+ * in one respect when read: those line numbers had drifted by ~54 lines. A test double that
+ * restates production semantics by hand is the divergent-copy shape, and it fails in the direction
+ * that matters least visibly: the double keeps passing while production moves. Sharing
+ * `planAssociationsUpdate` makes the two incapable of disagreeing about the SPLIT; what remains
+ * local is only the in-memory application of it, which is what a fake is for.
  */
 export function applyUpdateAssociationsSemantics(
   stored: Record<string, string[]>,
   payload: Record<string, string[]>
 ): Record<string, string[]> {
-  const entries = Object.entries(payload);
-  const merged: Record<string, string[]> = { ...stored };
-  for (const [k, v] of entries) if (v.length > 0) merged[k] = v;
-  for (const [k, v] of entries) if (v.length === 0) delete merged[k];
+  const plan = planAssociationsUpdate(payload);
+  const merged: Record<string, string[]> = { ...stored, ...plan.merge };
+  for (const key of plan.remove) delete merged[key];
   return merged;
 }
 
