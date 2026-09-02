@@ -108,6 +108,11 @@ function makeResult(
     injectedFiresSinceLastReview:
       overrides.injectedFiresSinceLastReview ??
       merged.firesSinceLastReview - merged.suppressedSinceLastReview,
+    // mt#4904: DERIVED from the same comparison production uses, not defaulted
+    // to false. A fixture that sets a watermark above its record count IS
+    // stranded, and hardcoding false here would let such a fixture assert a
+    // review-due reason the real sweep would never produce for it.
+    watermarkStranded: overrides.watermarkStranded ?? merged.watermarkCount > merged.totalFires,
   };
 }
 
@@ -205,6 +210,7 @@ describe("shouldReWarn", () => {
     totalFires: 43,
     distinctPhrases: 31,
     reason: "past-threshold",
+    watermarkCount: 0,
   };
 
   test("warns when never warned before", () => {
@@ -258,6 +264,7 @@ describe("shouldReWarn — policy-coverage kind (mt#2659)", () => {
     totalFires: 1457,
     distinctPhrases: 5,
     reason: "past-threshold",
+    watermarkCount: 0,
   };
 
   test("warns when never warned before", () => {
@@ -357,6 +364,7 @@ describe("formatCadenceWarning", () => {
         totalFires: 43,
         distinctPhrases: 31,
         reason: "past-threshold",
+        watermarkCount: 0,
       },
       {
         name: RETROSPECTIVE_TRIGGER,
@@ -368,6 +376,7 @@ describe("formatCadenceWarning", () => {
         totalFires: 20,
         distinctPhrases: 3,
         reason: "time-stale",
+        watermarkCount: 0,
       },
     ];
     const msg = formatCadenceWarning(due);
@@ -383,6 +392,41 @@ describe("formatCadenceWarning", () => {
     expect(msg).not.toContain("MINSKY_SKIP_CALIBRATION_CADENCE");
   });
 
+  test("names the watermark-stranded reason, and never the time-stale text (mt#4904)", () => {
+    // PR #3572 R1. The leg had fallen into the reason ternary's final `else`,
+    // so it rendered as "unreviewed for >= N days" — the time-stale wording,
+    // about a log that is not stale but incomparable. The shared line's count
+    // is equally wrong here: it quotes the injected count, which the stranding
+    // clamps to 0, so the warning read "0 new fire(s)" on a log it was
+    // simultaneously reporting as needing review.
+    const due: ReviewDueLog[] = [
+      {
+        name: "untaken-action",
+        path: ".minsky/untaken-action-calibration.jsonl",
+        kind: "untaken-action",
+        firesSinceLastReview: 0,
+        injectedFiresSinceLastReview: 0,
+        suppressedSinceLastReview: 0,
+        totalFires: 121,
+        distinctPhrases: 0,
+        reason: "watermark-stranded",
+        watermarkCount: 424,
+      },
+    ];
+    const msg = formatCadenceWarning(due);
+    expect(msg).toContain("untaken-action");
+    // Both operands, so the reader can see the comparison that failed.
+    expect(msg).toContain("424");
+    expect(msg).toContain("121");
+    // The mislabel this test exists for.
+    expect(msg).not.toContain("unreviewed for >=");
+    // The fabricated zero — the clamp's output, presented as a measurement.
+    expect(msg).not.toContain("0 new fire(s)");
+    // The shared action line is asserted by the past-threshold/time-stale test
+    // above; not repeated here, both because it is not this test's subject and
+    // because a third literal trips custom/no-magic-string-duplication.
+  });
+
   test("names the never-reviewed reason (mt#2896)", () => {
     const due: ReviewDueLog[] = [
       {
@@ -395,6 +439,7 @@ describe("formatCadenceWarning", () => {
         totalFires: 1,
         distinctPhrases: 1,
         reason: "never-reviewed",
+        watermarkCount: 0,
         reviewByDays: 7,
       },
     ];
@@ -431,6 +476,7 @@ describe("formatCadenceWarning", () => {
         totalFires: 9999,
         distinctPhrases: 999,
         reason: "never-fired",
+        watermarkCount: 0,
         reviewByDays: 30,
       };
     }
@@ -559,6 +605,7 @@ describe("selectPendingAskLogs", () => {
     totalFires: 1477,
     distinctPhrases: 5,
     reason: "past-threshold",
+    watermarkCount: 0,
     openAskId: TEST_ASK_ID,
   };
   const noAskDue: ReviewDueLog = {
@@ -618,6 +665,7 @@ describe("formatPendingAskLines", () => {
     totalFires: 1477,
     distinctPhrases: 5,
     reason: "past-threshold",
+    watermarkCount: 0,
     openAskId: askId,
   });
 
