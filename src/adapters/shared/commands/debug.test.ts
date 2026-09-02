@@ -441,9 +441,46 @@ async function callSystemInfo(): Promise<Record<string, unknown>> {
   return result as Record<string, unknown>;
 }
 
+/**
+ * Put `debug.*` in the registry, whatever the registry currently holds.
+ *
+ * mt#3575: every describe in this file calls `callSystemInfo()`, which reads
+ * `debug.systemInfo` off the process-global `sharedCommandRegistry` — but only
+ * SOME of them registered it. The `guardHealth` block registered nothing and
+ * inherited a populated registry from a sibling, so it failed with
+ * `debug.systemInfo not found in registry` in any order that ran it first.
+ * That is order-dependence by construction: a block asserting a precondition it
+ * never establishes (mem#942).
+ *
+ * Establishing the precondition is the sanctioned remedy — not pinning a seed
+ * and not re-ordering declarations. Deterministic reproducer for the old shape:
+ *
+ *   bun test --preload ./tests/setup.ts -t "guardHealth" \
+ *     src/adapters/shared/commands/debug.test.ts
+ *
+ * which denies the block its siblings and failed 5/5 before this helper existed.
+ */
+const DEBUG_COMMAND_IDS = ["debug.systemInfo", "debug.echo", "debug.listMethods"] as const;
+
+function ensureDebugCommandsRegistered(): void {
+  try {
+    registerDebugCommands();
+  } catch {
+    // Already present — replace, so every test sees a freshly-built command
+    // rather than one a previous file may have registered differently.
+    for (const id of DEBUG_COMMAND_IDS) sharedCommandRegistry.unregisterCommand(id);
+    registerDebugCommands();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+// File-level: runs before EVERY test in this file, including describes that do
+// not register for themselves. A describe-level beforeEach still runs after
+// this one, so the existing blocks keep their own setup unchanged.
+beforeEach(ensureDebugCommandsRegistered);
 
 describe("debug.systemInfo subagentDispatches surface (mt#1738)", () => {
   let store: Map<string, FakeRow>;
@@ -455,16 +492,10 @@ describe("debug.systemInfo subagentDispatches surface (mt#1738)", () => {
     store = new Map<string, FakeRow>();
     nextId = 1;
     tracker = SubagentDispatchTracker.resetForTest(makeFakeDb(store));
-    // Re-register debug commands (in case of test isolation).
-    try {
-      registerDebugCommands();
-    } catch {
-      // Already registered — overwrite
-      sharedCommandRegistry.unregisterCommand("debug.systemInfo");
-      sharedCommandRegistry.unregisterCommand("debug.echo");
-      sharedCommandRegistry.unregisterCommand("debug.listMethods");
-      registerDebugCommands();
-    }
+    // mt#3575: the file-level beforeEach above already did this. Kept as an
+    // explicit call rather than deleted, because this block's tracker reset
+    // happens AFTER it and the registration must outlive that.
+    ensureDebugCommandsRegistered();
   });
 
   afterEach(() => {
