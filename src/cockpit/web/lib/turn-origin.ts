@@ -38,7 +38,48 @@ import { TOOL_RESULT_NOUN, type PreparedElement } from "../components/Conversati
  * signal" — the caller keeps its existing role-derived styling rather than
  * guessing.
  */
-export type TurnOrigin = { kind: "operator" } | { kind: "harness"; label: string };
+export type TurnOrigin =
+  | { kind: "operator" }
+  | { kind: "harness"; label: string }
+  | { kind: "dispatch"; label: string };
+
+/**
+ * The `user_origin` value marking a turn as a generated subagent dispatch brief
+ * (mt#4401). Compared as a plain string, never switched on exhaustively:
+ * `UserTextOrigin` is `string`, not an enum, deliberately so harness-supplied
+ * kinds can appear without a migration.
+ */
+export const DISPATCH_BRIEF_ORIGIN = "dispatch_brief";
+
+/**
+ * What the run header calls a dispatch brief. Principal's pick (2026-08-19),
+ * chosen over "dispatched by <parent>" and "assignment".
+ */
+export const DISPATCH_BRIEF_LABEL = "dispatch brief";
+
+/**
+ * The `user_origin` value meaning "no structural marker matched" — the
+ * classifier's FAIL-OPEN default (`OPERATOR_ORIGIN` in
+ * `@minsky/domain/transcripts/user-line-origin`).
+ *
+ * Duplicated as a literal rather than imported: `custom/no-node-import-in-cockpit-web`
+ * (mt#3239) bans VALUE imports from `@minsky/domain` in the browser bundle, and
+ * this module is browser code. A drift test would be the right guard if this
+ * ever grows past one literal.
+ */
+const OPERATOR_ORIGIN = "human";
+
+/**
+ * Render an unrecognized `user_origin` kind as a readable noun — `task_notification`
+ * → `task notification`, matching `INJECTED_KIND_NOUN`'s existing spellings.
+ *
+ * Exists so a kind shipped after this build still renders as SOMETHING
+ * non-operator rather than falling through to the operator's own label. It is
+ * the display half of treating the origin vocabulary as open.
+ */
+function humanizeOriginKind(kind: string): string {
+  return kind.replace(/_/g, " ");
+}
 
 /**
  * Label for a turn that mixes several harness origins. Rare (the harness
@@ -124,10 +165,37 @@ export function classifyTurnOrigin(turn: {
   role: string;
   elements: PreparedElement[];
   isMeta?: boolean;
+  userOrigin?: string;
 }): TurnOrigin | null {
   if (turn.role !== "user") return null;
 
   const spanLabel = harnessLabelOfTurn(turn.elements);
+
+  // mt#4354, ahead of `isMeta`: a dispatch brief is a POSITIVE, first-party
+  // claim about authorship — the whole turn was composed by the parent agent
+  // and stamped by Minsky itself — where `isMeta` is the harness's assertion
+  // about its own line. Both outrank prose for the same mt#3809 reason: there
+  // is no operator continuation to protect, because the operator wrote none of
+  // it.
+  //
+  // `"human"` is EXCLUDED, and that exclusion is the load-bearing part: it is
+  // the classifier's fail-open default, returned when nothing matched, so it is
+  // the absence of a finding rather than a finding of operator authorship.
+  // Acting on it would re-assert the very claim this module exists to stop
+  // making.
+  //
+  // Any OTHER value is a positive "someone who is not the operator wrote this",
+  // which is the column's entire meaning — so an unrecognized kind is labeled
+  // generically rather than falling through to the operator. There is no
+  // exhaustive switch anywhere here: `UserTextOrigin` is `string`, deliberately,
+  // so harness-supplied kinds can appear without a migration, and a build that
+  // has never seen a kind must still render it rather than throw or mislabel it.
+  if (turn.userOrigin !== undefined && turn.userOrigin !== OPERATOR_ORIGIN) {
+    if (turn.userOrigin === DISPATCH_BRIEF_ORIGIN) {
+      return { kind: "dispatch", label: DISPATCH_BRIEF_LABEL };
+    }
+    return { kind: "harness", label: spanLabel ?? humanizeOriginKind(turn.userOrigin) };
+  }
 
   if (turn.isMeta === true) return { kind: "harness", label: spanLabel ?? MIXED_HARNESS_LABEL };
 

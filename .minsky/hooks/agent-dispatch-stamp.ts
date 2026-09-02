@@ -21,35 +21,36 @@
 // domain bootstrap — the coupling that let the pre-mt#3019 Stop-side bug hide
 // behind green mocks.
 
-/**
- * Stamp version marker. Bump ONLY on a breaking format change, and keep the old
- * pattern parseable for as long as un-ingested child transcripts may still carry
- * it — a Stop event can arrive for a subagent dispatched by a prior build.
- */
-// Re-exported, not re-declared (PR #3242 R2): the token is shared vocabulary
-// with `user-line-origin.ts`, which reads back what this module writes. One
-// definition, so the two cannot drift apart.
-export { DISPATCH_STAMP_VERSION } from "@minsky/domain/transcripts/user-line-origin";
-import { DISPATCH_STAMP_VERSION } from "@minsky/domain/transcripts/user-line-origin";
-
-/**
- * Matches a stamp anywhere in a body of text.
- *
- * Deliberately tolerant of surrounding whitespace and of trailing content on the
- * line, because the text this runs against is a JSONL record's decoded `content`
- * field, not a line the writer controls end to end.
- */
-const STAMP_PATTERN = new RegExp(
-  `<!--\\s*${DISPATCH_STAMP_VERSION}\\s+parent=(\\S+)\\s+tool_use=(\\S+)\\s*-->`
-);
-
-/** The dispatch-side identity a stamp carries. */
-export interface DispatchStamp {
-  /** Harness conversation id of the dispatching (parent) agent. */
-  parentAgentSessionId: string;
-  /** Harness `tool_use` id of the `Agent` call. */
-  parentToolUseId: string;
-}
+// The format marker, its pattern, the `DispatchStamp` shape and the READ half
+// live in `@minsky/shared/dispatch-stamp`.
+//
+// MERGE RESOLUTION (mt#4354 × mt#4401). Both sides moved `DISPATCH_STAMP_VERSION`
+// out of this file for the SAME stated reason — one definition, so the writer and
+// the reader cannot drift — and picked different homes. mt#4401 (PR #3242 R2) put
+// it in `@minsky/domain/transcripts/user-line-origin`, beside the classifier that
+// reads back what this module writes. mt#4354 put it in `@minsky/shared`.
+//
+// Shared wins because it is the only home that satisfies BOTH invariants: the
+// cockpit's browser bundle must parse a stamp to build the ascent link, and
+// `custom/no-node-import-in-cockpit-web` (mt#3239) bars the bundle from importing
+// `@minsky/domain` at all. Domain-as-home would have forced the browser to
+// re-declare the token — reintroducing exactly the drift mt#4401 moved it to
+// prevent, one consumer over. `user-line-origin.ts` now imports it from shared,
+// so all three consumers read one definition.
+//
+// Re-exported so every existing importer of this module keeps working unchanged.
+// The WRITE half below stays here deliberately — only this guard mints stamps,
+// and nothing in the browser should be able to.
+export {
+  DISPATCH_STAMP_VERSION,
+  parseDispatchStamp,
+  type DispatchStamp,
+} from "@minsky/shared/dispatch-stamp";
+import {
+  DISPATCH_STAMP_VERSION,
+  parseDispatchStamp,
+  type DispatchStamp,
+} from "@minsky/shared/dispatch-stamp";
 
 /**
  * Render a stamp for one `Agent` dispatch.
@@ -60,18 +61,6 @@ export interface DispatchStamp {
  */
 export function buildDispatchStamp(stamp: DispatchStamp): string {
   return `<!-- ${DISPATCH_STAMP_VERSION} parent=${stamp.parentAgentSessionId} tool_use=${stamp.parentToolUseId} -->`;
-}
-
-/**
- * Recover a stamp from arbitrary text (a prompt, or a child transcript record).
- * Returns null when no stamp is present — the normal case for a subagent
- * dispatched before this shipped, and for any prompt the guard did not rewrite.
- */
-export function parseDispatchStamp(text: string | undefined | null): DispatchStamp | null {
-  if (!text) return null;
-  const match = STAMP_PATTERN.exec(text);
-  if (!match?.[1] || !match[2]) return null;
-  return { parentAgentSessionId: match[1], parentToolUseId: match[2] };
 }
 
 /**

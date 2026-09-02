@@ -147,6 +147,15 @@ export interface ConversationTurn {
    */
   isMeta?: boolean;
   /**
+   * Who authored this `user` turn's text, from mt#4289's `classifyUserLineOrigin`
+   * (mt#4354) — the same classifier that writes `agent_transcript_turns.user_origin`.
+   *
+   * `"human"` is that classifier's FAIL-OPEN default and carries no information;
+   * only a NON-`"human"` value is a positive claim about authorship. Absent on
+   * assistant turns and on user turns whose content is entirely `tool_result`.
+   */
+  userOrigin?: string;
+  /**
    * The assistant message's model, when recorded. `"<synthetic>"` marks a
    * harness-generated retry turn rather than a real model response (mt#3260).
    */
@@ -360,6 +369,7 @@ export function snapshotBlockToConversationTurn(
     spawnChildAgentSessionId,
     isCompactSummary: block.isCompactSummary,
     isMeta: block.isMeta,
+    userOrigin: block.userOrigin,
     model: block.model,
   };
 }

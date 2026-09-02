@@ -84,7 +84,12 @@ describe("DigestPage", () => {
     });
 
     // Headline rolls up workstreams / merges / exceptions.
-    expect(screen.getByTestId("digest-headline").textContent).toContain("2 workstreams active");
+    // "with activity today", not "active" (mt#4775) — /workstreams uses "active"
+    // for a different predicate (parents with open work), so the two surfaces
+    // now name their senses apart rather than sharing one word.
+    expect(screen.getByTestId("digest-headline").textContent).toContain(
+      "2 workstreams with activity today"
+    );
     // Pluralization fixed at PR #2037 R1: singular merge count reads "1 PR merged".
     expect(screen.getByTestId("digest-headline").textContent).toContain("1 PR merged");
     expect(screen.getByTestId("digest-headline").textContent).toContain("1 exception");
