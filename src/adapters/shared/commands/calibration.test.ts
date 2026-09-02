@@ -41,6 +41,11 @@ import { dirname, join } from "node:path";
 import { sharedCommandRegistry } from "../command-registry";
 import { registerCalibrationCommands, resolveCalibrationStatePath } from "./calibration";
 import {
+  calibrationReviewStorePath,
+  WATERMARK_STORE_FILENAME,
+  CLAIM_STORE_FILENAME,
+} from "@minsky/shared/calibration-review-store-paths";
+import {
   UNKNOWN_SILENT_STRETCH_SESSION_LABEL,
   type LogWatermark,
 } from "../../../domain/calibration/calibration-sweep";
@@ -256,7 +261,9 @@ describe("observability.calibration-review — silent-stretch (mt#2866)", () => 
 // old `results.filter((r) => r.pastThreshold)` selection cannot pick them up:
 // each test fails against the pre-fix code.
 
-const WATERMARKS_FILE = "calibration-review-watermarks.json";
+// mt#4880: the local `WATERMARKS_FILE` literal is gone — the fixture helpers below
+// name `WATERMARK_STORE_FILENAME` from the shared resolver instead, so a rename
+// cannot leave the test writing where nothing reads.
 const CAUSAL_PREMISE_PATH = ".minsky/causal-premise-calibration.jsonl";
 const SILENT_STRETCH_PATH = ".minsky/silent-stretch-calibration.jsonl";
 const ASK_ID = "11111111-2222-3333-4444-555555555555";
@@ -278,15 +285,28 @@ async function writeAgedCausalPremiseLog(workspace: string, count: number): Prom
   await writeCalibrationLog(workspace, CAUSAL_PREMISE_LOG, `${lines.join("\n")}\n`);
 }
 
+/**
+ * mt#4880: the watermark store moved out of the workspace's `.minsky/` into the
+ * project-keyed state dir, so these fixtures resolve through the SAME function the
+ * command does. Writing the old repo-rooted path here would have made every ack
+ * test read an empty store — which is why eight of them failed against the moved
+ * writer, and why the fixture must not re-spell the location.
+ */
+function watermarksPath(workspace: string): string {
+  return calibrationReviewStorePath(WATERMARK_STORE_FILENAME, workspace);
+}
+
 function writeWatermarks(workspace: string, store: Record<string, unknown>): void {
-  writeFileSync(join(workspace, ".minsky", WATERMARKS_FILE), JSON.stringify(store), "utf-8");
+  const path = watermarksPath(workspace);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(store), "utf-8");
 }
 
 function readWatermarks(workspace: string): Record<string, LogWatermark> {
   // `as string`: src/types/node.d.ts declares readFileSync as returning
   // `string | Buffer` regardless of encoding, so no overload narrows it. Every
   // other call site in src/ casts the same way.
-  const raw = readFileSync(join(workspace, ".minsky", WATERMARKS_FILE), {
+  const raw = readFileSync(watermarksPath(workspace), {
     encoding: "utf-8",
   }) as string;
   return JSON.parse(raw) as Record<string, LogWatermark>;
@@ -522,7 +542,7 @@ describe("observability.calibration-review — concurrent-write reconciliation (
     expect(refused.success).toBe(false);
     expect(refused.error).toContain("reviewToken");
     // No watermark file was created — the refusal happens before any write.
-    expect(existsSync(join(workspace, ".minsky", WATERMARKS_FILE))).toBe(false);
+    expect(existsSync(watermarksPath(workspace))).toBe(false);
   });
 
   test("ack with a token claiming more records than the log holds is REFUSED (mt#3906)", async () => {
@@ -540,7 +560,7 @@ describe("observability.calibration-review — concurrent-write reconciliation (
 
     expect(refused.success).toBe(false);
     expect(refused.error).toContain("the log holds");
-    expect(existsSync(join(workspace, ".minsky", WATERMARKS_FILE))).toBe(false);
+    expect(existsSync(watermarksPath(workspace))).toBe(false);
   });
 
   test("an uncontended clear reports no dropped writes and leaves the counts alone", async () => {
@@ -568,7 +588,8 @@ describe("observability.calibration-review — concurrent-write reconciliation (
 });
 
 describe("observability.calibration-review — server-injected caller identity (mt#4408)", () => {
-  const CLAIMS_FILE = ".minsky/calibration-review-claims.json";
+  // mt#4880: was `.minsky/calibration-review-claims.json`; `readClaims` below now
+  // resolves through the shared store resolver, so no local literal is needed.
   const INJECTED = "com.anthropic.claude-code:conv:injected-aaaa";
   const OTHER_PASS = "com.anthropic.claude-code:conv:other-bbbb";
 
@@ -597,7 +618,8 @@ describe("observability.calibration-review — server-injected caller identity (
   }
 
   function readClaims(workspace: string): Record<string, { actorId: string }> {
-    const path = join(workspace, CLAIMS_FILE);
+    // mt#4880: through the shared resolver, like the watermark fixture above.
+    const path = calibrationReviewStorePath(CLAIM_STORE_FILENAME, workspace);
     if (!existsSync(path)) return {};
     // `as string` for the same reason `readWatermarks` above casts: this repo's
     // src/types/node.d.ts declares readFileSync as `string | Buffer` regardless

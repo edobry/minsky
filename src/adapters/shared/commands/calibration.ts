@@ -58,19 +58,25 @@ import {
   type ReviewDueLog,
   type WatermarkStore,
 } from "../../../domain/calibration/calibration-sweep";
+import {
+  calibrationReviewStorePath,
+  WATERMARK_STORE_FILENAME,
+  WATERMARK_LOCK_FILENAME,
+  CLAIM_STORE_FILENAME,
+} from "@minsky/shared/calibration-review-store-paths";
 
 // ---------------------------------------------------------------------------
-// Watermark store path (repo-relative)
+// Watermark store path — state-dir, project-keyed (mt#4880)
 // ---------------------------------------------------------------------------
-
-const WATERMARK_STORE_PATH = ".minsky/calibration-review-watermarks.json";
-
-/**
- * Lock guarding the watermark store's read-merge-write critical section
- * (mt#3899). A directory, because `mkdir` is atomic and exclusive on every
- * platform we run on — no dependency, no partial-create state.
- */
-const WATERMARK_LOCK_PATH = ".minsky/calibration-review-watermarks.lock";
+//
+// Was `.minsky/calibration-review-watermarks.json`, joined onto `workspacePath`
+// at each of the five call sites below. mt#4880 moved the whole family into
+// `getMinskyStateDir()/projects/<key>/` through one shared resolver, so the two
+// writers and the cockpit reader cannot drift apart — reader/writer path
+// disagreement IS the mt#4811 failure.
+//
+// The LOCK moves with the store it guards: a lock left in the repo tree while
+// the store lives elsewhere serializes nothing that matters.
 /** A holder older than this is treated as dead; the section is ~2 file ops. */
 const WATERMARK_LOCK_STALE_MS = 10_000;
 /** Give up waiting and proceed unlocked rather than lose the pass's work. */
@@ -262,8 +268,7 @@ async function writeFileMkdir(filePath: string, content: string): Promise<void> 
 }
 
 async function loadWatermarks(workspacePath: string): Promise<WatermarkStore> {
-  const { join } = await import("node:path");
-  const storePath = join(workspacePath, WATERMARK_STORE_PATH);
+  const storePath = calibrationReviewStorePath(WATERMARK_STORE_FILENAME, workspacePath);
   const content = await readFileOrNull(storePath);
   if (!content) return {};
   try {
@@ -274,8 +279,7 @@ async function loadWatermarks(workspacePath: string): Promise<WatermarkStore> {
 }
 
 async function saveWatermarks(workspacePath: string, store: WatermarkStore): Promise<void> {
-  const { join } = await import("node:path");
-  const storePath = join(workspacePath, WATERMARK_STORE_PATH);
+  const storePath = calibrationReviewStorePath(WATERMARK_STORE_FILENAME, workspacePath);
   await writeFileMkdir(storePath, `${JSON.stringify(store, null, 2)}\n`);
 }
 
@@ -284,11 +288,10 @@ async function saveWatermarks(workspacePath: string, store: WatermarkStore): Pro
  * by the SAME lock — the two are written in one critical section, so a pass can
  * never take a claim it then fails to record, or release one whose ack was lost.
  */
-const CLAIM_STORE_PATH = ".minsky/calibration-review-claims.json";
-
 async function loadClaims(workspacePath: string): Promise<CalibrationClaimStore> {
-  const { join } = await import("node:path");
-  const content = await readFileOrNull(join(workspacePath, CLAIM_STORE_PATH));
+  const content = await readFileOrNull(
+    calibrationReviewStorePath(CLAIM_STORE_FILENAME, workspacePath)
+  );
   if (!content) return {};
   try {
     return JSON.parse(content) as CalibrationClaimStore;
@@ -300,9 +303,8 @@ async function loadClaims(workspacePath: string): Promise<CalibrationClaimStore>
 }
 
 async function saveClaims(workspacePath: string, store: CalibrationClaimStore): Promise<void> {
-  const { join } = await import("node:path");
   await writeFileMkdir(
-    join(workspacePath, CLAIM_STORE_PATH),
+    calibrationReviewStorePath(CLAIM_STORE_FILENAME, workspacePath),
     `${JSON.stringify(store, null, 2)}\n`
   );
 }
@@ -343,9 +345,8 @@ const resolveActorId = resolveCallerActorId;
  * brief by construction.
  */
 async function withWatermarkLock<T>(workspacePath: string, critical: () => Promise<T>): Promise<T> {
-  const { join } = await import("node:path");
   const { mkdir, rm, stat } = await import("node:fs/promises");
-  const lockPath = join(workspacePath, WATERMARK_LOCK_PATH);
+  const lockPath = calibrationReviewStorePath(WATERMARK_LOCK_FILENAME, workspacePath);
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
   const deadline = Date.now() + WATERMARK_LOCK_MAX_WAIT_MS;

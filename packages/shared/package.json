@@ -21,6 +21,7 @@
     "./process-memory": "./src/process-memory.ts",
     "./timeout": "./src/timeout.ts",
     "./paths": "./src/paths.ts",
+    "./calibration-review-store-paths": "./src/calibration-review-store-paths.ts",
     "./conversation-pid-map": "./src/conversation-pid-map.ts",
     "./process": "./src/process.ts",
     "./stdout-sync": "./src/stdout-sync.ts",
