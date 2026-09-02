@@ -68,6 +68,20 @@ export const PEEZOMBIE_PROJECT: ProjectSummary = {
  */
 export const TEST_PROJECTS: ProjectSummary[] = [MINSKY_PROJECT, PEEZOMBIE_PROJECT];
 
+/**
+ * The URL a `fetch` argument addresses.
+ *
+ * PR #3587 R1: `String(input)` is correct for a string or a `URL`, and WRONG for
+ * a `Request` — that stringifies to `"[object Request]"`, so the endpoint match
+ * silently fails and the caller is back to the unstubbed behaviour this module
+ * exists to remove. `ProjectProvider` itself passes a string
+ * (`project-context.tsx:44`), so nothing today takes the `Request` branch; it is
+ * here because the failure mode if something does is silence, not an error.
+ */
+export function requestUrl(input: RequestInfo | URL): string {
+  return input instanceof Request ? input.url : String(input);
+}
+
 /** True when `url` addresses the projects endpoint the provider fetches. */
 export function isProjectsRequest(url: string): boolean {
   return url.includes("/api/projects");
@@ -101,7 +115,7 @@ export function projectsStubResponse(projects: ProjectSummary[] = TEST_PROJECTS)
 export function stubProjectsRoute(projects: ProjectSummary[] = TEST_PROJECTS): void {
   const inner = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    if (isProjectsRequest(String(input))) {
+    if (isProjectsRequest(requestUrl(input))) {
       return projectsStubResponse(projects);
     }
     return inner(input, init);

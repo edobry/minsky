@@ -60,12 +60,24 @@ describe("mt#4842 — every ProjectProvider test stubs /api/projects", () => {
     expect(offenders).toEqual([]);
   });
 
-  test("the census actually finds files — a zero-file walk would pass vacuously", () => {
+  test("the census actually finds files, and the provider filter discriminates", () => {
     // Without this, a broken walk (wrong root, changed extension) makes the
     // check above pass by finding nothing, which is the failure mode the
     // defect this guards against already demonstrated once.
     const files = componentTestFiles(WEB_ROOT);
     expect(files.length).toBeGreaterThan(20);
-    expect(files.some((f) => f.includes("ProjectProvider") === false)).toBe(true);
+
+    // PR #3587 R1: the original second assertion tested `f.includes(...)` on the
+    // PATH, and no path contains "ProjectProvider" — so it was `true` by
+    // construction and pinned nothing. The filter that matters reads CONTENT,
+    // and it has to select some files without selecting all of them: matching
+    // everything or nothing would each make the offenders loop above vacuous in
+    // its own way.
+    const mounting = files.filter((file) =>
+      // eslint-disable-next-line custom/no-real-fs-in-tests -- see file header
+      readFileSync(file, "utf-8").includes("ProjectProvider")
+    );
+    expect(mounting.length).toBeGreaterThan(10);
+    expect(mounting.length).toBeLessThan(files.length);
   });
 });
