@@ -407,7 +407,20 @@ export function formatResult(results: CalibrationLogResult[], reviewDue: ReviewD
     lines.push(`  Exists:                 ${r.exists}`);
     lines.push(`  Total fires (all-time): ${r.totalFires}`);
     lines.push(`  Watermark count:        ${r.watermarkCount}`);
-    lines.push(`  Fires since review:     ${r.firesSinceLastReview}`);
+    lines.push(
+      // mt#4904 (PR #3572 R2): annotated in place rather than left bare. The
+      // TEXT surface had the same gap R1 fixed in the JSON one — a stranded log
+      // the review-due leg declines (an ABSENT log, e.g. the retired
+      // `policy-coverage` at watermark 1760) printed "Fires since review: 0"
+      // with nothing marking it, which is indistinguishable from a log that was
+      // genuinely just reviewed. The number is the clamp's output, not a
+      // measurement, and this says so where it is read.
+      r.watermarkStranded
+        ? `  Fires since review:     ${r.firesSinceLastReview}  ` +
+            `(NOT MEANINGFUL — watermark ${r.watermarkCount} exceeds ${r.totalFires} record(s); ` +
+            `the log was rotated, truncated or re-rooted under it)`
+        : `  Fires since review:     ${r.firesSinceLastReview}`
+    );
     // mt#3197: the positional count above includes detections that were
     // suppressed before reaching the operator. mt#3863 widens the split with
     // evaluation-only records — a record carrying no match at all, from a
@@ -571,7 +584,17 @@ export function formatResult(results: CalibrationLogResult[], reviewDue: ReviewD
     lines.push(`${reviewDue.length} log(s) review-due:`);
     for (const d of reviewDue) {
       lines.push(
-        `  - ${d.name}: ${d.reason} (${d.firesSinceLastReview} new / ${d.totalFires} total fires)`
+        // mt#4904 (PR #3572 R2): the stranded leg gets its own rendering for
+        // the same reason the cadence hook's does — `firesSinceLastReview` is
+        // the value the clamp FABRICATED, so the shared form reads
+        // "(0 new / 121 total fires)" about the one log whose new-fire count is
+        // known to be meaningless. Sibling of the `legLine` branch in
+        // `.minsky/hooks/calibration-review-cadence-detector.ts`; both render
+        // the comparison instead.
+        d.reason === "watermark-stranded"
+          ? `  - ${d.name}: ${d.reason} (watermark ${d.watermarkCount} exceeds ` +
+              `${d.totalFires} record(s) — new-fire count not meaningful)`
+          : `  - ${d.name}: ${d.reason} (${d.firesSinceLastReview} new / ${d.totalFires} total fires)`
       );
     }
     lines.push(
@@ -601,8 +624,8 @@ export function registerCalibrationCommands(): void {
         schema: z.boolean(),
         description:
           "Advance the watermark for every review-due log — any reason: past-threshold, " +
-          "time-stale, never-reviewed or never-fired — marking them as reviewed (mt#2878). " +
-          "Without this flag the command is read-only.",
+          "time-stale, never-reviewed, never-fired or watermark-stranded — marking them as " +
+          "reviewed (mt#2878, mt#4904). Without this flag the command is read-only.",
         required: false,
         defaultValue: false,
       },
@@ -829,9 +852,10 @@ export function registerCalibrationCommands(): void {
         //
         // mt#2878: this path used to re-derive its own, narrower selection
         // (`results.filter((r) => r.pastThreshold)`) rather than consuming the
-        // `reviewDue` set computed just above. `computeReviewDueLogs` has FOUR
-        // legs — past-threshold, time-stale, never-reviewed (mt#2896) and
-        // never-fired (mt#3078) — and only the first was ackable, so a log
+        // `reviewDue` set computed just above. `computeReviewDueLogs` has FIVE
+        // legs — past-threshold, time-stale, never-reviewed (mt#2896),
+        // never-fired (mt#3078) and watermark-stranded (mt#4904) — and only the
+        // first was ackable, so a log
         // flagged by any other leg could be reviewed but never MARKED reviewed.
         // The cadence hook then re-warned on it every turn with no operator
         // action able to stop it: `pre-narration` sat time-stale-and-unackable
@@ -963,6 +987,14 @@ export function registerCalibrationCommands(): void {
               exists: r.exists,
               totalFires: r.totalFires,
               watermarkCount: r.watermarkCount,
+              // mt#4904 (PR #3572 R1): projected for EVERY result, not only
+              // review-due ones. A stranded log that the review-due leg
+              // declines — an absent log, e.g. the retired `policy-coverage`
+              // with a watermark of 1760 — is otherwise reported as
+              // `firesSinceLastReview: 0` with nothing distinguishing it from a
+              // just-reviewed log, which is the silent clamping this task
+              // exists to end. The `reviewDue` entry alone cannot carry it.
+              watermarkStranded: r.watermarkStranded,
               firesSinceLastReview: r.firesSinceLastReview,
               suppressedSinceLastReview: r.suppressedSinceLastReview,
               injectedFiresSinceLastReview: r.injectedFiresSinceLastReview,

@@ -47,48 +47,84 @@ required env vars (skip gracefully without them), and are run manually post-merg
 pasted into a PR body as execution evidence (mt#1399 / mt#1403 pattern). Each is scoped
 to one task; the task ID in the name or header is the primary cross-reference.
 
-| Script                                   | Verifies (task)                                                                               |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `smoke-asks-wait.ts`                     | `asks_wait-for-response` end-to-end (mt#2266)                                                 |
-| `smoke-cli-outside-repo.ts`              | repo-orthogonal CLI commands from outside a repo (mt#1428)                                    |
-| `smoke-mcp-disconnect.ts`                | MCP disconnect tracking (mt#1645)                                                             |
-| `smoke-mcp-discovery.ts`                 | MCP-bridge discovery loop (mt#2010)                                                           |
-| `smoke-mcp-server-status.ts`             | hosted MCP-server status widget (mt#2077)                                                     |
-| `smoke-memory-domain-routing.ts`         | memory domain vector storage routing (mt#1605)                                                |
-| `smoke-mt2401-cockpit-deploy-config.ts`  | cockpit-preview `deploy.config.ts` real Railway IDs (mt#2401)                                 |
-| `smoke-no-postgres-boot.ts`              | no-Postgres boot-tolerance contract (mt#2349)                                                 |
-| `smoke-post-deploy-health-monitor.ts`    | post-deploy health monitor check logic against live Railway (mt#1302)                         |
-| `smoke-presence-claims.ts`               | presence-claims substrate upsert/list/reap lifecycle (mt#2562)                                |
-| `smoke-prod-state-cache.ts`              | prod-state cache refresh producer (mt#2506)                                                   |
-| `smoke-projects-scoping-migration.ts`    | projects-scoping migration, both paths (mt#2415 / mt#2391)                                    |
-| `smoke-railway-metrics.ts`               | first-party Railway service-metrics + restart-count queries (mt#2296)                         |
-| `smoke-retrigger-default-url.ts`         | drift guard for `reviewer.retrigger`'s default webhook URL (mt#2359)                          |
-| `smoke-reviewer-watch.ts`                | local reviewer-bot watcher against live GitHub API (mt#1310)                                  |
-| `smoke-session-crud.ts`                  | `DrizzleSessionRepository` CRUD path (mt#2329)                                                |
-| `smoke-setup-db.ts`                      | `minsky setup db` onboarding against a live Postgres (mt#2429)                                |
-| `smoke-skill-staleness-hook.ts`          | skill-staleness-detector hook entrypoint (mt#1622)                                            |
-| `smoke-staleness-drain.ts`               | staleness-exit drain window admits new requests but not into the exit gap (mt#2830)           |
-| `smoke-tab-watcher.sh`                   | tab-watcher daemon foreground run + snapshot assertion                                        |
-| `smoke-task-id-reuse.ts`                 | task-ID-reuse / orphaned-spec fix (mt#2205)                                                   |
-| `smoke-task-kinds.ts`                    | task kind system (mt#1812)                                                                    |
-| `smoke-transcript-ingest-hook.ts`        | SessionEnd transcript-ingest hook (mt#2192)                                                   |
-| `smoke-transcript-sweep.ts`              | cockpit-daemon transcript sweep backstop (mt#2321)                                            |
-| `smoke-transcript-watcher.ts`            | cockpit-daemon transcript watcher (mt#2320)                                                   |
-| `smoke-validate-typecheck-workspaces.ts` | `validate.typecheck` multi-workspace coverage (mt#2256)                                       |
-| `smoke-wrong-id-space.ts`                | cockpit wrong-id-space fail-loud surface (mt#2525 / mt#2420)                                  |
-| `live-verify-presence-write.ts`          | `writeTaskClaim` per-call repo fallback path (mt#2567)                                        |
-| `test-provenance-e2e.ts`                 | `AuthorshipJudge` against a real Claude Code JSONL transcript via the Anthropic API (mt#1081) |
-| `verify-cockpit-shell-scroll.ts`         | cockpit shell scroll/geometry invariants in a real browser (mt#3335 / mt#3338)                |
-| `verify-conversation-footer-stack.ts`    | conversation bottom-edge controls stack without overlapping, in a real browser (mt#3843)      |
-| `verify-conversation-live-tail.ts`       | conversation live-tail scroll behavior in a real browser (mt#3376 / mt#3445)                  |
-| `verify-conversation-orientation.ts`     | conversation scroll-driven reveal + position hold in a real browser (mt#3688)                 |
-| `verify-conversation-renderer.ts`        | conversation-element parser against a real session snapshot (mt#2374)                         |
-| `verify-driven-session-scrollport.ts`    | driven page owns its scrollport, keeping the composer on screen, in a real browser (mt#3737)  |
-| `verify-mt1510-identity-routing.ts`      | `identity` parameter on `session_pr_review_submit` (mt#1510)                                  |
-| `verify-peek-pane-layout.ts`             | peek pane gutters, single scrollport and page column in a real browser (mt#4123)              |
-| `verify-mt1721-detectors-mcp.ts`         | `registerDetectorsTools` MCP surface (mt#1721)                                                |
-| `verify-session-film-panes.ts`           | film ribbon/stage drag + clamp and cockpit scrollbar chrome in a real browser (mt#3701)       |
-| `verify-turn-write-skip-if-unchanged.ts` | turn upsert's skip-if-unchanged `setWhere` guard against real Postgres (mt#4345)              |
+| Script                                   | Verifies (task)                                                                                          |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `smoke-asks-wait.ts`                     | `asks_wait-for-response` end-to-end (mt#2266)                                                            |
+| `smoke-cli-outside-repo.ts`              | repo-orthogonal CLI commands from outside a repo (mt#1428)                                               |
+| `smoke-mcp-disconnect.ts`                | MCP disconnect tracking (mt#1645)                                                                        |
+| `smoke-mcp-discovery.ts`                 | MCP-bridge discovery loop (mt#2010)                                                                      |
+| `smoke-mcp-server-status.ts`             | hosted MCP-server status widget (mt#2077)                                                                |
+| `smoke-memory-domain-routing.ts`         | memory domain vector storage routing (mt#1605)                                                           |
+| `smoke-mt2401-cockpit-deploy-config.ts`  | cockpit-preview `deploy.config.ts` real Railway IDs (mt#2401)                                            |
+| `smoke-no-postgres-boot.ts`              | no-Postgres boot-tolerance contract (mt#2349)                                                            |
+| `smoke-post-deploy-health-monitor.ts`    | post-deploy health monitor check logic against live Railway (mt#1302)                                    |
+| `smoke-presence-claims.ts`               | presence-claims substrate upsert/list/reap lifecycle (mt#2562)                                           |
+| `smoke-prod-state-cache.ts`              | prod-state cache refresh producer (mt#2506)                                                              |
+| `smoke-projects-scoping-migration.ts`    | projects-scoping migration, both paths (mt#2415 / mt#2391)                                               |
+| `smoke-railway-metrics.ts`               | first-party Railway service-metrics + restart-count queries (mt#2296)                                    |
+| `smoke-retrigger-default-url.ts`         | drift guard for `reviewer.retrigger`'s default webhook URL (mt#2359)                                     |
+| `smoke-reviewer-watch.ts`                | local reviewer-bot watcher against live GitHub API (mt#1310)                                             |
+| `smoke-session-crud.ts`                  | `DrizzleSessionRepository` CRUD path (mt#2329)                                                           |
+| `smoke-setup-db.ts`                      | `minsky setup db` onboarding against a live Postgres (mt#2429)                                           |
+| `smoke-skill-staleness-hook.ts`          | skill-staleness-detector hook entrypoint (mt#1622)                                                       |
+| `smoke-staleness-drain.ts`               | staleness-exit drain window admits new requests but not into the exit gap (mt#2830)                      |
+| `smoke-tab-watcher.sh`                   | tab-watcher daemon foreground run + snapshot assertion                                                   |
+| `smoke-task-id-reuse.ts`                 | task-ID-reuse / orphaned-spec fix (mt#2205)                                                              |
+| `smoke-task-kinds.ts`                    | task kind system (mt#1812)                                                                               |
+| `smoke-transcript-ingest-hook.ts`        | SessionEnd transcript-ingest hook (mt#2192)                                                              |
+| `smoke-transcript-sweep.ts`              | cockpit-daemon transcript sweep backstop (mt#2321)                                                       |
+| `smoke-transcript-watcher.ts`            | cockpit-daemon transcript watcher (mt#2320)                                                              |
+| `smoke-validate-typecheck-workspaces.ts` | `validate.typecheck` multi-workspace coverage (mt#2256)                                                  |
+| `smoke-wrong-id-space.ts`                | cockpit wrong-id-space fail-loud surface (mt#2525 / mt#2420)                                             |
+| `live-verify-presence-write.ts`          | `writeTaskClaim` per-call repo fallback path (mt#2567)                                                   |
+| `test-provenance-e2e.ts`                 | `AuthorshipJudge` against a real Claude Code JSONL transcript via the Anthropic API (mt#1081)            |
+| `verify-cockpit-shell-scroll.ts`         | cockpit shell scroll/geometry invariants in a real browser (mt#3335 / mt#3338)                           |
+| `verify-conversation-footer-stack.ts`    | conversation bottom-edge controls stack without overlapping, in a real browser (mt#3843)                 |
+| `verify-conversation-live-tail.ts`       | conversation live-tail scroll behavior in a real browser (mt#3376 / mt#3445)                             |
+| `verify-conversation-orientation.ts`     | conversation scroll-driven reveal + position hold in a real browser (mt#3688)                            |
+| `verify-conversation-renderer.ts`        | conversation-element parser against a real session snapshot (mt#2374)                                    |
+| `verify-database-url-warning.ts`         | `DATABASE_URL` is ignored by config resolution and now warns; registered overrides stay silent (mt#4789) |
+| `verify-driven-session-scrollport.ts`    | driven page owns its scrollport, keeping the composer on screen, in a real browser (mt#3737)             |
+| `verify-mt1510-identity-routing.ts`      | `identity` parameter on `session_pr_review_submit` (mt#1510)                                             |
+| `verify-peek-pane-layout.ts`             | peek pane gutters, single scrollport and page column in a real browser (mt#4123)                         |
+| `verify-mt1721-detectors-mcp.ts`         | `registerDetectorsTools` MCP surface (mt#1721)                                                           |
+| `verify-session-film-panes.ts`           | film ribbon/stage drag + clamp and cockpit scrollbar chrome in a real browser (mt#3701)                  |
+| `verify-turn-write-skip-if-unchanged.ts` | turn upsert's skip-if-unchanged `setWhere` guard against real Postgres (mt#4345)                         |
+
+### Pointing a script at a scratch database — `DATABASE_URL` will NOT do it (mt#4789)
+
+**`DATABASE_URL` is not a Minsky override.** Nothing in the configuration-resolution path reads
+it: exporting it and running a Minsky command gets you whatever the config says, which is
+**production**, with no error. Since mt#4789 that mismatch at least warns, naming the host it
+ignored and the host it selected — but the warning is a signal, not a redirect.
+
+Two variables actually redirect Minsky's connection, both mapping to
+`persistence.postgres.connectionString`:
+
+| Variable                              | Use                                                                                                        |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| **`MINSKY_PERSISTENCE_POSTGRES_URL`** | **Canonical.** Arrives at step 1 of resolution and takes priority. The name every deployment surface uses. |
+| `MINSKY_POSTGRES_URL`                 | Legacy alias, still read. Fine for a one-off; prefer the canonical name in anything durable.               |
+
+Two more look like general overrides and are **not** — each is scoped to the scripts named beside
+it, and setting either has no effect on `persistence migrate`, `persistence check`, or any other
+Minsky command:
+
+| Variable                            | Scope                                                                                        |
+| ----------------------------------- | -------------------------------------------------------------------------------------------- |
+| `MINSKY_VERIFY_DATABASE_URL`        | `verify-driven-session-conversations.ts` only (mt#4323)                                      |
+| `MINSKY_POSTGRES_CONNECTION_STRING` | `smoke-prod-state-cache.ts`, `smoke-transcript-sweep.ts`, `smoke-transcript-watcher.ts` only |
+
+Many scripts in the table above take `DATABASE_URL` for **their own** client (`DATABASE_URL ||
+MINSKY_POSTGRES_URL`) — that is a per-script convention and is unrelated to Minsky's
+configuration resolution. If a script both reads `DATABASE_URL` itself and drives Minsky
+commands, set the canonical variable too, or the two halves will talk to different databases.
+
+To see which database you are actually pointed at, without printing the credential:
+
+```bash
+minsky persistence check   # prints "🎯 Resolved target host: <host:port>"
+```
 
 ### Running the browser-driving scripts
 

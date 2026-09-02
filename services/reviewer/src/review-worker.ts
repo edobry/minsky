@@ -367,6 +367,44 @@ export interface RunReviewDeps {
   octokitFactory?: typeof createOctokit;
   prContextFetcher?: typeof fetchPullRequestContext;
   appIdentityFetcher?: typeof getAppIdentity;
+
+  /**
+   * Test seams for the four collaborators the PROSE-path sanitize wiring runs
+   * through, so that wiring can be driven end-to-end without a network or a
+   * model call (mt#1263).
+   *
+   * The unit tests below this seam already cover the two halves in isolation —
+   * `sanitize.test.ts` covers `sanitizeReviewBody`, and
+   * `review-worker.test.ts`'s `decidePostSanitizeOutcome` block covers the
+   * decision helper. What neither reaches is the WIRING between them: that
+   * `annotateReviewBody` receives `sanitized.body` and not the raw
+   * `output.text`, that the errored path forces `COMMENT` and returns no
+   * `review` field, and that `reviewer.cot_leak_detected` fires only when
+   * sanitize did something. A refactor could swap `sanitized.body` for
+   * `output.text` and every existing test would still pass.
+   *
+   * Why injected rather than module-patched: ADR-036 §2 rule 2 — a seam that
+   * can be added by changing one production file with no exported-type change
+   * is required, and patching is banned at such a site. These are optional
+   * fields with real defaults, so every existing caller is unaffected. This
+   * supersedes the `mock.module` approach of the closed PR #774, which also
+   * needed an `eslint.config.js` carve-out from `custom/no-global-module-mocks`.
+   *
+   * `bodySanitizer` is what lets a test choose the `SanitizeResult` directly
+   * rather than reverse-engineering a leaked body that produces it — the
+   * original mt#1263 success criterion asked for exactly that.
+   *
+   * Deliberately NOT seamed: the `sanitizeReviewBody` call on the OUTPUT-TOOLS
+   * path (the `scratchSanitized` check that emits
+   * `reviewer.cot_leak_detected_in_scratch`). That one is log-only — it gates
+   * no submission and changes no return value — so it is a different decision
+   * from the prose-path wiring this seam exists to pin, and mt#1263 scopes
+   * itself to the prose path.
+   */
+  reviewerCaller?: typeof callReviewer;
+  bodySanitizer?: typeof sanitizeReviewBody;
+  reviewSubmitter?: typeof submitReview;
+  guardedSubmitter?: typeof submitReviewWithGuards;
 }
 
 export async function runReview(
@@ -962,7 +1000,7 @@ async function runReviewBody(
         systemPrompt,
         userPrompt,
         toolsActive ? toolContext : undefined,
-        callReviewer,
+        deps.reviewerCaller ?? callReviewer,
         outputToolsActive
       );
       output = result.output;
@@ -1427,7 +1465,7 @@ async function runReviewBody(
   // ship. Observed on PR #743 (2026-04-24). Either strip the leaked prefix
   // (when a structural Findings section follows) or replace the body with a
   // structured service-error notice (when the leak is the entire body).
-  const sanitized = sanitizeReviewBody(output.text);
+  const sanitized = (deps.bodySanitizer ?? sanitizeReviewBody)(output.text);
   if (sanitized.action !== "passthrough") {
     log.info("reviewer.cot_leak_detected", {
       event: "reviewer.cot_leak_detected",
@@ -1461,7 +1499,7 @@ async function runReviewBody(
   // retries the delivery (same behavior as the pre-mt#1212 normal path).
   if (outcome.status === "error") {
     try {
-      await submitReview(
+      await (deps.reviewSubmitter ?? submitReview)(
         octokit,
         owner,
         repo,
@@ -1498,7 +1536,7 @@ async function runReviewBody(
   // covers BOTH paths (a non-retryable 4xx here — closed PR, permission edge —
   // must also stop the sweeper loop). No inline comments on the prose path, so
   // anchor pre-validation is a no-op; the breaker recording is the point.
-  const review = await submitReviewWithGuards({
+  const review = await (deps.guardedSubmitter ?? submitReviewWithGuards)({
     octokit,
     owner,
     repo,

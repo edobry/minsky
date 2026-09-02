@@ -116,3 +116,59 @@ describe("formatResult — evaluated-only records (mt#3863)", () => {
     expect(text).not.toContain("...evaluated-only:");
   });
 });
+
+describe("formatResult — watermark-stranded rendering (mt#4904)", () => {
+  test("a stranded log's fires-since-review is marked NOT MEANINGFUL, with both operands", () => {
+    // PR #3572 R2. The text surface had the same gap R1 closed in the JSON one:
+    // this log printed "Fires since review: 0" — the clamp's output — with
+    // nothing distinguishing it from a log that was genuinely just reviewed.
+    // The `exists: false` case is the one that matters, because the review-due
+    // leg declines it, so this per-log block is the ONLY place it can surface.
+    const result = resultWith("recoverable", 0, 0);
+    result.exists = false;
+    result.totalFires = 0;
+    result.firesSinceLastReview = 0;
+    result.watermarkCount = 1760;
+    result.watermarkStranded = true;
+
+    const text = formatResult([result], []);
+    expect(text).toContain("NOT MEANINGFUL");
+    expect(text).toContain("1760");
+  });
+
+  test("a healthy log's fires-since-review carries no annotation", () => {
+    // The inverse guard: annotating every log would make the marker worthless.
+    const result = resultWith("recoverable", 20, 20);
+    result.watermarkCount = 0;
+    result.watermarkStranded = false;
+
+    expect(formatResult([result], [])).not.toContain("NOT MEANINGFUL");
+  });
+
+  test("the review-due summary renders the comparison, not the fabricated zero", () => {
+    // Sibling of the cadence hook's `legLine` branch. `firesSinceLastReview` is
+    // 0 by construction for a stranded log, so the shared summary form read
+    // "(0 new / 121 total fires)" about the one log whose new-fire count is
+    // known to be meaningless.
+    const text = formatResult(
+      [],
+      [
+        {
+          name: "untaken-action",
+          path: ".minsky/untaken-action-calibration.jsonl",
+          kind: "untaken-action",
+          firesSinceLastReview: 0,
+          injectedFiresSinceLastReview: 0,
+          suppressedSinceLastReview: 0,
+          totalFires: 121,
+          distinctPhrases: 0,
+          reason: "watermark-stranded",
+          watermarkCount: 424,
+        },
+      ]
+    );
+
+    expect(text).toContain("watermark 424 exceeds 121 record(s)");
+    expect(text).not.toContain("0 new / 121 total fires");
+  });
+});

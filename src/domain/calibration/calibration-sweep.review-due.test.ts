@@ -86,6 +86,11 @@ describe("computeReviewDueLogs (mt#2896)", () => {
       injectedFiresSinceLastReview:
         overrides.injectedFiresSinceLastReview ??
         merged.firesSinceLastReview - merged.suppressedSinceLastReview,
+      // mt#4904: DERIVED from the same comparison production uses, not defaulted
+      // to false. A fixture that sets a watermark above its record count IS
+      // stranded, and hardcoding false here would let such a fixture assert a
+      // review-due reason the real sweep would never produce for it.
+      watermarkStranded: overrides.watermarkStranded ?? merged.watermarkCount > merged.totalFires,
     };
   }
 
@@ -97,6 +102,136 @@ describe("computeReviewDueLogs (mt#2896)", () => {
         firesSinceLastReview: 43,
         totalFires: 43,
         distinctPhrases: 31,
+      }),
+    ];
+    const due = computeReviewDueLogs(results, {}, NOW);
+    expect(due).toHaveLength(1);
+    expect(due[0]?.reason).toBe("past-threshold");
+  });
+
+  // -------------------------------------------------------------------------
+  // condition 0 — watermark-stranded (mt#4904)
+  // -------------------------------------------------------------------------
+
+  test("condition 0 — flags a log whose watermark EXCEEDS its record count", () => {
+    // The measured production shape: `untaken-action` after mt#4748 re-rooted
+    // the streams to the project-keyed state dir while the watermark store kept
+    // the count recorded against the larger pre-migration log.
+    const entry = reviewEntry("untaken-action");
+    const results = [
+      reviewResult(entry, {
+        totalFires: 121,
+        // Clamped by `Math.max(0, 121 - 424)` in production — which is exactly
+        // what makes this indistinguishable from a just-reviewed log.
+        firesSinceLastReview: 0,
+        watermarkCount: 424,
+      }),
+    ];
+    const watermarks: WatermarkStore = {
+      [entry.path]: {
+        lastReviewedCount: 424,
+        lastReviewedAt: new Date(NOW - DAY).toISOString(),
+      },
+    };
+    const due = computeReviewDueLogs(results, watermarks, NOW);
+    expect(due).toHaveLength(1);
+    expect(due[0]?.reason).toBe("watermark-stranded");
+    expect(due[0]?.name).toBe("untaken-action");
+  });
+
+  test("condition 0 — fires even though every OTHER leg declines a stranded log", () => {
+    // The point of the leg, stated as an assertion rather than a comment: all
+    // four pre-existing legs decline this input. `past-threshold` and
+    // `time-stale` are gated on a zero injected count; `never-reviewed` and
+    // `never-fired` require NO watermark, and this log has one. Before mt#4904
+    // the result was an EMPTY due-list — permanent invisibility, no error.
+    const entry = reviewEntry(RETRO_KIND);
+    const stranded = reviewResult(entry, {
+      totalFires: 181,
+      firesSinceLastReview: 0,
+      injectedFiresSinceLastReview: 0,
+      watermarkCount: 2338,
+      pastThreshold: false,
+      // Old enough to satisfy time-stale's staleness bar, so the ONLY thing
+      // holding that leg back is the injected-count gate — which is what makes
+      // this the load-bearing case rather than a trivially-declined one.
+      firstRecordTimestamp: new Date(NOW - 60 * DAY).toISOString(),
+    });
+    const watermarks: WatermarkStore = {
+      [entry.path]: {
+        lastReviewedCount: 2338,
+        lastReviewedAt: new Date(NOW - (STALE_DAYS_MS + DAY)).toISOString(),
+      },
+    };
+
+    expect(stranded.watermarkStranded).toBe(true);
+    const due = computeReviewDueLogs([stranded], watermarks, NOW);
+    expect(due).toHaveLength(1);
+    expect(due[0]?.reason).toBe("watermark-stranded");
+  });
+
+  test("condition 0 — a watermark EQUAL to the record count is NOT stranded", () => {
+    // The discriminator this whole leg turns on. A genuinely-just-reviewed log
+    // has watermark === totalFires and must stay quiet; only a watermark ABOVE
+    // the count means the comparison basis is gone. An off-by-one here would
+    // make every reviewed log permanently review-due — the inverse failure.
+    const entry = reviewEntry(DEFERRAL_KIND);
+    const results = [
+      reviewResult(entry, {
+        totalFires: 50,
+        firesSinceLastReview: 0,
+        watermarkCount: 50,
+      }),
+    ];
+    const watermarks: WatermarkStore = {
+      [entry.path]: {
+        lastReviewedCount: 50,
+        lastReviewedAt: new Date(NOW - DAY).toISOString(),
+      },
+    };
+    expect(results[0]?.watermarkStranded).toBe(false);
+    expect(computeReviewDueLogs(results, watermarks, NOW)).toHaveLength(0);
+  });
+
+  test("condition 0 — does NOT flag an ABSENT log, however large its watermark", () => {
+    // Found by live verification, not by reasoning about the code: the first
+    // run surfaced 15 streams where 13 were stranded. The two extras were
+    // `exists: false` with `totalFires: 0`, which any watermark exceeds —
+    // `policy-coverage` among them, retired by mt#4197 with a watermark of 1760
+    // against a file that no longer exists. "Review these fires" is the wrong
+    // thing to say about a log that has neither fires nor a file.
+    const entry = reviewEntry("policy-coverage");
+    const results = [
+      reviewResult(entry, {
+        exists: false,
+        totalFires: 0,
+        firesSinceLastReview: 0,
+        watermarkCount: 1760,
+      }),
+    ];
+    const watermarks: WatermarkStore = {
+      [entry.path]: {
+        lastReviewedCount: 1760,
+        lastReviewedAt: new Date(NOW - DAY).toISOString(),
+      },
+    };
+    // The FIELD is still true — the comparison genuinely holds. It is the review
+    // -due LEG that declines, so the distinction stays visible to a reader.
+    expect(results[0]?.watermarkStranded).toBe(true);
+    expect(computeReviewDueLogs(results, watermarks, NOW)).toHaveLength(0);
+  });
+
+  test("condition 0 — does not preempt past-threshold for a healthy log", () => {
+    // Ordering guard: the stranded leg runs FIRST, so a healthy past-threshold
+    // log must still report its own reason rather than being swallowed.
+    const entry = reviewEntry(DEFERRAL_KIND);
+    const results = [
+      reviewResult(entry, {
+        pastThreshold: true,
+        firesSinceLastReview: 43,
+        totalFires: 43,
+        distinctPhrases: 31,
+        watermarkCount: 0,
       }),
     ];
     const due = computeReviewDueLogs(results, {}, NOW);

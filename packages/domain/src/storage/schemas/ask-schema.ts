@@ -42,8 +42,14 @@ const ASK_KIND_VALUES = [
   "stuck.unblock",
 ] as const satisfies readonly AskKind[];
 
-/** Allowed AskState values — must mirror src/domain/ask/types.ts AskState */
-const ASK_STATE_VALUES = [
+/**
+ * Allowed AskState values — must mirror src/domain/ask/types.ts AskState.
+ *
+ * Exported (mt#4839) so a consumer partitioning the state space can assert its partition
+ * against the enum rather than against a hand-copied list — adding a member then fails that
+ * consumer's test instead of silently falling on whichever side its `else` happens to be.
+ */
+export const ASK_STATE_VALUES = [
   "detected",
   "classified",
   "routed",

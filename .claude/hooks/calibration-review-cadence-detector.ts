@@ -310,6 +310,22 @@ export function formatCadenceWarning(due: ReviewDueLog[]): string {
     "Run /calibration-review to classify false positives and record a flip/tune/keep disposition.";
 
   const legLine = (d: ReviewDueLog): string => {
+    // mt#4904 (PR #3572 R1): handled BEFORE the shared line below, not as
+    // another label on it. Both halves of that line are wrong for this leg —
+    // it quotes `injectedFiresSinceLastReview`, which the stranding clamps to
+    // 0, so a stranded log would read "0 new fire(s)" while being reported as
+    // needing review. The fabricated zero is the defect, not a detail.
+    //
+    // Note this leg had ALSO inherited the ternary's final `else`, labelling
+    // itself "unreviewed for >= N days" — the time-stale text.
+    if (d.reason === "watermark-stranded") {
+      return (
+        `  - ${d.name}: watermark ${d.watermarkCount} EXCEEDS ${d.totalFires} record(s) — ` +
+        `the log was rotated, truncated or re-rooted under it, so its new-fire count is ` +
+        `not meaningful and every other review trigger silently declined it. ` +
+        `Re-reviewing resets the watermark to the current count.`
+      );
+    }
     const reasonLabel =
       d.reason === "past-threshold"
         ? "past review threshold (fires + diversity)"

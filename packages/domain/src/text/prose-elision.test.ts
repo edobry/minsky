@@ -73,9 +73,16 @@ describe("elideQuotedAndMarkdown", () => {
   });
 
   test("markdown runs FIRST, so a quote inside a code span cannot open a span", () => {
-    // If the order were reversed, the `"` inside the code span would pair with the `"` in the
-    // prose after it and blank the text between them — including a real clause.
-    const input = '`const q = "x"` then retire when mt#1700 ships and he said "done"';
+    // The code span carries an ODD number of quote characters, and that is what makes this
+    // assertion discriminating. Under the reversed order `elideProseQuotedSpans` runs first,
+    // pairs the unbalanced `"` inside the span with the OPENING `"` of `"done"`, and blanks
+    // everything between them — including the real clause.
+    //
+    // A BALANCED pair inside the span does NOT discriminate. This fixture read
+    // '`const q = "x"` … he said "done"' until mt#4898 reversed the composition and measured
+    // it: all 28 tests in this file still passed, because `"x"` and `"done"` pair correctly
+    // under either order. The test named the invariant and could not fail on it.
+    const input = '`const q = "` then retire when mt#1700 ships and he said "done"';
     const out = elideQuotedAndMarkdown(input);
     expect(out).toContain("retire when mt#1700 ships");
   });
