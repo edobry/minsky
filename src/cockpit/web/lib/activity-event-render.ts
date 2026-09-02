@@ -36,9 +36,30 @@ const MUTED = "bg-muted text-muted-foreground";
 const DESTRUCTIVE = "bg-destructive text-destructive-foreground";
 
 /**
+ * The event types this module claims hand-written copy for.
+ *
+ * Named as a union so the `satisfies` below restores compile-time completeness
+ * over the BESPOKE set (PR #3577 R1): adding a member here without a map entry
+ * fails typecheck. This is deliberately not the wire's type — the map stays
+ * partial with respect to the server enum, because the derived default covers
+ * the remainder and a union claiming to cover the wire is what drifted to 9 of
+ * 30 in the first place.
+ */
+export type StyledEventType =
+  | "ask.created"
+  | "task.auto_created"
+  | "pr.review_posted"
+  | "subagent.failed"
+  | "embeddings.provider_degraded"
+  | "task.status_changed"
+  | "pr.merged"
+  | "subagent.completed"
+  | "session.started";
+
+/**
  * Event types with hand-written copy. Everything else takes the derived default
  * below — this map is an enhancement over a correct default, never the
- * mechanism, so it is deliberately partial and safe to leave incomplete.
+ * mechanism, so it is deliberately partial with respect to the server's enum.
  */
 export const STYLED_EVENTS: Record<string, EventStyle> = {
   "ask.created": {
@@ -62,10 +83,21 @@ export const STYLED_EVENTS: Record<string, EventStyle> = {
   "pr.merged": { icon: "M", label: "PR merged", badgeClass: MUTED },
   "subagent.completed": { icon: "*", label: "Subagent completed", badgeClass: MUTED },
   "session.started": { icon: "S", label: "Session started", badgeClass: MUTED },
-};
+} satisfies Record<StyledEventType, EventStyle>;
 
 /**
- * Turn `guard.overridden` into `Guard overridden`.
+ * Domain segments that are acronyms, not words (PR #3577 R1).
+ *
+ * Sentence-casing the first segment renders `mcp.disconnect` as "Mcp
+ * disconnect". `mcp` is a live enum member with no bespoke entry, so it hits the
+ * derived path today; `pr.*` is listed because the two `pr` types that exist now
+ * have hand-written copy, and the next one added would not.
+ */
+const ACRONYM_SEGMENTS = new Set(["pr", "mcp", "ci", "ai", "db", "api", "url", "sql", "cli"]);
+
+/**
+ * Turn `guard.overridden` into `Guard overridden`, and `mcp.disconnect` into
+ * `MCP disconnect`.
  *
  * Every server event type is `domain.snake_case_action`, so the type name itself
  * carries a readable label — which is why a derived default is legible rather
@@ -75,7 +107,12 @@ export const STYLED_EVENTS: Record<string, EventStyle> = {
 export function deriveEventLabel(type: string): string {
   const words = type.replace(/\./g, " ").replace(/_/g, " ").trim();
   if (!words) return type;
-  return words.charAt(0).toUpperCase() + words.slice(1);
+  const parts = words.split(/\s+/);
+  const first = parts[0] ?? "";
+  const head = ACRONYM_SEGMENTS.has(first.toLowerCase())
+    ? first.toUpperCase()
+    : first.charAt(0).toUpperCase() + first.slice(1);
+  return [head, ...parts.slice(1)].join(" ");
 }
 
 export function eventStyle(type: string): EventStyle {
