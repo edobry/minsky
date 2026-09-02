@@ -6248,7 +6248,7 @@
           "options": [
             {
               "flags": ["--ack"],
-              "description": "Advance the watermark for every review-due log — any reason: past-threshold, time-stale, never-reviewed or never-fired — marking them as reviewed (mt#2878). Without this flag the command is read-only."
+              "description": "Advance the watermark for every review-due log — any reason: past-threshold, time-stale, never-reviewed, never-fired or watermark-stranded — marking them as reviewed (mt#2878, mt#4904). Without this flag the command is read-only."
             },
             {
               "flags": ["--json"],

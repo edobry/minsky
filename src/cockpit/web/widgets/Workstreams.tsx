@@ -669,7 +669,15 @@ function WorkstreamsInner({ workstreams }: { workstreams: WorkstreamCard[] }) {
       {/* Count line — was in the CardTitle; now a subtitle below WidgetShell's title */}
       {totalCount > 0 && (
         <p className="text-xs text-muted-foreground mb-2">
-          {filteredCount === totalCount ? totalCount : `${filteredCount}/${totalCount}`} active
+          {/* "with open work", not "active" (mt#4775): this list is filtered
+              server-side to parents with >=1 non-terminal child
+              (widgets/workstreams.ts:344), which is a STRUCTURAL sense of
+              active. /digest counts workstreams that emitted events today — an
+              ACTIVITY sense. Both are correct and they legitimately disagree
+              (a parent with open work and no events today; a parent whose last
+              child closed this morning), so the shared word was the defect. */}
+          {filteredCount === totalCount ? totalCount : `${filteredCount}/${totalCount}`} with open
+          work
         </p>
       )}
 
@@ -692,7 +700,7 @@ function WorkstreamsInner({ workstreams }: { workstreams: WorkstreamCard[] }) {
 
       {/* Content */}
       {totalCount === 0 ? (
-        <p className="text-sm text-muted-foreground">No active workstreams</p>
+        <p className="text-sm text-muted-foreground">No workstreams with open work</p>
       ) : filteredCount === 0 ? (
         <div className="py-6 text-center">
           <p className="text-sm text-muted-foreground">No workstreams match these filters</p>

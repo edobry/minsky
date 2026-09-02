@@ -60,7 +60,7 @@ import { FilmMomentLink } from "./FilmMomentLink";
 import type { PreparedTurn } from "../lib/conversation-turn-assembly";
 import { formatLocalTime, turnSeparator } from "../lib/conversation-timeline";
 import { TurnSeparatorRow } from "./ThreadOrientation";
-import { classifyTurnOrigin } from "../lib/turn-origin";
+import { classifyTurnOrigin, type TurnOrigin } from "../lib/turn-origin";
 import { modelTierLabel } from "@minsky/domain/ai/dispatch-models";
 
 // ── Time formatting ─────────────────────────────────────────────────────────────
@@ -188,6 +188,18 @@ const ROLE_STYLES: Record<ConversationTurn["role"], { accent: string; label: str
  */
 const HARNESS_ACCENT = "border-l-border";
 
+/**
+ * Accent for a dispatch brief (mt#4354) — a turn the PARENT AGENT composed.
+ *
+ * Violet rather than the operator emerald or the neutral harness border,
+ * because it is neither: the operator wrote none of it, and it is not harness
+ * plumbing either. Violet specifically because `SpawnParentBacklink` (mt#3692)
+ * already uses `violet-300` for the ascent link out of a subagent conversation,
+ * so descent badge, ascent link and the brief itself read as one delegation
+ * family rather than three unrelated treatments.
+ */
+const DISPATCH_ACCENT = "border-l-violet-400/60";
+
 // ── Run grouping (mt#3845 SC1) ─────────────────────────────────────────────────
 //
 // A `PreparedTurn` is derived one-per-snapshot-block, and Claude Code emits a
@@ -223,23 +235,36 @@ const HARNESS_ACCENT = "border-l-border";
  */
 interface ActorKey {
   role: ConversationTurn["role"];
-  /** Per-origin harness label (mt#3374), or `null` for a non-harness turn. */
-  harnessLabel: string | null;
+  /**
+   * Which non-operator origin authored the turn (mt#3374; widened mt#4354 from
+   * a harness-only field to the full {@link TurnOrigin} kind, so a dispatch
+   * brief breaks the run rather than joining the operator's).
+   */
+  originKind: TurnOrigin["kind"] | null;
+  /** The label that origin renders under, or `null` when it carries none. */
+  originLabel: string | null;
   /** Raw recorded model id — compared verbatim, rendered as a tier. */
   model: string | null;
 }
 
 function actorKeyOf(turn: PreparedTurn): ActorKey {
   const origin = classifyTurnOrigin(turn);
+  const labeled = origin?.kind === "harness" || origin?.kind === "dispatch";
   return {
     role: turn.role,
-    harnessLabel: origin?.kind === "harness" ? origin.label : null,
+    originKind: labeled ? origin.kind : null,
+    originLabel: labeled ? origin.label : null,
     model: turn.model ?? null,
   };
 }
 
 function sameActor(a: ActorKey, b: ActorKey): boolean {
-  return a.role === b.role && a.harnessLabel === b.harnessLabel && a.model === b.model;
+  return (
+    a.role === b.role &&
+    a.originKind === b.originKind &&
+    a.originLabel === b.originLabel &&
+    a.model === b.model
+  );
 }
 
 /**
@@ -261,13 +286,14 @@ function sameActor(a: ActorKey, b: ActorKey): boolean {
  * it prefixes here.
  */
 function runLabelOf(key: ActorKey): string | null {
-  if (key.harnessLabel !== null) return key.harnessLabel;
+  if (key.originLabel !== null) return key.originLabel;
   if (key.role === "assistant") return modelTierLabel(key.model) ?? null;
   return ROLE_STYLES[key.role].label;
 }
 
 function runAccentOf(key: ActorKey): string {
-  if (key.harnessLabel !== null) return HARNESS_ACCENT;
+  if (key.originKind === "dispatch") return DISPATCH_ACCENT;
+  if (key.originKind === "harness") return HARNESS_ACCENT;
   return ROLE_STYLES[key.role].accent;
 }
 
