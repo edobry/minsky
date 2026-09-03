@@ -1357,9 +1357,9 @@ local id (used by the WS route, addressable before the child's `init` event
 can possibly arrive) with the harness `init` session id recorded as a
 secondary index once observed.
 
-**Decision record (ADR-047, 2026-09-02).** The spawn-and-parse path above is
-the first implementation of the `DriverTransport` interface decided in
-`adr-047-driver-transport-interface.md`: the genuine binary stays the Claude
+**Decision record ([ADR-047](adr-047-driver-transport-interface.md),
+2026-09-02).** The spawn-and-parse path above is the first implementation of
+the `DriverTransport` interface decided there: the genuine binary stays the Claude
 Code driver under subscription auth, an Agent Client Protocol client is the
 second implementation for non-Claude harnesses and API-key mode, and
 supervision (this registry, driver generations, the advisory lock) stays in
