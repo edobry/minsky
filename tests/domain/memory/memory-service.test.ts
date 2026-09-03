@@ -252,7 +252,7 @@ function createFakeDb(initialRows: MemoryRow[] = []): MemoryServiceDb & {
       return {
         from(_table: unknown) {
           /**
-           * Apply an in-memory sort for the stale-filter ORDER BY.
+           * Apply an in-memory sort for the unreadOrCold-filter ORDER BY.
            * The service issues: sql`${memoriesTable.lastAccessedAt} ASC NULLS FIRST`
            * We sort by last_accessed_at ascending with nulls first.
            */
@@ -272,7 +272,7 @@ function createFakeDb(initialRows: MemoryRow[] = []): MemoryServiceDb & {
           // fixtures exceed DEFAULT_LIST_CAP (500), so slicing here never
           // changes any existing assertion — this exists purely so the
           // chain doesn't throw "not a function". `applyOrderBy` above is
-          // unchanged (still the stale-filter's lastAccessedAt-ascending
+          // unchanged (still the unreadOrCold-filter's lastAccessedAt-ascending
           // sort) since no test in this file asserts on the NEW default
           // (`created desc`) order.
           function withPagination(rows: MemoryRow[]) {
@@ -747,9 +747,9 @@ describe("MemoryService", () => {
     });
   });
 
-  // ── list --stale filter ────────────────────────────────────────────────────
+  // ── list --unread-or-cold filter ───────────────────────────────────────────
 
-  describe("list --stale filter", () => {
+  describe("list --unread-or-cold filter", () => {
     const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
     /** Return a Date that is `n` days before the real current time. */
@@ -771,16 +771,16 @@ describe("MemoryService", () => {
       const recA = await service.create(makeInput({ name: "A recent", content: "recent content" }));
       setLastAccessed(recA.id, new Date());
 
-      // B: accessed 100 days ago (stale for 90-day threshold)
+      // B: accessed 100 days ago (past the 90-day threshold)
       const recB = await service.create(makeInput({ name: "B old", content: "old content" }));
       setLastAccessed(recB.id, daysAgo(100));
 
-      // C: never accessed (null lastAccessedAt — always stale)
+      // C: never accessed (null lastAccessedAt — always in the union)
       const recC = await service.create(makeInput({ name: "C never", content: "never content" }));
       // last_accessed_at is already null from insert
       setLastAccessed(recC.id, null);
 
-      const results = await service.list({ stale: true, stalenessDays: 90 });
+      const results = await service.list({ unreadOrCold: true, unreadOrColdDays: 90 });
       const ids = results.map((r) => r.id);
 
       // A is excluded (accessed today)
@@ -792,7 +792,7 @@ describe("MemoryService", () => {
       expect(ids.indexOf(recC.id)).toBeLessThan(ids.indexOf(recB.id));
     });
 
-    it("with stalenessDays:365 excludes the 100-day-old record", async () => {
+    it("with unreadOrColdDays:365 excludes the 100-day-old record", async () => {
       const recA = await service.create(makeInput({ name: "A recent" }));
       setLastAccessed(recA.id, new Date());
 
@@ -802,26 +802,26 @@ describe("MemoryService", () => {
       const recC = await service.create(makeInput({ name: "C never" }));
       setLastAccessed(recC.id, null);
 
-      const results = await service.list({ stale: true, stalenessDays: 365 });
+      const results = await service.list({ unreadOrCold: true, unreadOrColdDays: 365 });
       const ids = results.map((r) => r.id);
 
-      // B is only 100 days old — not stale under 365-day threshold
+      // B is only 100 days old — inside the 365-day threshold
       expect(ids).not.toContain(recA.id);
       expect(ids).not.toContain(recB.id);
-      // C (never accessed) is always stale
+      // C (never accessed) is always in the union
       expect(ids).toContain(recC.id);
     });
 
-    it("defaults stalenessDays to 90 when not specified", async () => {
-      // Record accessed 91 days ago — stale under the 90-day default
+    it("defaults unreadOrColdDays to 90 when not specified", async () => {
+      // Record accessed 91 days ago — in the union under the 90-day default
       const recOld = await service.create(makeInput({ name: "Old" }));
       setLastAccessed(recOld.id, daysAgo(91));
 
-      // Record accessed 1 day ago — not stale
+      // Record accessed 1 day ago — not in the union
       const recNew = await service.create(makeInput({ name: "New" }));
       setLastAccessed(recNew.id, daysAgo(1));
 
-      const results = await service.list({ stale: true }); // no stalenessDays
+      const results = await service.list({ unreadOrCold: true }); // no unreadOrColdDays
       const ids = results.map((r) => r.id);
 
       expect(ids).toContain(recOld.id);

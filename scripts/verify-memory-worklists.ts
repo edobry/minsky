@@ -14,10 +14,11 @@
  *   makes them agree. This runs BOTH and compares.
  *
  * - **AT3** — Never-read and Cold return DISJOINT row sets, and together they
- *   equal what `stale` unions. This is the regression test for the trap that
- *   shaped the whole task: `stale` is `last_accessed_at IS NULL OR older than
+ *   equal what `unreadOrCold` unions. This is the regression test for the trap
+ *   that shaped the whole task: that filter is `last_accessed_at IS NULL OR older than
  *   N`, so building both worklists on it would have shipped the same list
- *   twice. A reimplementation on top of `stale` fails here.
+ *   twice. A reimplementation on top of `unreadOrCold` fails here.
+ *   (The field was named `stale` until mt#4799.)
  *
  * Read-only. Runs no mutation, takes no `--execute` flag, and every statement
  * below is a SELECT.
@@ -179,7 +180,7 @@ async function main(): Promise<number> {
     `${dupRows} redundant rows across ${dupGroups} groups (rows >= groups, since every group sheds >= 1)`
   );
 
-  // ── AT3: never-read and cold are DISJOINT, and partition `stale` ──
+  // ── AT3: never-read and cold are DISJOINT, and partition `unreadOrCold` ──
   const overlap = await scalar(
     db,
     sql`SELECT count(*)::int AS n FROM memories
@@ -192,10 +193,10 @@ async function main(): Promise<number> {
     `${overlap} records in BOTH never-read and cold (must be 0 — a row cannot be null and non-null)`
   );
 
-  // The union check is the one that actually catches a `stale`-based
-  // reimplementation: if either worklist were built on `stale`, never-read
+  // The union check is the one that actually catches a union-based
+  // reimplementation: if either worklist were built on `unreadOrCold`, never-read
   // would be double-counted and this sum would exceed the union.
-  const staleUnion = await scalar(
+  const unreadOrColdUnion = await scalar(
     db,
     sql`SELECT count(*)::int AS n FROM memories
         WHERE last_accessed_at IS NULL OR last_accessed_at < now() - ${coldInterval}`
@@ -203,8 +204,8 @@ async function main(): Promise<number> {
   const sum = neverWhere + coldWhere;
   record(
     "AT3 partition",
-    sum === staleUnion,
-    `never-read(${neverWhere}) + cold(${coldWhere}) = ${sum}, stale-union at ${coldDays}d = ${staleUnion}`
+    sum === unreadOrColdUnion,
+    `never-read(${neverWhere}) + cold(${coldWhere}) = ${sum}, unreadOrCold-union at ${coldDays}d = ${unreadOrColdUnion}`
   );
 
   // ── The growth window returns exactly GROWTH_WEEKS buckets ──
@@ -242,7 +243,7 @@ async function main(): Promise<number> {
         WHERE last_accessed_at IS NOT NULL AND last_accessed_at < now() - interval '90 days'`
   );
   console.log(
-    `[INFO] at the stale filter's own 90-day default, only ${readButOld90} record(s) are ` +
+    `[INFO] at the unreadOrCold filter's own 90-day default, only ${readButOld90} record(s) are ` +
       `read-but-old — which is why a 90-day cold threshold cannot separate the two populations.`
   );
 

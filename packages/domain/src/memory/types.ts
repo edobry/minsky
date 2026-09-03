@@ -225,8 +225,9 @@ export interface MemoryReadResult {
 
 /**
  * Sort field for `MemoryService.list()` (mt#4761), applied via SQL `ORDER BY`.
- * Ignored when `filter.stale` is true — that filter forces its own
- * `lastAccessedAt` ascending, nulls-first order (see `MemoryListFilter.stale`).
+ * Ignored when `filter.unreadOrCold` is true — that filter forces its own
+ * `lastAccessedAt` ascending, nulls-first order (see
+ * `MemoryListFilter.unreadOrCold`).
  */
 export type MemoryListSortField =
   | "created"
@@ -249,7 +250,7 @@ export type MemoryListSortDirection = "asc" | "desc";
  * days is where the distribution bends, so it separates "not in the working
  * set" from the ordinary weekly rhythm. For contrast a 7-day cut flags 288
  * records (most of them simply last week's), 30 days flags 24, and
- * `stalenessDays`' own 90-day default flags 1 — the corpus has only tracked
+ * `unreadOrColdDays`' own 90-day default flags 1 — the corpus has only tracked
  * `last_accessed_at` since 2026-05-27, so a 90-day cold threshold cannot
  * work here at all.
  *
@@ -275,15 +276,37 @@ export interface MemoryListFilter {
   /** When true, excludes memories that have been superseded (superseded_by IS NOT NULL) */
   excludeSuperseded?: boolean;
   /**
-   * When true, filter to records with last_accessed_at IS NULL OR older than stalenessDays.
-   * Results are sorted by lastAccessedAt ASC NULLS FIRST (oldest/never-accessed first).
+   * When true, filter to records with `last_accessed_at IS NULL OR older than
+   * unreadOrColdDays` — the UNION of {@link neverAccessed} and {@link cold}.
+   * Results are sorted by lastAccessedAt ASC NULLS FIRST (oldest/never-accessed
+   * first).
+   *
+   * **Named `unreadOrCold`, not `stale` (mt#4799).** Two independent problems
+   * with the old name, and mt#4767 fixed only the user-visible one:
+   *
+   * 1. It is a UNION wearing a singular name. Its two disjuncts are exactly
+   *    {@link neverAccessed} and {@link cold}, which is why mt#4767 could not
+   *    build two disjoint worklists on it and had to add them beside it.
+   * 2. The word was already spoken for. `staleness.ts:517` and
+   *    `task-state-assertion.ts:206` both emit `⚠️ POSSIBLY OBSOLETE` for a
+   *    memory whose TRACKING TASK shipped — an unrelated property. In this
+   *    codebase "stale" means that.
+   *
+   * **Kept rather than retired**, though the caller count argued for
+   * retirement (measured 2026-09-03: no caller wants the union, and at the
+   * 90-day default it is `neverAccessed` plus exactly one row). The deciding
+   * fact is structural: `buildListConditions` ANDs its conditions, so setting
+   * `neverAccessed` and `cold` together yields the EMPTY set. The union is not
+   * reconstructible from the two disjoint filters — it is expressible only
+   * here. Retiring it would delete a capability on the strength of a
+   * one-row margin that is a property of today's corpus, not of the semantics.
    */
-  stale?: boolean;
+  unreadOrCold?: boolean;
   /**
-   * Threshold in days for the stale filter. Defaults to 90.
-   * Ignored unless stale is true.
+   * Threshold in days for the {@link unreadOrCold} filter. Defaults to 90.
+   * Ignored unless `unreadOrCold` is true.
    */
-  stalenessDays?: number;
+  unreadOrColdDays?: number;
   /**
    * When true, filter to records carrying no tags at all
    * (`cardinality(tags) = 0`) — mt#4767's "Untagged" curation worklist.
@@ -297,25 +320,27 @@ export interface MemoryListFilter {
    * When true, filter to records never read since creation
    * (`last_accessed_at IS NULL`) — mt#4767's "Never read" worklist.
    *
-   * DELIBERATELY NOT `stale` (mt#4767). `stale` is `last_accessed_at IS NULL
-   * OR older than stalenessDays` — a UNION whose first disjunct IS this
-   * filter, so `stale` cannot express never-read and read-but-cold as two
-   * separate populations. Measured on the live corpus 2026-08-31: `stale` at
-   * its own 90-day default returned 252 rows against this filter's 251,
-   * because exactly ONE record had been read but not within 90 days. Building
-   * both worklists on `stale` would have shipped the same list twice.
+   * DELIBERATELY NOT {@link unreadOrCold} (mt#4767), which is
+   * `last_accessed_at IS NULL OR older than unreadOrColdDays` — a UNION whose
+   * first disjunct IS this filter, so it cannot express never-read and
+   * read-but-cold as two separate populations. Measured on the live corpus
+   * 2026-08-31: the union at its own 90-day default returned 252 rows against
+   * this filter's 251, because exactly ONE record had been read but not within
+   * 90 days. (Re-measured 2026-09-03 on a corpus of 1,366: 256 against 255 —
+   * same one-row margin.) Building both worklists on the union would have
+   * shipped the same list twice.
    */
   neverAccessed?: boolean;
   /**
    * When true, filter to records that HAVE been read but not recently
    * (`last_accessed_at IS NOT NULL AND last_accessed_at < now() - coldDays`)
    * — mt#4767's "Cold" worklist. Strictly disjoint from {@link neverAccessed}
-   * by construction; together they partition what {@link stale} unions.
+   * by construction; together they partition what {@link unreadOrCold} unions.
    *
    * "Cold", not "stale": `staleness.ts` already emits `⚠️ POSSIBLY OBSOLETE`
    * for a DIFFERENT property — a memory whose tracking task shipped — so the
-   * word is spoken for. {@link stale} itself is the mis-named one; renaming
-   * it is a tracked follow-up, not this filter's job.
+   * word is spoken for. The union filter beside this one carried the offending
+   * name until mt#4799 renamed it to {@link unreadOrCold}.
    */
   cold?: boolean;
   /**
@@ -351,12 +376,12 @@ export interface MemoryListFilter {
   until?: string;
   /**
    * Sort field, applied in SQL (mt#4761). Defaults to `"created"` when omitted.
-   * Ignored when `stale` is true.
+   * Ignored when `unreadOrCold` is true.
    */
   sort?: MemoryListSortField;
   /**
    * Sort direction, applied in SQL (mt#4761). Defaults to `"desc"` when omitted.
-   * Ignored when `stale` is true.
+   * Ignored when `unreadOrCold` is true.
    */
   dir?: MemoryListSortDirection;
   /**

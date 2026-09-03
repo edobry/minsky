@@ -98,6 +98,8 @@ const RECENT_WINDOW_DAYS = 7;
 const FILTER_COHORT_KEYS = [
   "tags",
   "since",
+  "unreadOrCold",
+  // Legacy alias for the key above (mt#4799) — cleared for the same reason.
   "stale",
   "cold",
   "coldDays",
@@ -139,13 +141,16 @@ function isPlainView(search: string): boolean {
  * True when any last-accessed / curation narrowing filter is set (mt#4767).
  *
  * The "All" and "Recent" cohorts use this to decide they are NOT active. It
- * has to cover every worklist key, not just `stale`: before mt#4767 the check
- * was a bare `readMemFilter(s, "stale") !== "true"`, so clicking a worklist
- * would leave "All" rendering as the selected chip while the table showed a
- * narrowed list — the chip row asserting something the table contradicts.
+ * has to cover every worklist key, not just the union filter: before mt#4767
+ * the check was a bare `readMemFilter(s, "stale") !== "true"`, so clicking a
+ * worklist would leave "All" rendering as the selected chip while the table
+ * showed a narrowed list — the chip row asserting something the table
+ * contradicts. (`stale` was renamed to `unreadOrCold` by mt#4799; the old key
+ * is still read here so a bookmarked link keeps de-selecting "All".)
  */
 function hasNarrowingFilter(search: string): boolean {
   return (
+    readMemFilter(search, "unreadOrCold") === "true" ||
     readMemFilter(search, "stale") === "true" ||
     readMemFilter(search, "cold") === "true" ||
     readMemFilter(search, "untagged") === "true" ||
@@ -212,21 +217,27 @@ export const COHORT_DEFS: CohortDef[] = [
     // memory whose TRACKING TASK shipped — an unrelated property — so the
     // page showed one word for two meanings.
     //
-    // The FILTER was worse: `stale` is `last_accessed_at IS NULL OR older
-    // than N`, so a chip meaning "read a while ago" was actually serving
+    // The FILTER was worse: the union filter is `last_accessed_at IS NULL OR
+    // older than N`, so a chip meaning "read a while ago" was actually serving
     // never-read records too. Measured 2026-08-31, that is 251 of the 252
     // rows it returned. It now filters on `cold`, which requires
     // `last_accessed_at IS NOT NULL` and says what it means.
     //
-    // A legacy `?mem_f_stale=true` link still filters correctly (the domain
-    // field is untouched) and still lights this chip, so shared URLs keep
-    // working while new clicks write the honest param.
+    // A legacy `?mem_f_stale=true` link still filters and still lights this
+    // chip, so shared URLs keep working while new clicks write the honest
+    // param. mt#4799 renamed the domain field `stale` → `unreadOrCold` and
+    // kept `stale` as a read-only alias at every layer, so those links behave
+    // exactly as they did — including the wrinkle that they run the UNION
+    // query while lighting a chip labelled "Cold". That mismatch is inherited
+    // from mt#4767's decision to keep the links working, not introduced here.
     id: "cold",
     label: "Cold",
     apply: () => writeMemoriesUrl({ ...clearFilterCohortKeys(), [memFilterKey("cold")]: "true" }),
     isActive: (s) =>
       isPlainView(s) &&
-      (readMemFilter(s, "cold") === "true" || readMemFilter(s, "stale") === "true"),
+      (readMemFilter(s, "cold") === "true" ||
+        readMemFilter(s, "unreadOrCold") === "true" ||
+        readMemFilter(s, "stale") === "true"),
   },
 ];
 

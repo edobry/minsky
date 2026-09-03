@@ -1,12 +1,12 @@
 /**
  * Age-threshold arithmetic for the list filters (mt#4767).
  *
- * `daysBefore` is the shared boundary behind both `stale` and `cold`. It takes
+ * `daysBefore` is the shared boundary behind both `unreadOrCold` and `cold`. It takes
  * an injected clock rather than reading `Date.now()`, so these assertions pin
  * an exact instant instead of a tolerance window — see
  * `testing-standards.mdc §The clock is injected, never read at the point of use`.
  *
- * The `cold` vs `stale` DISJOINTNESS these thresholds serve is a property of
+ * The `cold` vs `unreadOrCold` DISJOINTNESS these thresholds serve is a property of
  * SQL predicates, so it is asserted where it can actually be observed: against
  * the live corpus, by `scripts/verify-memory-worklists.ts` (mt#4767 AT3).
  */
@@ -26,7 +26,7 @@ describe("daysBefore", () => {
     expect(daysBefore(NOW, 0).getTime()).toBe(NOW);
   });
 
-  test("the 90-day default the stale filter uses", () => {
+  test("the 90-day default the unreadOrCold filter uses", () => {
     expect(daysBefore(NOW, 90).toISOString()).toBe("2026-06-02T00:00:00.000Z");
   });
 
@@ -51,10 +51,10 @@ describe("DEFAULT_COLD_DAYS", () => {
     expect(DEFAULT_COLD_DAYS).toBe(14);
   });
 
-  test("is well below the stale filter's 90-day default", () => {
+  test("is well below the unreadOrCold filter's 90-day default", () => {
     // At 90 days the cold filter matched exactly ONE record, because the
     // corpus has only tracked last_accessed_at since 2026-05-27. A cold
-    // threshold at the stale default would be a permanently-empty worklist.
+    // threshold at the unreadOrCold default would be a permanently-empty worklist.
     expect(DEFAULT_COLD_DAYS).toBeLessThan(90);
   });
 });

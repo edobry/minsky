@@ -6516,12 +6516,21 @@
               "description": "When true, exclude superseded memories"
             },
             {
+              "flags": ["--unread-or-cold"],
+              "description": "When true, filter to memories never read OR last read longer ago than the threshold"
+            },
+            {
+              "flags": ["--unread-or-cold-days"],
+              "description": "Threshold (in days) for the --unread-or-cold filter; defaults to 90",
+              "takesValue": true
+            },
+            {
               "flags": ["--stale"],
-              "description": "When true, filter to memories never accessed or older than the staleness threshold"
+              "description": "DEPRECATED alias for --unread-or-cold (mt#4799)."
             },
             {
               "flags": ["--staleness-days"],
-              "description": "Threshold (in days) for the --stale filter; defaults to 90",
+              "description": "DEPRECATED alias for --unread-or-cold-days (mt#4799).",
               "takesValue": true
             },
             {
@@ -6530,11 +6539,11 @@
             },
             {
               "flags": ["--never-accessed"],
-              "description": "When true, filter to memories never read since creation. Narrower than --stale, which also matches records that WERE read but not recently"
+              "description": "When true, filter to memories never read since creation. Narrower than --unread-or-cold, which also matches records that WERE read but not recently"
             },
             {
               "flags": ["--cold"],
-              "description": "When true, filter to memories that were read at least once but not within --cold-days. Disjoint from --never-accessed; --stale is the union of the two"
+              "description": "When true, filter to memories that were read at least once but not within --cold-days. Disjoint from --never-accessed; --unread-or-cold is the union of the two"
             },
             {
               "flags": ["--cold-days"],
@@ -6576,13 +6585,13 @@
             },
             {
               "flags": ["--sort"],
-              "description": "Sort field, applied in SQL. Defaults to 'created' (ignored when stale:true)",
+              "description": "Sort field, applied in SQL. Defaults to 'created' (ignored when unreadOrCold:true)",
               "takesValue": true,
               "values": ["created", "updated", "lastAccessed", "accessCount", "shortId", "name"]
             },
             {
               "flags": ["--dir"],
-              "description": "Sort direction. Defaults to 'desc' (ignored when stale:true)",
+              "description": "Sort direction. Defaults to 'desc' (ignored when unreadOrCold:true)",
               "takesValue": true,
               "values": ["asc", "desc"]
             },

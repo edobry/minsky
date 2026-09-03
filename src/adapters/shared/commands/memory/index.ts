@@ -142,16 +142,33 @@ const memoryListParams = {
     required: false as const,
     defaultValue: false,
   },
-  stale: {
+  unreadOrCold: {
     schema: z.boolean(),
     description:
-      "When true, filter to memories never accessed or older than the staleness threshold",
+      "When true, filter to memories never read OR last read longer ago than the threshold",
+    required: false as const,
+    defaultValue: false,
+  },
+  unreadOrColdDays: {
+    schema: z.number().int().positive(),
+    description: "Threshold (in days) for the --unread-or-cold filter; defaults to 90",
+    required: false as const,
+  },
+  // Deprecated aliases for the two params above, renamed by mt#4799 because
+  // "stale" already means "this memory's tracking task shipped" everywhere else
+  // in the codebase (`staleness.ts`, `task-state-assertion.ts`). Kept working
+  // rather than broken: this is an agent-facing tool surface, so a caller
+  // outside the repo can be passing --stale today and there is no way to find
+  // them. How the pair combines is `foldUnreadOrColdAliases` below.
+  stale: {
+    schema: z.boolean(),
+    description: "DEPRECATED alias for --unread-or-cold (mt#4799).",
     required: false as const,
     defaultValue: false,
   },
   stalenessDays: {
     schema: z.number().int().positive(),
-    description: "Threshold (in days) for the --stale filter; defaults to 90",
+    description: "DEPRECATED alias for --unread-or-cold-days (mt#4799).",
     required: false as const,
   },
   // mt#4767 curation filters. Added here as well as in the cockpit so the two
@@ -166,7 +183,8 @@ const memoryListParams = {
   neverAccessed: {
     schema: z.boolean(),
     description:
-      "When true, filter to memories never read since creation. Narrower than --stale, " +
+      "When true, filter to memories never read since creation. Narrower than " +
+      "--unread-or-cold, " +
       "which also matches records that WERE read but not recently",
     required: false as const,
     defaultValue: false,
@@ -175,7 +193,7 @@ const memoryListParams = {
     schema: z.boolean(),
     description:
       "When true, filter to memories that were read at least once but not within " +
-      "--cold-days. Disjoint from --never-accessed; --stale is the union of the two",
+      "--cold-days. Disjoint from --never-accessed; --unread-or-cold is the union of the two",
     required: false as const,
     defaultValue: false,
   },
@@ -233,12 +251,13 @@ const memoryListParams = {
   // (applyListCap) with no ordering, sorting, or offset support at all.
   sort: {
     schema: z.enum(["created", "updated", "lastAccessed", "accessCount", "shortId", "name"]),
-    description: "Sort field, applied in SQL. Defaults to 'created' (ignored when stale:true)",
+    description:
+      "Sort field, applied in SQL. Defaults to 'created' (ignored when unreadOrCold:true)",
     required: false as const,
   },
   dir: {
     schema: z.enum(["asc", "desc"]),
-    description: "Sort direction. Defaults to 'desc' (ignored when stale:true)",
+    description: "Sort direction. Defaults to 'desc' (ignored when unreadOrCold:true)",
     required: false as const,
   },
   offset: {
@@ -693,6 +712,53 @@ async function resolveMemoryService(
   });
 }
 
+// ─── mt#4799 deprecated-alias folding ────────────────────────────────────────
+
+/**
+ * The alias-bearing subset of `memory.list`'s params (mt#4799).
+ *
+ * Named `...AliasInput`, not `...AliasParams`: it is a projection this helper
+ * takes, not a handler's param type, and `custom/no-hand-rolled-command-params`
+ * reserves the `*Params` namespace for types derived from a params map.
+ */
+export interface UnreadOrColdAliasInput {
+  unreadOrCold?: boolean;
+  stale?: boolean;
+  unreadOrColdDays?: number;
+  stalenessDays?: number;
+}
+
+/**
+ * Fold the deprecated `stale` / `stalenessDays` params into the current
+ * `unreadOrCold` / `unreadOrColdDays` names (mt#4799).
+ *
+ * **The two halves combine DIFFERENTLY, and neither is an oversight.** PR #3593
+ * R1 caught a comment here claiming `unreadOrCold` "wins when both are
+ * supplied". It does not — and for the flag it cannot:
+ *
+ * - **The flag ORs.** Both params declare `defaultValue: false`, so an omitted
+ *   flag and an explicit `--unread-or-cold=false` arrive at this function
+ *   identically. There is no value a caller can send meaning "off, and override
+ *   the alias", so precedence is not expressible here; the honest semantics are
+ *   "either flag turns the filter on", which is also what a caller passing
+ *   only the deprecated name expects.
+ * - **The threshold uses `??`, which IS precedence.** `unreadOrColdDays` has no
+ *   default, so `undefined` genuinely distinguishes "not supplied" from any
+ *   real value, and an explicit current-name threshold beats the alias.
+ *
+ * Extracted from the inline expression so the asymmetry is stated once and
+ * asserted directly, rather than being re-derived from two operators.
+ */
+export function foldUnreadOrColdAliases(params: UnreadOrColdAliasInput): {
+  unreadOrCold: boolean;
+  unreadOrColdDays: number | undefined;
+} {
+  return {
+    unreadOrCold: Boolean(params.unreadOrCold || params.stale),
+    unreadOrColdDays: params.unreadOrColdDays ?? params.stalenessDays,
+  };
+}
+
 // ─── ADR-021 project scope resolution ────────────────────────────────────────
 
 /**
@@ -951,8 +1017,10 @@ export function registerMemoryCommands(
         projectId: params.projectId,
         projectScope,
         excludeSuperseded: params.excludeSuperseded,
-        stale: params.stale,
-        stalenessDays: params.stalenessDays,
+        // mt#4799: the deprecated aliases fold in here, so the domain surface
+        // sees only the current names. See {@link foldUnreadOrColdAliases} for
+        // why the two halves combine DIFFERENTLY.
+        ...foldUnreadOrColdAliases(params),
         untagged: params.untagged,
         neverAccessed: params.neverAccessed,
         cold: params.cold,
