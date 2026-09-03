@@ -366,6 +366,35 @@ function runSuitesAtSeed(seed: number): RunResult {
  * NARROWS at the call site — otherwise the caller still sees `number | null`
  * after the guard, which is the tell that the guard is decorative.
  */
+/**
+ * Refuse any run whose result cannot be interpreted, and return its test count.
+ *
+ * Applied to the first run AND the fixed-seed repeat: both feed the classifier,
+ * so a dead one is a wrong verdict either way. `label` names which, because the
+ * two are indistinguishable in the output otherwise.
+ */
+function assertRunInterpretable(seed: number, run: RunResult, label: string): number {
+  const executedTests = parseExecutedTestCount(run.output, SWEPT_SUITES.length);
+  if (executedTests === null) {
+    abortUnusableRun(
+      seed,
+      `${label}: bun printed no \`Ran N tests across M files\` summary for every swept suite, so ` +
+        "the run did not complete. Zero parsed failures here means a runner died, NOT that the " +
+        "suite is clean.",
+      run
+    );
+  }
+  if (run.exitCode !== 0 && parseFailureNames(run.output).length === 0) {
+    abortUnusableRun(
+      seed,
+      `${label}: the runner exited non-zero but printed no \`(fail)\` line, so there is nothing ` +
+        "to attribute the failure to — the sweep cannot classify what it cannot see.",
+      run
+    );
+  }
+  return executedTests;
+}
+
 function abortUnusableRun(seed: number, why: string, run: RunResult): never {
   const tail = run.output.split("\n").slice(-40).join("\n");
   console.error(
@@ -485,23 +514,7 @@ function main(): never {
     const run = runSuitesAtSeed(seed);
     const failures = parseFailureNames(run.output);
 
-    const executedTests = parseExecutedTestCount(run.output, SWEPT_SUITES.length);
-    if (executedTests === null) {
-      abortUnusableRun(
-        seed,
-        "bun printed no `Ran N tests across M files` summary, so the run did not complete. " +
-          "Zero parsed failures here means the runner died, NOT that the suite is clean.",
-        run
-      );
-    }
-    if (run.exitCode !== 0 && failures.length === 0) {
-      abortUnusableRun(
-        seed,
-        "the runner exited non-zero but printed no `(fail)` line, so there is nothing to " +
-          "attribute the failure to — the sweep cannot classify what it cannot see.",
-        run
-      );
-    }
+    const executedTests = assertRunInterpretable(seed, run, "first run");
 
     if (!json) {
       console.log(`seed ${seed}: ${failures.length} failure(s), ${executedTests} tests executed`);
@@ -517,6 +530,14 @@ function main(): never {
     // is caused by something else — contention, typically (mem#942). Only failing
     // seeds pay for this, so a clean sweep costs nothing extra.
     const repeat = runSuitesAtSeed(seed);
+    // The repeat needs the SAME integrity check as the first run, and its failure
+    // mode is the worse of the two (PR #3590 R4). A dead repeat parses as zero
+    // failures, which reads as a FLIP, which classifies the finding
+    // `loadSensitive` — a bucket that deliberately does NOT fail the sweep. So an
+    // uninterpretable repeat would silently turn a real order-dependent finding
+    // into a passing gate. The first run's equivalent failure at least reports
+    // something; this one reports a green.
+    assertRunInterpretable(seed, repeat, "fixed-seed repeat");
     const repeatFailures = parseFailureNames(repeat.output);
     if (!json) {
       console.log(`seed ${seed} (fixed-seed repeat): ${repeatFailures.length} failure(s)`);
