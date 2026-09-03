@@ -30,7 +30,9 @@ import { spawn as nodeSpawn } from "child_process";
 import { log } from "@minsky/shared/logger";
 import { missingCwdReason, probeSpawnCwd } from "./claude-cwd-preflight";
 import { CLAUDE_BINARY, buildDrivenSessionArgs, buildResumeSessionArgs } from "./claude-argv";
+import { readConfiguredAnthropicApiKey } from "@minsky/domain/credentials/anthropic-api-key";
 import type {
+  DriverAuthMode,
   DriverTransport,
   DriverTransportEvent,
   DriverTransportResumeOptions,
@@ -185,6 +187,54 @@ function attachParser(
 }
 
 // ---------------------------------------------------------------------------
+// auth_mode: "api-key" env resolution (mt#4935)
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the env object to spawn with, honouring `authMode` (mt#4935).
+ *
+ * `"subscription"` (the default, and the only value before this task) is a
+ * no-op — returns `baseEnv` UNCHANGED, so the operator's own Claude Code
+ * login is exactly as untouched as it always was.
+ *
+ * `"api-key"` sets `ANTHROPIC_API_KEY` in the CHILD's env only, from the
+ * configured `ai.providers.anthropic.apiKey` credential — never the parent
+ * process's env, never printed, never logged. Preserves the rest of
+ * `baseEnv` (or `process.env`, matching `prodSpawnFn`'s own default when
+ * `baseEnv` is `undefined`) rather than replacing it outright: an env
+ * object carrying ONLY `ANTHROPIC_API_KEY` would spawn a child with no
+ * `PATH`, unable to find the binary that is about to run it.
+ *
+ * A missing credential degrades to `baseEnv` with a WARNING, never a throw —
+ * matching this file's existing `resolveMcpConfigForSpawn` posture (a
+ * degraded driven session is recoverable; a driven session that will not
+ * spawn is not). The route-level refusal (`routes/driven-sessions.ts`) is
+ * what actually stops a launch with no credential configured; this is a
+ * second, independent line of defense for a caller that reaches the
+ * transport directly (e.g. a resume of a persisted `api-key` row whose
+ * credential was later removed).
+ */
+function resolveEnvForAuthMode(
+  authMode: DriverAuthMode | undefined,
+  baseEnv: NodeJS.ProcessEnv | undefined,
+  getAnthropicApiKey: () => string | null,
+  context: string
+): NodeJS.ProcessEnv | undefined {
+  if (authMode !== "api-key") return baseEnv;
+
+  const apiKey = getAnthropicApiKey();
+  if (!apiKey) {
+    log.warn(
+      `[driven-session] ${context}: auth_mode "api-key" but no Anthropic API key is configured ` +
+        `(ai.providers.anthropic.apiKey) — spawning without ANTHROPIC_API_KEY set`
+    );
+    return baseEnv;
+  }
+
+  return { ...(baseEnv ?? process.env), ANTHROPIC_API_KEY: apiKey };
+}
+
+// ---------------------------------------------------------------------------
 // The transport
 // ---------------------------------------------------------------------------
 
@@ -193,16 +243,25 @@ export interface ClaudeStreamJsonTransportOptions {
   command?: string;
   /** Override the spawn function (test seam — REQUIRED for all tests, see module docblock). */
   spawnFn?: SpawnFn;
+  /**
+   * Override how the configured Anthropic API key is read (mt#4935, test
+   * seam) — defaults to {@link readConfiguredAnthropicApiKey}. Tests inject a
+   * fake so `authMode: "api-key"` behavior is exercisable without a real
+   * initialized configuration provider.
+   */
+  getAnthropicApiKey?: () => string | null;
 }
 
 export class ClaudeStreamJsonTransport implements DriverTransport {
   readonly id = "claude-stream-json";
   private readonly command: string;
   private readonly spawnFn: SpawnFn;
+  private readonly getAnthropicApiKey: () => string | null;
 
   constructor(opts: ClaudeStreamJsonTransportOptions = {}) {
     this.command = opts.command ?? CLAUDE_BINARY;
     this.spawnFn = opts.spawnFn ?? prodSpawnFn;
+    this.getAnthropicApiKey = opts.getAnthropicApiKey ?? readConfiguredAnthropicApiKey;
   }
 
   spawn(opts: DriverTransportStartOptions): DriverTransportSpawnResult {
@@ -229,7 +288,8 @@ export class ClaudeStreamJsonTransport implements DriverTransport {
         `(cwd=${opts.cwd}, permissionMode=${opts.permissionMode})`
     );
 
-    const proc = this.spawnFn(this.command, argv, { cwd: opts.cwd, env: opts.env });
+    const env = resolveEnvForAuthMode(opts.authMode, opts.env, this.getAnthropicApiKey, "start");
+    const proc = this.spawnFn(this.command, argv, { cwd: opts.cwd, env });
     return { ok: true, proc, argv };
   }
 
@@ -270,7 +330,13 @@ export class ClaudeStreamJsonTransport implements DriverTransport {
         `generation=${(opts.driverGeneration ?? 0) + 1}, cwd=${opts.cwd})`
     );
 
-    const proc = this.spawnFn(this.command, argv, { cwd: opts.cwd, env: opts.env });
+    const env = resolveEnvForAuthMode(
+      opts.authMode,
+      opts.env,
+      this.getAnthropicApiKey,
+      `resume ${opts.localId ?? opts.harnessSessionId}`
+    );
+    const proc = this.spawnFn(this.command, argv, { cwd: opts.cwd, env });
     return { ok: true, proc, argv };
   }
 

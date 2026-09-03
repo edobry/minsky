@@ -76,6 +76,37 @@ export const drivenSessionsTable = pgTable(
     localId: text("local_id").primaryKey(),
     harnessSessionId: text("harness_session_id"),
 
+    /**
+     * Harness-agnostic drive-record fields (mt#4935, ADR-047 §Consequences).
+     * All four are plain `text` columns holding a closed set of string
+     * values — NOT Postgres `ENUM` types — matching this table's own
+     * convention documented on {@link PersistedDrivenSessionStatus} above:
+     * cheap to extend without an enum migration, which matters here because
+     * the harness/transport sets are explicitly expected to grow (mt#4936,
+     * the ACP sibling).
+     */
+
+    /** Which harness drives this session — `"claude-code"` today. */
+    harnessKind: text("harness_kind").notNull().default("claude-code"),
+    /** Which `DriverTransport` (src/cockpit/driver-transport.ts) spawned/spawns
+     * it — `DriverTransport.id`, e.g. `"claude-stream-json"`. Read by
+     * `selectDriverTransport()` (src/cockpit/driven-session-host.ts) to pick
+     * the transport implementation for a resume. */
+    transportId: text("transport_id").notNull().default("claude-stream-json"),
+    /**
+     * The harness's OWN conversation id, in the harness's own id space.
+     * For `harness_kind = "claude-code"` this is the SAME value as
+     * `harness_session_id` above — that column stays as a compatibility
+     * column/alias until the stage-2 ADR-022 rename retires it (mt#2527);
+     * this one is the harness-agnostic name a non-Claude harness (mt#4936)
+     * will also populate. Nullable for the same reason `harness_session_id`
+     * is: unknown until the child's `init` event links it.
+     */
+    harnessConversationId: text("harness_conversation_id"),
+    /** Credential/identity posture this drive runs under — `"subscription"`
+     * or `"api-key"` (`DriverAuthMode`, src/cockpit/driver-transport.ts). */
+    authMode: text("auth_mode").notNull().default("subscription"),
+
     cwd: text("cwd").notNull(),
     permissionMode: text("permission_mode").notNull(),
     taskId: text("task_id"),

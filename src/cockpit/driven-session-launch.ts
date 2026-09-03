@@ -57,6 +57,7 @@ import {
   buildReconnectingDrivenSessionRecord,
   missingCwdReason,
   probeSpawnCwdAsync,
+  type DriverAuthMode,
   type DrivenSessionRecord,
   type DrivenSessionCostSummary,
   type DrivenSessionRegistry,
@@ -513,6 +514,13 @@ export function createDrivenSessionPersistObserver(
         await upsert(db, {
           localId: record.localId,
           harnessSessionId: record.harnessSessionId,
+          // mt#4935: harness-agnostic drive-record fields, straight off the
+          // live record — never re-derived, so a persisted row always
+          // matches what actually spawned/spawns it.
+          harnessKind: record.harnessKind,
+          transportId: record.transportId,
+          harnessConversationId: record.harnessConversationId,
+          authMode: record.authMode,
           cwd: record.cwd,
           permissionMode: record.permissionMode,
           taskId: record.taskId,
@@ -742,10 +750,15 @@ async function persistBootTerminalVerdict(
       // The two fields this write exists to change.
       status: verdict.status,
       unrecoverableReason: verdict.unrecoverableReason,
-      // Preserved verbatim — see the docblock.
+      // Preserved verbatim — see the docblock. mt#4935 fields join the same
+      // preserved-verbatim set: this write records a verdict, not a rewrite.
       pid: row.pid,
       pidCmdline: row.pidCmdline,
       model: row.model,
+      harnessKind: row.harnessKind,
+      transportId: row.transportId,
+      harnessConversationId: row.harnessConversationId,
+      authMode: row.authMode,
       driverGeneration: row.driverGeneration,
       startedAt: row.startedAt.toISOString(),
     });
@@ -1124,6 +1137,13 @@ export async function reconcilePersistedDrivenSessions(
       const record = buildReconnectingDrivenSessionRecord({
         localId: row.localId,
         harnessSessionId: row.harnessSessionId,
+        // mt#4935: carried forward from the persisted row, never re-derived
+        // to a default — a rehydrated record must report what it actually
+        // is, not what most rows happen to be.
+        harnessKind: row.harnessKind,
+        transportId: row.transportId,
+        harnessConversationId: row.harnessConversationId,
+        authMode: row.authMode as DriverAuthMode,
         cwd: row.cwd,
         permissionMode: row.permissionMode as PermissionMode,
         taskId: row.taskId,
@@ -1343,6 +1363,12 @@ export async function orchestrateDrivenSessionResume(
         startedAt: row.startedAt.toISOString(),
         driverGeneration: row.driverGeneration,
         model: row.model,
+        // mt#4935: carried forward from the persisted row (never re-derived
+        // to a default) — a resume must drive under the SAME harness/
+        // transport/auth posture the original spawn used.
+        harnessKind: row.harnessKind,
+        transportId: row.transportId,
+        authMode: row.authMode as DriverAuthMode,
       },
       // mt#4323: a `resumeDrivenSession` call — by construction the session is
       // re-adopting a conversation it already had, not spawning a fresh one.

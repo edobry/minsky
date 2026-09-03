@@ -697,6 +697,10 @@ describe("GET /api/driven-session after boot reconciliation retires a row (mt#42
   const BASE: DrivenSessionRow = {
     localId: "placeholder",
     harnessSessionId: "harness-x",
+    harnessKind: "claude-code",
+    transportId: "claude-stream-json",
+    harnessConversationId: "harness-x",
+    authMode: "subscription",
     cwd: TEST_DIR_ROOT,
     permissionMode: "bypassPermissions",
     taskId: null,

@@ -79,14 +79,41 @@ export type PermissionMode = "bypassPermissions" | "default";
 export const DEFAULT_PERMISSION_MODE: PermissionMode = "bypassPermissions";
 
 /**
- * The credential/identity posture a transport drives under. `"subscription"`
- * (the user's own Claude Code login, no Agent SDK) is the only value any
- * transport supports today — ask#11489 (customer-facing auth policy) and
- * mt#4935/mt#4936 may extend this set later. Declared now so `start`/`resume`
- * already carry the parameter SC1 asks for, without inventing branching logic
- * nothing yet needs.
+ * The credential/identity posture a transport drives under (mt#4935, ADR-047
+ * §Consequences):
+ *   - `"subscription"` — the user's own Claude Code login, no Agent SDK, no
+ *     env mutation. The only value ever exercised before this task, and
+ *     still the only one refused for any `harness_kind` other than
+ *     `"claude-code"` until that harness's own subscription path is
+ *     verified (the seam: mt#2237/mt#2750).
+ *   - `"api-key"` — the transport sets `ANTHROPIC_API_KEY` in the spawned
+ *     child's env from the configured `ai.providers.anthropic.apiKey`
+ *     credential, leaving the operator's own subscription login untouched.
+ *     Refused with a clear error when no credential is configured.
+ *
+ * The customer-facing auth POLICY (which mode a given launch should use) is
+ * ask#11489, filed under mt#4933 — explicitly out of this task's scope.
  */
-export type DriverAuthMode = "subscription";
+export type DriverAuthMode = "subscription" | "api-key";
+
+export const DEFAULT_AUTH_MODE: DriverAuthMode = "subscription";
+
+/**
+ * Which harness drives a session (mt#4935) — `"claude-code"` today; `codex`,
+ * `gemini-cli`, `opencode` are added by the ACP sibling (mt#4936) as they are
+ * proven. Deliberately `string`, not a closed union: the whole point of the
+ * plain-`text`-column design this mirrors (see `driven-sessions-schema.ts`'s
+ * `PersistedDrivenSessionStatus` comment) is that this set grows without a
+ * migration — a closed TS union would have to be edited in lockstep anyway,
+ * which is the exact coupling the schema design avoids.
+ */
+export const DEFAULT_HARNESS_KIND = "claude-code";
+
+/** The default `DriverTransport.id` — must match `ClaudeStreamJsonTransport.id`
+ * (./claude-transport.ts). Duplicated as a literal rather than imported: this
+ * module is the pure interface contract and does not depend on any
+ * implementation. */
+export const DEFAULT_TRANSPORT_ID = "claude-stream-json";
 
 // ---------------------------------------------------------------------------
 // Normalized cost/usage shape — the "turn result" every transport reports,

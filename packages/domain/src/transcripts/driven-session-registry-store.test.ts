@@ -200,6 +200,10 @@ describe("mapRawDrivenSessionRow", () => {
     const mapped = mapRawDrivenSessionRow({
       local_id: "local-1",
       harness_session_id: "harness-1",
+      harness_kind: "claude-code",
+      transport_id: "claude-stream-json",
+      harness_conversation_id: "harness-1",
+      auth_mode: "subscription",
       cwd: "/tmp/x",
       permission_mode: "default",
       task_id: "mt#3038",
@@ -217,6 +221,11 @@ describe("mapRawDrivenSessionRow", () => {
     expect(mapped.harnessSessionId).toBe("harness-1");
     expect(mapped.status).toBe("reconnecting");
     expect(mapped.driverGeneration).toBe(2);
+    // mt#4935
+    expect(mapped.harnessKind).toBe("claude-code");
+    expect(mapped.transportId).toBe("claude-stream-json");
+    expect(mapped.harnessConversationId).toBe("harness-1");
+    expect(mapped.authMode).toBe("subscription");
   });
 });
 
