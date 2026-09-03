@@ -1377,6 +1377,29 @@ through the post-split supervisor and diffs its WebSocket event sequence and
 persisted-row-equivalent observer calls against a pre-split capture — the
 split's behaviour-preservation evidence.
 
+**Harness-agnostic drive record (mt#4935, ADR-047 §Consequences).**
+`driven_sessions` (`packages/domain/src/storage/schemas/driven-sessions-schema.ts`,
+migration `0117`) carries four plain-`text` columns — not Postgres `ENUM`s,
+matching this table's own documented convention, since the value set is
+expected to grow as non-Claude harnesses land: `harness_kind` (`"claude-code"`
+today), `transport_id` (`DriverTransport.id`, `"claude-stream-json"` today —
+`selectDriverTransport()` in `driven-session-host.ts` dispatches on it, via a
+small factory registry rather than the single hard-coded default mt#4934
+left), `harness_conversation_id` (the harness's own conversation id — for
+Claude Code the same value as the pre-existing `harness_session_id`
+compatibility column, which stays until the ADR-022 stage-2 rename), and
+`auth_mode` (`"subscription"` or `"api-key"`, `DriverAuthMode` in
+`driver-transport.ts`). The 0117 migration backfills every existing row —
+three columns via a constant DB-level default applied at `ADD COLUMN` time,
+`harness_conversation_id` via an explicit `UPDATE` from `harness_session_id`.
+`POST /api/driven-session` accepts all four, defaulting to today's values;
+`ClaudeStreamJsonTransport` honours `auth_mode: "api-key"` by setting
+`ANTHROPIC_API_KEY` in the spawned child's env from the configured
+`ai.providers.anthropic.apiKey` credential (never the operator's own
+subscription login), and the route refuses `"api-key"` with no credential
+configured or `"subscription"` for any harness other than `"claude-code"`
+(the seam: mt#2237/mt#2750) before spawning anything.
+
 Endpoints (`src/cockpit/routes/driven-sessions.ts`, mounted only when
 `!isPublicDeployment`):
 
