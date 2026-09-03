@@ -572,6 +572,44 @@ describe("POST /api/driven-session/attach (mt#3095)", () => {
     expect(res.body.message).toContain("written to right now");
   });
 
+  test("409 carries the holder payload when the roster (not presence) refused (mt#4869)", async () => {
+    const holder = {
+      surface: "terminal" as const,
+      name: "roster-probe",
+      pid: 4242,
+      idleForMs: 9000,
+    };
+    const h = await makeHarness({
+      attachDrivenSession: async () => ({
+        outcome: "refused",
+        reason: "live-elsewhere",
+        message: "Another Claude Code process is currently holding this conversation.",
+        presence: "IDLE",
+        holder,
+      }),
+    });
+
+    const res = await attachPost(h.url, { conversationId: CONVERSATION });
+    expect(res.status).toBe(409);
+    expect(res.body.reason).toBe("live-elsewhere");
+    expect(res.body.holder).toEqual(holder);
+  });
+
+  test("409 omits holder entirely when the refusal came from presence, not the roster", async () => {
+    const h = await makeHarness({
+      attachDrivenSession: async () => ({
+        outcome: "refused",
+        reason: "live-writer",
+        message: "This conversation is being written to right now.",
+        presence: "LIVE",
+      }),
+    });
+
+    const res = await attachPost(h.url, { conversationId: CONVERSATION });
+    expect(res.status).toBe(409);
+    expect("holder" in res.body).toBe(false);
+  });
+
   test("423 — distinct from 409 — when another cockpit session driver holds the lock", async () => {
     const h = await makeHarness({
       attachDrivenSession: async () => ({ outcome: "locked" }),
