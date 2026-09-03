@@ -65,11 +65,49 @@ const rosterAtProbeTime = [holder];
 describe("verifySingleWriter", () => {
   test("passes on the socket-delivered specimen: one writer, linear chain, refs on lineage", () => {
     const rows = loadSpecimen(SOCKET_DELIVERED);
-    const result = verifySingleWriter(rows, rosterAtProbeTime, holder);
+    const result = verifySingleWriter(rows, rosterAtProbeTime, holder, {
+      expectDeliveredTurn: true,
+    });
 
     expect(result.ok).toBe(true);
     expect(result.lines.some((l) => l.startsWith("[FAIL]"))).toBe(false);
-    expect(result.lines.join("\n")).toContain("[PASS] linear parentUuid chain");
+    const report = result.lines.join("\n");
+    expect(report).toContain("[PASS] linear parentUuid chain");
+    expect(report).toContain("[PASS] a peer-origin user row exists and the holder answered it");
+  });
+
+  test("the delivered-turn assertion can fail: it is not vacuous", () => {
+    // Strip the peer row and everything under it. The chain stays linear and the roster is
+    // unchanged, so ONLY the delivered-turn check can fire — which is the point of the control.
+    const rows = loadSpecimen(SOCKET_DELIVERED).filter((row) => row.origin?.kind !== "peer");
+    const result = verifySingleWriter(rows, rosterAtProbeTime, holder, {
+      expectDeliveredTurn: true,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.lines.join("\n")).toContain(
+      "[FAIL] a peer-origin user row exists and the holder answered it"
+    );
+    // …and the same input passes when the caller did not send anything.
+    const inspectOnly = verifySingleWriter(rows, rosterAtProbeTime, holder);
+    expect(inspectOnly.ok).toBe(true);
+  });
+
+  test("non-turn rows sharing a parent are reported but never counted as a fork", () => {
+    const rows = loadSpecimen(SOCKET_DELIVERED);
+    // Two attachments under one parent is ordinary interleaving, not a second writer.
+    const anchor = rows.find((row) => row.type === "assistant");
+    const withSiblingAttachments = [
+      ...rows,
+      { type: "attachment", uuid: "synthetic-a", parentUuid: anchor.uuid },
+      { type: "attachment", uuid: "synthetic-b", parentUuid: anchor.uuid },
+    ];
+    const result = verifySingleWriter(withSiblingAttachments, rosterAtProbeTime, holder);
+
+    expect(result.ok).toBe(true);
+    const report = result.lines.join("\n");
+    expect(report).toContain("[PASS] linear parentUuid chain");
+    expect(report).toContain("parent(s) with multiple non-turn children");
   });
 
   test("the socket-delivered turn is authored by the holder and carries peer provenance", () => {

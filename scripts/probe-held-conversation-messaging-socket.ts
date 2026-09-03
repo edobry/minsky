@@ -19,7 +19,10 @@
  * Target selection (first match wins): --pid / MT4870_HOLDER_PID, --name / MT4870_HOLDER_NAME,
  * --session / MT4870_HOLDER_SESSION.
  *
- * Exit codes: 0 = pass or SKIP, 1 = verification failed, 2 = usage error.
+ * Exit codes:
+ *   0  pass, or SKIP (no target selected / no roster match / no socket / no key file)
+ *   1  the run happened and single-writer verification did NOT hold
+ *   2  the run could not happen: ambiguous selector, transport error, unexpected exception
  */
 
 import { connect } from "node:net";
@@ -30,6 +33,14 @@ import { join } from "node:path";
 const ROSTER_DIR = join(homedir(), ".claude", "sessions");
 const PROJECTS_DIR = join(homedir(), ".claude", "projects");
 const KEY_FILE_RE = /^(\d+)\.[0-9a-f]{64}\.key$/;
+
+/**
+ * Row types that participate in the conversation's `parentUuid` chain as TURNS. Branch detection
+ * is scoped to these: a transcript interleaves attachment / system / file-history-snapshot rows
+ * on the same chain, and two of those legitimately sharing a parent is not a fork. A fork is two
+ * TURNS under one parent — which is exactly the shape the mem#805 two-writer race produces.
+ */
+const TURN_TYPES = new Set(["user", "assistant"]);
 
 interface RosterEntry {
   pid: number;
@@ -67,6 +78,12 @@ function skip(reason: string): never {
 function fail(reason: string): never {
   console.error(`FAIL: ${reason}`);
   process.exit(1);
+}
+
+/** The run could not happen at all — distinct from a run whose verification failed. */
+function usage(reason: string): never {
+  console.error(`USAGE: ${reason}`);
+  process.exit(2);
 }
 
 function parseArgs(argv: string[]): Record<string, string | boolean> {
@@ -127,13 +144,13 @@ function pickHolder(args: Record<string, string | boolean>, roster: RosterEntry[
     );
   }
   if (matches.length > 1) {
-    fail(
+    usage(
       `selector is ambiguous — ${matches.length} roster entries match ` +
-        `(pids ${matches.map((m) => m.pid).join(", ")})`
+        `(pids ${matches.map((m) => m.pid).join(", ")}); select by --pid`
     );
   }
   const holder = matches[0];
-  if (!holder) fail("roster match vanished between filter and read");
+  if (!holder) usage("roster match vanished between filter and read");
   return holder;
 }
 
@@ -143,11 +160,24 @@ function readPeerToken(pid: number): string | undefined {
   return readFileSync(join(ROSTER_DIR, file), "utf8").trim();
 }
 
+/**
+ * Locate the holder's transcript. The vendor's cwd → project-slug rule is undocumented, so
+ * SEARCH for the conversation id across every project directory first and fall back to the
+ * derived slug only if the scan finds nothing. That way a slug-rule change degrades to the old
+ * behaviour instead of silently reporting "no transcript" for a live conversation.
+ */
 function transcriptPath(entry: RosterEntry): string | undefined {
+  const filename = `${entry.sessionId}.jsonl`;
+  if (existsSync(PROJECTS_DIR)) {
+    for (const project of readdirSync(PROJECTS_DIR)) {
+      const candidate = join(PROJECTS_DIR, project, filename);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
   if (!entry.cwd) return undefined;
   const slug = entry.cwd.replace(/[^a-zA-Z0-9]/g, "-");
-  const path = join(PROJECTS_DIR, slug, `${entry.sessionId}.jsonl`);
-  return existsSync(path) ? path : undefined;
+  const derived = join(PROJECTS_DIR, slug, filename);
+  return existsSync(derived) ? derived : undefined;
 }
 
 function readTranscript(path: string): TranscriptRow[] {
@@ -179,13 +209,20 @@ function contentText(row: TranscriptRow): string {
   return "";
 }
 
+interface SendOutcome {
+  /** Raw bytes the holder sent back on this connection, if any. */
+  raw: string;
+  /** Newline-delimited frames we could parse out of `raw`. */
+  frames: Record<string, unknown>[];
+}
+
 async function sendOverSocket(
   socketPath: string,
   token: string | undefined,
   text: string,
   waitMs: number
-): Promise<string> {
-  return await new Promise<string>((resolve, reject) => {
+): Promise<SendOutcome> {
+  const raw = await new Promise<string>((resolve, reject) => {
     const socket = connect(socketPath);
     let received = "";
     const timer = setTimeout(() => {
@@ -209,11 +246,33 @@ async function sendOverSocket(
       reject(new Error(`messaging socket ${socketPath}: ${err.message}`, { cause: err }));
     });
   });
+
+  const frames: Record<string, unknown>[] = [];
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      frames.push(JSON.parse(line) as Record<string, unknown>);
+    } catch {
+      // A partial trailing frame is expected when the wait window closes mid-write; the raw
+      // bytes are reported alongside, so nothing is lost by not parsing this one.
+      continue;
+    }
+  }
+  return { raw, frames };
 }
 
 interface VerifyResult {
   ok: boolean;
   lines: string[];
+}
+
+interface VerifyOptions {
+  /**
+   * Assert that a peer-origin user row exists AND that the holder answered it. Set when this run
+   * actually delivered a message; left false for `--verify-only` inspection of a transcript that
+   * may predate any peer send.
+   */
+  expectDeliveredTurn?: boolean;
 }
 
 /**
@@ -223,10 +282,14 @@ interface VerifyResult {
 export function verifySingleWriter(
   rows: TranscriptRow[],
   roster: RosterEntry[],
-  holder: RosterEntry
+  holder: RosterEntry,
+  options: VerifyOptions = {}
 ): VerifyResult {
   const lines: string[] = [];
   let ok = true;
+
+  const uuidToRow = new Map<string, TranscriptRow>();
+  for (const row of rows) if (row.uuid) uuidToRow.set(row.uuid, row);
 
   // (1) exactly one roster entry carries this conversation id, and it is the holder's pid.
   const carriers = roster.filter((entry) => entry.sessionId === holder.sessionId);
@@ -238,37 +301,89 @@ export function verifySingleWriter(
       `holder pid ${holder.pid}`
   );
 
-  // (2) the parentUuid chain is linear — no uuid is the parent of two message rows.
-  const messageRows = rows.filter((r) => r.uuid && (r.type === "user" || r.type === "assistant"));
+  // (2) the chain is linear at TURN granularity — no uuid is the parent of two user/assistant
+  // rows. Non-turn rows (attachment, system, file-history-snapshot) are counted separately and
+  // reported as INFO: they interleave on the same chain and sharing a parent is not a fork.
   const childrenByParent = new Map<string, string[]>();
+  const nonTurnByParent = new Map<string, string[]>();
   for (const row of rows) {
     if (!row.uuid) continue;
     const parent = row.parentUuid ?? "<root>";
-    childrenByParent.set(parent, [...(childrenByParent.get(parent) ?? []), row.uuid]);
+    const bucket = TURN_TYPES.has(row.type ?? "") ? childrenByParent : nonTurnByParent;
+    bucket.set(parent, [...(bucket.get(parent) ?? []), row.uuid]);
   }
   const forks = [...childrenByParent.entries()].filter(([, kids]) => kids.length > 1);
+  const turnRows = rows.filter((r) => r.uuid && TURN_TYPES.has(r.type ?? ""));
   const linear = forks.length === 0;
   ok &&= linear;
   lines.push(
-    `[${linear ? "PASS" : "FAIL"}] linear parentUuid chain over ${rows.length} rows ` +
-      `(${messageRows.length} message rows): ${forks.length} branch point(s)${
+    `[${linear ? "PASS" : "FAIL"}] linear parentUuid chain over ${turnRows.length} turn row(s) ` +
+      `(of ${rows.length} total): ${forks.length} branch point(s)${
         linear ? "" : ` — ${forks.map(([p, k]) => `${p} -> ${k.join(" | ")}`).join("; ")}`
       }`
   );
+  const nonTurnShares = [...nonTurnByParent.entries()].filter(([, kids]) => kids.length > 1);
+  lines.push(
+    `[INFO] ${nonTurnShares.length} parent(s) with multiple non-turn children ` +
+      `(attachment/system/snapshot rows — not counted as forks)`
+  );
 
-  // (3) every last-prompt row names a leaf on that single lineage.
-  const known = new Set(rows.map((r) => r.uuid).filter((u): u is string => Boolean(u)));
-  const refs = rows.filter((r) => r.type === "last-prompt");
-  const strayRefs = refs.filter((r) => r.leafUuid && !known.has(r.leafUuid));
+  // (3) every last-prompt row names a leaf that is ON the lineage of the final tip, not merely
+  // a uuid that exists somewhere in the file. Two refs naming leaves on different branches is
+  // the closest thing this format offers to a writer-identity trace (mem#805), so existence
+  // alone would not discharge the Acceptance Test.
+  const lastTurn = [...turnRows].reverse()[0];
+  const lineage = new Set<string>();
+  for (let cursor = lastTurn?.uuid; cursor; ) {
+    lineage.add(cursor);
+    const parent: string | null | undefined = uuidToRow.get(cursor)?.parentUuid;
+    cursor = parent ?? undefined;
+  }
+  const refs = rows.filter((r) => r.type === "last-prompt" && r.leafUuid);
+  const strayRefs = refs.filter((r) => r.leafUuid && !lineage.has(r.leafUuid));
   const refsOk = strayRefs.length === 0;
   ok &&= refsOk;
   lines.push(
-    `[${refsOk ? "PASS" : "FAIL"}] ${refs.length} last-prompt row(s), ` +
-      `${strayRefs.length} naming a leaf outside this lineage`
+    `[${refsOk ? "PASS" : "FAIL"}] ${refs.length} last-prompt row(s); ` +
+      `${strayRefs.length} naming a leaf off the tip's lineage (${lineage.size} uuids on it)${
+        refsOk ? "" : ` — ${strayRefs.map((r) => r.leafUuid).join(", ")}`
+      }`
   );
 
-  // (4) provenance of the socket-delivered turn(s).
+  // (4) the delivered turn is present and the HOLDER answered it — the substance of AT1, which
+  // an INFO line alone would not assert.
   const peerRows = rows.filter((r) => r.origin?.kind === "peer");
+  if (options.expectDeliveredTurn) {
+    const answeredPeerRow = peerRows.find((row) => {
+      const reachable = new Set<string>([row.uuid ?? ""]);
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (const candidate of rows) {
+          if (candidate.parentUuid && reachable.has(candidate.parentUuid) && candidate.uuid) {
+            if (!reachable.has(candidate.uuid)) {
+              reachable.add(candidate.uuid);
+              grew = true;
+            }
+          }
+        }
+      }
+      return rows.some(
+        (r) =>
+          r.type === "assistant" &&
+          r.uuid &&
+          reachable.has(r.uuid) &&
+          r.sessionId === holder.sessionId
+      );
+    });
+    const delivered = Boolean(answeredPeerRow);
+    ok &&= delivered;
+    lines.push(
+      `[${delivered ? "PASS" : "FAIL"}] a peer-origin user row exists and the holder answered it ` +
+        `(${peerRows.length} peer row(s); answered=${answeredPeerRow?.uuid ?? "none"})`
+    );
+  }
+
   lines.push(`[INFO] ${peerRows.length} peer-origin user row(s) in this transcript`);
   for (const row of peerRows) {
     lines.push(
@@ -315,21 +430,33 @@ async function main(): Promise<void> {
     );
     const waitMs = Number(args["wait-ms"] ?? 4000);
     console.log(`\nsending user frame (${text.length} chars) …`);
-    const response = await sendOverSocket(socketPath, token, text, waitMs);
-    console.log(
-      `socket response: ${response ? JSON.stringify(response) : "(none — sender-side silence)"}`
-    );
+    const outcome = await sendOverSocket(socketPath, token, text, waitMs);
+    if (outcome.frames.length > 0) {
+      for (const frame of outcome.frames)
+        console.log(`sender-side frame: ${JSON.stringify(frame)}`);
+    } else {
+      // Silence is NOT delivery. The vendor models held / denied / expired / refused /
+      // not-accepting as sender-side status frames, and none of them arrived inside our wait
+      // window — which is consistent with acceptance and equally consistent with a hold that
+      // has not been decided yet. Only the transcript check below distinguishes them.
+      console.log(
+        `sender-side frames: none within ${waitMs}ms${
+          outcome.raw ? ` (unparsed bytes: ${JSON.stringify(outcome.raw.slice(0, 200))})` : ""
+        } — silence is not evidence of delivery; the transcript check below is`
+      );
+    }
     const settleMs = Number(args["settle-ms"] ?? 25000);
     console.log(`waiting ${settleMs}ms for the holder's turn to land …`);
     await new Promise((resolve) => setTimeout(resolve, settleMs));
   }
 
   const path = transcriptPath(holder);
-  if (!path)
-    skip(`no transcript found for ${holder.sessionId} under ${holder.cwd ?? "(unknown cwd)"}`);
+  if (!path) skip(`no transcript found for ${holder.sessionId} under ${PROJECTS_DIR}`);
   console.log(`\ntranscript: ${path}`);
 
-  const result = verifySingleWriter(readTranscript(path), readRoster(), holder);
+  const result = verifySingleWriter(readTranscript(path), readRoster(), holder, {
+    expectDeliveredTurn: !verifyOnly,
+  });
   for (const line of result.lines) console.log(line);
   if (!result.ok) fail("single-writer verification did not hold — see FAIL lines above");
   console.log("\nPASS: the holder is the only writer, and it authored the delivered turn.");
