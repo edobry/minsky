@@ -17,6 +17,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   classifyConversationHolder,
+  defaultStartTimeOf,
   resolveClaudeSessionsDir,
   type ProcessProbe,
   type RosterFs,
@@ -428,5 +429,23 @@ describe("resolveClaudeSessionsDir", () => {
     expect(resolveClaudeSessionsDir({ CLAUDE_CONFIG_DIR: "/custom/dir" }, "/Users/test")).toBe(
       "/custom/dir/sessions"
     );
+  });
+});
+
+describe("defaultStartTimeOf platform guard (PR #3592 R1 nit 2)", () => {
+  test("returns null on an unsupported platform (win32) without shelling out to ps", () => {
+    // `platform` is the injected trailing parameter — no `spyOn` on
+    // `process.platform`, and no real `ps` invocation happens: a bogus pid
+    // would make a real `ps -p <pid> -o etime=` call fail anyway, so this
+    // also proves the guard short-circuits BEFORE that call.
+    expect(defaultStartTimeOf(999999999, "win32")).toBeNull();
+  });
+
+  test("darwin and linux are supported platforms (guard does not block them)", () => {
+    // These DO shell out (real `ps`), so assert only that the guard itself
+    // didn't intervene — a bogus pid resolves to null via the `ps` failure
+    // path, which is a DIFFERENT reason than the platform guard.
+    expect(() => defaultStartTimeOf(999999999, "darwin")).not.toThrow();
+    expect(() => defaultStartTimeOf(999999999, "linux")).not.toThrow();
   });
 });

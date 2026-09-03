@@ -62,10 +62,24 @@
  * **Fails CLOSED.** An unreadable roster directory, an unparseable entry, or
  * an entry over 1 MB degrades the WHOLE answer to `unknown` — never to
  * `not_running` — matching the vendor's own "mark the registry
- * uninterpretable" behavior rather than silently ignoring the bad entry. A
- * live pid whose actual start time this reader could not determine degrades
- * the SAME way: guessing `running` or `not_running` here could be wrong in
- * either direction, and `unknown` cannot be.
+ * uninterpretable" behavior rather than silently ignoring the bad entry.
+ * **This is by design, not a gap**: ONE malformed or oversized roster file
+ * — out of however many other processes' entries sit beside it — is enough
+ * to flip the WHOLE registry to `unknown` (PR #3592 R1 nit 5), because a
+ * truncated or corrupt read of it could hide anything, including a match for
+ * the conversation being queried; the vendor's own `CliLivenessRegistry`
+ * takes the identical stance. A live pid whose actual start time this
+ * reader could not determine degrades the SAME way: guessing `running` or
+ * `not_running` here could be wrong in either direction, and `unknown`
+ * cannot be.
+ *
+ * **Platform support.** `ps -o etime=` (the pid-reuse guard's OS query)
+ * exists on macOS and Linux; Windows has no `ps` at all. `defaultStartTimeOf`
+ * checks `process.platform` before ever shelling out and returns `null` on
+ * an unsupported platform — same fail-closed path as any other
+ * undeterminable start time, so a Windows host reads every live pid as
+ * `unknown` (refused) rather than crashing or misclassifying (PR #3592 R1
+ * nit 2).
  *
  * @see ./attach-admissibility.ts — the gate this reader feeds
  * @see mt#4869 — this module
@@ -230,6 +244,14 @@ function parseEtimeToSeconds(etime: string): number | null {
 }
 
 /**
+ * Platforms `ps -o etime=` is known to support — verified live 2026-09-03 on
+ * macOS's BSD `ps`; Linux's GNU `ps` documents the same keyword. Windows has
+ * no `ps` at all, so this is a real portability boundary, not a theoretical
+ * one (PR #3592 R1 nit 2).
+ */
+const PS_PROBE_SUPPORTED_PLATFORMS = new Set(["darwin", "linux"]);
+
+/**
  * Shells out to `ps -o etime=` (project convention: `Bun.spawnSync`, not
  * `node:child_process` — see `attachment-lsof.ts`) for the process's ELAPSED
  * time and derives an epoch-ms start time as `Date.now() - elapsedSeconds *
@@ -239,8 +261,21 @@ function parseEtimeToSeconds(etime: string): number | null {
  * offset on a real host, which would have defeated the pid-reuse guard on
  * every non-UTC machine. `etime` sidesteps any wall-clock/timezone
  * formatting entirely — it is a pure duration.
+ *
+ * `platform` is a trailing injected parameter (real default `process.platform`,
+ * same convention as `resolveClaudeSessionsDir`'s `env`/`home`) so the
+ * Windows guard below is unit-testable with no `spyOn`: on any platform
+ * outside `PS_PROBE_SUPPORTED_PLATFORMS` this returns `null` BEFORE ever
+ * shelling out, which `classifyConversationHolder` reads as `unknown` — this
+ * module's existing fail-closed rule for "could not determine the live
+ * process's actual start time", extended to cover "the OS this runs on has
+ * no way to ask."
  */
-function defaultStartTimeOf(pid: number): number | null {
+export function defaultStartTimeOf(
+  pid: number,
+  platform: string = process.platform
+): number | null {
+  if (!PS_PROBE_SUPPORTED_PLATFORMS.has(platform)) return null;
   try {
     const result = Bun.spawnSync(["ps", "-p", String(pid), "-o", "etime="]);
     const out = result.stdout.toString().trim();

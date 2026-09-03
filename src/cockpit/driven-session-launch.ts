@@ -1508,8 +1508,14 @@ export async function orchestrateDrivenSessionAttach(
   );
   const verdict = attachAdmissibility(presence, roster);
   if (!verdict.admit) {
+    // mt#4869 PR #3592 R1 nit 4: carry the holder's identity into the log
+    // line when the roster (not presence) is why — otherwise an operator
+    // reading logs sees WHO refused nowhere but the HTTP response body.
+    const holderSuffix = verdict.holder
+      ? ` holder=${verdict.holder.surface}:${verdict.holder.name ?? "unnamed"}:pid${verdict.holder.pid}`
+      : "";
     log.info(
-      `[driven-session] attach refused for ${conversationId}: presence=${presence} roster=${roster.liveness} reason=${verdict.reason}`
+      `[driven-session] attach refused for ${conversationId}: presence=${presence} roster=${roster.liveness} reason=${verdict.reason}${holderSuffix}`
     );
     return {
       outcome: "refused",

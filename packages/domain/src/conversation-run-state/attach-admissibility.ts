@@ -53,10 +53,13 @@
  * Both halves of the premise this comment used to state here — "not an
  * event Minsky observes" and "Claude Code's own roster never fires for a
  * terminal `claude --resume`" — were false. `./claude-code-session-roster.ts`
- * reads this roster with the vendor's own liveness rule (pid alive,
- * `procStart` matched against the live process to guard against pid reuse, a
- * 24h cap) and this function refuses outright when it reports a live holder,
- * carrying that holder's identity into the refusal.
+ * reads this roster with the vendor's own liveness rule (pid alive, a
+ * pid-reuse guard, a 24h cap — see that module's header for the exact
+ * mechanism, including the epoch-based pid-reuse comparison a live AT1 run
+ * forced after the originally-specified `procStart` STRING comparison was
+ * found to never match on a non-UTC host) and this function refuses outright
+ * when it reports a live holder, carrying that holder's identity into the
+ * refusal.
  *
  * The roster is not a replacement for presence — it answers "is a process
  * holding this file", presence answers "is a turn in flight", and both must
