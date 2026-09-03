@@ -78,7 +78,8 @@ import {
   HARNESS_KIND_CODEX,
   HARNESS_KIND_CLAUDE_CODE_ACP,
 } from "@minsky/domain/storage/schemas/driven-session-defaults";
-import type { AskRepository } from "@minsky/domain/ask/repository";
+import { DrizzleAskRepository, type AskRepository } from "@minsky/domain/ask/repository";
+import { createCachedSqlDbGetter } from "./db-providers";
 import {
   buildAcpPermissionRequestAsk,
   classifyAcpPermissionResponse,
@@ -236,11 +237,13 @@ export interface AcpTransportOptions {
   getAnthropicApiKey?: () => string | null;
   /**
    * Construct the `AskRepository` a permission request creates its ask
-   * through — REQUIRED to actually create asks. Lazy (called once per
-   * permission request, not per transport instance) so a caller can defer
-   * DB-handle resolution until one is genuinely needed. Omitted → every
-   * permission request is refused with `{ outcome: "cancelled" }` and a
-   * logged error (fail closed, never silently approve).
+   * through. Lazy (called once per permission request, not per transport
+   * instance) so DB-handle resolution is deferred until genuinely needed.
+   * Defaults to {@link defaultCreateAskRepository} (a real, DB-backed
+   * repository) — test seam: `acp-transport.test.ts` always injects a fake
+   * here rather than exercising the default. A `null` return (store
+   * unreachable) refuses the permission request with `{ outcome: "cancelled"
+   * }` and a logged error — fail closed, never silently approve.
    */
   createAskRepository?: () => Promise<AskRepository | null>;
   /** Stable per-process identity for the `requestor` field on a created ask
@@ -250,13 +253,37 @@ export interface AcpTransportOptions {
 
 const DEFAULT_REQUESTOR_AGENT_ID = "minsky.cockpit:proc:acp-transport";
 
+/**
+ * Lazy, cached SQL handle for the production `createAskRepository` default —
+ * module-scoped (not per-instance) so every `AcpTransport` the daemon
+ * constructs shares one connection-resolution cache, matching
+ * `conversation-presence.ts`'s `getPresenceDb` pattern exactly.
+ * `cacheNegative: false`: a failed probe is retried on the next permission
+ * request rather than latched, since a permission request is rare enough
+ * that "wait for the DB to come back" beats "permanently refuse every ask
+ * for this daemon's lifetime because it happened to poll during an outage."
+ *
+ * SAFETY: `createCachedSqlDbGetter` with no `getProvider` override is the
+ * PRODUCTION resolution path, which THROWS `TestEnvironmentDbAccessError`
+ * under `NODE_ENV=test` with no explicit opt-in (`db-providers.ts`) — so a
+ * test that accidentally exercises this default (rather than injecting its
+ * own `createAskRepository`, as `acp-transport.test.ts` always does) fails
+ * loudly instead of silently reaching a real Postgres connection.
+ */
+const getAcpAskDb = createCachedSqlDbGetter({ cacheNegative: false });
+
+async function defaultCreateAskRepository(): Promise<AskRepository | null> {
+  const db = await getAcpAskDb();
+  return db ? new DrizzleAskRepository(db) : null;
+}
+
 export class AcpTransport implements DriverTransport {
   readonly id = TRANSPORT_ID_ACP;
   private readonly spawnFn: SpawnFn;
   private readonly agentCommands: Readonly<Record<string, AcpAgentCommand>>;
   private readonly getOpenAiApiKey: () => string | null;
   private readonly getAnthropicApiKey: () => string | null;
-  private readonly createAskRepository: (() => Promise<AskRepository | null>) | undefined;
+  private readonly createAskRepository: () => Promise<AskRepository | null>;
   private readonly requestorAgentId: string;
   private readonly procState = new WeakMap<ProcessLike, AcpProcState>();
 
@@ -265,7 +292,7 @@ export class AcpTransport implements DriverTransport {
     this.agentCommands = opts.agentCommands ?? DEFAULT_ACP_AGENT_COMMANDS;
     this.getOpenAiApiKey = opts.getOpenAiApiKey ?? readConfiguredOpenAiApiKey;
     this.getAnthropicApiKey = opts.getAnthropicApiKey ?? readConfiguredAnthropicApiKey;
-    this.createAskRepository = opts.createAskRepository;
+    this.createAskRepository = opts.createAskRepository ?? defaultCreateAskRepository;
     this.requestorAgentId = opts.requestorAgentId ?? DEFAULT_REQUESTOR_AGENT_ID;
   }
 
@@ -512,14 +539,6 @@ export class AcpTransport implements DriverTransport {
         options,
       },
     });
-
-    if (!this.createAskRepository) {
-      log.error(
-        `[acp-transport] permission request for "${toolTitle}" refused — no ask repository ` +
-          `configured; failing closed`
-      );
-      return { outcome: { outcome: "cancelled" } };
-    }
 
     let repo: AskRepository | null;
     try {

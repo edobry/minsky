@@ -455,11 +455,11 @@ const DEFAULT_DRIVER_TRANSPORT_FACTORY: DriverTransportFactory = (overrides) =>
   new ClaudeStreamJsonTransport(overrides);
 
 /**
- * ACP factory (mt#4936) — `createAskRepository` is deliberately OMITTED
- * here: this build has no wired production `AskRepository` factory yet, so
- * an ACP-driven permission request refuses closed (logged) rather than
- * hanging or silently approving. Wiring a real one is follow-up scope (see
- * the mt#4936 spec's design memo).
+ * ACP factory (mt#4936) — `createAskRepository` is deliberately OMITTED from
+ * the overrides passed here: `AcpTransport`'s own constructor default wires
+ * a real, DB-backed `AskRepository` (mirrors `ClaudeStreamJsonTransport`'s
+ * self-contained `getAnthropicApiKey` default) — this factory has no domain
+ * imports of its own, per this module's docblock invariant.
  */
 const ACP_DRIVER_TRANSPORT_FACTORY: DriverTransportFactory = (overrides) =>
   new AcpTransport({

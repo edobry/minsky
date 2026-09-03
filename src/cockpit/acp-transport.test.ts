@@ -403,7 +403,12 @@ describe("AcpTransport — recorded-fixture session (mt#4936 AT1)", () => {
     expect(outcome.outcome).toBe("cancelled");
   });
 
-  test("refuses closed with no ask repository configured (fail-closed default)", async () => {
+  test("refuses closed when the default ask repository is unreachable under test (fail-closed)", async () => {
+    // No createAskRepository override — exercises defaultCreateAskRepository,
+    // which under bun test hits db-providers.ts's TestEnvironmentDbAccessError
+    // guard (NODE_ENV=test, no opt-in). handlePermissionRequest's catch
+    // around createAskRepository() turns that into a logged, closed refusal
+    // — never a hang, never a silent approval.
     const { spawnFn, calls } = makeFakeSpawnFn();
     const transport = new AcpTransport({ spawnFn, getOpenAiApiKey: () => "sk-fake-openai" });
 
