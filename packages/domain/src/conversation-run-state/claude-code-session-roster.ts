@@ -369,10 +369,101 @@ function classifySurface(entrypoint: string | null, kind: string | null): Holder
   return "terminal";
 }
 
+/** Per-entry classification outcome — one of possibly SEVERAL entries sharing a conversation id (mem#805). */
+type EntryVerdict =
+  | { status: "live"; entry: RawRosterEntry; holder: RosterHolder }
+  | { status: "dead"; reason: string }
+  | { status: "unclassifiable"; reason: string };
+
+/**
+ * Classify a SINGLE roster entry already known to name `conversationId` —
+ * the same liveness rule the module header documents (24h cap, pid alive,
+ * epoch-based pid-reuse guard), applied to one entry rather than to "the
+ * conversation" as a whole. `classifyConversationHolder` calls this once per
+ * matching entry (PR #3592 R2 — see that function's doc comment for why a
+ * single first-match check is wrong).
+ */
+function classifyEntry(
+  entry: RawRosterEntry,
+  nowMs: number,
+  processProbe: ProcessProbe
+): EntryVerdict {
+  const referenceMs = entry.updatedAt ?? entry.startedAt;
+  if (referenceMs === undefined || nowMs - referenceMs >= MAX_ENTRY_AGE_MS) {
+    return { status: "dead", reason: `pid ${entry.pid}'s roster entry is older than 24h` };
+  }
+
+  if (!processProbe.isAlive(entry.pid)) {
+    return { status: "dead", reason: `pid ${entry.pid} is not running` };
+  }
+
+  // Pid-reuse guard: `procStart` (the CLI's own ctime-string field) is still
+  // required to be present, matching the roster's real shape — but the
+  // COMPARISON is epoch-based against `startedAt`, not a `procStart` string
+  // match. See the module header's "Design correction from live testing"
+  // note for why the string comparison was replaced after AT1 exposed a
+  // real TZ-formatting mismatch in the CLI's own recorded `procStart`.
+  if (entry.procStart === undefined || entry.startedAt === undefined) {
+    return {
+      status: "unclassifiable",
+      reason: `roster entry for pid ${entry.pid} has no procStart/startedAt to verify against`,
+    };
+  }
+  const actualStartMs = processProbe.startTimeOf(entry.pid);
+  if (actualStartMs === null) {
+    return {
+      status: "unclassifiable",
+      reason: `could not determine pid ${entry.pid}'s actual start time`,
+    };
+  }
+  if (Math.abs(actualStartMs - entry.startedAt) > PROC_START_TOLERANCE_MS) {
+    return { status: "dead", reason: `pid ${entry.pid} was reused by a different process` };
+  }
+
+  const holder: RosterHolder = {
+    surface: classifySurface(entry.entrypoint ?? null, entry.kind ?? null),
+    name: entry.name ?? null,
+    pid: entry.pid,
+    idleForMs:
+      entry.status === "idle" && entry.statusUpdatedAt !== undefined
+        ? Math.max(0, nowMs - entry.statusUpdatedAt)
+        : null,
+  };
+  return { status: "live", entry, holder };
+}
+
 /**
  * Classify whether a process currently holds `conversationId`, per Claude
  * Code's own live-session roster (see module header for the exact liveness
  * rule and its fail-closed bounds).
+ *
+ * **Classifies over EVERY roster entry naming this conversation id, not the
+ * first (PR #3592 R2 — BLOCKING).** Two roster entries can legitimately
+ * share one `sessionId` — a second `claude --resume` mints a new pid whose
+ * entry still carries the ORIGINAL conversation's id (mem#805, this task's
+ * own originating case) — and directory-read order has no relationship to
+ * which one is actually alive. An earlier version of this function used
+ * `Array.find`, which stops at the FIRST matching entry: if that one
+ * happened to be a stale/dead leftover and a SECOND, genuinely live entry
+ * sat right beside it, the gate would misclassify `not_running` and admit
+ * an attach against a conversation something else is actively holding —
+ * exactly the hazard this whole module exists to prevent. The rule now is:
+ *
+ *   - `running` if ANY matching entry classifies `live` (see
+ *     {@link classifyEntry}); the holder payload comes from that live
+ *     entry, preferring one with `kind === "interactive"` when several are
+ *     live (the vendor's own `livenessFor()` preference) — never simply the
+ *     first entry encountered.
+ *   - `unknown` if none are live but ANY matching entry is
+ *     `unclassifiable` (missing `procStart`/`startedAt`, or the process
+ *     probe could not determine its actual start time) — the SAME
+ *     fail-closed direction the registry-wide scan already takes for a bad
+ *     file: an unclassifiable entry could be hiding a live holder.
+ *   - `not_running` ONLY when every matching entry classifies `dead`.
+ *
+ * (The registry-WIDE fail-closed rule — one unreadable/oversized/unparseable
+ * file anywhere flips the WHOLE answer to `unknown` — is unchanged; that
+ * check happens in {@link scanRoster}, before entries are ever matched.)
  *
  * `sessionsDir`, `now`, and `processProbe` are trailing injected parameters
  * with real defaults (testing-standards §Testable Design) — unit tests point
@@ -392,8 +483,8 @@ export async function classifyConversationHolder(
     return { liveness: "unknown", holder: null, basis: scan.reason };
   }
 
-  const match = scan.entries.find((entry) => entry.sessionId === conversationId);
-  if (!match) {
+  const matches = scan.entries.filter((entry) => entry.sessionId === conversationId);
+  if (matches.length === 0) {
     return {
       liveness: "not_running",
       holder: null,
@@ -402,52 +493,49 @@ export async function classifyConversationHolder(
   }
 
   const nowMs = now.getTime();
-  const referenceMs = match.updatedAt ?? match.startedAt;
-  if (referenceMs === undefined || nowMs - referenceMs >= MAX_ENTRY_AGE_MS) {
-    return { liveness: "not_running", holder: null, basis: "roster entry is older than 24h" };
+  const verdicts = matches.map((entry) => classifyEntry(entry, nowMs, processProbe));
+
+  const liveVerdicts = verdicts.filter(
+    (v): v is Extract<EntryVerdict, { status: "live" }> => v.status === "live"
+  );
+  if (liveVerdicts.length > 0) {
+    // Prefer an `interactive` holder over a background one when several
+    // entries are simultaneously live — the vendor's own `livenessFor()`
+    // preference — falling back to whichever live entry sorted first only
+    // when NONE is interactive (e.g. two background/sdk-cli holders).
+    // `preferred` is guaranteed defined here (liveVerdicts.length > 0), but
+    // TS's array-index typing can't see that — the explicit check below
+    // narrows without a `!` non-null assertion.
+    const preferred = liveVerdicts.find((v) => v.entry.kind === "interactive") ?? liveVerdicts[0];
+    if (preferred) {
+      return {
+        liveness: "running",
+        holder: preferred.holder,
+        basis:
+          matches.length > 1
+            ? `${liveVerdicts.length} of ${matches.length} roster entries for this conversation are live`
+            : "live process holds this conversation",
+      };
+    }
   }
 
-  if (!processProbe.isAlive(match.pid)) {
-    return { liveness: "not_running", holder: null, basis: `pid ${match.pid} is not running` };
+  const unclassifiable = verdicts.find(
+    (v): v is Extract<EntryVerdict, { status: "unclassifiable" }> => v.status === "unclassifiable"
+  );
+  if (unclassifiable) {
+    return { liveness: "unknown", holder: null, basis: unclassifiable.reason };
   }
 
-  // Pid-reuse guard: `procStart` (the CLI's own ctime-string field) is still
-  // required to be present, matching the roster's real shape — but the
-  // COMPARISON is epoch-based against `startedAt`, not a `procStart` string
-  // match. See the module header's "Design correction from live testing"
-  // note for why the string comparison was replaced after AT1 exposed a
-  // real TZ-formatting mismatch in the CLI's own recorded `procStart`.
-  if (match.procStart === undefined || match.startedAt === undefined) {
-    return {
-      liveness: "unknown",
-      holder: null,
-      basis: `roster entry for pid ${match.pid} has no procStart/startedAt to verify against`,
-    };
-  }
-  const actualStartMs = processProbe.startTimeOf(match.pid);
-  if (actualStartMs === null) {
-    return {
-      liveness: "unknown",
-      holder: null,
-      basis: `could not determine pid ${match.pid}'s actual start time`,
-    };
-  }
-  if (Math.abs(actualStartMs - match.startedAt) > PROC_START_TOLERANCE_MS) {
-    return {
-      liveness: "not_running",
-      holder: null,
-      basis: `pid ${match.pid} was reused by a different process`,
-    };
-  }
-
-  const holder: RosterHolder = {
-    surface: classifySurface(match.entrypoint ?? null, match.kind ?? null),
-    name: match.name ?? null,
-    pid: match.pid,
-    idleForMs:
-      match.status === "idle" && match.statusUpdatedAt !== undefined
-        ? Math.max(0, nowMs - match.statusUpdatedAt)
-        : null,
+  // Every matching entry classified `dead` — the only remaining case.
+  const deadReasons = verdicts
+    .filter((v): v is Extract<EntryVerdict, { status: "dead" }> => v.status === "dead")
+    .map((v) => v.reason);
+  return {
+    liveness: "not_running",
+    holder: null,
+    basis:
+      matches.length > 1
+        ? `all ${matches.length} roster entries for this conversation are dead: ${deadReasons.join("; ")}`
+        : (deadReasons[0] ?? "no live roster entry for this conversation"),
   };
-  return { liveness: "running", holder, basis: "live process holds this conversation" };
 }

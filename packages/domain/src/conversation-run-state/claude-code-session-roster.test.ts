@@ -418,6 +418,152 @@ describe("classifyConversationHolder (mt#4869)", () => {
     // not read, not counted toward "unparseable".
     expect(result.liveness).toBe("not_running");
   });
+
+  // ── mt#4869 PR #3592 R2 (BLOCKING): two roster entries, one conversation id ──
+  //
+  // mem#805: a second `claude --resume` mints a new pid whose roster entry
+  // still names the ORIGINAL conversation's sessionId — two entries, one id.
+  // Directory-read order has no relationship to which one is actually alive,
+  // so classification must consider EVERY matching entry, never just the
+  // first. See the "Negative control" line in the PR body for the pre-fix
+  // (`Array.find`) failure on case (a).
+
+  test("(a) two entries, same id: first dead by pid probe, second live -> running with the live holder", async () => {
+    const fs = fakeFs({
+      "5001.json": {
+        pid: 5001,
+        sessionId: CONVERSATION_ID,
+        procStart: PROC_START,
+        startedAt: REAL_STARTED_AT_MS,
+        updatedAt: NOW_MS - 1000,
+        kind: "interactive",
+        name: "dead-first-entry",
+      },
+      "5002.json": {
+        pid: 5002,
+        sessionId: CONVERSATION_ID,
+        procStart: PROC_START,
+        startedAt: REAL_STARTED_AT_MS,
+        updatedAt: NOW_MS - 1000,
+        kind: "interactive",
+        name: "live-second-entry",
+      },
+    });
+
+    const result = await classifyConversationHolder(
+      CONVERSATION_ID,
+      SESSIONS_DIR,
+      NOW,
+      fakeProbe({ isAlive: (pid) => pid !== 5001 }), // 5001 dead, 5002 alive
+      fs
+    );
+
+    expect(result.liveness).toBe("running");
+    expect(result.holder?.pid).toBe(5002);
+    expect(result.holder?.name).toBe("live-second-entry");
+  });
+
+  test("(b) two entries, same id: first live, second dead -> running with the live (first) holder", async () => {
+    const fs = fakeFs({
+      "5003.json": {
+        pid: 5003,
+        sessionId: CONVERSATION_ID,
+        procStart: PROC_START,
+        startedAt: REAL_STARTED_AT_MS,
+        updatedAt: NOW_MS - 1000,
+        kind: "interactive",
+        name: "live-first-entry",
+      },
+      "5004.json": {
+        pid: 5004,
+        sessionId: CONVERSATION_ID,
+        procStart: PROC_START,
+        startedAt: REAL_STARTED_AT_MS,
+        updatedAt: NOW_MS - 1000,
+        kind: "interactive",
+        name: "dead-second-entry",
+      },
+    });
+
+    const result = await classifyConversationHolder(
+      CONVERSATION_ID,
+      SESSIONS_DIR,
+      NOW,
+      fakeProbe({ isAlive: (pid) => pid !== 5004 }), // 5003 alive, 5004 dead
+      fs
+    );
+
+    expect(result.liveness).toBe("running");
+    expect(result.holder?.pid).toBe(5003);
+  });
+
+  test("(c) two entries, same id: one unclassifiable, one dead -> unknown (never not_running)", async () => {
+    const fs = fakeFs({
+      // Alive pid but no `startedAt` to verify the pid-reuse guard against —
+      // classifies "unclassifiable", not "dead".
+      "5005.json": {
+        pid: 5005,
+        sessionId: CONVERSATION_ID,
+        procStart: PROC_START,
+        updatedAt: NOW_MS - 1000,
+      },
+      "5006.json": {
+        pid: 5006,
+        sessionId: CONVERSATION_ID,
+        procStart: PROC_START,
+        startedAt: REAL_STARTED_AT_MS,
+        updatedAt: NOW_MS - 1000,
+      },
+    });
+
+    const result = await classifyConversationHolder(
+      CONVERSATION_ID,
+      SESSIONS_DIR,
+      NOW,
+      fakeProbe({ isAlive: (pid) => pid === 5005 }), // 5005 alive (but unclassifiable), 5006 dead
+      fs
+    );
+
+    expect(result.liveness).toBe("unknown");
+    expect(result.holder).toBeNull();
+  });
+
+  test("(d) two live entries, one interactive one bg -> holder is the interactive one", async () => {
+    const fs = fakeFs({
+      // Listed FIRST but must NOT be picked — this is the class-not-instance
+      // check: preference is by kind, not by directory/insertion order.
+      "5007.json": {
+        pid: 5007,
+        sessionId: CONVERSATION_ID,
+        procStart: PROC_START,
+        startedAt: REAL_STARTED_AT_MS,
+        updatedAt: NOW_MS - 1000,
+        kind: "bg",
+        name: "background-holder",
+      },
+      "5008.json": {
+        pid: 5008,
+        sessionId: CONVERSATION_ID,
+        procStart: PROC_START,
+        startedAt: REAL_STARTED_AT_MS,
+        updatedAt: NOW_MS - 1000,
+        kind: "interactive",
+        name: "interactive-holder",
+      },
+    });
+
+    const result = await classifyConversationHolder(
+      CONVERSATION_ID,
+      SESSIONS_DIR,
+      NOW,
+      fakeProbe(), // both alive, both start times match -> both live
+      fs
+    );
+
+    expect(result.liveness).toBe("running");
+    expect(result.holder?.pid).toBe(5008);
+    expect(result.holder?.name).toBe("interactive-holder");
+  });
 });
 
 describe("resolveClaudeSessionsDir", () => {
