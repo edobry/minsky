@@ -346,7 +346,13 @@ const SWEPT_SUITES: ReadonlyArray<{ label: string; args: readonly string[] }> = 
  * `parseExecutedTestCount` summing them is not merely additive bookkeeping, it
  * is the check that all three actually ran.
  */
-function runSuitesAtSeed(seed: number): RunResult {
+/** A run that has already passed the integrity check — the only thing callers get. */
+interface VerifiedRun {
+  readonly failures: string[];
+  readonly executedTests: number;
+}
+
+function runSuitesAtSeed(seed: number, label: string): VerifiedRun {
   let output = "";
   let exitCode = 0;
   for (const suite of SWEPT_SUITES) {
@@ -354,24 +360,33 @@ function runSuitesAtSeed(seed: number): RunResult {
     output += `\n=== suite: ${suite.label} (seed ${seed}) ===\n${run.output}`;
     if (run.exitCode !== 0) exitCode = run.exitCode;
   }
-  return { exitCode, output };
+
+  // The check is a PROPERTY OF THE RUNNER, not a call each site must remember
+  // (PR #3590 R4). It was the latter for one commit, and that commit is exactly
+  // when the sweep grew from one run to two: the first run's call site was
+  // updated, the repeat's was never written, and a dead repeat scores a finding
+  // as `loadSensitive` — the bucket that does not fail the sweep.
+  //
+  // Returning only `VerifiedRun` is what makes the next widening safe. A caller
+  // cannot reach the raw output, so it cannot skip the check, so a third or
+  // fourth invocation added later inherits the guard by construction rather than
+  // by the author noticing. mem#812's rule generalized: a widening leaves arity-1
+  // assumptions alive wherever they were written as separate steps.
+  const run: RunResult = { exitCode, output };
+  const executedTests = assertRunInterpretable(seed, run, label);
+  return { failures: parseFailureNames(output), executedTests };
 }
 
 /**
+ * Refuse any run whose result cannot be interpreted, and return its test count.
+ *
  * A run whose result cannot be trusted is exit 2, never a finding. Zero `(fail)`
  * lines is what a clean run AND a dead run both look like, so the sweep's whole
  * claim depends on separating them here rather than downstream.
  *
- * Declared as a function rather than a `const` arrow so its `never` return
- * NARROWS at the call site — otherwise the caller still sees `number | null`
- * after the guard, which is the tell that the guard is decorative.
- */
-/**
- * Refuse any run whose result cannot be interpreted, and return its test count.
- *
- * Applied to the first run AND the fixed-seed repeat: both feed the classifier,
- * so a dead one is a wrong verdict either way. `label` names which, because the
- * two are indistinguishable in the output otherwise.
+ * Reached only through `runSuitesAtSeed`, which is what stops it being a step a
+ * call site can omit. `label` names which invocation failed, because the first
+ * run and the fixed-seed repeat are otherwise indistinguishable in the output.
  */
 function assertRunInterpretable(seed: number, run: RunResult, label: string): number {
   const executedTests = parseExecutedTestCount(run.output, SWEPT_SUITES.length);
@@ -426,9 +441,22 @@ export function repoRandomizeEnabled(bunfigText: string): boolean {
 }
 
 /**
- * Prove `[test] randomize` is actually shuffling, in a throwaway directory with
- * its OWN bunfig — so the answer does not depend on the repo's current setting
- * and the check cannot be silently disabled by the very flag it is testing.
+ * Prove randomization is live, in TWO parts that answer different questions and
+ * are both required (PR #3590 R5 — the previous wording described only the
+ * second and said the check "does not depend on the repo's current setting",
+ * which is the opposite of what the first part does).
+ *
+ * 1. **The repo's own bunfig enables it.** Checked FIRST, with an early return,
+ *    because this is the setting the swept suites will actually run under. If it
+ *    is `false` the sweep is meaningless no matter what any sandbox proves.
+ * 2. **This Bun build genuinely shuffles**, demonstrated in a throwaway directory
+ *    with its OWN bunfig. Separate from (1) so the demonstration cannot be
+ *    disabled by the very flag it is testing, and so a Bun that ignores the key
+ *    is caught rather than assumed.
+ *
+ * (1) is about THIS REPO's runs; (2) is about the BUILD's capability. Conflating
+ * them would rebuild the defect this script exists to prevent: a self-check that
+ * passes while the runs it vouches for execute in declaration order.
  */
 export function randomizationIsLive(): { live: boolean; detail: string } {
   const bunfigPath = join(REPO_ROOT, "bunfig.toml");
@@ -511,10 +539,7 @@ function main(): never {
 
   const observations: SeedObservation[] = [];
   for (let seed = 1; seed <= seedCount; seed++) {
-    const run = runSuitesAtSeed(seed);
-    const failures = parseFailureNames(run.output);
-
-    const executedTests = assertRunInterpretable(seed, run, "first run");
+    const { failures, executedTests } = runSuitesAtSeed(seed, "first run");
 
     if (!json) {
       console.log(`seed ${seed}: ${failures.length} failure(s), ${executedTests} tests executed`);
@@ -529,16 +554,13 @@ function main(): never {
     // failure that comes back is caused by the order and one that comes and goes
     // is caused by something else — contention, typically (mem#942). Only failing
     // seeds pay for this, so a clean sweep costs nothing extra.
-    const repeat = runSuitesAtSeed(seed);
-    // The repeat needs the SAME integrity check as the first run, and its failure
-    // mode is the worse of the two (PR #3590 R4). A dead repeat parses as zero
-    // failures, which reads as a FLIP, which classifies the finding
-    // `loadSensitive` — a bucket that deliberately does NOT fail the sweep. So an
-    // uninterpretable repeat would silently turn a real order-dependent finding
-    // into a passing gate. The first run's equivalent failure at least reports
-    // something; this one reports a green.
-    assertRunInterpretable(seed, repeat, "fixed-seed repeat");
-    const repeatFailures = parseFailureNames(repeat.output);
+    // The repeat is checked by the same runner, so its integrity is not a step
+    // anyone can forget (PR #3590 R4). Its failure mode is the worse of the two:
+    // a dead repeat parses as zero failures, reads as a FLIP, and classifies the
+    // finding `loadSensitive` — the bucket that deliberately does NOT fail the
+    // sweep. The first run's equivalent failure at least reports something; this
+    // one would report a green.
+    const { failures: repeatFailures } = runSuitesAtSeed(seed, "fixed-seed repeat");
     if (!json) {
       console.log(`seed ${seed} (fixed-seed repeat): ${repeatFailures.length} failure(s)`);
     }
