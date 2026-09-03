@@ -183,7 +183,8 @@ const memoryListParams = {
   neverAccessed: {
     schema: z.boolean(),
     description:
-      "When true, filter to memories never read since creation. Narrower than --stale, " +
+      "When true, filter to memories never read since creation. Narrower than " +
+      "--unread-or-cold, " +
       "which also matches records that WERE read but not recently",
     required: false as const,
     defaultValue: false,
@@ -192,7 +193,7 @@ const memoryListParams = {
     schema: z.boolean(),
     description:
       "When true, filter to memories that were read at least once but not within " +
-      "--cold-days. Disjoint from --never-accessed; --stale is the union of the two",
+      "--cold-days. Disjoint from --never-accessed; --unread-or-cold is the union of the two",
     required: false as const,
     defaultValue: false,
   },
@@ -250,12 +251,13 @@ const memoryListParams = {
   // (applyListCap) with no ordering, sorting, or offset support at all.
   sort: {
     schema: z.enum(["created", "updated", "lastAccessed", "accessCount", "shortId", "name"]),
-    description: "Sort field, applied in SQL. Defaults to 'created' (ignored when stale:true)",
+    description:
+      "Sort field, applied in SQL. Defaults to 'created' (ignored when unreadOrCold:true)",
     required: false as const,
   },
   dir: {
     schema: z.enum(["asc", "desc"]),
-    description: "Sort direction. Defaults to 'desc' (ignored when stale:true)",
+    description: "Sort direction. Defaults to 'desc' (ignored when unreadOrCold:true)",
     required: false as const,
   },
   offset: {

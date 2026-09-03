@@ -12,7 +12,7 @@ import { log } from "@minsky/shared/logger";
  * `command.id` (the bridge does not add aliases):
  * - `memory.search`: Vector-similarity search across stored memories
  * - `memory.get`: Fetch a memory by id
- * - `memory.list`: List memories with optional filters (e.g., `--stale`)
+ * - `memory.list`: List memories with optional filters (e.g., `--unread-or-cold`)
  * - `memory.create`: Create a new memory (validated by the mt#960 rubric)
  * - `memory.update`: Update an existing memory's fields
  * - `memory.delete`: Delete a memory by id
