@@ -37,6 +37,7 @@ import {
   type DrivenSessionInteractionState,
   type DrivenSessionResultSummary,
 } from "../lib/driven-session-accumulator";
+import { fetchSessionDriverRegistry } from "./useConversationAddress";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -89,6 +90,17 @@ export interface UseDrivenSessionResult {
   resultSummary: DrivenSessionResultSummary | null;
   errorMessage: string | null;
   harnessSessionId: string | null;
+  /**
+   * Which harness drives this session (mt#4935) — `"claude-code"` today.
+   * Read from the registry snapshot (`GET /api/driven-session`), NOT the WS
+   * event stream: unlike `harnessSessionId`, it is static for the record's
+   * whole life and was never something to fold out of a stream-json frame.
+   * `null` until the registry read resolves (or for a falsy `localId`).
+   */
+  harnessKind: string | null;
+  /** Credential/identity posture (mt#4935) — `"subscription"` or `"api-key"`.
+   * Same registry-read source and lifecycle as `harnessKind`. */
+  authMode: string | null;
   /**
    * Send operator input as `{"text": ...}`. When the channel is not yet open —
    * the window between a spawn POST returning and the child's first frame, or
@@ -161,6 +173,46 @@ function deriveStatus(
  *   idle (no connection) and returns empty/initial state.
  */
 export function useDrivenSession(localId: string | null | undefined): UseDrivenSessionResult {
+  // mt#4935 — harnessKind/authMode, unlike everything else this hook tracks,
+  // are NOT observed over the WS channel: they are static record fields, read
+  // from the SAME registry snapshot `GET /api/driven-session` that
+  // `useConversationAddress` already reads (reusing its `fetchSessionDriverRegistry`
+  // fetch function, not its react-query wrapper — this hook is mounted by
+  // components with no `QueryClientProvider` ancestor, e.g. `AgentDrivenPeek`'s
+  // and `DrivenSessionPage`'s own test harnesses). A plain effect + local
+  // state, matching every other simple-GET hook in this directory
+  // (`useTaskBacklogCounts`, `useReadyCount`, …). Fails open to `null` on any
+  // read error — this is a one-line informational header, never a reason to
+  // block or degrade the thread itself.
+  const [recordSummary, setRecordSummary] = useState<{
+    harnessKind: string | null;
+    authMode: string | null;
+  }>({ harnessKind: null, authMode: null });
+
+  useEffect(() => {
+    if (!localId) {
+      setRecordSummary({ harnessKind: null, authMode: null });
+      return;
+    }
+    let cancelled = false;
+    fetchSessionDriverRegistry()
+      .then((sessions) => {
+        if (cancelled) return;
+        const match = sessions.find((s) => s.sessionId === localId);
+        setRecordSummary({
+          harnessKind: match?.harnessKind ?? null,
+          authMode: match?.authMode ?? null,
+        });
+      })
+      .catch(() => {
+        // Fail open — see the doc comment above.
+        if (!cancelled) setRecordSummary({ harnessKind: null, authMode: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [localId]);
+
   const [connectionState, setConnectionState] =
     useState<DrivenSessionConnectionState>("connecting");
   const [accState, setAccState] = useState<DrivenAccumulatorState>(() =>
@@ -340,6 +392,8 @@ export function useDrivenSession(localId: string | null | undefined): UseDrivenS
     resultSummary: accState.resultSummary,
     errorMessage: accState.errorMessage,
     harnessSessionId: accState.harnessSessionId,
+    harnessKind: recordSummary.harnessKind,
+    authMode: recordSummary.authMode,
     sendText,
     stop,
   };

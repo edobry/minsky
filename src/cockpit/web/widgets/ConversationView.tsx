@@ -196,6 +196,16 @@ type ConversationViewProps = ConversationViewCommonProps &
       drivenSessionId: string;
       /** The `blocks` array from the caller's `useDrivenSession` hook. */
       drivenBlocks: SessionContextSnapshotBlock[];
+      /**
+       * One-line record header (mt#4935, ADR-047 §Consequences) — the
+       * caller's `useDrivenSession(drivenSessionId).harnessKind`/`.authMode`,
+       * passed straight through (same "caller owns the data, this component
+       * only renders" contract as `drivenBlocks` above). Omitted or `null`
+       * renders no header line rather than a placeholder — the registry read
+       * that supplies these is best-effort and may not have resolved yet.
+       */
+      harnessKind?: string | null;
+      authMode?: string | null;
       sessionId?: undefined;
       snapshot?: undefined;
       workspaceSessionId?: never;
@@ -932,6 +942,8 @@ const DRIVEN_BASE_ASSEMBLED_AT = new Date(0).toISOString();
 function DrivenSessionThread({
   drivenSessionId,
   drivenBlocks,
+  harnessKind,
+  authMode,
   className,
   turnTarget,
   filmPath,
@@ -939,6 +951,9 @@ function DrivenSessionThread({
 }: ConversationViewCommonProps & {
   drivenSessionId: string;
   drivenBlocks: SessionContextSnapshotBlock[];
+  /** mt#4935 — one-line record header; see `ConversationViewProps`'s doc comment. */
+  harnessKind?: string | null;
+  authMode?: string | null;
   className?: string;
 }) {
   const baseSnapshot = useMemo<SessionContextSnapshot>(
@@ -949,6 +964,14 @@ function DrivenSessionThread({
       // binary, so a driven session IS a Claude Code harness session. If the
       // host ever drives a second harness, thread the harness through from the
       // driven-session record instead (mt#2751 R1 note).
+      //
+      // mt#4935 note: that "thread it through" record now exists
+      // (`harnessKind` below), but this field is a DIFFERENT vocabulary —
+      // the transcript-rendering SOURCE FORMAT (`SessionContextSnapshot`'s
+      // own underscore-cased `harness` enum), not the supervisor's
+      // hyphen-cased `harness_kind` column. The two happen to agree today
+      // because only one harness exists; conflating them is a decision for
+      // whichever task actually adds a second rendering format, not this one.
       harness: "claude_code",
       blocks: EMPTY_DRIVEN_BASE_BLOCKS,
       assembledAt: DRIVEN_BASE_ASSEMBLED_AT,
@@ -956,14 +979,26 @@ function DrivenSessionThread({
     [drivenSessionId]
   );
   return (
-    <ConversationThread
-      snapshot={baseSnapshot}
-      extraBlocks={drivenBlocks.length > 0 ? drivenBlocks : undefined}
-      className={className}
-      turnTarget={turnTarget}
-      filmPath={filmPath}
-      tail={tail}
-    />
+    <>
+      {/* mt#4935, ADR-047 §Consequences, SC6 — one line, no new widget. Renders
+          nothing until BOTH values are present (the registry read resolves
+          harnessKind/authMode together, or not at all — see
+          useDrivenSession.ts's doc comment); a partial pair never renders a
+          line with a placeholder in it. */}
+      {harnessKind && authMode && (
+        <div className="mb-2 font-mono text-xs text-muted-foreground">
+          {harnessKind} · {authMode}
+        </div>
+      )}
+      <ConversationThread
+        snapshot={baseSnapshot}
+        extraBlocks={drivenBlocks.length > 0 ? drivenBlocks : undefined}
+        className={className}
+        turnTarget={turnTarget}
+        filmPath={filmPath}
+        tail={tail}
+      />
+    </>
   );
 }
 
@@ -1205,6 +1240,8 @@ export function ConversationView(props: ConversationViewProps) {
       <DrivenSessionThread
         drivenSessionId={props.drivenSessionId}
         drivenBlocks={props.drivenBlocks}
+        harnessKind={props.harnessKind}
+        authMode={props.authMode}
         className={props.className}
         turnTarget={props.turnTarget}
         filmPath={props.filmPath}

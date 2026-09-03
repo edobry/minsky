@@ -94,17 +94,37 @@ class StubWebSocket {
 }
 
 let originalWebSocket: typeof globalThis.WebSocket;
+let originalFetch: typeof globalThis.fetch;
+
+/**
+ * mt#4935 — `useDrivenSession` reads `GET /api/driven-session` (the SAME
+ * registry endpoint `useConversationAddress` reads) for `harnessKind`/
+ * `authMode`, which are static record fields never observed over the WS
+ * channel. Defaults to a registry with no matching row (harnessKind/
+ * authMode resolve to `null`) unless a test overrides it — matching a
+ * daemon that answers but has nothing for this id.
+ */
+function stubRegistryFetch(
+  sessions: Array<{ sessionId: string; harnessKind?: string; authMode?: string }> = []
+): void {
+  // @ts-expect-error — replacing fetch with a stub for testing
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ sessions }), { status: 200 }) as unknown as globalThis.Response;
+}
 
 beforeEach(() => {
   StubWebSocket.instances = [];
   originalWebSocket = globalThis.WebSocket;
   // @ts-expect-error — replacing WebSocket with a stub for testing
   globalThis.WebSocket = StubWebSocket;
+  originalFetch = globalThis.fetch;
+  stubRegistryFetch();
 });
 
 afterEach(() => {
   globalThis.WebSocket = originalWebSocket;
   StubWebSocket.instances = [];
+  globalThis.fetch = originalFetch;
 });
 
 function firstWs(): StubWebSocket {
@@ -403,5 +423,58 @@ describe("useDrivenSession — outbound queue (mt#3375)", () => {
     act(() => wsB.simulateOpen());
 
     expect(wsB.sent).toHaveLength(0);
+  });
+});
+
+describe("useDrivenSession — harnessKind/authMode (mt#4935)", () => {
+  test("resolves harnessKind/authMode from the registry snapshot, matched by localId", async () => {
+    stubRegistryFetch([
+      { sessionId: "local-abc-123", harnessKind: "claude-code", authMode: "api-key" },
+      { sessionId: "some-other-session", harnessKind: "codex", authMode: "subscription" },
+    ]);
+    const { result } = renderHook(() => useDrivenSession("local-abc-123"));
+
+    expect(result.current.harnessKind).toBeNull();
+    expect(result.current.authMode).toBeNull();
+
+    await waitFor(() => expect(result.current.harnessKind).toBe("claude-code"));
+    expect(result.current.authMode).toBe("api-key");
+  });
+
+  test("stays null when the registry has no row for this localId (fails open)", async () => {
+    stubRegistryFetch([{ sessionId: "unrelated-session", harnessKind: "claude-code" }]);
+    const { result } = renderHook(() => useDrivenSession("local-abc-123"));
+
+    // Give the fetch microtask a turn, then assert the state never populated.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.harnessKind).toBeNull();
+    expect(result.current.authMode).toBeNull();
+  });
+
+  test("stays null (never throws) when the registry fetch itself fails", async () => {
+    // @ts-expect-error — replacing fetch with a stub for testing
+    globalThis.fetch = async () => {
+      throw new Error("network error");
+    };
+    const { result } = renderHook(() => useDrivenSession("local-abc-123"));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.harnessKind).toBeNull();
+    expect(result.current.authMode).toBeNull();
+  });
+
+  test("does not fetch the registry when localId is falsy", () => {
+    let fetchCalls = 0;
+    // @ts-expect-error — replacing fetch with a stub for testing
+    globalThis.fetch = async () => {
+      fetchCalls += 1;
+      return new Response(JSON.stringify({ sessions: [] }), { status: 200 });
+    };
+    renderHook(() => useDrivenSession(null));
+    expect(fetchCalls).toBe(0);
   });
 });

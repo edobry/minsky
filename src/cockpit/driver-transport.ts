@@ -28,6 +28,12 @@
  * @see ./claude-transport.ts — the first (only) implementation
  */
 
+import {
+  DEFAULT_AUTH_MODE as DEFAULT_AUTH_MODE_VALUE,
+  DEFAULT_HARNESS_KIND as DEFAULT_HARNESS_KIND_VALUE,
+  DEFAULT_TRANSPORT_ID as DEFAULT_TRANSPORT_ID_VALUE,
+} from "@minsky/domain/storage/schemas/driven-session-defaults";
+
 // ---------------------------------------------------------------------------
 // Process abstraction — any transport that drives a session by spawning a CLI
 // child process (today's Claude pipe, and plausibly a future ACP-speaking
@@ -79,14 +85,42 @@ export type PermissionMode = "bypassPermissions" | "default";
 export const DEFAULT_PERMISSION_MODE: PermissionMode = "bypassPermissions";
 
 /**
- * The credential/identity posture a transport drives under. `"subscription"`
- * (the user's own Claude Code login, no Agent SDK) is the only value any
- * transport supports today — ask#11489 (customer-facing auth policy) and
- * mt#4935/mt#4936 may extend this set later. Declared now so `start`/`resume`
- * already carry the parameter SC1 asks for, without inventing branching logic
- * nothing yet needs.
+ * The credential/identity posture a transport drives under (mt#4935, ADR-047
+ * §Consequences):
+ *   - `"subscription"` — the user's own Claude Code login, no Agent SDK, no
+ *     env mutation. The only value ever exercised before this task, and
+ *     still the only one refused for any `harness_kind` other than
+ *     `"claude-code"` until that harness's own subscription path is
+ *     verified (the seam: mt#2237/mt#2750).
+ *   - `"api-key"` — the transport sets `ANTHROPIC_API_KEY` in the spawned
+ *     child's env from the configured `ai.providers.anthropic.apiKey`
+ *     credential, leaving the operator's own subscription login untouched.
+ *     Refused with a clear error when no credential is configured.
+ *
+ * The customer-facing auth POLICY (which mode a given launch should use) is
+ * ask#11489, filed under mt#4933 — explicitly out of this task's scope.
  */
-export type DriverAuthMode = "subscription";
+export type DriverAuthMode = "subscription" | "api-key";
+
+/** Re-exported from the domain-side single source of truth (PR #3595 R1
+ * finding 3) — see `driven-session-defaults.ts` for why these live there. */
+export const DEFAULT_AUTH_MODE: DriverAuthMode = DEFAULT_AUTH_MODE_VALUE;
+
+/**
+ * Which harness drives a session (mt#4935) — `"claude-code"` today; `codex`,
+ * `gemini-cli`, `opencode` are added by the ACP sibling (mt#4936) as they are
+ * proven. Deliberately `string`, not a closed union: the whole point of the
+ * plain-`text`-column design this mirrors (see `driven-sessions-schema.ts`'s
+ * `PersistedDrivenSessionStatus` comment) is that this set grows without a
+ * migration — a closed TS union would have to be edited in lockstep anyway,
+ * which is the exact coupling the schema design avoids.
+ */
+export const DEFAULT_HARNESS_KIND: string = DEFAULT_HARNESS_KIND_VALUE;
+
+/** The default `DriverTransport.id` — must match `ClaudeStreamJsonTransport.id`
+ * (./claude-transport.ts, which imports this SAME constant for its `id` field
+ * rather than restating the literal). */
+export const DEFAULT_TRANSPORT_ID: string = DEFAULT_TRANSPORT_ID_VALUE;
 
 // ---------------------------------------------------------------------------
 // Normalized cost/usage shape — the "turn result" every transport reports,

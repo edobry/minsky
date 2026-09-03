@@ -21,11 +21,20 @@ function createTestQueryClient(): QueryClient {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } });
 }
 
-function renderDriven(drivenSessionId: string, drivenBlocks: SessionContextSnapshotBlock[]) {
+function renderDriven(
+  drivenSessionId: string,
+  drivenBlocks: SessionContextSnapshotBlock[],
+  opts?: { harnessKind?: string | null; authMode?: string | null }
+) {
   const client = createTestQueryClient();
   return render(
     <QueryClientProvider client={client}>
-      <ConversationView drivenSessionId={drivenSessionId} drivenBlocks={drivenBlocks} />
+      <ConversationView
+        drivenSessionId={drivenSessionId}
+        drivenBlocks={drivenBlocks}
+        harnessKind={opts?.harnessKind}
+        authMode={opts?.authMode}
+      />
     </QueryClientProvider>
   );
 }
@@ -89,5 +98,35 @@ describe("ConversationView — driven-session variant (mt#2751)", () => {
     // Revealing to the start replaces the boundary with the beginning marker
     // rather than leaving blank space (mt#3688).
     expect(screen.getByTestId("thread-start")).toBeDefined();
+  });
+});
+
+describe("ConversationView — driven-session record header (mt#4935, PR #3595 R1 finding 2)", () => {
+  afterEach(cleanup);
+
+  test("renders 'harnessKind · authMode' when both are provided", () => {
+    renderDriven("driven-header-1", [], { harnessKind: "claude-code", authMode: "subscription" });
+    expect(screen.getByText("claude-code · subscription")).toBeDefined();
+  });
+
+  test("renders nothing when both are null (registry read not yet resolved)", () => {
+    renderDriven("driven-header-2", [], { harnessKind: null, authMode: null });
+    expect(screen.queryByText(/claude-code|subscription|api-key/)).toBeNull();
+  });
+
+  // Finding 2/6 — the contract is BOTH-or-neither, never a partial line.
+  test("harnessKind present with authMode absent renders nothing", () => {
+    renderDriven("driven-header-3", [], { harnessKind: "codex", authMode: null });
+    expect(screen.queryByText(/codex/)).toBeNull();
+  });
+
+  test("authMode present with harnessKind absent renders nothing", () => {
+    renderDriven("driven-header-4", [], { harnessKind: null, authMode: "api-key" });
+    expect(screen.queryByText(/api-key/)).toBeNull();
+  });
+
+  test("both present (a second value pairing) renders the line", () => {
+    renderDriven("driven-header-5", [], { harnessKind: "codex", authMode: "api-key" });
+    expect(screen.getByText("codex · api-key")).toBeDefined();
   });
 });

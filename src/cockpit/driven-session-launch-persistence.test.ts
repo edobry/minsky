@@ -63,6 +63,10 @@ const MISSING_CWD = join(TEST_WORKSPACE_ROOT, "deleted-workspace");
 const BASE_ROW: DrivenSessionRow = {
   localId: "local-1",
   harnessSessionId: "harness-1",
+  harnessKind: "claude-code",
+  transportId: "claude-stream-json",
+  harnessConversationId: "harness-1",
+  authMode: "subscription",
   cwd: TEST_WORKSPACE_ROOT,
   permissionMode: "bypassPermissions",
   taskId: "mt#3038",
@@ -103,6 +107,11 @@ describe("createDrivenSessionPersistObserver", () => {
     expect(call.cwd).toBe(TEST_WORKSPACE_ROOT);
     expect(call.status).toBe("spawned");
     expect(call.pidCmdline).toContain("claude");
+    // mt#4935 — the harness-agnostic fields persist off the live record,
+    // never a silently re-derived default.
+    expect(call.harnessKind).toBe("claude-code");
+    expect(call.transportId).toBe("claude-stream-json");
+    expect(call.authMode).toBe("subscription");
   });
 
   // mt#3040 preservation (interaction fix) — the model isn't a separate

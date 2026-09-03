@@ -52,7 +52,11 @@ import {
   stopDrivenSession,
   drivenSessionRegistry,
   isDrivenSessionMidTurn,
+  DEFAULT_AUTH_MODE,
+  DEFAULT_HARNESS_KIND,
   DEFAULT_PERMISSION_MODE,
+  DEFAULT_TRANSPORT_ID,
+  type DriverAuthMode,
   type DrivenSessionRecord,
   type DrivenSessionRegistry,
   type DrivenSessionCostSummary,
@@ -71,6 +75,7 @@ import {
   type OrchestrateDrivenSessionAttachDeps,
 } from "../driven-session-launch";
 import { isDispatchModelId, resolveDispatchModelArg } from "@minsky/domain/ai/dispatch-models";
+import { readConfiguredAnthropicApiKey } from "@minsky/domain/credentials/anthropic-api-key";
 import { looksLikeConversationId } from "../conversation-id-space";
 import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
 import { getLoggableErrorSummary } from "@minsky/domain/schemas/error";
@@ -131,15 +136,30 @@ export interface DrivenSessionRoutesOptions {
   getProjectScopeDb?: () => Promise<
     import("@minsky/domain/project/scope-resolver").ScopeResolverDb | null
   >;
+  /**
+   * Override how the configured Anthropic API key is read (mt#4935, test
+   * seam) — defaults to {@link readConfiguredAnthropicApiKey}. Backs the
+   * `auth_mode: "api-key"` refusal check below.
+   */
+  getConfiguredAnthropicApiKey?: () => string | null;
+}
+
+function isDriverAuthMode(value: unknown): value is DriverAuthMode {
+  return value === "subscription" || value === "api-key";
 }
 
 /** Serialize one registry record for the create/list responses (mt#2752).
  * ONE row shape for both endpoints — docs/cockpit-ui.md §Operator endpoints
- * documents them as identical (PR #1943 R1 finding: they had drifted). */
+ * documents them as identical (PR #1943 R1 finding: they had drifted).
+ * `harnessKind`/`authMode` added mt#4935 for the driven-session view's
+ * one-line header (SC6) — `harnessConversationId`/`transportId` are not
+ * surfaced here; nothing in the spec's rendered header needs them. */
 function toSessionSummary(record: DrivenSessionRecord) {
   return {
     sessionId: record.localId,
     harnessSessionId: record.harnessSessionId,
+    harnessKind: record.harnessKind,
+    authMode: record.authMode,
     cwd: record.cwd,
     taskId: record.taskId,
     minskySessionId: record.minskySessionId,
@@ -230,6 +250,84 @@ export function mountDrivenSessionRoutes(
       model = resolveDispatchModelArg(modelRaw);
     }
 
+    // mt#4935: harness-agnostic drive-record fields. All four are optional,
+    // defaulting to today's only values — an existing caller that omits them
+    // gets exactly the pre-mt#4935 behavior (AT2).
+    const harnessKindRaw = body["harnessKind"];
+    if (
+      harnessKindRaw !== undefined &&
+      (typeof harnessKindRaw !== "string" || harnessKindRaw.length === 0)
+    ) {
+      res.status(400).json({ error: "harnessKind must be a non-empty string when provided" });
+      return;
+    }
+    const harnessKind = (harnessKindRaw as string | undefined) ?? DEFAULT_HARNESS_KIND;
+
+    const transportIdRaw = body["transportId"];
+    if (
+      transportIdRaw !== undefined &&
+      (typeof transportIdRaw !== "string" || transportIdRaw.length === 0)
+    ) {
+      res.status(400).json({ error: "transportId must be a non-empty string when provided" });
+      return;
+    }
+    const transportId = (transportIdRaw as string | undefined) ?? DEFAULT_TRANSPORT_ID;
+
+    const harnessConversationIdRaw = body["harnessConversationId"];
+    if (
+      harnessConversationIdRaw !== undefined &&
+      (typeof harnessConversationIdRaw !== "string" || harnessConversationIdRaw.length === 0)
+    ) {
+      res
+        .status(400)
+        .json({ error: "harnessConversationId must be a non-empty string when provided" });
+      return;
+    }
+    const harnessConversationId = (harnessConversationIdRaw as string | undefined) ?? null;
+
+    const authModeRaw = body["authMode"];
+    if (authModeRaw !== undefined && !isDriverAuthMode(authModeRaw)) {
+      res.status(400).json({ error: 'authMode must be "subscription" or "api-key" when provided' });
+      return;
+    }
+    const authMode: DriverAuthMode = authModeRaw ?? DEFAULT_AUTH_MODE;
+    // Hoisted (not just declared inside the "api-key" refusal check below) so
+    // the SAME resolved reader — production default or test-injected fake —
+    // is threaded into `startDrivenSession` further down. Without this, the
+    // transport's own independent default (`readConfiguredAnthropicApiKey`)
+    // would disagree with this route's `getConfiguredAnthropicApiKey` test
+    // seam, and PR #3595 R1 finding 4's fail-closed transport would refuse a
+    // spawn this route had just confirmed was configured.
+    const getApiKey = opts.getConfiguredAnthropicApiKey ?? readConfiguredAnthropicApiKey;
+
+    // Refusal 1 (AT4): "subscription" is the user's own Claude Code login —
+    // verified only for harness_kind "claude-code" (the seam: mt#2237/mt#2750).
+    // A non-Claude harness's own subscription path is unverified, so this
+    // refuses rather than silently spawning under an auth posture nobody has
+    // checked works.
+    if (authMode === "subscription" && harnessKind !== DEFAULT_HARNESS_KIND) {
+      res.status(400).json({
+        error:
+          `auth_mode "subscription" is only supported for harness_kind "${DEFAULT_HARNESS_KIND}" ` +
+          `today — ${harnessKind}'s own subscription path is unverified (see mt#2237/mt#2750).`,
+      });
+      return;
+    }
+
+    // Refusal 2 (AT3): "api-key" requires a configured Anthropic credential.
+    // Checked here — before anything spawns — so the response names the
+    // missing credential rather than degrading silently inside the transport.
+    if (authMode === "api-key") {
+      if (!getApiKey()) {
+        res.status(400).json({
+          error:
+            'auth_mode "api-key" requires ai.providers.anthropic.apiKey to be configured — ' +
+            "no credential found",
+        });
+        return;
+      }
+    }
+
     try {
       let cwd: string;
       let taskId: string | null = null;
@@ -287,6 +385,15 @@ export function mountDrivenSessionRoutes(
         taskId,
         minskySessionId,
         projectId,
+        harnessKind,
+        transportId,
+        harnessConversationId,
+        authMode,
+        // See the `getApiKey` declaration above — the SAME resolved reader
+        // the route's own refusal check just used, so the transport's
+        // independent fail-closed check (PR #3595 R1 finding 4) can never
+        // disagree with the route about whether a credential is configured.
+        getAnthropicApiKey: getApiKey,
         onHarnessSessionLinked,
         onResultSummary,
         onStateChange,

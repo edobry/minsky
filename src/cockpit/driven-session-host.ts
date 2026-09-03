@@ -30,6 +30,7 @@ import { PassThrough } from "stream";
 import { log } from "@minsky/shared/logger";
 import { INTERRUPTION_NOTICE_TEXT } from "@minsky/shared/minsky-notices";
 import type {
+  DriverAuthMode,
   DriverTransport,
   DriverTransportEvent,
   DrivenInputImage,
@@ -38,7 +39,12 @@ import type {
   ProcessLike,
   SpawnFn,
 } from "./driver-transport";
-import { DEFAULT_PERMISSION_MODE } from "./driver-transport";
+import {
+  DEFAULT_AUTH_MODE,
+  DEFAULT_HARNESS_KIND,
+  DEFAULT_PERMISSION_MODE,
+  DEFAULT_TRANSPORT_ID,
+} from "./driver-transport";
 import { ClaudeStreamJsonTransport } from "./claude-transport";
 
 export * from "./driver-transport";
@@ -153,6 +159,34 @@ export interface DrivenSessionRecord {
   /** The Minsky workspace sessionId the session was launched against (see taskId). */
   readonly minskySessionId: string | null;
   /**
+   * Which harness drives this session (mt#4935, ADR-047 §Consequences) —
+   * `"claude-code"` today. Read-only after construction: a session driver
+   * swap (`resumeDrivenSession`) carries the SAME harness forward from
+   * `DrivenSessionResumeSource.harnessKind`, never re-derives it.
+   */
+  readonly harnessKind: string;
+  /**
+   * Which `DriverTransport` this record was spawned/resumed through — the
+   * SAME instance as {@link transport}'s own `.id` (mt#4935). Persisted
+   * separately from `transport` (which is never serialized) so a rehydrated
+   * record can report a transport id without holding a live transport
+   * instance.
+   */
+  readonly transportId: string;
+  /**
+   * The harness's OWN conversation id (mt#4935) — for `harnessKind ===
+   * "claude-code"` the SAME value as {@link harnessSessionId}. Mutable for
+   * the same reason that field is: unknown until the child's `init` event
+   * links it (see `DrivenSessionRegistry.linkHarnessId`).
+   */
+  harnessConversationId: string | null;
+  /**
+   * Credential/identity posture this drive runs under (mt#4935) —
+   * `"subscription"` or `"api-key"`. Read-only after construction, same
+   * carry-forward rule as `harnessKind`.
+   */
+  readonly authMode: DriverAuthMode;
+  /**
    * Project attribution (mt#4732), resolved by the CALLER at launch time from
    * the bound workspace's own `SessionRecord.projectId` when `minskySessionId`
    * is known and resolvable — this module never resolves it itself (the
@@ -244,6 +278,11 @@ export class DrivenSessionRegistry {
 
   linkHarnessId(record: DrivenSessionRecord, harnessSessionId: string): void {
     record.harnessSessionId = harnessSessionId;
+    // mt#4935: for every harness this codebase drives today, the harness's
+    // own conversation id IS the value just discovered — `harnessSessionId`
+    // stays the compatibility column (ADR-022 stage-2 retires it), this is
+    // the harness-agnostic name a non-Claude harness (mt#4936) also writes.
+    record.harnessConversationId = harnessSessionId;
     this.byHarnessId.set(harnessSessionId, record);
   }
 
@@ -392,15 +431,53 @@ export function isDrivenSessionMidTurn(record: DrivenSessionRecord): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Transport selection (mt#4934) — a single hard-coded default until mt#4935
-// adds a transport id to the drive record.
+// Transport selection (mt#4934/mt#4935, PR #3595 R1) — dispatches by
+// `transportId` (`DriverTransport.id`). No silent fallback: an unrecognized
+// id is a REFUSAL (the caller builds an `unrecoverable` record naming the
+// unknown id — the same shape a missing-cwd spawn failure already produces),
+// never a spawn under a transport the caller never asked for. Every caller
+// that persists a `transportId` reads it off the RETURNED transport
+// instance's own `.id`, never off the request, so a persisted row can never
+// claim an identity the transport that actually ran didn't have.
 // ---------------------------------------------------------------------------
 
-function selectDriverTransport(overrides: {
+type DriverTransportFactory = (overrides: {
   command?: string;
   spawnFn?: SpawnFn;
-}): DriverTransport {
-  return new ClaudeStreamJsonTransport(overrides);
+  getAnthropicApiKey?: () => string | null;
+}) => DriverTransport;
+
+const DEFAULT_DRIVER_TRANSPORT_FACTORY: DriverTransportFactory = (overrides) =>
+  new ClaudeStreamJsonTransport(overrides);
+
+/** Every `DriverTransport` this build knows how to construct, by `.id`. */
+const DRIVER_TRANSPORT_FACTORIES: Readonly<Record<string, DriverTransportFactory>> = {
+  [DEFAULT_TRANSPORT_ID]: DEFAULT_DRIVER_TRANSPORT_FACTORY,
+};
+
+type SelectDriverTransportResult =
+  | { ok: true; transport: DriverTransport }
+  | { ok: false; reason: string };
+
+function selectDriverTransport(overrides: {
+  transportId?: string;
+  command?: string;
+  spawnFn?: SpawnFn;
+  getAnthropicApiKey?: () => string | null;
+}): SelectDriverTransportResult {
+  const transportId = overrides.transportId ?? DEFAULT_TRANSPORT_ID;
+  const factory = DRIVER_TRANSPORT_FACTORIES[transportId];
+  if (!factory) {
+    return { ok: false, reason: `Unknown transport_id "${transportId}"` };
+  }
+  return {
+    ok: true,
+    transport: factory({
+      command: overrides.command,
+      spawnFn: overrides.spawnFn,
+      getAnthropicApiKey: overrides.getAnthropicApiKey,
+    }),
+  };
 }
 
 /**
@@ -520,6 +597,23 @@ export interface StartDrivenSessionOptions {
    * own default resolution (pre-mt#3040 behavior).
    */
   model?: string;
+  /** Which harness drives this session (mt#4935). Defaults to `DEFAULT_HARNESS_KIND`
+   * (`"claude-code"`). */
+  harnessKind?: string;
+  /** Which `DriverTransport` to spawn through, by `.id` (mt#4935) — consumed by
+   * `selectDriverTransport`. Defaults to `DEFAULT_TRANSPORT_ID`. */
+  transportId?: string;
+  /**
+   * The harness's own conversation id, if already known at launch time
+   * (mt#4935) — a fresh spawn normally has none yet; it is populated once the
+   * child's `init` event links `harnessSessionId` (see
+   * `DrivenSessionRegistry.linkHarnessId`). Defaults to `null`.
+   */
+  harnessConversationId?: string | null;
+  /** Credential/identity posture to drive under (mt#4935). Defaults to
+   * `DEFAULT_AUTH_MODE` (`"subscription"`). Threaded into the transport's
+   * `spawn` call as `DriverTransportStartOptions.authMode`. */
+  authMode?: DriverAuthMode;
   /**
    * Observer invoked once, when the transport's `harnessSessionDiscovered`
    * event links the harness session id (mt#2752 spawn-time identity
@@ -552,6 +646,16 @@ export interface StartDrivenSessionOptions {
   command?: string;
   /** Override the spawn function (test seam — REQUIRED for all tests, see module docblock). */
   spawnFn?: SpawnFn;
+  /**
+   * Override how the constructed transport reads the configured Anthropic
+   * API key (mt#4935, test seam) — threaded through `selectDriverTransport`
+   * to the transport's own constructor. REQUIRED for any test exercising
+   * `authMode: "api-key"`: since PR #3595 R1 finding 4, a transport with no
+   * configured credential THROWS rather than degrading, so an uninjected
+   * test would otherwise reach the real `readConfiguredAnthropicApiKey`
+   * (global configuration singleton, uninitialized under `bun test`).
+   */
+  getAnthropicApiKey?: () => string | null;
   /** Override environment variables passed to the child (test seam). */
   env?: NodeJS.ProcessEnv;
   /** Override the registry (test seam — hermetic instance per test). */
@@ -636,11 +740,44 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
   const localId = opts.localId ?? randomUUID();
   const startedAt = new Date().toISOString();
   const installOpts = { replacePrevious: opts.replacePrevious ?? false };
-  const transport = selectDriverTransport({ command: opts.command, spawnFn: opts.spawnFn });
+  const harnessKind = opts.harnessKind ?? DEFAULT_HARNESS_KIND;
+  const requestedTransportId = opts.transportId ?? DEFAULT_TRANSPORT_ID;
+  const authMode = opts.authMode ?? DEFAULT_AUTH_MODE;
+  const selected = selectDriverTransport({
+    transportId: requestedTransportId,
+    command: opts.command,
+    spawnFn: opts.spawnFn,
+    getAnthropicApiKey: opts.getAnthropicApiKey,
+  });
+
+  if (!selected.ok) {
+    const record = buildReconnectingDrivenSessionRecord({
+      localId,
+      harnessSessionId: null,
+      harnessKind,
+      transportId: requestedTransportId,
+      harnessConversationId: opts.harnessConversationId ?? null,
+      authMode,
+      cwd: opts.cwd,
+      permissionMode,
+      taskId: opts.taskId ?? null,
+      minskySessionId: opts.minskySessionId ?? null,
+      projectId: opts.projectId ?? null,
+      status: "unrecoverable",
+      unrecoverableReason: selected.reason,
+      driverGeneration: 0,
+      startedAt,
+    });
+    registry.install(record, installOpts);
+    notifyStateChange(record, opts.onStateChange);
+    return { record };
+  }
+  const { transport } = selected;
 
   const spawnResult = transport.spawn({
     cwd: opts.cwd,
     permissionMode,
+    authMode,
     model: opts.model,
     mcpConfig: opts.mcpConfig,
     mcpServerNames: opts.mcpServerNames,
@@ -651,6 +788,12 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
     const record = buildReconnectingDrivenSessionRecord({
       localId,
       harnessSessionId: null,
+      harnessKind,
+      // Read off the INSTANCE that was actually constructed, not the request
+      // — see the module-level note on `selectDriverTransport` above.
+      transportId: transport.id,
+      harnessConversationId: opts.harnessConversationId ?? null,
+      authMode,
       cwd: opts.cwd,
       permissionMode,
       taskId: opts.taskId ?? null,
@@ -676,6 +819,11 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
     taskId: opts.taskId ?? null,
     minskySessionId: opts.minskySessionId ?? null,
     projectId: opts.projectId ?? null,
+    harnessKind,
+    // Read off the INSTANCE, not the request — see the note above.
+    transportId: transport.id,
+    harnessConversationId: opts.harnessConversationId ?? null,
+    authMode,
     status: "spawned",
     unrecoverableReason: null,
     harnessSessionId: null,
@@ -748,6 +896,15 @@ export interface DrivenSessionResumeSource {
   /** The principal-selected model alias (mt#3040) from the original launch — preserved
    * across the resume so it doesn't silently fall back to the CLI's default. */
   model?: string | null;
+  /** Carried forward from the record being resumed (mt#4935). Defaults to
+   * `DEFAULT_HARNESS_KIND` in {@link resumeDrivenSession}. */
+  harnessKind?: string;
+  /** Carried forward from the record being resumed (mt#4935) — which transport
+   * to respawn through. Defaults to `DEFAULT_TRANSPORT_ID`. */
+  transportId?: string;
+  /** Carried forward from the record being resumed (mt#4935). Defaults to
+   * `DEFAULT_AUTH_MODE`. */
+  authMode?: DriverAuthMode;
 }
 
 export interface ResumeDrivenSessionOptions {
@@ -760,6 +917,9 @@ export interface ResumeDrivenSessionOptions {
   command?: string;
   /** Override the spawn function (test seam — REQUIRED for all tests, see module docblock). */
   spawnFn?: SpawnFn;
+  /** See `StartDrivenSessionOptions.getAnthropicApiKey` — same contract, same
+   * REQUIRED-for-`authMode: "api-key"` note, for the respawn. */
+  getAnthropicApiKey?: () => string | null;
   /** Override environment variables passed to the child (test seam). */
   env?: NodeJS.ProcessEnv;
   /** Override the registry (test seam — hermetic instance per test). */
@@ -799,11 +959,44 @@ export interface ResumeDrivenSessionOptions {
 export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDrivenSessionResult {
   const { previous } = opts;
   const registry = opts.registry ?? drivenSessionRegistry;
-  const transport = selectDriverTransport({ command: opts.command, spawnFn: opts.spawnFn });
+  const harnessKind = previous.harnessKind ?? DEFAULT_HARNESS_KIND;
+  const requestedTransportId = previous.transportId ?? DEFAULT_TRANSPORT_ID;
+  const authMode = previous.authMode ?? DEFAULT_AUTH_MODE;
+  const selected = selectDriverTransport({
+    transportId: requestedTransportId,
+    command: opts.command,
+    spawnFn: opts.spawnFn,
+    getAnthropicApiKey: opts.getAnthropicApiKey,
+  });
+
+  if (!selected.ok) {
+    const record = buildReconnectingDrivenSessionRecord({
+      localId: previous.localId,
+      harnessSessionId: previous.harnessSessionId,
+      harnessKind,
+      transportId: requestedTransportId,
+      harnessConversationId: previous.harnessSessionId,
+      authMode,
+      cwd: previous.cwd,
+      permissionMode: previous.permissionMode,
+      taskId: previous.taskId,
+      minskySessionId: previous.minskySessionId,
+      projectId: previous.projectId ?? null,
+      status: "unrecoverable",
+      unrecoverableReason: selected.reason,
+      driverGeneration: previous.driverGeneration,
+      startedAt: previous.startedAt,
+    });
+    registry.replace(previous.localId, record);
+    notifyStateChange(record, opts.onStateChange);
+    return { record };
+  }
+  const { transport } = selected;
 
   const spawnResult = transport.spawnResume({
     cwd: previous.cwd,
     permissionMode: previous.permissionMode,
+    authMode,
     harnessSessionId: previous.harnessSessionId,
     model: previous.model ?? undefined,
     mcpConfig: opts.mcpConfig,
@@ -823,6 +1016,11 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
     const record = buildReconnectingDrivenSessionRecord({
       localId: previous.localId,
       harnessSessionId: previous.harnessSessionId,
+      harnessKind,
+      // Read off the INSTANCE, not the request — see selectDriverTransport's note.
+      transportId: transport.id,
+      harnessConversationId: previous.harnessSessionId,
+      authMode,
       cwd: previous.cwd,
       permissionMode: previous.permissionMode,
       taskId: previous.taskId,
@@ -848,6 +1046,15 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
     taskId: previous.taskId,
     minskySessionId: previous.minskySessionId,
     projectId: previous.projectId ?? null,
+    harnessKind,
+    // Read off the INSTANCE, not the request — see selectDriverTransport's note.
+    transportId: transport.id,
+    // A resume already knows the harness's own conversation id — it IS
+    // `harnessSessionId`, required to resume at all — so this is set here
+    // directly rather than waiting for a `harnessSessionDiscovered` event
+    // that will never fire for a resume (mt#4935).
+    harnessConversationId: previous.harnessSessionId,
+    authMode,
     status: "spawned",
     unrecoverableReason: null,
     harnessSessionId: previous.harnessSessionId,
@@ -908,6 +1115,18 @@ function createDeadProcessPlaceholder(): ProcessLike {
 export interface ReconnectingRecordInput {
   localId: string;
   harnessSessionId: string | null;
+  /** Which harness this record belongs to (mt#4935). Defaults to
+   * `DEFAULT_HARNESS_KIND` in the builder — the two external callers (a
+   * persisted row, an attach-from-disk) both predate any non-Claude harness. */
+  harnessKind?: string;
+  /** Which transport this record would resume through, by `.id` (mt#4935).
+   * Defaults to `DEFAULT_TRANSPORT_ID`. */
+  transportId?: string;
+  /** The harness's own conversation id (mt#4935). Defaults to `harnessSessionId`
+   * — the only harness this builder has ever served. */
+  harnessConversationId?: string | null;
+  /** Credential/identity posture (mt#4935). Defaults to `DEFAULT_AUTH_MODE`. */
+  authMode?: DriverAuthMode;
   cwd: string;
   permissionMode: PermissionMode;
   taskId: string | null;
@@ -931,8 +1150,8 @@ export interface ReconnectingRecordInput {
    * The transport this record would resume through (mt#4934 PR #3594 R1).
    * Optional: the boot-time reconciliation caller (../driven-session-launch.ts,
    * loading a persisted row with no live spawn attempt) has no transport to
-   * report, so this defaults to {@link selectDriverTransport}'s default
-   * inside the builder. Functionally inert either way — every status this
+   * report, so this defaults to the default transport factory inside the
+   * builder. Functionally inert either way — every status this
    * builder ever produces is excluded from {@link hasLiveSessionDriver}, so
    * nothing ever calls `record.transport` on a placeholder built this way
    * until an actual {@link resumeDrivenSession} REPLACES it with a record
@@ -967,6 +1186,10 @@ export function buildReconnectingDrivenSessionRecord(
     taskId: input.taskId,
     minskySessionId: input.minskySessionId,
     projectId: input.projectId ?? null,
+    harnessKind: input.harnessKind ?? DEFAULT_HARNESS_KIND,
+    transportId: input.transportId ?? DEFAULT_TRANSPORT_ID,
+    harnessConversationId: input.harnessConversationId ?? input.harnessSessionId,
+    authMode: input.authMode ?? DEFAULT_AUTH_MODE,
     status: input.status,
     unrecoverableReason: input.unrecoverableReason,
     harnessSessionId: input.harnessSessionId,
@@ -977,7 +1200,12 @@ export function buildReconnectingDrivenSessionRecord(
     stopRequested: false,
     driverGeneration: input.driverGeneration,
     proc: createDeadProcessPlaceholder(),
-    transport: input.transport ?? selectDriverTransport({}),
+    // Inert placeholder — see the field's own doc comment: nothing ever calls
+    // `record.transport` here, so this does not need to (and, unlike a real
+    // spawn/resume, must NOT refuse on) an unrecognized `input.transportId`.
+    // The PERSISTED `transportId` field above is what a reader/writer cares
+    // about; it already carries `input.transportId` (or the default) verbatim.
+    transport: input.transport ?? DEFAULT_DRIVER_TRANSPORT_FACTORY({}),
     eventLog: [],
     // Rehydrated at boot: its predecessor's log died with that process (mt#3453).
     needsHistoryReplay: true,

@@ -30,7 +30,10 @@ import { spawn as nodeSpawn } from "child_process";
 import { log } from "@minsky/shared/logger";
 import { missingCwdReason, probeSpawnCwd } from "./claude-cwd-preflight";
 import { CLAUDE_BINARY, buildDrivenSessionArgs, buildResumeSessionArgs } from "./claude-argv";
+import { readConfiguredAnthropicApiKey } from "@minsky/domain/credentials/anthropic-api-key";
+import { DEFAULT_TRANSPORT_ID } from "./driver-transport";
 import type {
+  DriverAuthMode,
   DriverTransport,
   DriverTransportEvent,
   DriverTransportResumeOptions,
@@ -185,6 +188,69 @@ function attachParser(
 }
 
 // ---------------------------------------------------------------------------
+// auth_mode: "api-key" env resolution (mt#4935, PR #3595 R1 finding 4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown by {@link resolveEnvForAuthMode} when `authMode: "api-key"` has no
+ * configured credential. A security-sensitive posture (running under the
+ * WRONG auth silently) must fail closed, so this is a throw, not a log —
+ * caught by `startDrivenSession`/`resumeDrivenSession`'s callers exactly the
+ * way any other spawn-time error already is (the route's existing try/catch
+ * in `routes/driven-sessions.ts` maps an uncaught error to a response; this
+ * adds no new mapping). The route's OWN pre-spawn check
+ * (`routes/driven-sessions.ts`) is the fast path for the common case; this is
+ * the second, independent line of defense for a caller that reaches the
+ * transport directly (e.g. a resume of a persisted `api-key` row whose
+ * credential was later removed) — and now it refuses instead of degrading.
+ */
+export class MissingAnthropicApiKeyError extends Error {
+  constructor(context: string) {
+    super(
+      `${context}: auth_mode "api-key" requires ai.providers.anthropic.apiKey to be configured — ` +
+        "no credential found"
+    );
+    this.name = "MissingAnthropicApiKeyError";
+  }
+}
+
+/**
+ * Resolve the env object to spawn with, honouring `authMode` (mt#4935).
+ *
+ * `"subscription"` (the default, and the only value before this task) is a
+ * no-op — returns `baseEnv` UNCHANGED, so the operator's own Claude Code
+ * login is exactly as untouched as it always was.
+ *
+ * `"api-key"` sets `ANTHROPIC_API_KEY` in the CHILD's env only, from the
+ * configured `ai.providers.anthropic.apiKey` credential — never the parent
+ * process's env, never printed, never logged. Preserves the rest of
+ * `baseEnv` (or `process.env`, matching `prodSpawnFn`'s own default when
+ * `baseEnv` is `undefined`) rather than replacing it outright: an env
+ * object carrying ONLY `ANTHROPIC_API_KEY` would spawn a child with no
+ * `PATH`, unable to find the binary that is about to run it.
+ *
+ * A missing credential THROWS {@link MissingAnthropicApiKeyError} — never
+ * silently spawns under the operator's own subscription login instead of the
+ * requested API key, which is exactly the wrong-auth-silently class a
+ * credential-posture bug belongs to.
+ */
+function resolveEnvForAuthMode(
+  authMode: DriverAuthMode | undefined,
+  baseEnv: NodeJS.ProcessEnv | undefined,
+  getAnthropicApiKey: () => string | null,
+  context: string
+): NodeJS.ProcessEnv | undefined {
+  if (authMode !== "api-key") return baseEnv;
+
+  const apiKey = getAnthropicApiKey();
+  if (!apiKey) {
+    throw new MissingAnthropicApiKeyError(context);
+  }
+
+  return { ...(baseEnv ?? process.env), ANTHROPIC_API_KEY: apiKey };
+}
+
+// ---------------------------------------------------------------------------
 // The transport
 // ---------------------------------------------------------------------------
 
@@ -193,16 +259,25 @@ export interface ClaudeStreamJsonTransportOptions {
   command?: string;
   /** Override the spawn function (test seam — REQUIRED for all tests, see module docblock). */
   spawnFn?: SpawnFn;
+  /**
+   * Override how the configured Anthropic API key is read (mt#4935, test
+   * seam) — defaults to {@link readConfiguredAnthropicApiKey}. Tests inject a
+   * fake so `authMode: "api-key"` behavior is exercisable without a real
+   * initialized configuration provider.
+   */
+  getAnthropicApiKey?: () => string | null;
 }
 
 export class ClaudeStreamJsonTransport implements DriverTransport {
-  readonly id = "claude-stream-json";
+  readonly id = DEFAULT_TRANSPORT_ID;
   private readonly command: string;
   private readonly spawnFn: SpawnFn;
+  private readonly getAnthropicApiKey: () => string | null;
 
   constructor(opts: ClaudeStreamJsonTransportOptions = {}) {
     this.command = opts.command ?? CLAUDE_BINARY;
     this.spawnFn = opts.spawnFn ?? prodSpawnFn;
+    this.getAnthropicApiKey = opts.getAnthropicApiKey ?? readConfiguredAnthropicApiKey;
   }
 
   spawn(opts: DriverTransportStartOptions): DriverTransportSpawnResult {
@@ -215,6 +290,12 @@ export class ClaudeStreamJsonTransport implements DriverTransport {
       log.error(`[driven-session] not spawning ${this.command} — ${reason}`);
       return { ok: false, reason };
     }
+
+    // mt#4935 R1 finding 4 — resolve (and, for "api-key" with no configured
+    // credential, THROW) before announcing or building anything else: a
+    // credential-posture failure must not be preceded by a "spawning ..."
+    // log line for a spawn that is about to be refused.
+    const env = resolveEnvForAuthMode(opts.authMode, opts.env, this.getAnthropicApiKey, "start");
 
     // mt#3377: `undefined` means "production default"; an explicit `null`
     // means "no MCP config" — so the two are deliberately NOT collapsed with `??`.
@@ -229,7 +310,7 @@ export class ClaudeStreamJsonTransport implements DriverTransport {
         `(cwd=${opts.cwd}, permissionMode=${opts.permissionMode})`
     );
 
-    const proc = this.spawnFn(this.command, argv, { cwd: opts.cwd, env: opts.env });
+    const proc = this.spawnFn(this.command, argv, { cwd: opts.cwd, env });
     return { ok: true, proc, argv };
   }
 
@@ -245,6 +326,15 @@ export class ClaudeStreamJsonTransport implements DriverTransport {
       );
       return { ok: false, reason };
     }
+
+    // mt#4935 R1 finding 4 — same reasoning as `spawn`: resolve (and refuse)
+    // before announcing or building anything else.
+    const env = resolveEnvForAuthMode(
+      opts.authMode,
+      opts.env,
+      this.getAnthropicApiKey,
+      `resume ${opts.localId ?? opts.harnessSessionId}`
+    );
 
     // mt#3377: same undefined-vs-null contract as `spawn` — a resume must
     // re-provision the servers, or the conversation would silently lose its
@@ -270,7 +360,7 @@ export class ClaudeStreamJsonTransport implements DriverTransport {
         `generation=${(opts.driverGeneration ?? 0) + 1}, cwd=${opts.cwd})`
     );
 
-    const proc = this.spawnFn(this.command, argv, { cwd: opts.cwd, env: opts.env });
+    const proc = this.spawnFn(this.command, argv, { cwd: opts.cwd, env });
     return { ok: true, proc, argv };
   }
 
