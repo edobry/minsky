@@ -53,6 +53,11 @@
  */
 
 import { pgTable, text, integer, timestamp, index, uuid, bigint } from "drizzle-orm/pg-core";
+import {
+  DEFAULT_AUTH_MODE,
+  DEFAULT_HARNESS_KIND,
+  DEFAULT_TRANSPORT_ID,
+} from "./driven-session-defaults";
 
 /**
  * Persisted status range (superset of the in-memory `DrivenSessionStatus` in
@@ -87,12 +92,12 @@ export const drivenSessionsTable = pgTable(
      */
 
     /** Which harness drives this session — `"claude-code"` today. */
-    harnessKind: text("harness_kind").notNull().default("claude-code"),
+    harnessKind: text("harness_kind").notNull().default(DEFAULT_HARNESS_KIND),
     /** Which `DriverTransport` (src/cockpit/driver-transport.ts) spawned/spawns
      * it — `DriverTransport.id`, e.g. `"claude-stream-json"`. Read by
      * `selectDriverTransport()` (src/cockpit/driven-session-host.ts) to pick
      * the transport implementation for a resume. */
-    transportId: text("transport_id").notNull().default("claude-stream-json"),
+    transportId: text("transport_id").notNull().default(DEFAULT_TRANSPORT_ID),
     /**
      * The harness's OWN conversation id, in the harness's own id space.
      * For `harness_kind = "claude-code"` this is the SAME value as
@@ -105,7 +110,7 @@ export const drivenSessionsTable = pgTable(
     harnessConversationId: text("harness_conversation_id"),
     /** Credential/identity posture this drive runs under — `"subscription"`
      * or `"api-key"` (`DriverAuthMode`, src/cockpit/driver-transport.ts). */
-    authMode: text("auth_mode").notNull().default("subscription"),
+    authMode: text("auth_mode").notNull().default(DEFAULT_AUTH_MODE),
 
     cwd: text("cwd").notNull(),
     permissionMode: text("permission_mode").notNull(),

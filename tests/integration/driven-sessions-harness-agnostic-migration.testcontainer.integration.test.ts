@@ -12,12 +12,19 @@
  * Postgres's own DDL semantics — not something a hand-rolled fake can stand
  * in for (mem#704: a probe that can't fail isn't verification).
  *
- * This test builds the table in the SHAPE migration 0116 left it (every
- * column except the four this migration adds), seeds rows that predate the
- * migration — including one with a NULL `harness_session_id`, the case that
- * proves the backfill does not invent a value where the source had none —
- * and then runs the ACTUAL migration file read off disk, so an edit to the
- * SQL is what this test verifies, not a hand-copied reproduction of it.
+ * Each test gets its OWN Postgres SCHEMA — its own pre-migration
+ * `driven_sessions` table, its own single-connection client pinned to that
+ * schema via `search_path` set at connection-establishment time (not a
+ * runtime `SET`, which would race across a pooled client) — sharing only the
+ * one expensive-to-start container (PR #3595 R1 finding 5). Order-independent
+ * by construction: nothing about test B's outcome depends on whether test A
+ * ran first, because each has its own table and its own migration run against
+ * it. Verified by running with test order REVERSED (see the PR body's
+ * Execution evidence).
+ *
+ * Every test reads the ACTUAL migration file off disk and runs it, so an
+ * edit to the SQL is what this test verifies, not a hand-copied reproduction
+ * of it.
  *
  * Gate: TWO env vars, both required (matching the sibling harnesses):
  *   RUN_INTEGRATION_TESTS=1
@@ -66,22 +73,24 @@ function makeNoOpWaitStrategy(defaultTimeoutMs: number): WaitStrategy {
 }
 
 let container: StartedTestContainer | undefined;
-let sql: ReturnType<typeof postgres> | undefined;
-
-function conn(): ReturnType<typeof postgres> {
-  if (!sql) throw new Error("test harness: queried before bringUp() established a connection");
-  return sql;
-}
+let containerBaseUrl: Promise<string> | undefined;
+const openClients: ReturnType<typeof postgres>[] = [];
 
 afterAll(async () => {
-  await sql?.end({ timeout: 5 });
+  await Promise.all(openClients.splice(0).map((c) => c.end({ timeout: 5 })));
   await container?.stop().catch(() => {
     // intentional-swallow: a container that failed to stop cannot fail the
     // run — the harness already has its verdict, and Docker reaps it anyway.
   });
 });
 
-async function bringUp(): Promise<void> {
+/** Bring up the (single, shared) container — idempotent, lazy, order-independent. */
+async function ensureContainer(): Promise<string> {
+  containerBaseUrl ??= bringUpContainer();
+  return containerBaseUrl;
+}
+
+async function bringUpContainer(): Promise<string> {
   container = await new GenericContainer("postgres:16-alpine")
     .withEnvironment({
       POSTGRES_PASSWORD: "test",
@@ -93,23 +102,55 @@ async function bringUp(): Promise<void> {
     .start();
 
   const url = `postgres://test:test@${container.getHost()}:${container.getMappedPort(5432)}/test`;
-  sql = postgres(url, { max: 4, onnotice: () => {} });
-
-  for (let i = 0; i < 60; i++) {
-    try {
-      await sql`SELECT 1`;
-      break;
-    } catch {
-      await new Promise((r) => setTimeout(r, 500));
+  const probe = postgres(url, { max: 1, onnotice: () => {} });
+  try {
+    for (let i = 0; i < 60; i++) {
+      try {
+        await probe`SELECT 1`;
+        break;
+      } catch {
+        await new Promise((r) => setTimeout(r, 500));
+      }
     }
+  } finally {
+    await probe.end();
   }
+  return url;
+}
+
+/**
+ * A fresh, isolated pre-migration `driven_sessions` table, in its own
+ * Postgres SCHEMA, plus a dedicated single-connection (`max: 1`) client
+ * pinned to that schema via `search_path` set at connection-establishment
+ * time — never a runtime `SET`, which would race across a pooled client's
+ * multiple physical connections. Every test calls this with its OWN schema
+ * name, so no test's rows or migration-application timing can affect
+ * another's (PR #3595 R1 finding 5).
+ */
+async function bringUpIsolatedPreMigrationTable(
+  schemaName: string
+): Promise<ReturnType<typeof postgres>> {
+  const baseUrl = await ensureContainer();
+
+  const admin = postgres(baseUrl, { max: 1, onnotice: () => {} });
+  try {
+    await admin.unsafe(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
+    await admin.unsafe(`CREATE SCHEMA "${schemaName}"`);
+  } finally {
+    await admin.end();
+  }
+
+  const client = postgres(baseUrl, {
+    max: 1,
+    onnotice: () => {},
+    connection: { search_path: schemaName },
+  });
+  openClients.push(client);
 
   // The PRE-migration shape (everything migration 0116 and earlier produced) —
   // written out rather than run through the full migrator chain, so this
-  // harness pins the shape the 0117 migration expects to find. `gen_random_uuid()`
-  // needs pgcrypto on some Postgres images; driven_sessions' PK is plain text
-  // (localId), so nothing here needs it.
-  await sql`
+  // harness pins the shape the 0117 migration expects to find.
+  await client.unsafe(`
     CREATE TABLE driven_sessions (
       local_id text PRIMARY KEY,
       harness_session_id text,
@@ -125,15 +166,25 @@ async function bringUp(): Promise<void> {
       driver_generation integer NOT NULL DEFAULT 0,
       started_at timestamptz NOT NULL,
       updated_at timestamptz NOT NULL DEFAULT now()
-    )`;
+    )`);
+
+  return client;
 }
 
-async function seedRow(row: {
-  localId: string;
-  harnessSessionId: string | null;
-  status?: string;
-}): Promise<void> {
-  await conn()`
+function readMigrationSql(): string {
+  // `String(...)` rather than relying on the encoding argument to narrow:
+  // this project ships a narrowed ambient `node:fs` (`src/types/node.d.ts:25`)
+  // declaring one overload that returns `string | Buffer` regardless of
+  // options, so no argument makes it a `string` (same idiom as
+  // driven-session-mcp-config.ts's `readOperatorMcpServers`).
+  return String(readFileSync(MIGRATION_PATH, "utf-8"));
+}
+
+async function seedRow(
+  client: ReturnType<typeof postgres>,
+  row: { localId: string; harnessSessionId: string | null; status?: string }
+): Promise<void> {
+  await client`
     INSERT INTO driven_sessions (local_id, harness_session_id, cwd, permission_mode, status, started_at)
     VALUES (${row.localId}, ${row.harnessSessionId}, '/tmp/x', 'bypassPermissions', ${row.status ?? "exited"}, now())`;
 }
@@ -142,33 +193,27 @@ describe.skipIf(!GATED)(
   "migration 0117 — harness-agnostic driven_sessions backfill (mt#4935)",
   () => {
     test("AT1: every existing row backfills to claude-code/claude-stream-json/its prior harness_session_id/subscription; row count unchanged", async () => {
-      await bringUp();
+      const client = await bringUpIsolatedPreMigrationTable("mt4935_at1");
 
       // Three pre-migration rows, including the case that proves the backfill
       // doesn't invent a value: a row whose harness_session_id was never linked.
-      await seedRow({ localId: "local-linked-1", harnessSessionId: "harness-abc" });
-      await seedRow({ localId: "local-linked-2", harnessSessionId: "harness-def" });
-      await seedRow({
+      await seedRow(client, { localId: "local-linked-1", harnessSessionId: "harness-abc" });
+      await seedRow(client, { localId: "local-linked-2", harnessSessionId: "harness-def" });
+      await seedRow(client, {
         localId: "local-never-linked",
         harnessSessionId: null,
         status: "unrecoverable",
       });
 
-      const beforeCount = await conn()`SELECT count(*)::int AS n FROM driven_sessions`;
+      const beforeCount = await client`SELECT count(*)::int AS n FROM driven_sessions`;
       expect(beforeCount[0]?.n).toBe(3);
 
-      // `String(...)` rather than relying on the encoding argument to narrow:
-      // this project ships a narrowed ambient `node:fs` (`src/types/node.d.ts:25`)
-      // declaring one overload that returns `string | Buffer` regardless of
-      // options, so no argument makes it a `string` (same idiom as
-      // driven-session-mcp-config.ts's `readOperatorMcpServers`).
-      const migrationSql = String(readFileSync(MIGRATION_PATH, "utf-8"));
-      await conn().unsafe(migrationSql);
+      await client.unsafe(readMigrationSql());
 
-      const afterCount = await conn()`SELECT count(*)::int AS n FROM driven_sessions`;
+      const afterCount = await client`SELECT count(*)::int AS n FROM driven_sessions`;
       expect(afterCount[0]?.n).toBe(3);
 
-      const rows = await conn()`
+      const rows = await client`
       SELECT local_id, harness_kind, transport_id, harness_conversation_id, auth_mode,
              harness_session_id
       FROM driven_sessions ORDER BY local_id`;
@@ -193,10 +238,18 @@ describe.skipIf(!GATED)(
     });
 
     test("harness_kind/transport_id/auth_mode are NOT NULL after the migration; harness_conversation_id stays nullable", async () => {
-      const columns = await conn()`
+      const client = await bringUpIsolatedPreMigrationTable("mt4935_notnull");
+      await client.unsafe(readMigrationSql());
+
+      // `current_schema()`, not a hardcoded schema-name literal repeated from
+      // the bring-up call: `information_schema.columns` is NOT scoped by
+      // `search_path`, so every isolated test's OWN `driven_sessions` table
+      // would otherwise all match `table_name = 'driven_sessions'` at once.
+      const columns = await client`
       SELECT column_name, is_nullable
       FROM information_schema.columns
       WHERE table_name = 'driven_sessions'
+        AND table_schema = current_schema()
         AND column_name IN ('harness_kind', 'transport_id', 'harness_conversation_id', 'auth_mode')
       ORDER BY column_name`;
 
@@ -208,11 +261,14 @@ describe.skipIf(!GATED)(
     });
 
     test("a fresh row inserted after the migration gets the column defaults with no explicit values", async () => {
-      await conn()`
+      const client = await bringUpIsolatedPreMigrationTable("mt4935_freshrow");
+      await client.unsafe(readMigrationSql());
+
+      await client`
       INSERT INTO driven_sessions (local_id, harness_session_id, cwd, permission_mode, status, started_at)
       VALUES ('local-post-migration', NULL, '/tmp/y', 'bypassPermissions', 'spawned', now())`;
 
-      const rows = await conn()`
+      const rows = await client`
       SELECT harness_kind, transport_id, auth_mode, harness_conversation_id
       FROM driven_sessions WHERE local_id = 'local-post-migration'`;
 

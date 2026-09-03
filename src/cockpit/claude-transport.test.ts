@@ -19,7 +19,7 @@ import { PassThrough } from "stream";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { ClaudeStreamJsonTransport } from "./claude-transport";
+import { ClaudeStreamJsonTransport, MissingAnthropicApiKeyError } from "./claude-transport";
 import type { ProcessLike, SpawnFn, SpawnOptions } from "./driver-transport";
 
 class FakeClaudeProcess extends EventEmitter implements ProcessLike {
@@ -139,23 +139,25 @@ describe("ClaudeStreamJsonTransport.spawn — auth_mode env resolution (mt#4935)
     expect(first(calls).args.join(" ")).not.toContain("sk-ant-must-not-appear-in-argv");
   });
 
-  test('"api-key" with NO configured credential degrades to unmodified env (never throws)', () => {
+  // PR #3595 R1 finding 4 — fail CLOSED: a security-sensitive posture
+  // (spawning under the wrong auth) must refuse, never silently degrade.
+  test('"api-key" with NO configured credential throws MissingAnthropicApiKeyError and spawns nothing', () => {
     const { spawnFn, calls } = makeFakeSpawnFn();
     const transport = new ClaudeStreamJsonTransport({
       spawnFn,
       getAnthropicApiKey: () => null,
     });
 
-    const result = transport.spawn({
-      cwd: TEST_CWD,
-      permissionMode: BYPASS_PERMISSIONS,
-      authMode: "api-key",
-      mcpConfig: null,
-      env: { PATH: "/usr/bin" },
-    });
-
-    expect(result.ok).toBe(true);
-    expect(first(calls).options.env).toEqual({ PATH: "/usr/bin" });
+    expect(() =>
+      transport.spawn({
+        cwd: TEST_CWD,
+        permissionMode: BYPASS_PERMISSIONS,
+        authMode: "api-key",
+        mcpConfig: null,
+        env: { PATH: "/usr/bin" },
+      })
+    ).toThrow(MissingAnthropicApiKeyError);
+    expect(calls.length).toBe(0);
   });
 });
 
@@ -179,6 +181,27 @@ describe("ClaudeStreamJsonTransport.spawnResume — auth_mode env resolution (mt
     const env = first(calls).options.env;
     expect(env?.ANTHROPIC_API_KEY).toBe("sk-ant-resume-key");
     expect(env?.PATH).toBe("/usr/bin");
+  });
+
+  // PR #3595 R1 finding 4 — same fail-closed contract on resume.
+  test('"api-key" with NO configured credential throws MissingAnthropicApiKeyError on resume too, and spawns nothing', () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const transport = new ClaudeStreamJsonTransport({
+      spawnFn,
+      getAnthropicApiKey: () => null,
+    });
+
+    expect(() =>
+      transport.spawnResume({
+        cwd: TEST_CWD,
+        permissionMode: BYPASS_PERMISSIONS,
+        authMode: "api-key",
+        harnessSessionId: "harness-1",
+        mcpConfig: null,
+        env: { PATH: "/usr/bin" },
+      })
+    ).toThrow(MissingAnthropicApiKeyError);
+    expect(calls.length).toBe(0);
   });
 
   test('"subscription" on resume leaves env untouched', () => {

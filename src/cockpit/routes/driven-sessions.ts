@@ -291,6 +291,14 @@ export function mountDrivenSessionRoutes(
       return;
     }
     const authMode: DriverAuthMode = authModeRaw ?? DEFAULT_AUTH_MODE;
+    // Hoisted (not just declared inside the "api-key" refusal check below) so
+    // the SAME resolved reader — production default or test-injected fake —
+    // is threaded into `startDrivenSession` further down. Without this, the
+    // transport's own independent default (`readConfiguredAnthropicApiKey`)
+    // would disagree with this route's `getConfiguredAnthropicApiKey` test
+    // seam, and PR #3595 R1 finding 4's fail-closed transport would refuse a
+    // spawn this route had just confirmed was configured.
+    const getApiKey = opts.getConfiguredAnthropicApiKey ?? readConfiguredAnthropicApiKey;
 
     // Refusal 1 (AT4): "subscription" is the user's own Claude Code login —
     // verified only for harness_kind "claude-code" (the seam: mt#2237/mt#2750).
@@ -310,7 +318,6 @@ export function mountDrivenSessionRoutes(
     // Checked here — before anything spawns — so the response names the
     // missing credential rather than degrading silently inside the transport.
     if (authMode === "api-key") {
-      const getApiKey = opts.getConfiguredAnthropicApiKey ?? readConfiguredAnthropicApiKey;
       if (!getApiKey()) {
         res.status(400).json({
           error:
@@ -382,6 +389,11 @@ export function mountDrivenSessionRoutes(
         transportId,
         harnessConversationId,
         authMode,
+        // See the `getApiKey` declaration above — the SAME resolved reader
+        // the route's own refusal check just used, so the transport's
+        // independent fail-closed check (PR #3595 R1 finding 4) can never
+        // disagree with the route about whether a credential is configured.
+        getAnthropicApiKey: getApiKey,
         onHarnessSessionLinked,
         onResultSummary,
         onStateChange,

@@ -1395,6 +1395,7 @@ describe("probeSpawnCwdAsync (mt#3397, PR #2452 R1)", () => {
 
 const DEFAULT_TRANSPORT_ID = "claude-stream-json";
 const PERSISTED_HARNESS_SESSION_ID = "harness-persisted";
+const UNKNOWN_TRANSPORT_ID = "not-a-real-transport";
 
 describe("harness-agnostic drive-record fields (mt#4935)", () => {
   test("startDrivenSession defaults harnessKind/transportId/harnessConversationId/authMode", () => {
@@ -1417,6 +1418,11 @@ describe("harness-agnostic drive-record fields (mt#4935)", () => {
       transportId: DEFAULT_TRANSPORT_ID,
       harnessConversationId: "known-conversation-id",
       authMode: "api-key",
+      // Since PR #3595 R1 finding 4, "api-key" with no credential THROWS —
+      // inject one so this test exercises the record-construction path, not
+      // the credential-refusal path (that's ClaudeStreamJsonTransport's own
+      // claude-transport.test.ts).
+      getAnthropicApiKey: () => "sk-ant-test-key",
     });
 
     expect(record.harnessKind).toBe("codex");
@@ -1424,18 +1430,72 @@ describe("harness-agnostic drive-record fields (mt#4935)", () => {
     expect(record.authMode).toBe("api-key");
   });
 
-  test("an unrecognized transportId degrades to the default transport rather than throwing", () => {
+  // PR #3595 R1 finding 1 — no silent fallback: an unrecognized transportId
+  // is a REFUSAL, not a spawn under a transport nobody asked for.
+  test("startDrivenSession: an unrecognized transportId is refused — nothing spawns, and the persisted transportId names the unknown id, not a silently-substituted default", () => {
     const { spawnFn, calls } = makeFakeSpawnFn();
     const { record } = startDrivenSession({
       cwd: SCRATCH_CWD,
       spawnFn,
       mcpConfig: null,
-      transportId: "not-a-real-transport",
+      transportId: UNKNOWN_TRANSPORT_ID,
     });
 
-    // Still spawned (degraded to the one real transport), not refused.
-    expect(calls.length).toBe(1);
-    expect(record.transport.id).toBe(DEFAULT_TRANSPORT_ID);
+    expect(calls.length).toBe(0);
+    expect(record.status).toBe("unrecoverable");
+    expect(record.unrecoverableReason).toContain(UNKNOWN_TRANSPORT_ID);
+    expect(record.transportId).toBe(UNKNOWN_TRANSPORT_ID);
+  });
+
+  test("resumeDrivenSession: an unrecognized transportId is refused — nothing spawns", () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const { record } = resumeDrivenSession({
+      previous: {
+        localId: "local-bad-transport",
+        cwd: TEST_CWD,
+        permissionMode: BYPASS_PERMISSIONS_MODE,
+        harnessSessionId: RESUME_HARNESS_SESSION_ID,
+        taskId: null,
+        minskySessionId: null,
+        startedAt: new Date().toISOString(),
+        driverGeneration: 0,
+        transportId: UNKNOWN_TRANSPORT_ID,
+      },
+      spawnFn,
+      mcpConfig: null,
+      skipInterruptionNotice: true,
+    });
+
+    expect(calls.length).toBe(0);
+    expect(record.status).toBe("unrecoverable");
+    expect(record.unrecoverableReason).toContain(UNKNOWN_TRANSPORT_ID);
+    expect(record.transportId).toBe(UNKNOWN_TRANSPORT_ID);
+  });
+
+  test("the persisted transportId is read off the ATTACHED transport instance, not the request, on a successful spawn", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({
+      cwd: SCRATCH_CWD,
+      spawnFn,
+      mcpConfig: null,
+      transportId: DEFAULT_TRANSPORT_ID,
+    });
+
+    expect(record.transportId).toBe(record.transport.id);
+    expect(record.transportId).toBe(DEFAULT_TRANSPORT_ID);
+  });
+
+  test("a spawn failure (e.g. missing cwd) still reads transportId off the constructed instance", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({
+      cwd: MISSING_CWD,
+      spawnFn,
+      mcpConfig: null,
+    });
+
+    expect(record.status).toBe("unrecoverable");
+    expect(record.transportId).toBe(record.transport.id);
+    expect(record.transportId).toBe(DEFAULT_TRANSPORT_ID);
   });
 
   test("the child's init event links harnessConversationId the same way it links harnessSessionId", () => {
@@ -1469,6 +1529,9 @@ describe("harness-agnostic drive-record fields (mt#4935)", () => {
       spawnFn,
       mcpConfig: null,
       skipInterruptionNotice: true,
+      // Since PR #3595 R1 finding 4, "api-key" with no credential THROWS —
+      // inject one (see the sibling note on startDrivenSession's test above).
+      getAnthropicApiKey: () => "sk-ant-test-key",
     });
 
     expect(record.harnessKind).toBe("claude-code");

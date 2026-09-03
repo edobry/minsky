@@ -101,7 +101,7 @@ describe("ConversationView — driven-session variant (mt#2751)", () => {
   });
 });
 
-describe("ConversationView — driven-session record header (mt#4935)", () => {
+describe("ConversationView — driven-session record header (mt#4935, PR #3595 R1 finding 2)", () => {
   afterEach(cleanup);
 
   test("renders 'harnessKind · authMode' when both are provided", () => {
@@ -114,8 +114,19 @@ describe("ConversationView — driven-session record header (mt#4935)", () => {
     expect(screen.queryByText(/claude-code|subscription|api-key/)).toBeNull();
   });
 
-  test("renders the harnessKind alone when authMode is null", () => {
+  // Finding 2/6 — the contract is BOTH-or-neither, never a partial line.
+  test("harnessKind present with authMode absent renders nothing", () => {
     renderDriven("driven-header-3", [], { harnessKind: "codex", authMode: null });
-    expect(screen.getByText("codex")).toBeDefined();
+    expect(screen.queryByText(/codex/)).toBeNull();
+  });
+
+  test("authMode present with harnessKind absent renders nothing", () => {
+    renderDriven("driven-header-4", [], { harnessKind: null, authMode: "api-key" });
+    expect(screen.queryByText(/api-key/)).toBeNull();
+  });
+
+  test("both present (a second value pairing) renders the line", () => {
+    renderDriven("driven-header-5", [], { harnessKind: "codex", authMode: "api-key" });
+    expect(screen.getByText("codex · api-key")).toBeDefined();
   });
 });

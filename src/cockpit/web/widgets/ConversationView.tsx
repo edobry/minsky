@@ -981,12 +981,13 @@ function DrivenSessionThread({
   return (
     <>
       {/* mt#4935, ADR-047 §Consequences, SC6 — one line, no new widget. Renders
-          nothing until the registry read resolves (harnessKind/authMode both
-          null while pending) — see useDrivenSession.ts's doc comment. */}
-      {(harnessKind || authMode) && (
+          nothing until BOTH values are present (the registry read resolves
+          harnessKind/authMode together, or not at all — see
+          useDrivenSession.ts's doc comment); a partial pair never renders a
+          line with a placeholder in it. */}
+      {harnessKind && authMode && (
         <div className="mb-2 font-mono text-xs text-muted-foreground">
-          {harnessKind ?? "unknown harness"}
-          {authMode ? ` · ${authMode}` : ""}
+          {harnessKind} · {authMode}
         </div>
       )}
       <ConversationThread
