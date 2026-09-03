@@ -301,14 +301,28 @@ interface MemoriesFilters extends Record<string, string> {
   /** ISO date lower bound — drives the "Recent" cohort preset (mt#4763). */
   since: string;
   /**
-   * `"true"` to show only stale records — drives the cohort preset mt#4763
-   * shipped as "Stale" and mt#4767 relabels to "Cold".
+   * `"true"` for the never-read-OR-cold UNION — drives the cohort preset
+   * mt#4763 shipped as "Stale" and mt#4767 relabelled to "Cold".
    *
-   * The FIELD keeps its name while the LABEL changes: renaming
-   * `MemoryListFilter.stale` is a tracked follow-up, and doing it here would
-   * break every already-shared `?mem_f_stale=true` URL for a cosmetic win.
+   * Renamed from `stale` by mt#4799, matching `MemoryListFilter.unreadOrCold`.
+   * The legacy `mem_f_stale` URL key is still READ (see `readFilters`), so
+   * already-shared links keep working; only the name in code changed.
    * New work should reach for `cold` below, which is the disjoint filter;
    * this one unions never-read in and cannot separate the two.
+   */
+  unreadOrCold: "true" | "false";
+  /**
+   * LEGACY read-only alias for {@link unreadOrCold} (mt#4799 back-compat shim).
+   *
+   * It has to stay a FIELD, not just a name the page recognises: the URL→state
+   * reader is driven by {@link DEFAULT_FILTERS}'s key set, so a key absent
+   * there is never read off the query string at all. Dropping it would leave
+   * `?mem_f_stale=true` lighting the Cold chip (`MemoriesPage` still reads the
+   * old key) while the TABLE below silently ignored the filter — worse than
+   * either keeping it or breaking it cleanly.
+   *
+   * Nothing WRITES this key any more. `buildListParams` folds it into
+   * `unreadOrCold`, so the domain surface never sees the old name.
    */
   stale: "true" | "false";
   /** `"true"` for records with no tags — mt#4767's Untagged worklist. */
@@ -332,6 +346,8 @@ export const DEFAULT_FILTERS: MemoriesFilters = {
   q: "",
   tags: "",
   since: "",
+  unreadOrCold: "false",
+  // Legacy alias, read-only (mt#4799) — see MemoriesFilters.stale.
   stale: "false",
   untagged: "false",
   neverAccessed: "false",
@@ -425,7 +441,11 @@ export function buildListParams(
   if (state.filters.excludeSuperseded === "true") params.excludeSuperseded = "true";
   if (state.filters.tags) params.tags = state.filters.tags;
   if (state.filters.since) params.since = state.filters.since;
-  if (state.filters.stale === "true") params.stale = "true";
+  // mt#4799: either the current key or the legacy `mem_f_stale` alias sends the
+  // current param, so a bookmarked link produces the same request it always did.
+  if (state.filters.unreadOrCold === "true" || state.filters.stale === "true") {
+    params.unreadOrCold = "true";
+  }
   // mt#4767 curation worklists. Each is sent only when active, so an
   // untouched view sends nothing new and the request shape is unchanged for
   // every existing caller.
@@ -1155,6 +1175,9 @@ function MemoriesListInner({
       urlState.filters.excludeSuperseded,
       urlState.filters.tags,
       urlState.filters.since,
+      urlState.filters.unreadOrCold,
+      // The legacy alias reaches buildListParams too, so it belongs here for
+      // the same reason the comment below gives (mt#4799).
       urlState.filters.stale,
       // mt#4767: every filter that reaches buildListParams must appear here,
       // or switching worklists re-serves the previous worklist's cached page

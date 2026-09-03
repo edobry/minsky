@@ -6516,12 +6516,21 @@
               "description": "When true, exclude superseded memories"
             },
             {
+              "flags": ["--unread-or-cold"],
+              "description": "When true, filter to memories never read OR last read longer ago than the threshold"
+            },
+            {
+              "flags": ["--unread-or-cold-days"],
+              "description": "Threshold (in days) for the --unread-or-cold filter; defaults to 90",
+              "takesValue": true
+            },
+            {
               "flags": ["--stale"],
-              "description": "When true, filter to memories never accessed or older than the staleness threshold"
+              "description": "DEPRECATED alias for --unread-or-cold (mt#4799)."
             },
             {
               "flags": ["--staleness-days"],
-              "description": "Threshold (in days) for the --stale filter; defaults to 90",
+              "description": "DEPRECATED alias for --unread-or-cold-days (mt#4799).",
               "takesValue": true
             },
             {

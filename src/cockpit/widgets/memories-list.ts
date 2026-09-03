@@ -92,8 +92,8 @@ export function parseNonNegativeInt(value: string | undefined): number | undefin
  * callers reasonably assumed it did not do. The consequence is worst for the
  * day-thresholds: `coldDays=0` becomes `interval '0 days'`, so every
  * ever-read record matches and the cold worklist silently widens to "all
- * read" — a plausible number, not an error. `stalenessDays=0` does the same to
- * the stale filter, which predates this PR.
+ * read" — a plausible number, not an error. `unreadOrColdDays=0` does the same
+ * to the union filter, which predates this PR.
  *
  * It also matters for `limit`: a page of 0 rows is an empty table, again with
  * nothing to indicate the parameter was the cause.
@@ -153,11 +153,16 @@ export function createMemoriesListWidget(
         const limit = parsePositiveInt(query?.limit) ?? DEFAULT_PAGE_SIZE;
         // The ONE caller for which 0 is a real value — it is the first page.
         const offset = parseNonNegativeInt(query?.offset) ?? 0;
-        const stale = query?.stale === "true";
-        const stalenessDays = parsePositiveInt(query?.stalenessDays);
-        // mt#4767 curation worklists. `cold` is NOT `stale` with a different
-        // threshold: `stale` unions never-read with read-but-old, so it can
-        // never render the two as separate lists — see MemoryListFilter's
+        // mt#4799: `unreadOrCold` is the current query key. `stale` is read
+        // alongside it as a LEGACY ALIAS — bookmarked and shared
+        // `?mem_f_stale=true` links carry it, and breaking them for a rename
+        // would be a cosmetic win paid for by the operator.
+        const unreadOrCold = query?.unreadOrCold === "true" || query?.stale === "true";
+        const unreadOrColdDays =
+          parsePositiveInt(query?.unreadOrColdDays) ?? parsePositiveInt(query?.stalenessDays);
+        // mt#4767 curation worklists. `cold` is NOT `unreadOrCold` with a
+        // different threshold: the union covers never-read AND read-but-old, so
+        // it can never render the two as separate lists — see MemoryListFilter's
         // field docs for the measurement (252 vs 251 at the 90-day default).
         const untagged = query?.untagged === "true";
         const neverAccessed = query?.neverAccessed === "true";
@@ -181,7 +186,7 @@ export function createMemoriesListWidget(
         });
 
         // mt#4761: sort/dir/limit/offset/tags/nameContains applied IN SQL by
-        // MemoryService.list() — plus the four filters (stale/stalenessDays/
+        // MemoryService.list() — plus the four filters (unreadOrCold/unreadOrColdDays/
         // association/since/until) that already existed on MemoryListFilter
         // but were never reachable from the cockpit before this widget forwarded them.
         const filter: MemoryListFilter = {
@@ -197,8 +202,8 @@ export function createMemoriesListWidget(
           nameContains: query?.nameContains,
           since: query?.since,
           until: query?.until,
-          stale,
-          stalenessDays,
+          unreadOrCold,
+          unreadOrColdDays,
           untagged,
           neverAccessed,
           cold,

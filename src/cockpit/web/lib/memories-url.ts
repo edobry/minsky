@@ -107,9 +107,10 @@ export type WorklistId = FilterWorklistId | "duplicates";
  * the failure that would otherwise leave a worklist permanently unhighlighted
  * or, worse, highlighted while showing something else.
  *
- * `neverRead` maps to `neverAccessed` and NOT to `stale`: `stale` unions
- * never-read with read-but-old and so cannot express either alone. See
+ * `neverRead` maps to `neverAccessed` and NOT to `unreadOrCold`: that filter
+ * unions never-read with read-but-old and so cannot express either alone. See
  * `MemoryListFilter`'s field docs for the measurement that forced the split.
+ * (It was named `stale` until mt#4799.)
  */
 const WORKLIST_FILTER_KEY: Record<FilterWorklistId, string> = {
   untagged: "untagged",
@@ -123,10 +124,14 @@ const WORKLIST_KEYS = [
   ...Object.values(WORKLIST_FILTER_KEY),
   "coldDays",
   // mt#4763's cohort keys share the same URL space; a worklist click must
-  // clear them or a stale cohort filter silently ANDs with the worklist and
+  // clear them or a leftover cohort filter silently ANDs with the worklist and
   // narrows it below its own headline count.
   "tags",
   "since",
+  "unreadOrCold",
+  // Legacy alias for the key above (mt#4799). Still cleared, because a
+  // bookmarked `?mem_f_stale=true` that survived a worklist click would
+  // silently AND with the worklist exactly as the current key would.
   "stale",
   // Cleared so the "false" the superseded worklist sets below does not survive
   // into the NEXT worklist, which would silently widen it to include

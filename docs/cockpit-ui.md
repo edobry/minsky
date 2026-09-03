@@ -727,16 +727,19 @@ none actionable.
 | Duplicates | grouped by `md5(content)` — a page VIEW, read-only  | `?mem_view=duplicates`              |
 | Superseded | `superseded_by IS NOT NULL`                         | `?mem_f_onlySuperseded=true`        |
 
-**"Cold", not "stale", and the distinction is load-bearing.** `MemoryListFilter.stale` is
+**"Cold", not "stale", and the distinction is load-bearing.** `MemoryListFilter.unreadOrCold` is
 `last_accessed_at IS NULL **OR** older than N` — a union that SUBSUMES never-read, so it cannot
 render the two as separate lists. Measured 2026-08-31 at its own 90-day default it returned 252
 rows against never-read's 251, because exactly one record in the corpus had been read but not
 within 90 days; built on it, two of the five worklists would have been the same list with
 near-identical counts. `cold` is therefore a separate, disjoint filter. Separately, "stale"
 already means something else here — `staleness.ts` emits `⚠️ POSSIBLY OBSOLETE` for a memory whose
-_tracking task_ shipped. mt#4763's "Stale" cohort chip was relabelled "Cold" accordingly; legacy
-`?mem_f_stale=true` links still filter and still light the chip. Renaming the field itself is
-mt#4799.
+_tracking task_ shipped. mt#4763's "Stale" cohort chip was relabelled "Cold" accordingly, and
+mt#4799 then renamed the field itself `stale` → `unreadOrCold` so the word means one thing in this
+codebase. Legacy `?mem_f_stale=true` links still filter and still light the chip: the old name is
+kept as a READ-ONLY alias at every layer that reads it (the page's cohort check, the list widget's
+filter state, the cockpit query parser, and the `memory.list` tool's `--stale` /
+`--staleness-days` params). Nothing writes it any more.
 
 The **Cold** default of 14 days is grounded in the measured read distribution, not chosen round:
 of 1,093 ever-read records, 805 were read within 7 days and 152 more within 14, after which the

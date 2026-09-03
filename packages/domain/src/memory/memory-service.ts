@@ -95,7 +95,7 @@ function scopedToProject(projectScope: string) {
 /**
  * The instant `days` days before `nowMs` (mt#4767).
  *
- * Extracted so the two age-threshold filters (`stale`, `cold`) share one
+ * Extracted so the two age-threshold filters (`unreadOrCold`, `cold`) share one
  * arithmetic and so it can be asserted directly against a fixed clock —
  * `buildListConditions` returns opaque drizzle condition objects, which are
  * awkward to make claims about, and the part worth pinning is the boundary.
@@ -134,8 +134,8 @@ function buildListConditions(filter?: MemoryListFilter, nowMs: number = Date.now
   if (filter?.onlySuperseded) {
     conditions.push(isNotNull(memoriesTable.supersededBy));
   }
-  if (filter?.stale) {
-    const days = filter.stalenessDays ?? 90;
+  if (filter?.unreadOrCold) {
+    const days = filter.unreadOrColdDays ?? 90;
     conditions.push(
       or(
         isNull(memoriesTable.lastAccessedAt),
@@ -145,9 +145,9 @@ function buildListConditions(filter?: MemoryListFilter, nowMs: number = Date.now
   }
   // mt#4767 curation worklists. `untagged` is not expressible via `tags`
   // (array CONTAINMENT asks "has these", never "has none"), and
-  // `neverAccessed`/`cold` deliberately PARTITION what `stale` above unions
+  // `neverAccessed`/`cold` deliberately PARTITION what `unreadOrCold` above unions
   // — see MemoryListFilter's field docs for the measurement that forced the
-  // split (at stalenessDays' own 90-day default, `stale` returned 252 rows
+  // split (at unreadOrColdDays' own 90-day default, the union returned 252 rows
   // against neverAccessed's 251).
   if (filter?.untagged) {
     conditions.push(sql`cardinality(${memoriesTable.tags}) = 0`);
@@ -795,13 +795,13 @@ export class MemoryService implements MemoryServiceSurface {
    * List memory records with ordering, limiting, offsetting and tag
    * filtering applied IN SQL (mt#4761) — previously this issued
    * `db.select().from(memoriesTable)` with no `ORDER BY` and no `LIMIT` on
-   * every path except `filter.stale`, so rows arrived in Postgres heap order
+   * every path except `filter.unreadOrCold`, so rows arrived in Postgres heap order
    * and every caller fetched the entire matching set.
    *
    * Default order is `created desc` — a stable, meaningful default rather
-   * than heap order — UNLESS `filter.stale` is set, in which case the
+   * than heap order — UNLESS `filter.unreadOrCold` is set, in which case the
    * pre-existing `lastAccessedAt ASC NULLS FIRST` order is preserved exactly
-   * (the stale/health-widget browsing mode ignores `sort`/`dir`).
+   * (the curation/health-widget browsing mode ignores `sort`/`dir`).
    *
    * Default limit is `DEFAULT_LIST_CAP` (packages/domain/src/utils/list-pagination.ts,
    * mt#2817) when `filter.limit` is not given — the "loud caps" convention is
@@ -828,10 +828,10 @@ export class MemoryService implements MemoryServiceSurface {
     const baseQuery = this.deps.db.select().from(memoriesTable);
     const filteredQuery = conditions.length > 0 ? baseQuery.where(and(...conditions)) : baseQuery;
 
-    // When stale filter is active, sort by lastAccessedAt ASC NULLS FIRST so the
-    // oldest/never-accessed records appear first — unchanged from pre-mt#4761
-    // behavior, and NOT overridable via `sort`/`dir`.
-    const orderExpr = filter?.stale
+    // When the unreadOrCold filter is active, sort by lastAccessedAt ASC NULLS
+    // FIRST so the oldest/never-accessed records appear first — unchanged from
+    // pre-mt#4761 behavior, and NOT overridable via `sort`/`dir`.
+    const orderExpr = filter?.unreadOrCold
       ? sql`${memoriesTable.lastAccessedAt} ASC NULLS FIRST`
       : resolveListOrderBy(filter?.sort, filter?.dir);
 

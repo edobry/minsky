@@ -142,16 +142,33 @@ const memoryListParams = {
     required: false as const,
     defaultValue: false,
   },
-  stale: {
+  unreadOrCold: {
     schema: z.boolean(),
     description:
-      "When true, filter to memories never accessed or older than the staleness threshold",
+      "When true, filter to memories never read OR last read longer ago than the threshold",
+    required: false as const,
+    defaultValue: false,
+  },
+  unreadOrColdDays: {
+    schema: z.number().int().positive(),
+    description: "Threshold (in days) for the --unread-or-cold filter; defaults to 90",
+    required: false as const,
+  },
+  // Deprecated aliases for the two params above, renamed by mt#4799 because
+  // "stale" already means "this memory's tracking task shipped" everywhere else
+  // in the codebase (`staleness.ts`, `task-state-assertion.ts`). Kept working
+  // rather than broken: this is an agent-facing tool surface, so a caller
+  // outside the repo can be passing --stale today and there is no way to find
+  // them. `unreadOrCold` wins when both are supplied.
+  stale: {
+    schema: z.boolean(),
+    description: "DEPRECATED alias for --unread-or-cold (mt#4799).",
     required: false as const,
     defaultValue: false,
   },
   stalenessDays: {
     schema: z.number().int().positive(),
-    description: "Threshold (in days) for the --stale filter; defaults to 90",
+    description: "DEPRECATED alias for --unread-or-cold-days (mt#4799).",
     required: false as const,
   },
   // mt#4767 curation filters. Added here as well as in the cockpit so the two
@@ -951,8 +968,10 @@ export function registerMemoryCommands(
         projectId: params.projectId,
         projectScope,
         excludeSuperseded: params.excludeSuperseded,
-        stale: params.stale,
-        stalenessDays: params.stalenessDays,
+        // mt#4799: the deprecated `stale`/`stalenessDays` aliases fold in here
+        // so the domain surface sees only the current names.
+        unreadOrCold: params.unreadOrCold || params.stale,
+        unreadOrColdDays: params.unreadOrColdDays ?? params.stalenessDays,
         untagged: params.untagged,
         neverAccessed: params.neverAccessed,
         cold: params.cold,

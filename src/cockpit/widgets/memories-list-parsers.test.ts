@@ -6,7 +6,7 @@
  * damage is worst on the day-thresholds, which are interpolated into a SQL
  * interval: `coldDays=0` becomes `interval '0 days'`, so every ever-read
  * record matches and the cold worklist widens to "all read" — a plausible
- * number with no error anywhere. `stalenessDays=0` does the same to the stale
+ * number with no error anywhere. `unreadOrColdDays=0` does the same to the union
  * filter, which predates this PR and was equally exposed.
  *
  * The two parsers are split rather than merged because `offset` genuinely

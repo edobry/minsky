@@ -115,14 +115,25 @@ describe("MemoriesPage — cohort active-state derivation (mt#4763)", () => {
   });
 
   test("a legacy mem_f_stale=true link still lights the Cold cohort", () => {
-    // Shared/bookmarked URLs from before the rename must keep working: the
-    // domain `stale` filter is untouched, so the table still filters — this
-    // asserts the chip agrees rather than rendering nothing as selected.
+    // Shared/bookmarked URLs from before the rename must keep working. mt#4799
+    // renamed the domain field `stale` → `unreadOrCold` and kept `stale` as a
+    // read-only alias at every layer that reads it — the page's cohort check
+    // here, `MemoriesFilters`/`DEFAULT_FILTERS` (without which the URL→state
+    // reader would never read the key at all), and the cockpit widget's query
+    // parsing — so the table still filters and this asserts the chip agrees.
     expect(activeCohort("?mem_f_stale=true")).toBe("cold");
   });
 
+  test("mem_f_unreadOrCold=true — the post-rename key — also lights the Cold cohort", () => {
+    // The other half of the alias pair (mt#4799). Without this, the legacy
+    // assertion above would still pass on a build where the CURRENT key was
+    // wired up wrongly, since the two are checked independently.
+    expect(activeCohort("?mem_f_unreadOrCold=true")).toBe("cold");
+  });
+
   // mt#4767: the All cohort's active-check used to be a bare
-  // `stale !== "true"`, so any OTHER narrowing filter left "All" highlighted
+  // `stale !== "true"` (the field mt#4799 renamed to `unreadOrCold`), so any
+  // OTHER narrowing filter left "All" highlighted
   // while the table showed a narrowed list.
   test.each([
     ["untagged", "?mem_f_untagged=true"],
