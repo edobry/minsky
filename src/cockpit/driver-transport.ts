@@ -32,6 +32,7 @@ import {
   DEFAULT_AUTH_MODE as DEFAULT_AUTH_MODE_VALUE,
   DEFAULT_HARNESS_KIND as DEFAULT_HARNESS_KIND_VALUE,
   DEFAULT_TRANSPORT_ID as DEFAULT_TRANSPORT_ID_VALUE,
+  TRANSPORT_ID_ACP as TRANSPORT_ID_ACP_VALUE,
 } from "@minsky/domain/storage/schemas/driven-session-defaults";
 
 // ---------------------------------------------------------------------------
@@ -121,6 +122,14 @@ export const DEFAULT_HARNESS_KIND: string = DEFAULT_HARNESS_KIND_VALUE;
  * (./claude-transport.ts, which imports this SAME constant for its `id` field
  * rather than restating the literal). */
 export const DEFAULT_TRANSPORT_ID: string = DEFAULT_TRANSPORT_ID_VALUE;
+
+/** The Agent Client Protocol `DriverTransport.id` (mt#4936) — must match
+ * `AcpTransport.id` (./acp-transport.ts, which imports this SAME constant for
+ * its `id` field rather than restating the literal). Re-exported here (not
+ * imported directly from the domain module by callers) so
+ * `driven-session-host.ts` stays free of domain imports per this module's
+ * docblock invariant — see `DEFAULT_TRANSPORT_ID`'s identical rationale. */
+export const TRANSPORT_ID_ACP: string = TRANSPORT_ID_ACP_VALUE;
 
 // ---------------------------------------------------------------------------
 // Normalized cost/usage shape — the "turn result" every transport reports,
@@ -228,6 +237,24 @@ export interface DriverTransportStartOptions {
   cwd: string;
   permissionMode: PermissionMode;
   authMode?: DriverAuthMode;
+  /**
+   * Which harness this drive runs (mt#4936) — e.g. `"codex"` or
+   * `"claude-code-acp"`. `ClaudeStreamJsonTransport` ignores this field (it
+   * only ever drives one harness); `AcpTransport` reads it to resolve which
+   * configured ACP agent command to spawn, since ONE `DriverTransport`
+   * instance (`transport_id: "acp"`) serves every ACP-driven harness. Omitted
+   * → the transport's own default, when it has one.
+   */
+  harnessKind?: string;
+  /**
+   * The drive's bound Minsky task, when there is one (mt#4936). Opaque to
+   * `ClaudeStreamJsonTransport` (which ignores it, matching its existing
+   * domain-import-free posture); `AcpTransport` reads it to parent a
+   * permission-request ask to the task ("parented to the drive's task when
+   * bound" — mt#4936 spec SC2). `null`/omitted → an unbound (scratch) drive;
+   * the ask is created with no `parentTaskId`.
+   */
+  taskId?: string | null;
   /** The principal-selected model alias (mt#3040). Omitted → the transport's own default. */
   model?: string;
   /** `undefined` → transport resolves its own default config; `null` → no MCP config at all. */

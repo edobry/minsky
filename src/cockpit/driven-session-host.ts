@@ -44,8 +44,10 @@ import {
   DEFAULT_HARNESS_KIND,
   DEFAULT_PERMISSION_MODE,
   DEFAULT_TRANSPORT_ID,
+  TRANSPORT_ID_ACP,
 } from "./driver-transport";
 import { ClaudeStreamJsonTransport } from "./claude-transport";
+import { AcpTransport } from "./acp-transport";
 
 export * from "./driver-transport";
 export * from "./claude-cwd-preflight";
@@ -445,14 +447,31 @@ type DriverTransportFactory = (overrides: {
   command?: string;
   spawnFn?: SpawnFn;
   getAnthropicApiKey?: () => string | null;
+  /** ACP-only (mt#4936) — `ClaudeStreamJsonTransport`'s factory ignores it. */
+  getOpenAiApiKey?: () => string | null;
 }) => DriverTransport;
 
 const DEFAULT_DRIVER_TRANSPORT_FACTORY: DriverTransportFactory = (overrides) =>
   new ClaudeStreamJsonTransport(overrides);
 
+/**
+ * ACP factory (mt#4936) — `createAskRepository` is deliberately OMITTED from
+ * the overrides passed here: `AcpTransport`'s own constructor default wires
+ * a real, DB-backed `AskRepository` (mirrors `ClaudeStreamJsonTransport`'s
+ * self-contained `getAnthropicApiKey` default) — this factory has no domain
+ * imports of its own, per this module's docblock invariant.
+ */
+const ACP_DRIVER_TRANSPORT_FACTORY: DriverTransportFactory = (overrides) =>
+  new AcpTransport({
+    spawnFn: overrides.spawnFn,
+    getAnthropicApiKey: overrides.getAnthropicApiKey,
+    getOpenAiApiKey: overrides.getOpenAiApiKey,
+  });
+
 /** Every `DriverTransport` this build knows how to construct, by `.id`. */
 const DRIVER_TRANSPORT_FACTORIES: Readonly<Record<string, DriverTransportFactory>> = {
   [DEFAULT_TRANSPORT_ID]: DEFAULT_DRIVER_TRANSPORT_FACTORY,
+  [TRANSPORT_ID_ACP]: ACP_DRIVER_TRANSPORT_FACTORY,
 };
 
 type SelectDriverTransportResult =
@@ -464,6 +483,7 @@ function selectDriverTransport(overrides: {
   command?: string;
   spawnFn?: SpawnFn;
   getAnthropicApiKey?: () => string | null;
+  getOpenAiApiKey?: () => string | null;
 }): SelectDriverTransportResult {
   const transportId = overrides.transportId ?? DEFAULT_TRANSPORT_ID;
   const factory = DRIVER_TRANSPORT_FACTORIES[transportId];
@@ -476,6 +496,7 @@ function selectDriverTransport(overrides: {
       command: overrides.command,
       spawnFn: overrides.spawnFn,
       getAnthropicApiKey: overrides.getAnthropicApiKey,
+      getOpenAiApiKey: overrides.getOpenAiApiKey,
     }),
   };
 }
@@ -656,6 +677,10 @@ export interface StartDrivenSessionOptions {
    * (global configuration singleton, uninitialized under `bun test`).
    */
   getAnthropicApiKey?: () => string | null;
+  /** See `getAnthropicApiKey` above — the same test seam for `AcpTransport`'s
+   * `codex`-harness credential (mt#4936). REQUIRED for any test exercising
+   * `harnessKind: "codex"` under `transport_id: "acp"`. */
+  getOpenAiApiKey?: () => string | null;
   /** Override environment variables passed to the child (test seam). */
   env?: NodeJS.ProcessEnv;
   /** Override the registry (test seam — hermetic instance per test). */
@@ -748,6 +773,7 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
     command: opts.command,
     spawnFn: opts.spawnFn,
     getAnthropicApiKey: opts.getAnthropicApiKey,
+    getOpenAiApiKey: opts.getOpenAiApiKey,
   });
 
   if (!selected.ok) {
@@ -778,6 +804,8 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
     cwd: opts.cwd,
     permissionMode,
     authMode,
+    harnessKind,
+    taskId: opts.taskId ?? null,
     model: opts.model,
     mcpConfig: opts.mcpConfig,
     mcpServerNames: opts.mcpServerNames,
@@ -920,6 +948,9 @@ export interface ResumeDrivenSessionOptions {
   /** See `StartDrivenSessionOptions.getAnthropicApiKey` — same contract, same
    * REQUIRED-for-`authMode: "api-key"` note, for the respawn. */
   getAnthropicApiKey?: () => string | null;
+  /** See `StartDrivenSessionOptions.getOpenAiApiKey` — same contract, for
+   * the respawn (mt#4936). */
+  getOpenAiApiKey?: () => string | null;
   /** Override environment variables passed to the child (test seam). */
   env?: NodeJS.ProcessEnv;
   /** Override the registry (test seam — hermetic instance per test). */
@@ -967,6 +998,7 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
     command: opts.command,
     spawnFn: opts.spawnFn,
     getAnthropicApiKey: opts.getAnthropicApiKey,
+    getOpenAiApiKey: opts.getOpenAiApiKey,
   });
 
   if (!selected.ok) {
@@ -997,6 +1029,8 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
     cwd: previous.cwd,
     permissionMode: previous.permissionMode,
     authMode,
+    harnessKind,
+    taskId: previous.taskId ?? null,
     harnessSessionId: previous.harnessSessionId,
     model: previous.model ?? undefined,
     mcpConfig: opts.mcpConfig,
