@@ -171,6 +171,14 @@ function scriptFakeAgent(proc: FakeAcpAgentProcess): { seen: JsonRpcFrame[] } {
       readFrames(proc, waitForPermissionResponse);
       return;
     }
+
+    if (frame.method === "session/close") {
+      writeFrame(proc, { jsonrpc: "2.0", id: frame.id, result: {} });
+      return;
+    }
+    // session/cancel is a NOTIFICATION (no `id`, no response expected) — it
+    // is captured in `seen` above via the unconditional `seen.push(frame)`,
+    // nothing further to do here.
   });
 
   return { seen };
@@ -441,6 +449,103 @@ describe("AcpTransport — recorded-fixture session (mt#4936 AT1)", () => {
     expect(permissionResponseFrame).toBeDefined();
     const outcome = (permissionResponseFrame?.result as { outcome: { outcome: string } }).outcome;
     expect(outcome.outcome).toBe("cancelled");
+  });
+});
+
+describe("AcpTransport.stop — session/close lifecycle (mt#4936 PR #3596 R1)", () => {
+  test("stop() sends session/close exactly once, after cancel", async () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const transport = new AcpTransport({ spawnFn, getOpenAiApiKey: () => "sk-fake-openai" });
+
+    const spawnResult = transport.spawn({
+      cwd: TEST_CWD,
+      permissionMode: BYPASS_PERMISSIONS,
+      authMode: "api-key",
+      harnessKind: "codex",
+    });
+    expect(spawnResult.ok).toBe(true);
+    if (!spawnResult.ok) return;
+
+    const proc = first(calls).proc;
+    const seenRef = scriptFakeAgent(proc);
+
+    const events: DriverTransportEvent[] = [];
+    transport.attach(spawnResult.proc, TEST_CWD, (event) => events.push(event));
+    await waitFor(() => events.some((e) => e.kind === HARNESS_SESSION_DISCOVERED));
+
+    transport.stop(proc);
+
+    await waitFor(() => seenRef.seen.some((f) => f.method === "session/close"));
+
+    const closeFrames = seenRef.seen.filter((f) => f.method === "session/close");
+    expect(closeFrames).toHaveLength(1);
+    expect((closeFrames[0]?.params as { sessionId: string }).sessionId).toBe("sess-fixture-1");
+
+    const cancelFrames = seenRef.seen.filter((f) => f.method === "session/cancel");
+    expect(cancelFrames).toHaveLength(1);
+
+    // cancel precedes close, per the protocol v2 ordering (in-flight work
+    // stopped before the session is released).
+    const cancelIndex = seenRef.seen.indexOf(cancelFrames[0] as JsonRpcFrame);
+    const closeIndex = seenRef.seen.indexOf(closeFrames[0] as JsonRpcFrame);
+    expect(cancelIndex).toBeGreaterThanOrEqual(0);
+    expect(closeIndex).toBeGreaterThan(cancelIndex);
+  });
+
+  test("a second stop() call is a no-op — session/close is not sent twice", async () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const transport = new AcpTransport({ spawnFn, getOpenAiApiKey: () => "sk-fake-openai" });
+
+    const spawnResult = transport.spawn({
+      cwd: TEST_CWD,
+      permissionMode: BYPASS_PERMISSIONS,
+      authMode: "api-key",
+      harnessKind: "codex",
+    });
+    expect(spawnResult.ok).toBe(true);
+    if (!spawnResult.ok) return;
+
+    const proc = first(calls).proc;
+    const seenRef = scriptFakeAgent(proc);
+
+    const events: DriverTransportEvent[] = [];
+    transport.attach(spawnResult.proc, TEST_CWD, (event) => events.push(event));
+    await waitFor(() => events.some((e) => e.kind === HARNESS_SESSION_DISCOVERED));
+
+    transport.stop(proc);
+    await waitFor(() => seenRef.seen.some((f) => f.method === "session/close"));
+
+    transport.stop(proc);
+    // Give any (incorrect) second round-trip a chance to land before asserting.
+    await new Promise((r) => setTimeout(r, 50));
+
+    const closeFrames = seenRef.seen.filter((f) => f.method === "session/close");
+    expect(closeFrames).toHaveLength(1);
+  });
+
+  test("sendUserTurn refuses after stop() — no session/prompt on a closed session", async () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const transport = new AcpTransport({ spawnFn, getOpenAiApiKey: () => "sk-fake-openai" });
+
+    const spawnResult = transport.spawn({
+      cwd: TEST_CWD,
+      permissionMode: BYPASS_PERMISSIONS,
+      authMode: "api-key",
+      harnessKind: "codex",
+    });
+    expect(spawnResult.ok).toBe(true);
+    if (!spawnResult.ok) return;
+
+    const proc = first(calls).proc;
+    scriptFakeAgent(proc);
+
+    const events: DriverTransportEvent[] = [];
+    transport.attach(spawnResult.proc, TEST_CWD, (event) => events.push(event));
+    await waitFor(() => events.some((e) => e.kind === HARNESS_SESSION_DISCOVERED));
+
+    transport.stop(proc);
+    const sent = transport.sendUserTurn(proc, "should be refused");
+    expect(sent).toBe(false);
   });
 });
 

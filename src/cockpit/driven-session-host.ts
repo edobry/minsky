@@ -44,10 +44,10 @@ import {
   DEFAULT_HARNESS_KIND,
   DEFAULT_PERMISSION_MODE,
   DEFAULT_TRANSPORT_ID,
+  TRANSPORT_ID_ACP,
 } from "./driver-transport";
 import { ClaudeStreamJsonTransport } from "./claude-transport";
 import { AcpTransport } from "./acp-transport";
-import { TRANSPORT_ID_ACP } from "@minsky/domain/storage/schemas/driven-session-defaults";
 
 export * from "./driver-transport";
 export * from "./claude-cwd-preflight";

@@ -32,6 +32,7 @@ import {
   DEFAULT_AUTH_MODE as DEFAULT_AUTH_MODE_VALUE,
   DEFAULT_HARNESS_KIND as DEFAULT_HARNESS_KIND_VALUE,
   DEFAULT_TRANSPORT_ID as DEFAULT_TRANSPORT_ID_VALUE,
+  TRANSPORT_ID_ACP as TRANSPORT_ID_ACP_VALUE,
 } from "@minsky/domain/storage/schemas/driven-session-defaults";
 
 // ---------------------------------------------------------------------------
@@ -121,6 +122,14 @@ export const DEFAULT_HARNESS_KIND: string = DEFAULT_HARNESS_KIND_VALUE;
  * (./claude-transport.ts, which imports this SAME constant for its `id` field
  * rather than restating the literal). */
 export const DEFAULT_TRANSPORT_ID: string = DEFAULT_TRANSPORT_ID_VALUE;
+
+/** The Agent Client Protocol `DriverTransport.id` (mt#4936) — must match
+ * `AcpTransport.id` (./acp-transport.ts, which imports this SAME constant for
+ * its `id` field rather than restating the literal). Re-exported here (not
+ * imported directly from the domain module by callers) so
+ * `driven-session-host.ts` stays free of domain imports per this module's
+ * docblock invariant — see `DEFAULT_TRANSPORT_ID`'s identical rationale. */
+export const TRANSPORT_ID_ACP: string = TRANSPORT_ID_ACP_VALUE;
 
 // ---------------------------------------------------------------------------
 // Normalized cost/usage shape — the "turn result" every transport reports,

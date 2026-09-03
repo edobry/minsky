@@ -209,6 +209,11 @@ interface AcpProcState {
   readonly isResume: boolean;
   turnIndex: number;
   attached: boolean;
+  /** Set once by `stop()` (mt#4936 PR #3596 R1) — makes `stop()` idempotent
+   * (a second call is a no-op) and refuses any `sendUserTurn` after close
+   * rather than sending `session/prompt` on a session the agent has already
+   * been told to release. */
+  closed: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -400,6 +405,7 @@ export class AcpTransport implements DriverTransport {
       isResume: resume.isResume,
       turnIndex: 0,
       attached: false,
+      closed: false,
     });
 
     return { ok: true, proc, argv: [agentCommand.command, ...agentCommand.args] };
@@ -653,6 +659,9 @@ export class AcpTransport implements DriverTransport {
   sendUserTurn(proc: ProcessLike, text: string, images: readonly DrivenInputImage[] = []): boolean {
     const state = this.procState.get(proc);
     if (!state) return false;
+    // mt#4936 PR #3596 R1 — never send session/prompt on a session already
+    // told to close; the agent may have freed its resources.
+    if (state.closed) return false;
 
     const prompt: ContentBlock[] = [];
     if (text.length > 0) prompt.push({ type: "text", text });
@@ -713,29 +722,64 @@ export class AcpTransport implements DriverTransport {
     if (sink) sink(event);
   }
 
+  /**
+   * Graceful stop (mt#4936 PR #3596 R1): `session/cancel` for any in-flight
+   * turn, THEN `session/close` to release the agent's session resources,
+   * THEN end stdin and fall back to SIGTERM after `graceMs` — same shape and
+   * deadline as `ClaudeStreamJsonTransport.stop`, with the two ACP-specific
+   * RPCs inserted ahead of it. Idempotent: a second call on an already-closed
+   * state is a no-op, matching `ClaudeStreamJsonTransport.stop`'s own
+   * best-effort posture (a stop on an already-exited record is a documented
+   * no-op there too — see that method's doc comment).
+   *
+   * Both RPCs are best-effort, sequenced, and — this is load-bearing, not
+   * cosmetic — `proc.stdin.end()` runs only AFTER the chain SETTLES
+   * (`.finally`), never concurrently with it. `stdin.end()` closes the
+   * WHATWG `WritableStream` the connection's `Stream` wraps
+   * (`Writable.toWeb(proc.stdin)`); ending it while `cancel`'s notification
+   * write or `closeSession`'s request write is still in flight races the
+   * teardown against the write and can silently drop or corrupt it. Neither
+   * RPC's OUTCOME gates teardown — an agent that doesn't advertise the
+   * `session.close` capability, or a pipe that's already gone, must not
+   * block termination — only their SETTLING (success or failure) does,
+   * which is bounded by the RPCs' own timeout, not by this method.
+   */
   stop(proc: ProcessLike, opts: { graceMs?: number } = {}): void {
     const state = this.procState.get(proc);
-    if (state?.sessionId) {
-      state.connection.cancel({ sessionId: state.sessionId }).catch(() => {
-        // Best-effort — mirrors ClaudeStreamJsonTransport.stop's try/catch
-        // posture around a pipe/process that may already be gone.
-      });
-    }
-    try {
-      proc.stdin.end();
-    } catch {
-      // Best-effort.
-    }
-    const graceMs = opts.graceMs ?? 3000;
-    const timer = setTimeout(() => {
+    if (!state || state.closed) return;
+    state.closed = true;
+
+    const teardown = (): void => {
       try {
-        proc.kill("SIGTERM");
+        proc.stdin.end();
       } catch {
         // Best-effort.
       }
-    }, graceMs);
-    // eslint-disable-next-line custom/no-excessive-as-unknown -- Timeout#unref side-channel, no alternative typing (mirrors claude-transport.ts's identical cast)
-    (timer as unknown as { unref?: () => void }).unref?.();
+      const graceMs = opts.graceMs ?? 3000;
+      const timer = setTimeout(() => {
+        try {
+          proc.kill("SIGTERM");
+        } catch {
+          // Best-effort.
+        }
+      }, graceMs);
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- Timeout#unref side-channel, no alternative typing (mirrors claude-transport.ts's identical cast)
+      (timer as unknown as { unref?: () => void }).unref?.();
+    };
+
+    if (!state.sessionId) {
+      teardown();
+      return;
+    }
+    const sessionId = state.sessionId;
+    state.connection
+      .cancel({ sessionId })
+      .catch(() => {
+        // Best-effort — mirrors ClaudeStreamJsonTransport.stop's try/catch
+        // posture around a pipe/process that may already be gone.
+      })
+      .then(() => state.connection.closeSession({ sessionId }).catch(() => {}))
+      .finally(teardown);
   }
 
   isAlive(proc: ProcessLike): boolean {
