@@ -114,6 +114,35 @@ describe("parseExecutedTestCount", () => {
   test("a truncated summary line does not half-match", () => {
     expect(parseExecutedTestCount("Ran 17132 tests across")).toBeNull();
   });
+
+  // The sweep runs three suites per seed and concatenates their output, so the
+  // guard's question changed from "is there a summary?" to "is there one from
+  // EVERY suite?" (mt#3575). Matching only the first would let suites 2..N die
+  // behind suite 1's healthy line — the same can't-fail shape, one level up.
+  const THREE_SUITES = [
+    "=== suite: main ===",
+    "Ran 17356 tests across 1125 files. [303.00s]",
+    "=== suite: hooks ===",
+    "Ran 900 tests across 60 files. [30.00s]",
+    "=== suite: components ===",
+    "Ran 2837 tests across 213 files. [32.00s]",
+  ].join("\n");
+
+  test("sums every suite's summary when all expected suites reported", () => {
+    expect(parseExecutedTestCount(THREE_SUITES, 3)).toBe(17356 + 900 + 2837);
+  });
+
+  test("a MISSING suite summary is null even though the others are present", () => {
+    const twoOfThree = THREE_SUITES.split("\n").slice(0, 4).join("\n");
+    expect(parseExecutedTestCount(twoOfThree, 3)).toBeNull();
+    // ...and the same text is fine when only two suites were expected, so the
+    // refusal tracks the expectation rather than a hardcoded count.
+    expect(parseExecutedTestCount(twoOfThree, 2)).toBe(17356 + 900);
+  });
+
+  test("defaults to expecting one summary, so single-suite callers are unchanged", () => {
+    expect(parseExecutedTestCount("Ran 24 tests across 1 file. [121.00ms]")).toBe(24);
+  });
 });
 
 describe("detectCountDrift", () => {

@@ -93,11 +93,20 @@ export function parseFailureNames(output: string): string[] {
  * The sweep must too, or its central claim — "these seeds were clean" — rests on
  * a probe that cannot fail (mem#704).
  */
-export function parseExecutedTestCount(output: string): number | null {
-  const match = output.match(/^\s*Ran (\d+) tests? across \d+ files?\./m);
-  if (match?.[1] === undefined) return null;
-  const n = Number.parseInt(match[1], 10);
-  return Number.isFinite(n) ? n : null;
+export function parseExecutedTestCount(output: string, expectedSummaries = 1): number | null {
+  const matches = [...output.matchAll(/^\s*Ran (\d+) tests? across \d+ files?\./gm)];
+  // EVERY swept suite must have printed a summary. Matching only the first would
+  // let suites 2..N die unnoticed behind suite 1's healthy line — which is the
+  // same can't-fail shape this function exists to close, reintroduced one level
+  // up the moment the sweep grew from one suite to three.
+  if (matches.length < expectedSummaries) return null;
+  let total = 0;
+  for (const match of matches) {
+    const n = Number.parseInt(match[1] ?? "", 10);
+    if (!Number.isFinite(n)) return null;
+    total += n;
+  }
+  return total;
 }
 
 /**
@@ -291,6 +300,64 @@ function runBunTest(args: readonly string[], cwd = REPO_ROOT): RunResult {
 }
 
 /**
+ * Every suite `bunfig.toml`'s `[test] randomize` reaches (mt#3575).
+ *
+ * The flip is GLOBAL — it is one config key read by every `bun test` invocation
+ * in the repo — so a sweep over one suite licenses a claim about one suite. This
+ * list was `run-tests-main.ts` alone until CI proved the gap: a clean 20-seed
+ * local sweep was followed by a red `build` job, and BOTH failures lived in
+ * suites the sweep never ran. `.minsky/hooks/**` is deliberately outside
+ * `run-tests-main.ts`'s `ROOTS` (mem#890 records that it "only surfaces in CI"),
+ * and the cockpit-web suite has its own DOM preloads.
+ *
+ * Kept in the same shape as the `package.json` scripts they mirror rather than
+ * shelling out to `bun run <script>`: the seed has to reach `bun test` as an
+ * argument, and a script indirection would swallow it silently.
+ */
+const SWEPT_SUITES: ReadonlyArray<{ label: string; args: readonly string[] }> = [
+  { label: "main", args: ["scripts/run-tests-main.ts"] },
+  {
+    label: "hooks",
+    args: ["test", "--preload", "./tests/setup.ts", "--timeout=15000", "./.minsky/hooks"],
+  },
+  {
+    label: "components",
+    args: [
+      "test",
+      "--preload",
+      "./tests/dom-setup.ts",
+      "--preload",
+      "./tests/setup.ts",
+      "--timeout=15000",
+      "--path-ignore-patterns=services/**",
+      "--path-ignore-patterns=src/cockpit/web/dist/**",
+      "./src/cockpit/web",
+    ],
+  },
+];
+
+/**
+ * Run every swept suite at one seed and concatenate their output.
+ *
+ * Concatenation is what lets the rest of the sweep stay suite-agnostic: the
+ * failure parser and the integrity guard both read the combined text, so a
+ * `(fail)` in any suite is a finding and a MISSING summary in any suite aborts.
+ * The integrity guard is what makes that safe — three summaries are expected, so
+ * `parseExecutedTestCount` summing them is not merely additive bookkeeping, it
+ * is the check that all three actually ran.
+ */
+function runSuitesAtSeed(seed: number): RunResult {
+  let output = "";
+  let exitCode = 0;
+  for (const suite of SWEPT_SUITES) {
+    const run = runBunTest([...suite.args, "--seed", String(seed)]);
+    output += `\n=== suite: ${suite.label} (seed ${seed}) ===\n${run.output}`;
+    if (run.exitCode !== 0) exitCode = run.exitCode;
+  }
+  return { exitCode, output };
+}
+
+/**
  * A run whose result cannot be trusted is exit 2, never a finding. Zero `(fail)`
  * lines is what a clean run AND a dead run both look like, so the sweep's whole
  * claim depends on separating them here rather than downstream.
@@ -415,10 +482,10 @@ function main(): never {
 
   const observations: SeedObservation[] = [];
   for (let seed = 1; seed <= seedCount; seed++) {
-    const run = runBunTest(["scripts/run-tests-main.ts", "--seed", String(seed)]);
+    const run = runSuitesAtSeed(seed);
     const failures = parseFailureNames(run.output);
 
-    const executedTests = parseExecutedTestCount(run.output);
+    const executedTests = parseExecutedTestCount(run.output, SWEPT_SUITES.length);
     if (executedTests === null) {
       abortUnusableRun(
         seed,
@@ -449,7 +516,7 @@ function main(): never {
     // failure that comes back is caused by the order and one that comes and goes
     // is caused by something else — contention, typically (mem#942). Only failing
     // seeds pay for this, so a clean sweep costs nothing extra.
-    const repeat = runBunTest(["scripts/run-tests-main.ts", "--seed", String(seed)]);
+    const repeat = runSuitesAtSeed(seed);
     const repeatFailures = parseFailureNames(repeat.output);
     if (!json) {
       console.log(`seed ${seed} (fixed-seed repeat): ${repeatFailures.length} failure(s)`);
