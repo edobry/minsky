@@ -479,7 +479,7 @@ export class AcpTransport implements DriverTransport {
       );
       return;
     }
-    cell.requestPermission = (params) => this.handlePermissionRequest(state, params);
+    cell.requestPermission = (params) => this.handlePermissionRequest(state, params, onEvent);
     cell.sessionUpdate = async (params) => {
       onEvent(classifySessionUpdate(params));
     };
@@ -487,7 +487,8 @@ export class AcpTransport implements DriverTransport {
 
   private async handlePermissionRequest(
     state: AcpProcState,
-    params: RequestPermissionRequest
+    params: RequestPermissionRequest,
+    onEvent: (event: DriverTransportEvent) => void
   ): Promise<RequestPermissionResponse> {
     const options: AcpPermissionOptionInput[] = params.options.map((o) => ({
       optionId: o.optionId,
@@ -495,6 +496,22 @@ export class AcpTransport implements DriverTransport {
       kind: o.kind,
     }));
     const toolTitle = params.toolCall.title ?? params.toolCall.toolCallId;
+
+    // SC1 — the first producer to classify into `permissionRequested`.
+    // Emitted BEFORE ask creation/polling so an observer sees the request
+    // arrive even if ask creation itself fails or is refused below (the
+    // WS/persistence pipeline forwards `raw` regardless of what happens
+    // next, mirroring every other event kind's "always append" contract —
+    // see `handleTransportEvent`'s doc comment in ../driven-session-host.ts).
+    onEvent({
+      kind: "permissionRequested",
+      raw: {
+        type: "minsky_acp_permission_requested",
+        toolCallId: params.toolCall.toolCallId,
+        toolTitle,
+        options,
+      },
+    });
 
     if (!this.createAskRepository) {
       log.error(
