@@ -98,6 +98,8 @@ async function makeHarness(opts?: {
   getProjectScopeDb?: () => Promise<
     import("@minsky/domain/project/scope-resolver").ScopeResolverDb | null
   >;
+  /** mt#4935 test seam — overrides the `auth_mode: "api-key"` credential check. */
+  getConfiguredAnthropicApiKey?: () => string | null;
 }): Promise<Harness> {
   const registry = new DrivenSessionRegistry();
   const { spawnFn, calls } = makeFakeSpawnFn();
@@ -112,6 +114,7 @@ async function makeHarness(opts?: {
     scratchCwd: opts?.scratchCwd,
     attachDrivenSession: opts?.attachDrivenSession,
     getProjectScopeDb: opts?.getProjectScopeDb,
+    getConfiguredAnthropicApiKey: opts?.getConfiguredAnthropicApiKey,
     onHarnessSessionLinked: (record) => linked.push(record),
   });
 
@@ -154,6 +157,7 @@ const SESSION_DIR = realDir(WORKSPACE_ID);
 const SCRATCH_CWD = realDir("scratch-checkout");
 const EXPLICIT_CWD = realDir("explicit");
 const HARNESS_ID = "aaaaaaaa-0000-0000-0000-000000000001";
+const CONFIGURED_ANTHROPIC_API_KEY = "sk-ant-configured";
 
 function fakeResolver(
   projectId: string | null = null
@@ -224,6 +228,98 @@ describe("POST /api/driven-session — model selection (mt#3040)", () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toContain("model");
     expect(h.calls.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Harness-agnostic drive-record fields (mt#4935)
+// ---------------------------------------------------------------------------
+
+describe("POST /api/driven-session — harness-agnostic fields (mt#4935)", () => {
+  test("AT2: omitting all four fields behaves exactly as today — defaults in the response", async () => {
+    const h = await makeHarness({ scratchCwd: SCRATCH_CWD });
+    const res = await post(h.url, {});
+    expect(res.status).toBe(201);
+    expect(res.body.harnessKind).toBe("claude-code");
+    expect(res.body.authMode).toBe("subscription");
+    expect(h.calls.length).toBe(1);
+  });
+
+  test("accepts an explicit harnessKind/transportId/harnessConversationId/authMode and surfaces them", async () => {
+    const h = await makeHarness({
+      scratchCwd: SCRATCH_CWD,
+      getConfiguredAnthropicApiKey: () => CONFIGURED_ANTHROPIC_API_KEY,
+    });
+    const res = await post(h.url, {
+      harnessKind: "claude-code",
+      transportId: "claude-stream-json",
+      harnessConversationId: "known-conversation-id",
+      authMode: "api-key",
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.harnessKind).toBe("claude-code");
+    expect(res.body.authMode).toBe("api-key");
+    expect(h.calls.length).toBe(1);
+  });
+
+  test("rejects a present-but-empty harnessKind with 400", async () => {
+    const h = await makeHarness({ scratchCwd: SCRATCH_CWD });
+    const res = await post(h.url, { harnessKind: "" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("harnessKind");
+    expect(h.calls.length).toBe(0);
+  });
+
+  test('rejects an authMode outside {"subscription","api-key"} with 400', async () => {
+    const h = await makeHarness({ scratchCwd: SCRATCH_CWD });
+    const res = await post(h.url, { authMode: "oauth" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("authMode");
+    expect(h.calls.length).toBe(0);
+  });
+
+  // AT3
+  test('AT3: auth_mode "api-key" with no configured credential returns 4xx naming the missing credential and spawns nothing', async () => {
+    const h = await makeHarness({
+      scratchCwd: SCRATCH_CWD,
+      getConfiguredAnthropicApiKey: () => null,
+    });
+    const res = await post(h.url, { authMode: "api-key" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("api-key");
+    expect(res.body.error).toContain("ai.providers.anthropic.apiKey");
+    expect(h.calls.length).toBe(0);
+  });
+
+  test('auth_mode "api-key" with a configured credential succeeds', async () => {
+    const h = await makeHarness({
+      scratchCwd: SCRATCH_CWD,
+      getConfiguredAnthropicApiKey: () => CONFIGURED_ANTHROPIC_API_KEY,
+    });
+    const res = await post(h.url, { authMode: "api-key" });
+    expect(res.status).toBe(201);
+    expect(h.calls.length).toBe(1);
+  });
+
+  // AT4
+  test('AT4: harness_kind "codex" with (default) auth_mode "subscription" is refused with the seam named', async () => {
+    const h = await makeHarness({ scratchCwd: SCRATCH_CWD });
+    const res = await post(h.url, { harnessKind: "codex" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("codex");
+    expect(res.body.error).toContain("mt#2237");
+    expect(res.body.error).toContain("mt#2750");
+    expect(h.calls.length).toBe(0);
+  });
+
+  test('a non-"claude-code" harnessKind with auth_mode "api-key" is NOT refused by the subscription check', async () => {
+    const h = await makeHarness({
+      scratchCwd: SCRATCH_CWD,
+      getConfiguredAnthropicApiKey: () => CONFIGURED_ANTHROPIC_API_KEY,
+    });
+    const res = await post(h.url, { harnessKind: "codex", authMode: "api-key" });
+    expect(res.status).toBe(201);
+    expect(h.calls.length).toBe(1);
   });
 });
 

@@ -121,6 +121,7 @@ function asPg(db: FakeDb) {
 }
 
 const BYPASS_PERMISSIONS = "bypassPermissions";
+const DEFAULT_TRANSPORT_ID = "claude-stream-json";
 
 const BASE_INPUT: UpsertDrivenSessionInput = {
   localId: "local-1",
@@ -193,6 +194,33 @@ describe("upsertDrivenSessionRecord", () => {
     await upsertDrivenSessionRecord(asPg(makeDb(stores)), BASE_INPUT);
     expect(stores.rows[0]?.driverGeneration).toBe(0);
   });
+
+  // mt#4935 — the harness-agnostic fields default to today's only values,
+  // matching the schema column defaults, when the caller omits them.
+  test("defaults harnessKind/transportId/authMode when omitted, and leaves harnessConversationId null", async () => {
+    const stores = makeStores();
+    await upsertDrivenSessionRecord(asPg(makeDb(stores)), BASE_INPUT);
+    const row = stores.rows[0] as unknown as Record<string, unknown>;
+    expect(row.harnessKind).toBe("claude-code");
+    expect(row.transportId).toBe(DEFAULT_TRANSPORT_ID);
+    expect(row.harnessConversationId).toBeNull();
+    expect(row.authMode).toBe("subscription");
+  });
+
+  test("writes an explicit harnessKind/transportId/harnessConversationId/authMode verbatim", async () => {
+    const stores = makeStores();
+    await upsertDrivenSessionRecord(asPg(makeDb(stores)), {
+      ...BASE_INPUT,
+      harnessKind: "codex",
+      transportId: DEFAULT_TRANSPORT_ID,
+      harnessConversationId: "conv-1",
+      authMode: "api-key",
+    });
+    const row = stores.rows[0] as unknown as Record<string, unknown>;
+    expect(row.harnessKind).toBe("codex");
+    expect(row.harnessConversationId).toBe("conv-1");
+    expect(row.authMode).toBe("api-key");
+  });
 });
 
 describe("mapRawDrivenSessionRow", () => {
@@ -201,7 +229,7 @@ describe("mapRawDrivenSessionRow", () => {
       local_id: "local-1",
       harness_session_id: "harness-1",
       harness_kind: "claude-code",
-      transport_id: "claude-stream-json",
+      transport_id: DEFAULT_TRANSPORT_ID,
       harness_conversation_id: "harness-1",
       auth_mode: "subscription",
       cwd: "/tmp/x",
@@ -223,7 +251,7 @@ describe("mapRawDrivenSessionRow", () => {
     expect(mapped.driverGeneration).toBe(2);
     // mt#4935
     expect(mapped.harnessKind).toBe("claude-code");
-    expect(mapped.transportId).toBe("claude-stream-json");
+    expect(mapped.transportId).toBe(DEFAULT_TRANSPORT_ID);
     expect(mapped.harnessConversationId).toBe("harness-1");
     expect(mapped.authMode).toBe("subscription");
   });

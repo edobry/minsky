@@ -1389,6 +1389,159 @@ describe("probeSpawnCwdAsync (mt#3397, PR #2452 R1)", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Harness-agnostic drive-record fields (mt#4935)
+// ---------------------------------------------------------------------------
+
+const DEFAULT_TRANSPORT_ID = "claude-stream-json";
+const PERSISTED_HARNESS_SESSION_ID = "harness-persisted";
+
+describe("harness-agnostic drive-record fields (mt#4935)", () => {
+  test("startDrivenSession defaults harnessKind/transportId/harnessConversationId/authMode", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: SCRATCH_CWD, spawnFn, mcpConfig: null });
+
+    expect(record.harnessKind).toBe("claude-code");
+    expect(record.transportId).toBe(DEFAULT_TRANSPORT_ID);
+    expect(record.harnessConversationId).toBeNull();
+    expect(record.authMode).toBe("subscription");
+  });
+
+  test("startDrivenSession carries explicit harnessKind/transportId/harnessConversationId/authMode onto the record", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({
+      cwd: SCRATCH_CWD,
+      spawnFn,
+      mcpConfig: null,
+      harnessKind: "codex",
+      transportId: DEFAULT_TRANSPORT_ID,
+      harnessConversationId: "known-conversation-id",
+      authMode: "api-key",
+    });
+
+    expect(record.harnessKind).toBe("codex");
+    expect(record.harnessConversationId).toBe("known-conversation-id");
+    expect(record.authMode).toBe("api-key");
+  });
+
+  test("an unrecognized transportId degrades to the default transport rather than throwing", () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({
+      cwd: SCRATCH_CWD,
+      spawnFn,
+      mcpConfig: null,
+      transportId: "not-a-real-transport",
+    });
+
+    // Still spawned (degraded to the one real transport), not refused.
+    expect(calls.length).toBe(1);
+    expect(record.transport.id).toBe(DEFAULT_TRANSPORT_ID);
+  });
+
+  test("the child's init event links harnessConversationId the same way it links harnessSessionId", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn });
+    const proc = record.proc as unknown as FakeClaudeProcess;
+
+    expect(record.harnessConversationId).toBeNull();
+    proc.emitLine({ type: "system", subtype: "init", session_id: "harness-abc" });
+
+    expect(record.harnessSessionId).toBe("harness-abc");
+    expect(record.harnessConversationId).toBe("harness-abc");
+  });
+
+  test("resumeDrivenSession carries harnessKind/transportId/authMode forward from `previous`", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = resumeDrivenSession({
+      previous: {
+        localId: "local-resume-1",
+        cwd: TEST_CWD,
+        permissionMode: BYPASS_PERMISSIONS_MODE,
+        harnessSessionId: RESUME_HARNESS_SESSION_ID,
+        taskId: null,
+        minskySessionId: null,
+        startedAt: new Date().toISOString(),
+        driverGeneration: 0,
+        harnessKind: "claude-code",
+        transportId: DEFAULT_TRANSPORT_ID,
+        authMode: "api-key",
+      },
+      spawnFn,
+      mcpConfig: null,
+      skipInterruptionNotice: true,
+    });
+
+    expect(record.harnessKind).toBe("claude-code");
+    expect(record.authMode).toBe("api-key");
+    // A resume already knows the harness's own conversation id — no init
+    // event will ever fire to link it.
+    expect(record.harnessConversationId).toBe(RESUME_HARNESS_SESSION_ID);
+  });
+
+  test("resumeDrivenSession defaults harnessKind/transportId/authMode when `previous` omits them", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = resumeDrivenSession({
+      previous: {
+        localId: "local-resume-2",
+        cwd: TEST_CWD,
+        permissionMode: BYPASS_PERMISSIONS_MODE,
+        harnessSessionId: RESUME_HARNESS_SESSION_ID,
+        taskId: null,
+        minskySessionId: null,
+        startedAt: new Date().toISOString(),
+        driverGeneration: 0,
+      },
+      spawnFn,
+      mcpConfig: null,
+      skipInterruptionNotice: true,
+    });
+
+    expect(record.harnessKind).toBe("claude-code");
+    expect(record.transportId).toBe(DEFAULT_TRANSPORT_ID);
+    expect(record.authMode).toBe("subscription");
+  });
+
+  test("buildReconnectingDrivenSessionRecord defaults harnessConversationId to harnessSessionId", () => {
+    const record = buildReconnectingDrivenSessionRecord({
+      localId: "local-reconnect-1",
+      harnessSessionId: PERSISTED_HARNESS_SESSION_ID,
+      cwd: TEST_CWD,
+      permissionMode: BYPASS_PERMISSIONS_MODE,
+      taskId: null,
+      minskySessionId: null,
+      status: "reconnecting",
+      unrecoverableReason: null,
+      driverGeneration: 0,
+      startedAt: new Date().toISOString(),
+    });
+
+    expect(record.harnessKind).toBe("claude-code");
+    expect(record.transportId).toBe(DEFAULT_TRANSPORT_ID);
+    expect(record.harnessConversationId).toBe(PERSISTED_HARNESS_SESSION_ID);
+    expect(record.authMode).toBe("subscription");
+  });
+
+  test("buildReconnectingDrivenSessionRecord carries an explicit harnessConversationId rather than defaulting it", () => {
+    const record = buildReconnectingDrivenSessionRecord({
+      localId: "local-reconnect-2",
+      harnessSessionId: PERSISTED_HARNESS_SESSION_ID,
+      harnessConversationId: "explicit-conversation-id",
+      authMode: "api-key",
+      cwd: TEST_CWD,
+      permissionMode: BYPASS_PERMISSIONS_MODE,
+      taskId: null,
+      minskySessionId: null,
+      status: "unrecoverable",
+      unrecoverableReason: "deleted cwd",
+      driverGeneration: 0,
+      startedAt: new Date().toISOString(),
+    });
+
+    expect(record.harnessConversationId).toBe("explicit-conversation-id");
+    expect(record.authMode).toBe("api-key");
+  });
+});
+
 // PR #2452 R1 (non-blocking): remove the per-run temp dir so repeated runs do
 // not accumulate orphaned directories under the system temp root.
 afterAll(() => {

@@ -181,6 +181,12 @@ function buildResumedRecord(): DrivenSessionRecord {
     status: "running",
     unrecoverableReason: null,
     harnessSessionId: "harness-resumed",
+    // mt#4935 — harness-agnostic drive-record fields; today's only real
+    // values, matching what a genuine resume would carry forward.
+    harnessKind: "claude-code",
+    transportId: "claude-stream-json",
+    harnessConversationId: "harness-resumed",
+    authMode: "subscription",
     pid: 4242,
     exitCode: null,
     exitSignal: null,
