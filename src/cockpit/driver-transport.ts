@@ -235,4 +235,22 @@ export interface DriverTransport {
   attach(proc: ProcessLike, cwd: string, onEvent: (event: DriverTransportEvent) => void): void;
   /** Send one user turn. Returns `false` for content-less input or a failed write. */
   sendUserTurn(proc: ProcessLike, text: string, images?: readonly DrivenInputImage[]): boolean;
+  /**
+   * Graceful stop: end the input side (so the session driver finishes its
+   * current turn and exits on its own) with a forceful fallback after
+   * `graceMs` if it hasn't exited by then. Idempotent at the transport level
+   * (mirrors the pre-split `stopDrivenSession`'s best-effort try/catch
+   * around both steps) — a caller-side terminal-status guard still belongs
+   * to the supervisor (see `stopDrivenSession`), not here.
+   */
+  stop(proc: ProcessLike, opts?: { graceMs?: number }): void;
+  /**
+   * Liveness of the underlying process object — true for a real spawned
+   * process, false for a placeholder with nothing behind it (e.g.
+   * `createDeadProcessPlaceholder`'s stub, whose `pid` is `undefined`).
+   * Distinct from record-level liveness (`hasLiveSessionDriver`, which also
+   * accounts for supervisor-tracked exit/status): this is what the
+   * transport itself can say about `proc` alone.
+   */
+  isAlive(proc: ProcessLike): boolean;
 }

@@ -39,10 +39,11 @@ import type {
   SpawnFn,
 } from "./driver-transport";
 import { DEFAULT_PERMISSION_MODE } from "./driver-transport";
-import { ClaudeStreamJsonTransport, claudeStreamJsonTransport } from "./claude-transport";
+import { ClaudeStreamJsonTransport } from "./claude-transport";
 
 export * from "./driver-transport";
 export * from "./claude-cwd-preflight";
+export * from "./claude-argv";
 export * from "./claude-transport-parsing";
 export * from "./claude-transport";
 
@@ -186,6 +187,17 @@ export interface DrivenSessionRecord {
   /** Internal — the wired child handle, owned by whichever `DriverTransport`
    * spawned it. Not serialized to any API response. */
   readonly proc: ProcessLike;
+  /**
+   * The `DriverTransport` instance selected FOR THIS RECORD at spawn/resume
+   * time (mt#4934 PR #3594 R1) — every later call that needs to talk to the
+   * session driver (`sendDrivenSessionInput`, `stopDrivenSession`) goes
+   * through this, never a global singleton or a freshly-constructed default.
+   * A single hard-coded transport type is selected everywhere today
+   * (`selectDriverTransport`); mt#4935 makes the selection meaningful by
+   * reading a transport id off the drive record. Not serialized to any API
+   * response.
+   */
+  readonly transport: DriverTransport;
   /** All events observed since spawn, in order (bounded by MAX_EVENT_LOG). */
   readonly eventLog: DrivenSessionEvent[];
   /**
@@ -648,6 +660,7 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
       unrecoverableReason: spawnResult.reason,
       driverGeneration: 0,
       startedAt,
+      transport,
     });
     registry.install(record, installOpts);
     notifyStateChange(record, opts.onStateChange);
@@ -673,6 +686,7 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
     stopRequested: false,
     driverGeneration: 0,
     proc: spawnResult.proc,
+    transport,
     eventLog: [],
     // A fresh spawn STARTS the conversation — there is no prior history.
     needsHistoryReplay: false,
@@ -818,6 +832,7 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
       unrecoverableReason: spawnResult.reason,
       driverGeneration: previous.driverGeneration,
       startedAt: previous.startedAt,
+      transport,
     });
     registry.replace(previous.localId, record);
     notifyStateChange(record, opts.onStateChange);
@@ -843,6 +858,7 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
     stopRequested: false,
     driverGeneration: previous.driverGeneration + 1,
     proc: spawnResult.proc,
+    transport,
     eventLog: [],
     // Attached-from-disk or resumed: prior history is on disk, never in this
     // record's log (mt#3453).
@@ -911,6 +927,18 @@ export interface ReconnectingRecordInput {
   unrecoverableReason: string | null;
   driverGeneration: number;
   startedAt: string;
+  /**
+   * The transport this record would resume through (mt#4934 PR #3594 R1).
+   * Optional: the boot-time reconciliation caller (../driven-session-launch.ts,
+   * loading a persisted row with no live spawn attempt) has no transport to
+   * report, so this defaults to {@link selectDriverTransport}'s default
+   * inside the builder. Functionally inert either way — every status this
+   * builder ever produces is excluded from {@link hasLiveSessionDriver}, so
+   * nothing ever calls `record.transport` on a placeholder built this way
+   * until an actual {@link resumeDrivenSession} REPLACES it with a record
+   * that selects for real.
+   */
+  transport?: DriverTransport;
 }
 
 /**
@@ -949,6 +977,7 @@ export function buildReconnectingDrivenSessionRecord(
     stopRequested: false,
     driverGeneration: input.driverGeneration,
     proc: createDeadProcessPlaceholder(),
+    transport: input.transport ?? selectDriverTransport({}),
     eventLog: [],
     // Rehydrated at boot: its predecessor's log died with that process (mt#3453).
     needsHistoryReplay: true,
@@ -1023,7 +1052,7 @@ export function sendDrivenSessionInput(
   opts: { echo?: boolean; images?: DrivenInputImage[] } = {}
 ): boolean {
   if (!hasLiveSessionDriver(record)) return false;
-  const delivered = claudeStreamJsonTransport.sendUserTurn(record.proc, text, opts.images ?? []);
+  const delivered = record.transport.sendUserTurn(record.proc, text, opts.images ?? []);
   if (!delivered) return false;
   if (opts.echo !== false) {
     appendEvent(record, {
@@ -1036,10 +1065,13 @@ export function sendDrivenSessionInput(
 }
 
 /**
- * Graceful stop: close stdin (the child finishes its current turn, sees EOF,
- * and exits on its own) with a SIGTERM fallback after `graceMs` if it hasn't
- * exited by then. Idempotent — a second call on an already-exited/crashed
- * record is a no-op.
+ * Graceful stop: delegates the actual mechanics (close stdin, SIGTERM
+ * fallback after `graceMs`) to `record.transport` — the SAME transport
+ * instance this record was spawned/resumed through (mt#4934 PR #3594 R1),
+ * never a different one. This function's own job is the record-level guard:
+ * a no-op against an already-terminal record (idempotent), and marking
+ * `stopRequested` so a subsequent exit classifies as `"exited"`, not
+ * `"crashed"` (see `classifyExit`).
  */
 export function stopDrivenSession(
   record: DrivenSessionRecord,
@@ -1047,26 +1079,5 @@ export function stopDrivenSession(
 ): void {
   if (isTerminalStatus(record.status)) return;
   record.stopRequested = true;
-  try {
-    record.proc.stdin.end();
-  } catch {
-    // Best-effort — the pipe may already be closed.
-  }
-  const graceMs = opts.graceMs ?? 3000;
-  const timer = setTimeout(() => {
-    if (record.status !== "exited" && record.status !== "crashed") {
-      try {
-        record.proc.kill("SIGTERM");
-      } catch {
-        // Best-effort.
-      }
-    }
-  }, graceMs);
-  // Bun's `setTimeout` return type doesn't structurally expose Node's
-  // `Timeout#unref` in this project's ambient types (same class of ambiguity
-  // as ./claude-transport-parsing.ts's chunkToString comment) — mirrors the
-  // established `eslint-disable` precedent in src/mcp/stdio-proxy/proxy.ts for
-  // an identical "no alternative typing" cast.
-  // eslint-disable-next-line custom/no-excessive-as-unknown -- Timeout#unref side-channel, no alternative typing
-  (timer as unknown as { unref?: () => void }).unref?.();
+  record.transport.stop(record.proc, opts);
 }

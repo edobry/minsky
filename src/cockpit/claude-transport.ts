@@ -29,6 +29,7 @@
 import { spawn as nodeSpawn } from "child_process";
 import { log } from "@minsky/shared/logger";
 import { missingCwdReason, probeSpawnCwd } from "./claude-cwd-preflight";
+import { CLAUDE_BINARY, buildDrivenSessionArgs, buildResumeSessionArgs } from "./claude-argv";
 import type {
   DriverTransport,
   DriverTransportEvent,
@@ -36,7 +37,6 @@ import type {
   DriverTransportSpawnResult,
   DriverTransportStartOptions,
   DrivenInputImage,
-  PermissionMode,
   ProcessLike,
   SpawnFn,
 } from "./driver-transport";
@@ -49,11 +49,7 @@ import {
   NewlineSplitter,
   parseStreamJsonLine,
 } from "./claude-transport-parsing";
-import {
-  mcpConfigArgs,
-  redactMcpConfigForLog,
-  resolveDrivenSessionMcpConfig,
-} from "./driven-session-mcp-config";
+import { redactMcpConfigForLog, resolveDrivenSessionMcpConfig } from "./driven-session-mcp-config";
 
 /**
  * Resolve the `--mcp-config` payload for a spawn, reporting what was refused.
@@ -105,83 +101,10 @@ const prodSpawnFn: SpawnFn = (command, args, opts) =>
     stdio: ["pipe", "pipe", "pipe"],
   }) as unknown as ProcessLike;
 
-/** The genuine binary this transport spawns. Never anything from `@anthropic-ai/*`. */
-export const CLAUDE_BINARY = "claude";
-
-function permissionModeArgs(mode: PermissionMode): string[] {
-  return mode === "bypassPermissions" ? ["--dangerously-skip-permissions"] : [];
-}
-
-// ---------------------------------------------------------------------------
-// Argv builders — the documented headless invocation (mt#2750 spec Context —
-// Claude Code headless docs, code.claude.com/docs/en/headless).
-// ---------------------------------------------------------------------------
-
-/** `-p` is required for `--input-format stream-json`; `--output-format
- * stream-json` for structured output; `--verbose` for the full event stream;
- * `--include-partial-messages` for token deltas (`stream_event`). */
-export function buildDrivenSessionArgs(
-  permissionMode: PermissionMode,
-  model?: string,
-  mcpConfig?: string | null
-): string[] {
-  return [
-    "-p",
-    "--input-format",
-    "stream-json",
-    "--output-format",
-    "stream-json",
-    "--verbose",
-    "--include-partial-messages",
-    // mt#3040: principal-selected model (a resolved dispatch alias, e.g. "fable").
-    // Omitted → the genuine claude binary resolves its own default.
-    ...(model ? ["--model", model] : []),
-    // mt#3377: provision the minsky MCP server explicitly. Without this the
-    // child resolves MCP servers against its cwd (a session workspace), which
-    // carries none — see ./driven-session-mcp-config.ts.
-    ...mcpConfigArgs(mcpConfig),
-    ...permissionModeArgs(permissionMode),
-  ];
-}
-
-/**
- * The resume-spawn invocation (mt#3038, RFC "Conversation-first drive"
- * Phase 1): identical to {@link buildDrivenSessionArgs} plus `--resume
- * <harnessSessionId>`, which resumes the CLI's own on-disk transcript for
- * that conversation id rather than starting a fresh one. This is the ONLY
- * difference between a fresh spawn and a restart-recovery respawn — the
- * durable entity is the conversation (the RFC's thesis), and the session
- * driver (child process) is disposable.
- *
- * Unchanged in behaviour by mt#4934 — the same argv, in the same order, for
- * the same inputs, as before the split (SC2).
- */
-export function buildResumeSessionArgs(
-  permissionMode: PermissionMode,
-  harnessSessionId: string,
-  model?: string | null,
-  mcpConfig?: string | null
-): string[] {
-  return [
-    "-p",
-    "--resume",
-    harnessSessionId,
-    "--input-format",
-    "stream-json",
-    "--output-format",
-    "stream-json",
-    "--verbose",
-    "--include-partial-messages",
-    // mt#3040 preservation: a resume must keep the ORIGINALLY-selected model
-    // rather than silently falling back to the CLI's default.
-    ...(model ? ["--model", model] : []),
-    // mt#3377: a resumed session driver needs the same server set as a fresh spawn —
-    // the conversation is durable, the process is disposable, and a resume
-    // that silently dropped the MCP servers would degrade mid-conversation.
-    ...mcpConfigArgs(mcpConfig),
-    ...permissionModeArgs(permissionMode),
-  ];
-}
+// Argv builders (CLAUDE_BINARY, buildDrivenSessionArgs, buildResumeSessionArgs,
+// permissionModeArgs) moved to ./claude-argv.ts (PR #3594 R1) to keep this
+// file under the 400-line warning after gaining `stop`/`isAlive` — see the
+// import above and that module's own doc comment.
 
 // ---------------------------------------------------------------------------
 // Output wiring — replaces the pre-split `wireChildProcess`'s parsing half.
@@ -374,12 +297,50 @@ export class ClaudeStreamJsonTransport implements DriverTransport {
     }
     return true;
   }
-}
 
-/**
- * Shared singleton for callers that don't need per-call `command`/`spawnFn`
- * overrides — used by `sendDrivenSessionInput` in ./driven-session-host.ts,
- * where sending a turn to an already-live process needs no spawn-time
- * configuration at all.
- */
-export const claudeStreamJsonTransport = new ClaudeStreamJsonTransport();
+  /**
+   * Moved verbatim from the pre-split `stopDrivenSession` (mt#4934 PR #3594
+   * R1): close stdin (the child finishes its current turn, sees EOF, and
+   * exits on its own) with a SIGTERM fallback after `graceMs` if it hasn't
+   * exited by then. Both steps are best-effort (the pipe/process may already
+   * be gone) — same try/catch posture as before the split.
+   *
+   * The ORIGINAL code additionally re-checked the record's status inside the
+   * timeout callback before calling `kill()`, to skip a redundant signal to
+   * an already-exited process. That check is record-level state this method
+   * has no access to (only `proc`, per the interface) — dropped rather than
+   * threaded through as an extra parameter, since `kill()` on an
+   * already-exited process is itself a documented no-op and the call is
+   * already wrapped in try/catch; no existing test asserts on the skipped
+   * call (`stopDrivenSession is idempotent on an already-exited record`
+   * never advances real time far enough to observe it either way).
+   */
+  stop(proc: ProcessLike, opts: { graceMs?: number } = {}): void {
+    try {
+      proc.stdin.end();
+    } catch {
+      // Best-effort — the pipe may already be closed.
+    }
+    const graceMs = opts.graceMs ?? 3000;
+    const timer = setTimeout(() => {
+      try {
+        proc.kill("SIGTERM");
+      } catch {
+        // Best-effort.
+      }
+    }, graceMs);
+    // eslint-disable-next-line custom/no-excessive-as-unknown -- Timeout#unref side-channel, no alternative typing (mirrors driven-session-host.ts's prior identical cast)
+    (timer as unknown as { unref?: () => void }).unref?.();
+  }
+
+  /**
+   * `proc.pid` is `undefined` only for {@link createDeadProcessPlaceholder}'s
+   * stub (driven-session-host.ts) — every real spawned process has one, for
+   * its whole lifetime including after it exits. This is therefore "is this
+   * a real process object", not "has it exited since" — see the interface
+   * doc comment for the distinction from record-level liveness.
+   */
+  isAlive(proc: ProcessLike): boolean {
+    return proc.pid !== undefined;
+  }
+}

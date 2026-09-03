@@ -15,6 +15,7 @@ import { join } from "path";
 import { PassThrough } from "stream";
 import {
   DrivenSessionRegistry,
+  ClaudeStreamJsonTransport,
   type DrivenSessionRecord,
   type ProcessLike,
   type SpawnFn,
@@ -187,6 +188,12 @@ function buildResumedRecord(): DrivenSessionRecord {
     stopRequested: false,
     driverGeneration: 1,
     proc,
+    // mt#4934 PR #3594 R1 — sendDrivenSessionInput now routes through
+    // record.transport rather than a global singleton, so this hand-built
+    // fixture needs one too; a real ClaudeStreamJsonTransport instance
+    // writes to `proc.stdin` exactly like production, which is what
+    // `resumed.proc.written` (via FakeClaudeProcess) asserts against.
+    transport: new ClaudeStreamJsonTransport(),
     eventLog: [],
     costHistory: [],
     subscribers: new Set(),
