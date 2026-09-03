@@ -237,6 +237,15 @@ export interface DriverTransportStartOptions {
    * → the transport's own default, when it has one.
    */
   harnessKind?: string;
+  /**
+   * The drive's bound Minsky task, when there is one (mt#4936). Opaque to
+   * `ClaudeStreamJsonTransport` (which ignores it, matching its existing
+   * domain-import-free posture); `AcpTransport` reads it to parent a
+   * permission-request ask to the task ("parented to the drive's task when
+   * bound" — mt#4936 spec SC2). `null`/omitted → an unbound (scratch) drive;
+   * the ask is created with no `parentTaskId`.
+   */
+  taskId?: string | null;
   /** The principal-selected model alias (mt#3040). Omitted → the transport's own default. */
   model?: string;
   /** `undefined` → transport resolves its own default config; `null` → no MCP config at all. */

@@ -303,11 +303,15 @@ export class AcpTransport implements DriverTransport {
   }
 
   spawn(opts: DriverTransportStartOptions): DriverTransportSpawnResult {
-    return this.doSpawn(opts, { isResume: false, sessionId: null, taskId: null });
+    return this.doSpawn(opts, { isResume: false, sessionId: null, taskId: opts.taskId ?? null });
   }
 
   spawnResume(opts: DriverTransportResumeOptions): DriverTransportSpawnResult {
-    return this.doSpawn(opts, { isResume: true, sessionId: opts.harnessSessionId, taskId: null });
+    return this.doSpawn(opts, {
+      isResume: true,
+      sessionId: opts.harnessSessionId,
+      taskId: opts.taskId ?? null,
+    });
   }
 
   private doSpawn(
