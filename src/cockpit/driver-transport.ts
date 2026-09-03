@@ -228,6 +228,15 @@ export interface DriverTransportStartOptions {
   cwd: string;
   permissionMode: PermissionMode;
   authMode?: DriverAuthMode;
+  /**
+   * Which harness this drive runs (mt#4936) — e.g. `"codex"` or
+   * `"claude-code-acp"`. `ClaudeStreamJsonTransport` ignores this field (it
+   * only ever drives one harness); `AcpTransport` reads it to resolve which
+   * configured ACP agent command to spawn, since ONE `DriverTransport`
+   * instance (`transport_id: "acp"`) serves every ACP-driven harness. Omitted
+   * → the transport's own default, when it has one.
+   */
+  harnessKind?: string;
   /** The principal-selected model alias (mt#3040). Omitted → the transport's own default. */
   model?: string;
   /** `undefined` → transport resolves its own default config; `null` → no MCP config at all. */
