@@ -40,42 +40,67 @@
  * tip (mem#805) and one branch is silently orphaned. No simultaneity is needed:
  * the two writers overlap in ATTACHMENT, not in time.
  *
- * **One presence value serves both senses deliberately**, rather than splitting
- * `IDLE` into "quiet" and "unattached". Presence is derived from
- * `conversation_run_state`, which records OBSERVED EVENTS, and "a terminal
- * process is holding this file" is not an event Minsky observes: the transcript
- * format carries no pid, no writer id, and no client-instance id (mem#805), and
- * Claude Code's own `session_live_elsewhere` roster never fires for a terminal
- * `claude --resume`. A seventh presence value would therefore be one nothing
- * could ever set — the falsely-confident derived field `derivePresence` already
- * refuses to invent when it returns `UNKNOWN` instead of guessing.
+ * **This gate now has a SECOND, independent signal for exactly that gap**
+ * (mt#4869): Claude Code's own live-session roster,
+ * `<CLAUDE_CONFIG_DIR|~/.claude>/sessions/<pid>.json` — one file per running
+ * `claude` process, which the vendor's own docs describe as existing "to
+ * detect concurrent sessions and crashes"
+ * (`code.claude.com/docs/en/claude-directory`). Verified 2026-09-01
+ * (mem#805, mem#1356) against a live probe: the roster entry for a terminal
+ * session persists for the process's whole life, is removed on clean exit,
+ * and **tracks the conversation the process currently holds** — after
+ * `/clear` the entry's `sessionId` switched to the new id within seconds.
+ * Both halves of the premise this comment used to state here — "not an
+ * event Minsky observes" and "Claude Code's own roster never fires for a
+ * terminal `claude --resume`" — were false. `./claude-code-session-roster.ts`
+ * reads this roster with the vendor's own liveness rule (pid alive,
+ * `procStart` matched against the live process to guard against pid reuse, a
+ * 24h cap) and this function refuses outright when it reports a live holder,
+ * carrying that holder's identity into the refusal.
  *
- * So the hazard is answered AFTER the fact rather than predicted: the
- * `last-prompt` divergence detector (`../transcripts/writer-divergence.ts`)
- * reports a fork once it happens. Prevention is out of reach for terminal
- * writers by construction — Minsky cannot lock against a process that takes no
- * lock — and the structural alternative (minting a new identity at attach) is
- * mt#3515, whose memo rejects blind forking on every idle attach as
- * disproportionate.
+ * The roster is not a replacement for presence — it answers "is a process
+ * holding this file", presence answers "is a turn in flight", and both must
+ * clear before an attach is admitted (see `attachAdmissibility` below). Nor
+ * is it complete: it only sees a `claude` process that registers a roster
+ * entry. **Prevention is out of reach only for a writer that does not
+ * register** — which writer kinds those are is measured, not assumed; see
+ * mt#4869's `## Does NOT cover` for the current answer. For that residual
+ * population the `last-prompt` divergence detector
+ * (`../transcripts/writer-divergence.ts`) still answers the hazard AFTER the
+ * fact, exactly as before this change. The structural alternative (minting a
+ * new identity at attach) is mt#3515, whose memo rejects blind forking on
+ * every idle attach as disproportionate.
  *
  * @see ./presence.ts — `derivePresence`, the source of the value this gates on
+ * @see ./claude-code-session-roster.ts — the roster reader this consults (mt#4869)
  * @see mt#3095 — this module
+ * @see mt#4869 — the roster-consulting addition to this module
  * @see mt#3038 — the cross-process advisory lock that guards the OTHER writer
  *   class (two cockpit session drivers); this function guards the class that lock
  *   cannot see (a `claude` the operator started in a terminal)
  */
 import type { ConversationPresence } from "./presence";
+import type { RosterClassification, RosterHolder } from "./claude-code-session-roster";
 
 /** Why an attach was refused — carried to the caller so the refusal can explain itself. */
 export type AttachRefusalReason =
   | "live-writer"
   | "awaiting-human"
   | "possibly-wedged"
-  | "no-telemetry";
+  | "no-telemetry"
+  // mt#4869: the roster (not presence) is the source of these two.
+  | "live-elsewhere"
+  | "roster-unknown";
 
 export type AttachAdmissibility =
   | { admit: true }
-  | { admit: false; reason: AttachRefusalReason; message: string };
+  | {
+      admit: false;
+      reason: AttachRefusalReason;
+      message: string;
+      /** Present when `reason === "live-elsewhere"` — who the roster says is holding it (mt#4869). */
+      holder?: RosterHolder;
+    };
 
 /**
  * Operator-facing explanation per refusal reason. Kept beside the decision so a
@@ -91,6 +116,10 @@ const REFUSAL_MESSAGES: Record<AttachRefusalReason, string> = {
     "This conversation was last seen mid-work and has gone quiet. Its process may still be running, so the cockpit will not attach — a wedged writer and a dead one look identical from here.",
   "no-telemetry":
     "There is no activity telemetry for this conversation, so the cockpit cannot tell whether something is writing to it. Attaching without that evidence risks forking its history.",
+  "live-elsewhere":
+    "Another Claude Code process is currently holding this conversation. Attaching here would fork its history, so the cockpit will not attach until that process exits.",
+  "roster-unknown":
+    "Claude Code's live-session roster could not be read, so the cockpit cannot tell whether another process is holding this conversation. Attaching without that evidence risks forking its history.",
 };
 
 /**
@@ -110,12 +139,23 @@ function assertNeverPresence(presence: never): never {
 }
 
 /**
- * Decide whether a session driver may attach to a conversation in `presence`.
+ * Decide whether a session driver may attach to a conversation.
  *
- * Exhaustive over `ConversationPresence`, enforced two ways: the `switch`
- * returns on every member, and `assertNeverPresence` below makes an unhandled
- * member a compile error that names it. A new presence value must be
- * classified by a human, never absorbed by a permissive `default:`.
+ * Two independent signals must BOTH clear (mt#4869). `roster` — a FRESH
+ * classification from `./claude-code-session-roster.ts`, never a cached one
+ * — is checked FIRST: `liveness === "running"` refuses regardless of
+ * `presence`, because a live holder forks history no matter what hook
+ * telemetry says, and the holder's identity rides along on the decision so a
+ * caller can name it. `liveness === "unknown"` refuses for the same reason
+ * `UNKNOWN` presence does — absence of evidence is not evidence of absence —
+ * with a message that says the roster specifically was unreadable. Only once
+ * the roster reports `not_running` does control reach the `presence` switch
+ * below.
+ *
+ * That switch is exhaustive over `ConversationPresence`, enforced two ways:
+ * it returns on every member, and `assertNeverPresence` below makes an
+ * unhandled member a compile error that names it. A new presence value must
+ * be classified by a human, never absorbed by a permissive `default:`.
  *
  * PR #2466 R1 asked for this and reported that the switch alone was not
  * compile-safe. Verified empirically before changing anything: adding a seventh
@@ -127,7 +167,22 @@ function assertNeverPresence(presence: never): never {
  * it keeps holding if the return type is ever widened to include `undefined`,
  * which would silence TS2366.
  */
-export function attachAdmissibility(presence: ConversationPresence): AttachAdmissibility {
+export function attachAdmissibility(
+  presence: ConversationPresence,
+  roster: RosterClassification
+): AttachAdmissibility {
+  if (roster.liveness === "running") {
+    return {
+      admit: false,
+      reason: "live-elsewhere",
+      message: REFUSAL_MESSAGES["live-elsewhere"],
+      holder: roster.holder ?? undefined,
+    };
+  }
+  if (roster.liveness === "unknown") {
+    return refuse("roster-unknown");
+  }
+
   switch (presence) {
     // The designed case: a conversation sitting between turns.
     case "IDLE":

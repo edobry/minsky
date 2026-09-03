@@ -314,8 +314,11 @@ export function mountDrivenSessionRoutes(
    *   - **201** attached — body is the same session summary a spawn returns, so
    *     an attached conversation is indistinguishable downstream.
    *   - **409** refused — a writer is (or may be) holding the conversation.
-   *     Carries `{ refused: true, presence, reason, message }`; the `message` is
-   *     operator-facing prose explaining the risk, not a status name.
+   *     Carries `{ refused: true, presence, reason, message, holder? }`; the
+   *     `message` is operator-facing prose explaining the risk, not a status
+   *     name. `holder` (mt#4869) is present when Claude Code's live-session
+   *     roster — not presence — is why: `{ surface, name, pid, idleForMs }`,
+   *     for mt#3325's banner to render who currently holds it.
    *   - **423** locked — another COCKPIT session driver won the advisory lock. Distinct
    *     from 409: nothing is wrong with the conversation, this caller simply
    *     lost a race and a retry may succeed.
@@ -361,6 +364,8 @@ export function mountDrivenSessionRoutes(
             presence: outcome.presence,
             reason: outcome.reason,
             message: outcome.message,
+            // mt#4869: present only when the roster (not presence) refused.
+            ...(outcome.holder ? { holder: outcome.holder } : {}),
           });
           return;
         case "locked":

@@ -37,6 +37,10 @@ import { randomUUID } from "crypto";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import type { AttachRefusalReason } from "@minsky/domain/conversation-run-state/attach-admissibility";
+import type {
+  RosterClassification,
+  RosterHolder,
+} from "@minsky/domain/conversation-run-state/claude-code-session-roster";
 import type { ConversationId } from "@minsky/domain/ids";
 import type { AdoptionReason } from "@minsky/domain/storage/schemas/driven-sessions-schema";
 import {
@@ -1360,7 +1364,14 @@ export async function orchestrateDrivenSessionResume(
 export type DrivenSessionAttachOutcome =
   | { outcome: "attached"; record: DrivenSessionRecord }
   | { outcome: "locked" }
-  | { outcome: "refused"; reason: AttachRefusalReason; message: string; presence: string }
+  | {
+      outcome: "refused";
+      reason: AttachRefusalReason;
+      message: string;
+      presence: string;
+      /** Present when the roster (mt#4869), not presence, is why this was refused. */
+      holder?: RosterHolder;
+    }
   | { outcome: "no-transcript" };
 
 /** Test seam for {@link orchestrateDrivenSessionAttach}. */
@@ -1379,6 +1390,11 @@ export interface OrchestrateDrivenSessionAttachDeps {
     db: PostgresJsDatabase,
     conversationId: string
   ) => Promise<import("@minsky/domain/conversation-run-state/presence").ConversationPresence>;
+  /**
+   * A FRESH read of Claude Code's live-session roster for this conversation
+   * (mt#4869). Overridden in tests to avoid touching the real `~/.claude`.
+   */
+  classifyHolder?: (conversationId: string) => Promise<RosterClassification>;
   /** Mint the session driver's local id. Overridden in tests for a deterministic id. */
   newLocalId?: () => string;
 }
@@ -1401,19 +1417,24 @@ export interface OrchestrateDrivenSessionAttachDeps {
  *    `driven_sessions` row; a foreign conversation has none, so this reads the
  *    on-disk transcript — the same `~/.claude/projects/**` tree the observe rung
  *    already tails.
- * 2. **The presence gate.** Resume owns its record and knows no other session driver
+ * 2. **The gate.** Resume owns its record and knows no other session driver
  *    holds it. Attach cannot assume that, so it refuses unless
- *    {@link attachAdmissibility} admits. See that module for why refusing on
- *    absent telemetry is the safe direction.
+ *    {@link attachAdmissibility} admits — which as of mt#4869 consults BOTH a
+ *    fresh read of Claude Code's own live-session roster (is a process
+ *    holding this conversation right now?) and presence (is a turn in
+ *    flight?). See that module for why refusing on absent telemetry, or an
+ *    unreadable roster, is the safe direction.
  *
  * ## Two writer classes, two mechanisms
  *
- * The advisory lock (mt#3038) and the presence gate guard DIFFERENT writers and
+ * The advisory lock (mt#3038) and the gate above guard DIFFERENT writers and
  * neither subsumes the other. The lock is Minsky-internal: it stops two cockpit
  * session drivers racing. It cannot see a `claude` the operator started in a terminal,
- * because that process never takes it. The presence gate covers exactly that
- * blind spot, using hook telemetry the terminal process emits without knowing
- * anyone is watching. Both are required; dropping either reopens a fork path.
+ * because that process never takes it. The gate covers exactly that blind
+ * spot — the roster half directly, for any writer that registers a roster
+ * entry (mt#4869's `## Does NOT cover` names which do), and the presence
+ * half via hook telemetry for the rest. Both mechanisms are required;
+ * dropping either reopens a fork path.
  *
  * The gate is checked BEFORE the lock deliberately: a refusal is the common
  * case for a live conversation, and it costs one read rather than a lock
@@ -1447,23 +1468,36 @@ export async function orchestrateDrivenSessionAttach(
     return { outcome: "no-transcript" };
   }
 
+  // mt#4869: a FRESH roster read, ahead of the DB check — it is a filesystem
+  // check, not presence telemetry, so it must run even when the presence
+  // path below cannot (no DB). "No cached snapshot older than the call" is
+  // the spec's own requirement; reading it here, once per attach attempt,
+  // right before the decision, is what satisfies that.
+  const { classifyConversationHolder } = await import(
+    "@minsky/domain/conversation-run-state/claude-code-session-roster"
+  );
+  const classifyHolder = deps.classifyHolder ?? classifyConversationHolder;
+  const roster = await classifyHolder(conversationId);
+
   const db = await (deps.getDb ?? getContextInspectorDb)();
   // No DB means no presence telemetry, and no telemetry is a REFUSAL, not a
   // pass — the same direction attachAdmissibility takes for `UNKNOWN`. Failing
   // open here would make a transient DB outage silently license the fork this
   // whole path exists to prevent. Reached only for a conversation that DOES
-  // exist on disk, so the refusal is about a real attach target.
+  // exist on disk, so the refusal is about a real attach target. The roster
+  // check above still applies regardless of DB health.
   if (!db) {
     const { attachAdmissibility } = await import(
       "@minsky/domain/conversation-run-state/attach-admissibility"
     );
-    const verdict = attachAdmissibility("UNKNOWN");
+    const verdict = attachAdmissibility("UNKNOWN", roster);
     if (verdict.admit) throw new Error("unreachable — UNKNOWN never admits");
     return {
       outcome: "refused",
       reason: verdict.reason,
       message: verdict.message,
       presence: "UNKNOWN",
+      holder: verdict.holder,
     };
   }
 
@@ -1472,12 +1506,18 @@ export async function orchestrateDrivenSessionAttach(
   const { attachAdmissibility } = await import(
     "@minsky/domain/conversation-run-state/attach-admissibility"
   );
-  const verdict = attachAdmissibility(presence);
+  const verdict = attachAdmissibility(presence, roster);
   if (!verdict.admit) {
     log.info(
-      `[driven-session] attach refused for ${conversationId}: presence=${presence} reason=${verdict.reason}`
+      `[driven-session] attach refused for ${conversationId}: presence=${presence} roster=${roster.liveness} reason=${verdict.reason}`
     );
-    return { outcome: "refused", reason: verdict.reason, message: verdict.message, presence };
+    return {
+      outcome: "refused",
+      reason: verdict.reason,
+      message: verdict.message,
+      presence,
+      holder: verdict.holder,
+    };
   }
 
   const withResumeLock =
