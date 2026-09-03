@@ -1,0 +1,147 @@
+{
+  "fixtureVersion": 1,
+  "turn1Lines": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "session_id": "harness-parity-fixture-1",
+      "cwd": "/workspace",
+      "model": "claude-parity-fixture-model"
+    },
+    {
+      "type": "system",
+      "subtype": "init",
+      "session_id": "harness-parity-fixture-1",
+      "cwd": "/workspace",
+      "model": "claude-parity-fixture-model"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello, starting turn 1."
+          }
+        ]
+      }
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "delta": {
+          "type": "text_delta",
+          "text": "…thinking…"
+        }
+      }
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "tool_1",
+            "name": "read_file",
+            "input": {
+              "path": "README.md"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "user",
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "tool_1",
+            "content": "# Parity fixture README"
+          }
+        ]
+      }
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "total_cost_usd": 0.0123,
+      "duration_ms": 1500,
+      "duration_api_ms": 1200,
+      "num_turns": 3,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "modelUsage": {
+        "claude-parity-fixture-model": {
+          "inputTokens": 100,
+          "outputTokens": 50,
+          "cacheCreationInputTokens": 0,
+          "cacheReadInputTokens": 0,
+          "costUSD": 0.0123
+        }
+      }
+    }
+  ],
+  "malformedRawLine": "{not valid json\n",
+  "operatorTurn2Text": "Please continue with the second turn.",
+  "turn2Lines": [
+    {
+      "type": "assistant",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "Handling turn 2."
+          }
+        ]
+      }
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "total_cost_usd": 0.0089,
+      "duration_ms": 900,
+      "duration_api_ms": 700,
+      "num_turns": 1,
+      "usage": {
+        "input_tokens": 60,
+        "output_tokens": 30,
+        "cache_creation_input_tokens": 10,
+        "cache_read_input_tokens": 5
+      },
+      "modelUsage": {
+        "claude-parity-fixture-model": {
+          "inputTokens": 60,
+          "outputTokens": 30,
+          "cacheCreationInputTokens": 10,
+          "cacheReadInputTokens": 5,
+          "costUSD": 0.0089
+        }
+      }
+    }
+  ],
+  "finalExit": {
+    "code": 0,
+    "signal": null
+  },
+  "startOptions": {
+    "permissionMode": "bypassPermissions",
+    "taskId": "mt#4934-parity",
+    "minskySessionId": null,
+    "projectId": null,
+    "model": "claude-parity-fixture-model",
+    "localId": "local-parity-fixture-1",
+    "mcpConfig": null
+  }
+}
