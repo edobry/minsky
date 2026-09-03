@@ -159,7 +159,7 @@ const memoryListParams = {
   // in the codebase (`staleness.ts`, `task-state-assertion.ts`). Kept working
   // rather than broken: this is an agent-facing tool surface, so a caller
   // outside the repo can be passing --stale today and there is no way to find
-  // them. `unreadOrCold` wins when both are supplied.
+  // them. How the pair combines is `foldUnreadOrColdAliases` below.
   stale: {
     schema: z.boolean(),
     description: "DEPRECATED alias for --unread-or-cold (mt#4799).",
@@ -712,6 +712,53 @@ async function resolveMemoryService(
   });
 }
 
+// ─── mt#4799 deprecated-alias folding ────────────────────────────────────────
+
+/**
+ * The alias-bearing subset of `memory.list`'s params (mt#4799).
+ *
+ * Named `...AliasInput`, not `...AliasParams`: it is a projection this helper
+ * takes, not a handler's param type, and `custom/no-hand-rolled-command-params`
+ * reserves the `*Params` namespace for types derived from a params map.
+ */
+export interface UnreadOrColdAliasInput {
+  unreadOrCold?: boolean;
+  stale?: boolean;
+  unreadOrColdDays?: number;
+  stalenessDays?: number;
+}
+
+/**
+ * Fold the deprecated `stale` / `stalenessDays` params into the current
+ * `unreadOrCold` / `unreadOrColdDays` names (mt#4799).
+ *
+ * **The two halves combine DIFFERENTLY, and neither is an oversight.** PR #3593
+ * R1 caught a comment here claiming `unreadOrCold` "wins when both are
+ * supplied". It does not — and for the flag it cannot:
+ *
+ * - **The flag ORs.** Both params declare `defaultValue: false`, so an omitted
+ *   flag and an explicit `--unread-or-cold=false` arrive at this function
+ *   identically. There is no value a caller can send meaning "off, and override
+ *   the alias", so precedence is not expressible here; the honest semantics are
+ *   "either flag turns the filter on", which is also what a caller passing
+ *   only the deprecated name expects.
+ * - **The threshold uses `??`, which IS precedence.** `unreadOrColdDays` has no
+ *   default, so `undefined` genuinely distinguishes "not supplied" from any
+ *   real value, and an explicit current-name threshold beats the alias.
+ *
+ * Extracted from the inline expression so the asymmetry is stated once and
+ * asserted directly, rather than being re-derived from two operators.
+ */
+export function foldUnreadOrColdAliases(params: UnreadOrColdAliasInput): {
+  unreadOrCold: boolean;
+  unreadOrColdDays: number | undefined;
+} {
+  return {
+    unreadOrCold: Boolean(params.unreadOrCold || params.stale),
+    unreadOrColdDays: params.unreadOrColdDays ?? params.stalenessDays,
+  };
+}
+
 // ─── ADR-021 project scope resolution ────────────────────────────────────────
 
 /**
@@ -970,10 +1017,10 @@ export function registerMemoryCommands(
         projectId: params.projectId,
         projectScope,
         excludeSuperseded: params.excludeSuperseded,
-        // mt#4799: the deprecated `stale`/`stalenessDays` aliases fold in here
-        // so the domain surface sees only the current names.
-        unreadOrCold: params.unreadOrCold || params.stale,
-        unreadOrColdDays: params.unreadOrColdDays ?? params.stalenessDays,
+        // mt#4799: the deprecated aliases fold in here, so the domain surface
+        // sees only the current names. See {@link foldUnreadOrColdAliases} for
+        // why the two halves combine DIFFERENTLY.
+        ...foldUnreadOrColdAliases(params),
         untagged: params.untagged,
         neverAccessed: params.neverAccessed,
         cold: params.cold,
