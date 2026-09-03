@@ -36,3 +36,25 @@ export const DEFAULT_TRANSPORT_ID = "claude-stream-json";
 /** The default credential/identity posture — `"subscription"` or `"api-key"`
  * (`DriverAuthMode`, `src/cockpit/driver-transport.ts`). */
 export const DEFAULT_AUTH_MODE = "subscription";
+
+/**
+ * The `DriverTransport.id` for the Agent Client Protocol transport (mt#4936,
+ * ADR-047) — must match `AcpTransport.id` (`src/cockpit/acp-transport.ts`).
+ * Registered in `selectDriverTransport` (`src/cockpit/driven-session-host.ts`)
+ * alongside {@link DEFAULT_TRANSPORT_ID}.
+ */
+export const TRANSPORT_ID_ACP = "acp";
+
+/**
+ * Harness kinds driven over the `acp` transport (mt#4936) — the non-Claude
+ * ACP agents proven by the spike (`codex`, `@agentclientprotocol/codex-acp`)
+ * and Claude Code driven over its own official ACP adapter under
+ * `auth_mode: "api-key"` ONLY (`claude-code-acp`,
+ * `@agentclientprotocol/claude-agent-acp` — never under `subscription`; see
+ * `AcpTransport`'s seam refusal). Distinct from {@link DEFAULT_HARNESS_KIND}
+ * (`"claude-code"`, the genuine-binary stream-json driver, mt#4934) — a
+ * `harnessKind` of `"claude-code"` always selects the Claude transport, never
+ * this one, regardless of `transport_id`.
+ */
+export const HARNESS_KIND_CODEX = "codex";
+export const HARNESS_KIND_CLAUDE_CODE_ACP = "claude-code-acp";
