@@ -1338,11 +1338,22 @@ additionally needs `--cookie` from a signed-in browser, since a passkey ceremony
 headlessly; against a local daemon it reads the bearer token from
 `~/.local/state/minsky/cockpit-token` itself.
 
-## Driven-session host and WS channel (Rung 2A, mt#2750)
+## Driven-session host and WS channel (Rung 2A, mt#2750; transport split mt#4934)
 
-`src/cockpit/driven-session-host.ts` spawns the **genuine `claude` binary**
-as a managed child of the LOCAL cockpit daemon (never the Railway
-`isPublicDeployment` entrypoint — see the Bind/auth section above):
+`src/cockpit/driven-session-host.ts` is the SUPERVISOR: the drive record,
+`DrivenSessionRegistry`, `driverGeneration`, restart/reconnect policy
+(mt#3038), and cost-row bookkeeping (mt#2753) — running as a managed part of
+the LOCAL cockpit daemon (never the Railway `isPublicDeployment` entrypoint —
+see the Bind/auth section above). It does not itself spawn a process or parse
+a wire protocol; it delegates to a `DriverTransport`
+(`src/cockpit/driver-transport.ts`).
+
+**Decision record ([ADR-047](adr-047-driver-transport-interface.md),
+2026-09-02), split carried out by mt#4934.** The one `DriverTransport`
+implementation today is `ClaudeStreamJsonTransport`
+(`src/cockpit/claude-transport.ts` + `claude-transport-parsing.ts` +
+`claude-cwd-preflight.ts`) — the **genuine `claude` binary**, moved out of
+the supervisor verbatim, not rewritten:
 
 ```
 claude -p --input-format stream-json --output-format stream-json \
@@ -1351,19 +1362,20 @@ claude -p --input-format stream-json --output-format stream-json \
 
 cwd set to the target workspace. Stdout is parsed defensively as
 newline-delimited stream-json events (the upstream event schema is thin —
-anthropics/claude-code#24594 / #24596). A daemon-side
-`DrivenSessionRegistry` tracks each spawned session — keyed by a spawn-time
-local id (used by the WS route, addressable before the child's `init` event
-can possibly arrive) with the harness `init` session id recorded as a
-secondary index once observed.
-
-**Decision record ([ADR-047](adr-047-driver-transport-interface.md),
-2026-09-02).** The spawn-and-parse path above is the first implementation of
-the `DriverTransport` interface decided there: the genuine binary stays the Claude
-Code driver under subscription auth, an Agent Client Protocol client is the
-second implementation for non-Claude harnesses and API-key mode, and
-supervision (this registry, driver generations, the advisory lock) stays in
-the daemon. The split is carried out by mt#4934; program umbrella mt#4932.
+anthropics/claude-code#24594 / #24596) into a normalized
+`DriverTransportEvent` stream the supervisor consumes without knowing the
+wire shape behind it. The supervisor's `DrivenSessionRegistry` tracks each
+spawned session — keyed by a spawn-time local id (used by the WS route,
+addressable before the child's `init` event can possibly arrive) with the
+harness `init` session id recorded as a secondary index once observed. The
+genuine binary stays the Claude Code driver under subscription auth; an
+Agent Client Protocol client is the second implementation for non-Claude
+harnesses and API-key mode (program umbrella mt#4932, sibling task mt#4936).
+A parity test (`src/cockpit/driven-session-transport-parity.test.ts`, fixture
+under `src/cockpit/__fixtures__/`) replays a recorded stream-json session
+through the post-split supervisor and diffs its WebSocket event sequence and
+persisted-row-equivalent observer calls against a pre-split capture — the
+split's behaviour-preservation evidence.
 
 Endpoints (`src/cockpit/routes/driven-sessions.ts`, mounted only when
 `!isPublicDeployment`):
@@ -1490,6 +1502,9 @@ daemon". Authoritative payload shapes:
   and WS channel" above); REQUIRES the bearer token this task introduces;
   `src/cockpit/driven-session-host.ts`, `src/cockpit/driven-session-ws.ts`,
   `src/cockpit/routes/driven-sessions.ts`
+- mt#4934 — the `DriverTransport` split (ADR-047); `src/cockpit/driver-transport.ts`
+  (interface), `src/cockpit/claude-transport.ts` + `claude-transport-parsing.ts` +
+  `claude-cwd-preflight.ts` (the Claude stream-json implementation)
 - mt#2237 — parent (Rung 2); mt#2230 — umbrella (harness-host ladder)
 - mt#2238 — Rung 3 cloud→local relay channel; owns its own distinct auth surface, out of scope here
 - Memory `Cockpit stack and design/engineering bundle` (id `0cc1304c-0de3-4e5e-8e7a-b446bc70a995`) — durable cross-cutting reference
