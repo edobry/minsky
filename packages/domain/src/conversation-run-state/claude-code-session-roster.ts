@@ -19,9 +19,40 @@
  *   1. it is younger than 24h by `updatedAt ?? startedAt`,
  *   2. `process.kill(pid, 0)` succeeds (EPERM counts as alive — the process
  *      exists but belongs to another user), AND
- *   3. its recorded `procStart` matches the LIVE process's actual start time
- *      — the pid-reuse guard: without it, a pid recycled by an unrelated
- *      process after the original `claude` died would read as still held.
+ *   3. the LIVE process's actual start time matches the roster entry's own
+ *      `startedAt` — the pid-reuse guard: without it, a pid recycled by an
+ *      unrelated process after the original `claude` died would read as
+ *      still held.
+ *
+ * **Design correction from live testing (mt#4869 AT1, 2026-09-03): the
+ * pid-reuse guard compares EPOCH values (`startedAt` vs. an elapsed-seconds
+ * derived "now minus elapsed-time"), never the roster's `procStart` STRING
+ * field.** The spec's original design, matching the vendor's own
+ * documented rule, called for comparing `procStart` (a `ps -o lstart=`-style
+ * ctime string) against a freshly-queried `ps -o lstart=` for the live pid.
+ * A live acceptance run against a genuinely-held real conversation exposed a
+ * defect in that design: on this host (and, by the general mechanism, any
+ * host not in UTC), the roster's recorded `procStart` for a KNOWN-correct,
+ * still-running process differs from a freshly-queried `ps -o lstart=` for
+ * the SAME process by exactly the local UTC offset (confirmed 4h — EDT — by
+ * converting the entry's own `startedAt` epoch to local time and finding it
+ * matches the fresh `ps` reading exactly, while `procStart` does not). That
+ * is the CLI's own recorded field, not this reader's query, that carries the
+ * offset — the string comparison this spec originally specified would
+ * ALWAYS treat a live, correctly-matching process as pid-reused, defeating
+ * the guard outright and admitting an attach against a conversation a real
+ * terminal process was actively holding (observed live: a request that
+ * should have 409'd returned 201 and spawned a competing writer; killed
+ * within seconds, no fork resulted — see the PR body's negative-control
+ * section). `startedAt` is an unambiguous epoch-ms field with no
+ * string-format/TZ hazard, and `ps -o etime=` (a pure elapsed-time
+ * duration, not a wall-clock ctime string) gives an equally unambiguous
+ * fresh reading once parsed; comparing the
+ * two within a small tolerance reproduces the SAME pid-reuse detection the
+ * vendor's `procStart` check is trying to provide, without inheriting its
+ * formatting hazard. `procStart` is still read and required to be present
+ * (matching the roster's real shape, and useful for logs), just not used in
+ * the comparison itself.
  *
  * ANY `kind` counts (`interactive`, `bg`, `sdk`) — this mirrors the vendor's
  * `writerLivenessFor()`, not its interactive-only `livenessFor()`, because a
@@ -80,6 +111,19 @@ const MAX_ENTRY_BYTES = 1024 * 1024;
 const MAX_ENTRY_AGE_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * Pid-reuse guard tolerance: how far a fresh, epoch-based start-time reading
+ * may differ from the roster's `startedAt` and still count as the SAME
+ * process. `ps -o etime=` has whole-second granularity, and there is
+ * measurement latency between when the CLI captured `startedAt` and when
+ * this reader queries the OS — a few seconds of slop is expected noise, not
+ * evidence of reuse. Generous relative to that noise floor, and still far
+ * tighter than any realistic reuse gap (see the module header's "Design
+ * correction from live testing" note for why this replaced a `procStart`
+ * string comparison).
+ */
+const PROC_START_TOLERANCE_MS = 5_000;
+
+/**
  * One roster entry, as Claude Code writes it. Only the fields this reader
  * consumes are typed here — a real entry carries more (`cwd`, `version`,
  * `peerProtocol`, `messagingSocketPath`, `nameSource`, `bridgeSessionId`, …;
@@ -109,12 +153,17 @@ export type RosterLiveness = "running" | "not_running" | "unknown";
 
 /**
  * Where the holding process runs, derived from its `entrypoint`/`kind`
- * fields. The `cli` entrypoint and `bg` kind are confirmed vendor values
- * (mem#805, mem#1356, and the spec's own field sample); `claude-desktop` is
- * named explicitly in mt#4869's spec. `vscode` is this reader's best-effort
- * guess at the VS Code extension's entrypoint string — UNVERIFIED against a
- * live VS Code roster entry; correct it if a real one turns up naming
- * something else.
+ * fields. Confirmed vendor values, by live measurement: `cli` entrypoint
+ * (mem#805, mem#1356) → terminal; `bg` kind → background; `sdk-cli`
+ * entrypoint (mt#4869 AT3, 2026-09-03: the cockpit's own long-lived `-p
+ * --input-format stream-json` actuator registers with `kind: "interactive"`,
+ * `entrypoint: "sdk-cli"` — NOT `bg` as the naming might suggest) → also
+ * background, since Minsky's own driven-session actuator is exactly that,
+ * regardless of what `kind` the vendor tags it with. `claude-desktop` is
+ * named explicitly in mt#4869's spec, unverified live this session. `vscode`
+ * is this reader's best-effort guess at the VS Code extension's entrypoint
+ * string — UNVERIFIED against a live VS Code roster entry; correct it if a
+ * real one turns up naming something else.
  */
 export type HolderSurface = "terminal" | "claude-desktop" | "vscode" | "background";
 
@@ -144,8 +193,13 @@ export interface RosterClassification {
 export interface ProcessProbe {
   /** `process.kill(pid, 0)` semantics: true if the process exists (EPERM — exists, wrong user — counts as alive, per the vendor's own rule). */
   isAlive(pid: number): boolean;
-  /** The live process's start-time string, in the same `ps -o lstart=` format the roster records, or null when it cannot be determined (process gone, `ps` unavailable, …). */
-  startTimeOf(pid: number): string | null;
+  /**
+   * The live process's actual start time, as an epoch-ms number derived from
+   * an OS query (elapsed time, not a parsed ctime string — see the module
+   * header's "Design correction" note for why), or null when it cannot be
+   * determined (process gone, `ps` unavailable, …).
+   */
+  startTimeOf(pid: number): number | null;
 }
 
 function defaultIsAlive(pid: number): boolean {
@@ -159,17 +213,40 @@ function defaultIsAlive(pid: number): boolean {
 }
 
 /**
- * Shells out to `ps -o lstart=` (project convention: `Bun.spawnSync`, not
- * `node:child_process` — see `attachment-lsof.ts`). The roster's own
- * `procStart` field is recorded in exactly this format (confirmed against a
- * live entry, mem#1356), so a direct string comparison is meaningful without
- * parsing either side into a `Date`.
+ * Parses `ps -o etime=`'s `[[dd-]hh:]mm:ss` elapsed-time format into whole
+ * seconds. `etime` (not the GNU-only `etimes`) is the POSIX-portable
+ * keyword — verified live 2026-09-03 that macOS's BSD `ps` rejects `etimes`
+ * outright ("keyword not found") while GNU `ps` accepts `etime` too, so this
+ * is the cross-platform choice, not merely the macOS one.
  */
-function defaultStartTimeOf(pid: number): string | null {
+function parseEtimeToSeconds(etime: string): number | null {
+  const match = etime.trim().match(/^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/);
+  if (!match) return null;
+  const days = match[1] ? Number.parseInt(match[1], 10) : 0;
+  const hours = match[2] ? Number.parseInt(match[2], 10) : 0;
+  const minutes = Number.parseInt(match[3] as string, 10);
+  const seconds = Number.parseInt(match[4] as string, 10);
+  return days * 86400 + hours * 3600 + minutes * 60 + seconds;
+}
+
+/**
+ * Shells out to `ps -o etime=` (project convention: `Bun.spawnSync`, not
+ * `node:child_process` — see `attachment-lsof.ts`) for the process's ELAPSED
+ * time and derives an epoch-ms start time as `Date.now() - elapsedSeconds *
+ * 1000`. See the module header's "Design correction from live testing"
+ * note: a `ps -o lstart=` ctime string was tried first and found to
+ * disagree with the roster's own `procStart` field by exactly the local UTC
+ * offset on a real host, which would have defeated the pid-reuse guard on
+ * every non-UTC machine. `etime` sidesteps any wall-clock/timezone
+ * formatting entirely — it is a pure duration.
+ */
+function defaultStartTimeOf(pid: number): number | null {
   try {
-    const result = Bun.spawnSync(["ps", "-p", String(pid), "-o", "lstart="]);
+    const result = Bun.spawnSync(["ps", "-p", String(pid), "-o", "etime="]);
     const out = result.stdout.toString().trim();
-    return out.length > 0 ? out : null;
+    const elapsedSeconds = parseEtimeToSeconds(out);
+    if (elapsedSeconds === null) return null;
+    return Date.now() - elapsedSeconds * 1000;
   } catch {
     return null;
   }
@@ -248,7 +325,10 @@ async function scanRoster(sessionsDir: string, fs: RosterFs): Promise<RosterScan
 }
 
 function classifySurface(entrypoint: string | null, kind: string | null): HolderSurface {
-  if (kind === "bg") return "background";
+  // `sdk-cli` is Minsky's OWN driven-session actuator (confirmed live,
+  // mt#4869 AT3) — a background driver regardless of the `kind` the vendor
+  // tags it with (observed "interactive", not "bg").
+  if (kind === "bg" || entrypoint === "sdk-cli") return "background";
   if (entrypoint === "claude-desktop") return "claude-desktop";
   if (entrypoint === "vscode") return "vscode";
   return "terminal";
@@ -296,24 +376,28 @@ export async function classifyConversationHolder(
     return { liveness: "not_running", holder: null, basis: `pid ${match.pid} is not running` };
   }
 
-  // Pid-reuse guard: a `procStart` this reader cannot verify is treated the
-  // same as an unparseable entry (unknown), never assumed either way.
-  if (match.procStart === undefined) {
+  // Pid-reuse guard: `procStart` (the CLI's own ctime-string field) is still
+  // required to be present, matching the roster's real shape — but the
+  // COMPARISON is epoch-based against `startedAt`, not a `procStart` string
+  // match. See the module header's "Design correction from live testing"
+  // note for why the string comparison was replaced after AT1 exposed a
+  // real TZ-formatting mismatch in the CLI's own recorded `procStart`.
+  if (match.procStart === undefined || match.startedAt === undefined) {
     return {
       liveness: "unknown",
       holder: null,
-      basis: `roster entry for pid ${match.pid} has no procStart to verify against`,
+      basis: `roster entry for pid ${match.pid} has no procStart/startedAt to verify against`,
     };
   }
-  const actualStart = processProbe.startTimeOf(match.pid);
-  if (actualStart === null) {
+  const actualStartMs = processProbe.startTimeOf(match.pid);
+  if (actualStartMs === null) {
     return {
       liveness: "unknown",
       holder: null,
       basis: `could not determine pid ${match.pid}'s actual start time`,
     };
   }
-  if (actualStart !== match.procStart) {
+  if (Math.abs(actualStartMs - match.startedAt) > PROC_START_TOLERANCE_MS) {
     return {
       liveness: "not_running",
       holder: null,

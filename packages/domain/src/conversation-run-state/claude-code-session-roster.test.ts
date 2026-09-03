@@ -6,6 +6,13 @@
  * fake `ProcessProbe` — never `spyOn` on `process.kill` or a real `ps`
  * (testing-standards §Testable Design). `now` is injected too, so the 24h
  * cap is exercised without a real clock.
+ *
+ * The pid-reuse guard is EPOCH-based (`startedAt` vs. the probe's epoch-ms
+ * reading), not a `procStart` string match — see the module's "Design
+ * correction from live testing" header note for why a live AT1 run forced
+ * this change. `PROC_START` below is still supplied on fixtures (the field
+ * is required to be PRESENT, matching the roster's real shape) but its
+ * VALUE is irrelevant to classification.
  */
 import { describe, test, expect } from "bun:test";
 import {
@@ -17,9 +24,11 @@ import {
 
 const CONVERSATION_ID = "6b6b34c2-8e2d-4e2b-98ff-54ff3f848394";
 const SESSIONS_DIR = "/mock/claude/sessions"; // fixed mock path, never touched on disk
-const PROC_START = "Wed Sep  2 08:00:00 2026";
+const PROC_START = "Wed Sep  2 08:00:00 2026"; // present-but-unused field value (see header note)
 const NOW = new Date("2026-09-02T12:00:00.000Z");
 const NOW_MS = NOW.getTime();
+/** The epoch-ms a process "really" started at, per the fresh OS probe — matches `fakeProbe()`'s default and most fixtures' `startedAt`. */
+const REAL_STARTED_AT_MS = NOW_MS - 60_000;
 
 type FakeEntries = Record<string, unknown | { __oversized: true }>;
 
@@ -56,24 +65,24 @@ function unreadableFs(): RosterFs {
   };
 }
 
-/** A probe that reports every pid alive with a matching procStart, unless overridden. */
+/** A probe that reports every pid alive, with a start time matching `REAL_STARTED_AT_MS`, unless overridden. */
 function fakeProbe(overrides: Partial<ProcessProbe> = {}): ProcessProbe {
   return {
     isAlive: () => true,
-    startTimeOf: () => PROC_START,
+    startTimeOf: () => REAL_STARTED_AT_MS,
     ...overrides,
   };
 }
 
 describe("classifyConversationHolder (mt#4869)", () => {
-  test("alive pid with matching procStart and fresh updatedAt -> running, holder identified", async () => {
+  test("alive pid with matching startedAt and fresh updatedAt -> running, holder identified", async () => {
     const fs = fakeFs({
       "4242.json": {
         pid: 4242,
         sessionId: CONVERSATION_ID,
         procStart: PROC_START,
         updatedAt: NOW_MS - 1000,
-        startedAt: NOW_MS - 60_000,
+        startedAt: REAL_STARTED_AT_MS,
         kind: "interactive",
         entrypoint: "cli",
         name: "roster-probe",
@@ -105,6 +114,7 @@ describe("classifyConversationHolder (mt#4869)", () => {
         pid: 4243,
         sessionId: CONVERSATION_ID,
         procStart: PROC_START,
+        startedAt: REAL_STARTED_AT_MS,
         updatedAt: NOW_MS - 1000,
       },
     });
@@ -121,12 +131,13 @@ describe("classifyConversationHolder (mt#4869)", () => {
     expect(result.holder).toBeNull();
   });
 
-  test("pid-reuse mismatch on procStart -> not_running, not running", async () => {
+  test("pid-reuse: fresh start time far from roster's startedAt -> not_running, not running", async () => {
     const fs = fakeFs({
       "4244.json": {
         pid: 4244,
         sessionId: CONVERSATION_ID,
         procStart: PROC_START,
+        startedAt: REAL_STARTED_AT_MS,
         updatedAt: NOW_MS - 1000,
       },
     });
@@ -135,12 +146,36 @@ describe("classifyConversationHolder (mt#4869)", () => {
       CONVERSATION_ID,
       SESSIONS_DIR,
       NOW,
-      fakeProbe({ startTimeOf: () => "Wed Sep  2 09:30:00 2026" }),
+      // 90 minutes off — a different process now holds this pid.
+      fakeProbe({ startTimeOf: () => REAL_STARTED_AT_MS + 90 * 60 * 1000 }),
       fs
     );
 
     expect(result.liveness).toBe("not_running");
     expect(result.basis).toMatch(/reused/i);
+  });
+
+  test("pid-reuse guard tolerates small measurement jitter (whole-second etimes rounding)", async () => {
+    const fs = fakeFs({
+      "4260.json": {
+        pid: 4260,
+        sessionId: CONVERSATION_ID,
+        procStart: PROC_START,
+        startedAt: REAL_STARTED_AT_MS,
+        updatedAt: NOW_MS - 1000,
+      },
+    });
+
+    const result = await classifyConversationHolder(
+      CONVERSATION_ID,
+      SESSIONS_DIR,
+      NOW,
+      // 2s off — within the tolerance window, still the same process.
+      fakeProbe({ startTimeOf: () => REAL_STARTED_AT_MS + 2000 }),
+      fs
+    );
+
+    expect(result.liveness).toBe("running");
   });
 
   test("entry older than 24h by updatedAt, alive pid -> not counted (not_running)", async () => {
@@ -179,6 +214,7 @@ describe("classifyConversationHolder (mt#4869)", () => {
             pid: 4246,
             sessionId: "some-other-conversation",
             procStart: PROC_START,
+            startedAt: REAL_STARTED_AT_MS,
             updatedAt: NOW_MS - 1000,
           });
         }
@@ -219,6 +255,7 @@ describe("classifyConversationHolder (mt#4869)", () => {
         pid: 4248,
         sessionId: "a-totally-different-conversation",
         procStart: PROC_START,
+        startedAt: REAL_STARTED_AT_MS,
         updatedAt: NOW_MS - 1000,
       },
     });
@@ -257,6 +294,7 @@ describe("classifyConversationHolder (mt#4869)", () => {
         pid: 4250,
         sessionId: CONVERSATION_ID,
         procStart: PROC_START,
+        startedAt: REAL_STARTED_AT_MS,
         updatedAt: NOW_MS - 1000,
         kind: "bg",
         entrypoint: "cli",
@@ -275,12 +313,18 @@ describe("classifyConversationHolder (mt#4869)", () => {
     expect(result.holder?.surface).toBe("background");
   });
 
-  test("entry with no procStart to verify -> unknown, never assumed running or not_running", async () => {
+  test("entrypoint sdk-cli classifies as background (mt#4869 AT3: Minsky's own driven-session actuator)", async () => {
     const fs = fakeFs({
-      "4251.json": {
-        pid: 4251,
+      "4254.json": {
+        pid: 4254,
         sessionId: CONVERSATION_ID,
+        procStart: PROC_START,
+        startedAt: REAL_STARTED_AT_MS,
         updatedAt: NOW_MS - 1000,
+        // Observed live 2026-09-03: the actuator registers kind "interactive",
+        // not "bg" — entrypoint is the only reliable signal for this class.
+        kind: "interactive",
+        entrypoint: "sdk-cli",
       },
     });
 
@@ -292,7 +336,45 @@ describe("classifyConversationHolder (mt#4869)", () => {
       fs
     );
 
-    expect(result.liveness).toBe("unknown");
+    expect(result.liveness).toBe("running");
+    expect(result.holder?.surface).toBe("background");
+  });
+
+  test("entry with no procStart or no startedAt -> unknown, never assumed running or not_running", async () => {
+    const noProcStart = fakeFs({
+      "4251.json": {
+        pid: 4251,
+        sessionId: CONVERSATION_ID,
+        startedAt: REAL_STARTED_AT_MS,
+        updatedAt: NOW_MS - 1000,
+      },
+    });
+    const noStartedAt = fakeFs({
+      "4253.json": {
+        pid: 4253,
+        sessionId: CONVERSATION_ID,
+        procStart: PROC_START,
+        updatedAt: NOW_MS - 1000,
+      },
+    });
+
+    const resultA = await classifyConversationHolder(
+      CONVERSATION_ID,
+      SESSIONS_DIR,
+      NOW,
+      fakeProbe(),
+      noProcStart
+    );
+    const resultB = await classifyConversationHolder(
+      CONVERSATION_ID,
+      SESSIONS_DIR,
+      NOW,
+      fakeProbe(),
+      noStartedAt
+    );
+
+    expect(resultA.liveness).toBe("unknown");
+    expect(resultB.liveness).toBe("unknown");
   });
 
   test("a live process whose actual start time cannot be determined -> unknown", async () => {
@@ -301,6 +383,7 @@ describe("classifyConversationHolder (mt#4869)", () => {
         pid: 4252,
         sessionId: CONVERSATION_ID,
         procStart: PROC_START,
+        startedAt: REAL_STARTED_AT_MS,
         updatedAt: NOW_MS - 1000,
       },
     });
