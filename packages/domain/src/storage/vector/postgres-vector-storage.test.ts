@@ -3,9 +3,10 @@
  *
  * Two things are asserted here, and they are deliberately separate:
  *
- *  1. `buildFilterConditions` renders the right predicates. It is a pure
- *     function over a plain object, so this needs no database and no spy on a
- *     collaborator the class reaches itself.
+ *  1. `buildFilterConditions` renders the right predicates, and REFUSES a
+ *     filter key that is not a plain identifier. It is a pure function over a
+ *     plain object, so this needs no database and no spy on a collaborator the
+ *     class reaches itself.
  *  2. `search()` DISPATCHES correctly — a filtered query runs inside a
  *     transaction that first issues `SET LOCAL hnsw.iterative_scan =
  *     strict_order`, an unfiltered one does not open a transaction at all.
@@ -61,12 +62,15 @@ describe("buildFilterConditions", () => {
     expect(buildFilterConditions({ status: null, backend: undefined })).toEqual([]);
   });
 
-  test("a scalar filter renders an equality predicate with the value bound", () => {
+  test("a scalar filter renders an equality predicate with the value BOUND, not inlined", () => {
     const conditions = buildFilterConditions({ status: "TODO" });
     expect(conditions).toHaveLength(1);
 
     const { sql, params } = render(at(conditions, 0));
     expect(sql).toContain("status =");
+    // The value is a placeholder in the SQL and lives in params — it is never
+    // interpolated as a literal.
+    expect(sql).not.toContain("TODO");
     expect(params).toEqual(["TODO"]);
   });
 
@@ -82,11 +86,45 @@ describe("buildFilterConditions", () => {
     expect(sql).not.toContain("statusExclude");
   });
 
-  test("an empty *Exclude array falls through to equality rather than emitting NOT IN ()", () => {
-    // `NOT IN ()` is a syntax error; the pre-mt#4937 code guarded on
-    // `value.length > 0` and this must keep doing so.
-    const { sql } = render(at(buildFilterConditions({ statusExclude: [] }), 0));
-    expect(sql).not.toContain("NOT IN ()");
+  test("an empty *Exclude array emits NO predicate — it excludes nothing", () => {
+    // PR #3598 R1, BLOCKING. The test that stood here asserted the OLD
+    // fall-through (`statusExclude = $1`) as correct — a test written after the
+    // code and shaped to it, which is the mem#704 shape: it passed whether or
+    // not the behavior was right. An empty exclusion list excludes nothing, so
+    // the correct rendering is no condition at all, which also routes the
+    // search to the unfiltered path.
+    expect(buildFilterConditions({ statusExclude: [] })).toEqual([]);
+  });
+
+  test("a filter key that is not a plain identifier is REFUSED, not quoted", () => {
+    // Filter keys become SQL TEXT — a column name cannot be a placeholder — and
+    // `filters` is `Record<string, unknown>` on a public interface, so the type
+    // permits a caller to forward user input as a KEY. Refusing is deliberate:
+    // quoting would accept the attempt and turn it into a lookup of an absurd
+    // column name. PR #3598 R1, BLOCKING.
+    expect(() => buildFilterConditions({ "status; DROP TABLE tasks_embeddings --": "x" })).toThrow(
+      /refusing to render/
+    );
+    expect(() => buildFilterConditions({ "metadata->>'sourceName'": "x" })).toThrow(
+      /refusing to render/
+    );
+    expect(() => buildFilterConditions({ "": "x" })).toThrow(/refusing to render/);
+    expect(() => buildFilterConditions({ "1status": "x" })).toThrow(/refusing to render/);
+  });
+
+  test("the *Exclude branch validates the STRIPPED column name, not the raw key", () => {
+    // The suffix is removed before rendering, so the guard has to run on what
+    // is actually emitted. `a b Exclude` strips to `a b `, which is not an
+    // identifier.
+    expect(() => buildFilterConditions({ "a b Exclude": ["x"] })).toThrow(/refusing to render/);
+  });
+
+  test("legitimate identifiers still pass, including underscored and mixed-case ones", () => {
+    expect(buildFilterConditions({ status: "TODO" })).toHaveLength(1);
+    expect(buildFilterConditions({ source_name: "x" })).toHaveLength(1);
+    expect(buildFilterConditions({ sourceName: "x" })).toHaveLength(1);
+    expect(buildFilterConditions({ _private: "x" })).toHaveLength(1);
+    expect(buildFilterConditions({ col2: "x" })).toHaveLength(1);
   });
 
   test("multiple filters produce one condition each, in insertion order", () => {
@@ -114,9 +152,14 @@ describe("buildFilterConditions", () => {
 // Dispatch: which path a search takes, and what the transaction issues first
 // ---------------------------------------------------------------------------
 
+interface Rendered {
+  sql: string;
+  params: unknown[];
+}
+
 interface Recorder {
   unsafeCalls: Array<{ query: string; params: unknown[] }>;
-  txStatements: string[];
+  txStatements: Rendered[];
   transactionCount: number;
 }
 
@@ -137,7 +180,7 @@ function makeStorage(recorder: Recorder) {
       recorder.transactionCount += 1;
       const tx = {
         execute: (fragment: SQL) => {
-          recorder.txStatements.push(render(fragment).sql);
+          recorder.txStatements.push(render(fragment));
           return Promise.resolve([{ id: "row-1", score: 0.25 }]);
         },
       };
@@ -187,9 +230,28 @@ describe("PostgresVectorStorage.search — dispatch", () => {
 
     expect(recorder.txStatements).toHaveLength(2);
     // Order is load-bearing: SET LOCAL must precede the query it governs.
-    expect(at(recorder.txStatements, 0)).toBe("SET LOCAL hnsw.iterative_scan = strict_order");
-    expect(at(recorder.txStatements, 1)).toContain("WHERE status =");
-    expect(at(recorder.txStatements, 1)).toContain("ORDER BY vector <->");
+    expect(at(recorder.txStatements, 0).sql).toBe("SET LOCAL hnsw.iterative_scan = strict_order");
+    expect(at(recorder.txStatements, 1).sql).toContain("WHERE status =");
+    expect(at(recorder.txStatements, 1).sql).toContain("ORDER BY vector <->");
+  });
+
+  test("the filtered query BINDS the vector, the limit, and the filter value", async () => {
+    // PR #3598 R1, NON-BLOCKING, asserted rather than argued: drizzle's `sql`
+    // template parameterizes every interpolated VALUE. Only `dsql.raw()` — used
+    // solely for identifiers, which cannot be placeholders — reaches the SQL as
+    // text. So the filtered path is parameterized to the same degree the
+    // unfiltered one is; it just carries its placeholders in drizzle's numbering
+    // rather than a hand-built `$1`/`$2`.
+    const recorder = newRecorder();
+    const storage = makeStorage(recorder);
+
+    await storage.search([0.1, 0.2, 0.3], { limit: 5, filters: { status: "TODO" } });
+
+    const query = at(recorder.txStatements, 1);
+    expect(query.params).toEqual(["[0.1,0.2,0.3]", "TODO", "[0.1,0.2,0.3]", 5]);
+    // None of those values appear as literals in the SQL text.
+    expect(query.sql).not.toContain("TODO");
+    expect(query.sql).not.toContain("0.1,0.2,0.3");
   });
 
   test("a filters bag with only null values takes the unfiltered path", async () => {
@@ -197,6 +259,19 @@ describe("PostgresVectorStorage.search — dispatch", () => {
     const storage = makeStorage(recorder);
 
     await storage.search([0.1, 0.2, 0.3], { limit: 5, filters: { status: null } });
+
+    expect(recorder.transactionCount).toBe(0);
+    expect(recorder.unsafeCalls).toHaveLength(1);
+  });
+
+  test("an empty *Exclude bag takes the unfiltered path rather than a broken filtered one", async () => {
+    // The dispatch consequence of the R1 BLOCKING fix above: with no condition
+    // produced, there is nothing to filter on, so the search must not open a
+    // transaction at all.
+    const recorder = newRecorder();
+    const storage = makeStorage(recorder);
+
+    await storage.search([0.1, 0.2, 0.3], { limit: 5, filters: { statusExclude: [] } });
 
     expect(recorder.transactionCount).toBe(0);
     expect(recorder.unsafeCalls).toHaveLength(1);

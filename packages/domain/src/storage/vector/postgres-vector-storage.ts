@@ -42,10 +42,21 @@ export function buildFilterConditions(filters: Record<string, unknown> | undefin
     if (value === undefined || value === null) continue;
 
     // Exclusion filters (e.g., statusExclude: ['DONE', 'CLOSED'])
-    if (key.endsWith("Exclude") && Array.isArray(value) && value.length > 0) {
-      const columnName = key.replace("Exclude", "");
+    if (key.endsWith("Exclude") && Array.isArray(value)) {
+      // An empty exclusion list excludes NOTHING, so the correct rendering is
+      // no predicate at all. The pre-mt#4937 code fell through to the equality
+      // branch here and emitted `statusExclude = $1` — a predicate naming a
+      // column that does not exist, against an array value. PR #3598 R1
+      // (BLOCKING) caught that this rewrite carried the behavior forward, and
+      // that the test written beside it asserted the fall-through as correct.
+      if (value.length === 0) continue;
+
+      // `slice`, not `replace("Exclude", "")`: replace strips the FIRST
+      // occurrence anywhere in the key, so a hypothetical `excludeExclude`
+      // would lose the wrong one. Only the suffix is the marker.
+      const columnName = key.slice(0, -"Exclude".length);
       conditions.push(
-        dsql`${dsql.raw(columnName)} NOT IN (${dsql.join(
+        dsql`${rawIdentifier(columnName)} NOT IN (${dsql.join(
           value.map((v) => dsql`${v}`),
           dsql`, `
         )})`
@@ -54,10 +65,40 @@ export function buildFilterConditions(filters: Record<string, unknown> | undefin
     }
 
     // Regular equality filters (e.g., status: 'TODO')
-    conditions.push(dsql`${dsql.raw(key)} = ${value}`);
+    conditions.push(dsql`${rawIdentifier(key)} = ${value}`);
   }
 
   return conditions;
+}
+
+/**
+ * A filter key rendered as a bare SQL identifier, refused unless it looks like
+ * one.
+ *
+ * Filter keys become SQL text, not bound parameters — a column name cannot be
+ * a placeholder. The pre-mt#4937 code interpolated them into a template string
+ * with no check at all; this rewrite preserved that and PR #3598 R1 flagged it
+ * BLOCKING. The surface is real even though every key in the tree today is a
+ * hard-coded literal (`status`, `backend`, `kind`, `sourceName`): `filters` is
+ * a `Record<string, unknown>` on a public interface, so the type permits a
+ * caller to forward user input as a KEY, and nothing between here and there
+ * would notice.
+ *
+ * Refusing is the right response rather than quoting. Quoting with
+ * `dsql.identifier()` would accept the injection attempt and turn it into a
+ * lookup of an absurd column name, and it would also change the folding
+ * behavior mt#4944 depends on being left alone (see that task). A key that is
+ * not an identifier is a programming error at the call site, and it should
+ * fail loudly there.
+ */
+function rawIdentifier(name: string): SQL {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+    throw new Error(
+      `PostgresVectorStorage: refusing to render ${JSON.stringify(name)} as a SQL identifier. ` +
+        `Filter keys are interpolated as column names and must match /^[A-Za-z_][A-Za-z0-9_]*$/.`
+    );
+  }
+  return dsql.raw(name);
 }
 
 @injectable()
