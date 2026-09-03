@@ -44,6 +44,19 @@ function loadSpecimen(name: string): ReturnType<typeof JSON.parse>[] {
     .map((line) => JSON.parse(line));
 }
 
+/**
+ * Narrow a lookup that the fixture guarantees but the type system does not. Every `find` and
+ * index below is only ever absent if a committed specimen has been corrupted — in which case the
+ * useful failure names the missing row, not a `Cannot read properties of undefined` three lines
+ * later. Same class as the two strict-null sites `tsconfig.scripts.json` caught.
+ */
+function required<T>(value: T | undefined | null, what: string): T {
+  if (value === undefined || value === null) {
+    throw new Error(`${what} — fixture is malformed`);
+  }
+  return value;
+}
+
 const holder = {
   pid: HOLDER_PID,
   sessionId: CONVERSATION_ID,
@@ -96,7 +109,10 @@ describe("verifySingleWriter", () => {
   test("non-turn rows sharing a parent are reported but never counted as a fork", () => {
     const rows = loadSpecimen(SOCKET_DELIVERED);
     // Two attachments under one parent is ordinary interleaving, not a second writer.
-    const anchor = rows.find((row) => row.type === "assistant");
+    const anchor = required(
+      rows.find((row) => row.type === "assistant"),
+      "no assistant row in the socket-delivered specimen"
+    );
     const withSiblingAttachments = [
       ...rows,
       { type: "attachment", uuid: "synthetic-a", parentUuid: anchor.uuid },
@@ -112,9 +128,11 @@ describe("verifySingleWriter", () => {
 
   test("the socket-delivered turn is authored by the holder and carries peer provenance", () => {
     const rows = loadSpecimen(SOCKET_DELIVERED);
-    const delivered = rows.find((row) => row.origin?.kind === "peer");
+    const delivered = required(
+      rows.find((row) => row.origin?.kind === "peer"),
+      "no peer-origin row in the socket-delivered specimen"
+    );
 
-    expect(delivered).toBeDefined();
     // Not "typed": the holder stamps a socket-delivered turn as a system prompt with an
     // explicit peer origin, and marks it isMeta. This is the provenance answer mt#4870's
     // fifth success criterion asks for.
@@ -126,7 +144,10 @@ describe("verifySingleWriter", () => {
     expect(delivered.message.content).toContain("Another Claude session sent a message:");
     expect(delivered.message.content).toContain("not typed by your user");
     // …and the holder answered it in the same lineage.
-    const reply = rows.find((row) => row.type === "assistant");
+    const reply = required(
+      rows.find((row) => row.type === "assistant"),
+      "no assistant reply in the socket-delivered specimen"
+    );
     expect(reply.sessionId).toBe(CONVERSATION_ID);
   });
 
@@ -142,11 +163,15 @@ describe("verifySingleWriter", () => {
 
   test("the fork's two branches are an sdk-origin turn and a typed turn under one parent", () => {
     const rows = loadSpecimen(RESUME_FORK);
-    const external = rows.find((row) => row.promptSource === "sdk");
-    const typed = rows.find((row) => row.promptSource === "typed");
+    const external = required(
+      rows.find((row) => row.promptSource === "sdk"),
+      "no sdk-origin row in the negative-control specimen"
+    );
+    const typed = required(
+      rows.find((row) => row.promptSource === "typed"),
+      "no typed row in the negative-control specimen"
+    );
 
-    expect(external).toBeDefined();
-    expect(typed).toBeDefined();
     // Same parent — the holder never re-read the file after the external writer appended, so
     // both turns were parented off the pre-race tip (mem#805's cached-tip mechanism).
     expect(external.parentUuid).toBe(typed.parentUuid);
@@ -186,9 +211,23 @@ describe("verifySingleWriter", () => {
       return chain;
     };
     const chains = refs.map((ref) => ancestry(ref.leafUuid));
-    const last = chains[chains.length - 1];
+    const last = chains.at(-1);
+    if (!last) {
+      throw new Error(
+        `expected at least one last-prompt lineage chain, built 0 from ${refs.length} ref(s) — fixture is malformed`
+      );
+    }
     // At least one earlier ref names a leaf that is NOT an ancestor of the final ref's leaf —
     // that divergence is the closest thing the format offers to a writer-identity trace.
-    expect(chains.some((chain) => !last.includes(chain[0]))).toBe(true);
+    const divergent = chains.filter((chain) => {
+      const leaf = chain[0];
+      if (leaf === undefined) {
+        throw new Error(
+          "built an empty ancestry chain from a last-prompt ref — fixture is malformed"
+        );
+      }
+      return !last.includes(leaf);
+    });
+    expect(divergent.length).toBeGreaterThan(0);
   });
 });

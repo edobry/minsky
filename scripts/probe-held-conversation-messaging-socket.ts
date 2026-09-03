@@ -155,6 +155,10 @@ function pickHolder(args: Record<string, string | boolean>, roster: RosterEntry[
 }
 
 function readPeerToken(pid: number): string | undefined {
+  // The roster directory is created by the first `claude` process on this machine and removed by
+  // nothing we control, so treat its absence as "no roster" — the same reading `readRoster` takes
+  // — rather than letting readdirSync throw ENOENT out of a probe whose contract is to SKIP.
+  if (!existsSync(ROSTER_DIR)) return undefined;
   const file = readdirSync(ROSTER_DIR).find((f) => KEY_FILE_RE.exec(f)?.[1] === String(pid));
   if (!file) return undefined;
   return readFileSync(join(ROSTER_DIR, file), "utf8").trim();
