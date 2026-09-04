@@ -496,15 +496,27 @@ export function appendCalibrationRecord(
   repoRootDir: string
 ): void {
   // mt#4752: the shared helper derives the filename from the stream NAME, so it
-  // cannot drift from the convention the .gitignore globs encode. Unlike the
-  // detectors migrated alongside this one, `repoRootDir` here IS authoritative —
-  // it is resolved by the caller, not a raw shell cwd — so it goes in the
-  // `projectDir` tier, which outranks `CLAUDE_PROJECT_DIR`.
+  // cannot drift from the convention the .gitignore globs encode.
+  //
+  // mt#4885: `repoRootDir` goes in the `fallbackCwd` tier, NOT `projectDir`.
+  // This comment previously claimed it "IS authoritative — it is resolved by the
+  // caller, not a raw shell cwd". That was false: the only caller resolves it as
+  // `findRepoRoot(input.cwd)`, so it IS a raw shell cwd, merely one that has been
+  // walked up to a repo root. `calibrationLogPath`'s own docblock names this exact
+  // mistake — "Passing that cwd as `projectDir` would preserve the bug through the
+  // migration — the whole point is that it lands in the lower tier" — because in a
+  // session workspace `findRepoRoot` returns the CLONE, which is a legitimate repo
+  // root and the wrong project. Demoting it lets `CLAUDE_PROJECT_DIR` outrank it.
+  //
+  // This fixes the TIER only. When `CLAUDE_PROJECT_DIR` is unset the ladder still
+  // falls through to this value and still keys to the clone — that is a separate
+  // defect (which root a session workspace SHOULD resolve to), tracked as mt#4954
+  // and deliberately not changed here.
   //
   // The former third parameter (`logRelPath`, defaulted to the path literal) is
   // gone: both call sites used the default, and a path-taking parameter is the
   // degree of freedom that let a sibling's filename be misspelled (mt#2492).
-  logCalibrationRecord(CALIBRATION_LOG_NAME, record, { projectDir: repoRootDir });
+  logCalibrationRecord(CALIBRATION_LOG_NAME, record, { fallbackCwd: repoRootDir });
 }
 
 // ---------------------------------------------------------------------------

@@ -983,14 +983,22 @@ export function isAtCoverageSkipped(): boolean {
  * parameter itself is now gone, so neither failure has anywhere left to occur: every call site
  * names a stream constant, and `logCalibrationRecord` derives the filename from it.
  *
- * `repoRootDir` is authoritative here — the caller resolved it, it is not a raw shell cwd — so it
- * goes in the `projectDir` tier, which outranks `CLAUDE_PROJECT_DIR`.
+ * mt#4885: `repoRootDir` goes in the `fallbackCwd` tier, NOT `projectDir`. This docblock
+ * previously claimed it was "authoritative here — the caller resolved it, it is not a raw shell
+ * cwd". That was false: the caller resolves it as `findRepoRoot(input.cwd)`, so it IS a raw shell
+ * cwd walked up to a repo root. In a session workspace `findRepoRoot` returns the CLONE — a real
+ * repo root, and the wrong project — which is why `calibrationLogPath`'s docblock reserves the top
+ * tier for an ALREADY-RESOLVED authoritative directory and says passing a cwd there "would preserve
+ * the bug through the migration". Demoting it lets `CLAUDE_PROJECT_DIR` outrank it.
+ *
+ * TIER only. With `CLAUDE_PROJECT_DIR` unset the ladder still falls through to this value and still
+ * keys to the clone — a separate defect, tracked as mt#4954.
  */
 export function appendAtCoverageCalibration(
   record: Record<string, unknown>,
   repoRootDir: string
 ): void {
-  logCalibrationRecord(AT_COVERAGE_STREAM, record, { projectDir: repoRootDir });
+  logCalibrationRecord(AT_COVERAGE_STREAM, record, { fallbackCwd: repoRootDir });
 }
 
 /** Result of fetching a task's spec for the AT-coverage check. */
@@ -1281,7 +1289,7 @@ if (import.meta.main) {
     );
     if (scCoverage.calibrationRecord) {
       logCalibrationRecord(SC_COVERAGE_STREAM, scCoverage.calibrationRecord, {
-        projectDir: repoRootDir,
+        fallbackCwd: repoRootDir,
       });
     }
     if (scCoverage.warning) {
@@ -1306,7 +1314,7 @@ if (import.meta.main) {
   );
   if (testFirst.calibrationRecord) {
     logCalibrationRecord(TEST_FIRST_STREAM, testFirst.calibrationRecord, {
-      projectDir: repoRootDir,
+      fallbackCwd: repoRootDir,
     });
   }
   if (testFirst.warning) {
@@ -1321,7 +1329,7 @@ if (import.meta.main) {
   const renderPath = runRenderPathCalibration(task, context.prNumber, prFiles, prBody);
   if (renderPath.calibrationRecord) {
     logCalibrationRecord(RENDER_PATH_STREAM, renderPath.calibrationRecord, {
-      projectDir: repoRootDir,
+      fallbackCwd: repoRootDir,
     });
   }
   if (renderPath.warning) {
@@ -1350,7 +1358,7 @@ if (import.meta.main) {
     );
     if (consumerAccount.calibrationRecord) {
       logCalibrationRecord(CONSUMER_ACCOUNT_STREAM, consumerAccount.calibrationRecord, {
-        projectDir: repoRootDir,
+        fallbackCwd: repoRootDir,
       });
     }
     if (consumerAccount.warning) {
