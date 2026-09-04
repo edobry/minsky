@@ -1,6 +1,25 @@
 import type { VectorStorage, SearchResult, SearchOptions } from "./types";
 import { elementAt } from "@minsky/shared/array-safety";
 
+/**
+ * The in-memory `VectorStorage`. ADR-018 §Shape 2 designates this the faithful
+ * counterpart of `PostgresVectorStorage`, and makes that argument about the
+ * DISTANCE metric — its L2 matches Postgres's default `<->`.
+ *
+ * **`search()` returning `metadata` is a second fidelity property, and it was
+ * unilateral for four months (mt#4948).** This class has always populated the
+ * field; `PostgresVectorStorage` never selected the column, so a unit test
+ * written against this fake asserted a metadata round-trip, passed, and said
+ * nothing about production. That is how the defect survived from mt#1930 —
+ * which fixed the WRITE side of the same column — until `knowledge search`
+ * became the first consumer to read the field and rendered blank results.
+ *
+ * So: if you change whether or how this returns `metadata`, change
+ * `PostgresVectorStorage` in the same commit. `postgres-vector-storage.test.ts`
+ * asserts the two agree on a stored object, and that test exists precisely
+ * because a divergence here is invisible to every test that uses only one of
+ * them.
+ */
 export class MemoryVectorStorage implements VectorStorage {
   private readonly dimension: number;
   private readonly storeMap = new Map<
