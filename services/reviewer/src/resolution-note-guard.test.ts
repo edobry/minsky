@@ -326,3 +326,110 @@ describe("PR #1957 R2 replay (SC3): guard + compose pipeline", () => {
     expect(result.reconciled).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// mt#4977 — the severity token used as the NOUN
+// ---------------------------------------------------------------------------
+
+describe("bare BLOCKING as the noun (mt#4977)", () => {
+  // Verbatim from review 4807695646 on PR #2392 (commit 8f49da10f), the
+  // occurrence that produced this task. The finding concluded CHANGES_REQUESTED
+  // on a PR the same reviewer APPROVED three minutes earlier and again ten
+  // minutes later; cost was 3 extra rounds, 2 manual dismissals and a retrigger.
+  const REAL_SUMMARY =
+    "`spawnSync` args-array without options is now flagged — prior BLOCKING addressed";
+  const REAL_DETAILS =
+    'Verification: the R2 BLOCKING issue stated the rule skipped `spawnSync("git", ["status"])` ' +
+    'by treating an ArrayExpression as `"unknown"` and early-returning. In this commit, ' +
+    '`classifyOptionProperty` classifies ArrayExpression as `"absent"`. This fixes the skip and ' +
+    "is pinned by the new test. This finding records that the prior BLOCKING is resolved.";
+
+  test("matches the verbatim PR #2392 R4 finding that escaped the shipped pattern", () => {
+    expect(isResolutionNoteText(REAL_SUMMARY, REAL_DETAILS)).toBe(true);
+  });
+
+  test("matches the bare severity token used as a noun, on its own", () => {
+    // The mechanism, isolated from the incident text: `block` is a different
+    // word under `\b` and `blocking finding` needs the following word, so
+    // neither reached "the prior BLOCKING is resolved".
+    expect(isResolutionNoteText("", "the prior BLOCKING is resolved")).toBe(true);
+    expect(isResolutionNoteText("", "the original blocking has been addressed")).toBe(true);
+    expect(isResolutionNoteText("", "the R2 blocking issue is now resolved")).toBe(true);
+  });
+
+  test("longest-first ordering keeps the pre-existing multi-word nouns matching", () => {
+    // Regression guard on the alternation ORDER: a bare `blocking` placed
+    // before `blocking finding` would consume the qualifier and strand the
+    // following word, silently narrowing a case that used to match.
+    expect(isResolutionNoteText("", "the prior blocking finding is resolved")).toBe(true);
+    expect(isResolutionNoteText("", "the previous finding was addressed")).toBe(true);
+    expect(isResolutionNoteText("", "the original concern has now been handled")).toBe(true);
+  });
+
+  test("the verbless BARE-severity noun also stays unmatched (PR #3633 R1)", () => {
+    // Sibling of the case below: that one pins the MULTI-WORD noun ("prior
+    // blocking finding addressed"), this one the bare severity token with no
+    // following noun. mt#4977 widened the noun set, so the bare form is the
+    // variant this change newly makes reachable if the linking verb were ever
+    // made optional — which is exactly the edit both pins exist to block.
+    expect(isResolutionNoteText("", "prior BLOCKING addressed")).toBe(false);
+    expect(isResolutionNoteText("", "previous blocking handled")).toBe(false);
+  });
+
+  test("the verbless past-participle form stays UNMATCHED — deliberately", () => {
+    // This is the widening NOT taken. Making the linking verb optional would
+    // match this, and would also match the three defect phrasings pinned in the
+    // next test. Recorded as a pin so a later pass cannot quietly take it
+    // without confronting those three.
+    expect(isResolutionNoteText("", "prior blocking finding addressed")).toBe(false);
+  });
+
+  test("genuine defect prose the verb-optional variant would have downgraded", () => {
+    // Measured 2026-09-04: dropping the linking-verb requirement matched all
+    // three of these. Each is ordinary reviewer prose describing a real defect,
+    // and a match would silently reclassify it BLOCKING → NON-BLOCKING.
+    expect(
+      isResolutionNoteText("", "this finding addressed a different concern than the one filed")
+    ).toBe(false);
+    expect(isResolutionNoteText("", "the issue resolved nothing about the underlying race")).toBe(
+      false
+    );
+    expect(isResolutionNoteText("", "the concern addressed by this helper is out of scope")).toBe(
+      false
+    );
+  });
+
+  test("the widened noun does not match `blocking` used as an adjective", () => {
+    expect(isResolutionNoteText("", "this is blocking on the missing migration")).toBe(false);
+    expect(isResolutionNoteText("", "a blocking call inside the loop is the defect")).toBe(false);
+  });
+});
+
+describe("word-boundary adjacency on the widened noun (PR #3633 R2)", () => {
+  // \b asserts a word/non-word transition, so trailing punctuation and
+  // em-dashes should not change a verdict. Asserted rather than assumed —
+  // the reviewer's point was that this is cheap to lock down and easy to
+  // get wrong under Unicode.
+  test("trailing and interior punctuation does not change a positive", () => {
+    expect(isResolutionNoteText("", "the prior BLOCKING is resolved.")).toBe(true);
+    expect(isResolutionNoteText("", "(the prior BLOCKING is resolved)")).toBe(true);
+    expect(isResolutionNoteText("", "the prior BLOCKING is resolved — see below")).toBe(true);
+    expect(isResolutionNoteText("", "…the original blocking has been addressed!")).toBe(true);
+  });
+
+  test("a non-ASCII summary does not change a verdict either way", () => {
+    // CJK carries no ASCII word characters, so it must neither create nor
+    // suppress a match on the ASCII clause beside it.
+    expect(isResolutionNoteText("レビュー", "the prior BLOCKING is resolved")).toBe(true);
+    expect(isResolutionNoteText("レビュー", "this is blocking on the missing migration")).toBe(
+      false
+    );
+  });
+
+  test("a word character glued to the noun still blocks the match", () => {
+    // The \b at the alternation's start is what keeps "nonblocking is resolved"
+    // and "unblocking is resolved" from matching the bare `blocking` noun.
+    expect(isResolutionNoteText("", "the prior nonblocking is resolved")).toBe(false);
+    expect(isResolutionNoteText("", "the prior unblocking is resolved")).toBe(false);
+  });
+});
