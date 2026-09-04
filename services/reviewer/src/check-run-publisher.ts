@@ -96,16 +96,31 @@ export interface BuildCheckRunPayloadParams {
   /**
    * When provided, the reviewer DECLINED to run — it did not fail (mt#4271).
    * Today the only reason is `concurrent_inflight`: another caller held the
-   * in-flight marker. The conclusion becomes `"skipped"`, which GitHub's
-   * protected-branches documentation lists alongside `successful` and `neutral`
-   * as satisfying a required status check, so the PR is not blocked:
+   * in-flight marker. The conclusion becomes `"skipped"`.
+   *
+   * WHY `skipped` — on SEMANTICS, not on merge-blocking. The state being
+   * reported is a skip: the reviewer declined to run, so a red X would tell a
+   * human reader the code was reviewed and rejected, which is false. `failure`
+   * is reserved for a review that RAN and did not complete (mt#4881).
+   *
+   * CORRECTION (mt#4897, verified 2026-09-04). This docblock previously said
+   * "`minsky-reviewer/findings` IS a required check, so publishing `failure`
+   * here would turn a transient refusal into a merge blocker." **That premise
+   * was false**, and it propagated from here into mt#4271, mt#4895 and mt#4897
+   * unchallenged. Branch protection on `main` requires exactly three contexts —
+   * `build`, `Prevent Placeholder Tests`, `cold-start-migrate` — read from
+   * `GET /repos/edobry/minsky/branches/main/protection` with an admin token.
+   * This check is not among them, so NO conclusion on it blocks a merge.
+   *
+   * The behaviour above is unchanged and still correct; only its justification
+   * was wrong. Do not "simplify" this to `failure` on the strength of the
+   * correction — the semantic argument is the one that was always load-bearing.
+   *
+   * The vendor sentence this once leaned on is still worth keeping, because it
+   * is what makes `skipped` safe IF the check is ever made required:
    *
    * > Required status checks must have a `successful`, `skipped`, or `neutral`
    * > status before collaborators can make changes to a protected branch.
-   *
-   * `minsky-reviewer/findings` IS a required check, so publishing `failure`
-   * here would turn a transient refusal into a merge blocker — worse than the
-   * silence this exists to end.
    *
    * Mutually exclusive with `failureSummary` in practice: a skip returns from
    * `runReview` before any failure path. `failureSummary` wins if both are set,
