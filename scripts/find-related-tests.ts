@@ -278,9 +278,24 @@ function resolveConstStringBinding(code: string, src: string, name: string): str
     // A module specifier never spans lines; an unterminated literal is a parse the
     // scanner got wrong, and null routes it to conservative inclusion.
     if (src[j] === "\n") return null;
+    // An escaped character is one character, and the escaped quote is NOT the
+    // terminator (PR #3605 R2 NON-BLOCKING). Without this, `"a\"b/mod"` truncated to
+    // `a\` — a wrong value, and a wrong value is worse than none because a non-null
+    // answer suppresses conservative inclusion.
+    if (src[j] === "\\" && j + 1 < src.length) {
+      value += src[j + 1];
+      j++;
+      continue;
+    }
     value += src[j];
   }
-  return value.length > 0 ? value : null;
+  if (value.length === 0) return null;
+  // A template with an INTERPOLATION is computed, not static — the value is only
+  // known at runtime (PR #3605 R2 BLOCKING). Returning its raw text would hand back
+  // `${base}/mod` as though it were a specifier AND, worse, suppress the SC3
+  // conservative inclusion that a computed specifier is exactly what should trigger.
+  if (value.includes("${")) return null;
+  return value;
 }
 
 /**

@@ -257,6 +257,31 @@ describe("dynamic import via an identifier specifier (mt#4945)", () => {
     expect(extractImportSpecifiers(reassigned)).toEqual([]);
   });
 
+  // PR #3605 R2 BLOCKING. An interpolated template is COMPUTED, so its text is not a
+  // specifier. Returning it would be wrong twice over: a bogus edge, and — because a
+  // non-null answer suppresses conservative inclusion — the SC3 signal swallowed for
+  // the one shape most likely to need it.
+  test("a template binding with an interpolation is NOT a static specifier", () => {
+    const interpolated = "const M = `${base}/mod`;\nawait import(M);";
+
+    expect(resolveIdentifierImports(interpolated)).toEqual([["M", null]]);
+    expect(hasUnresolvedIdentifierImport(interpolated)).toBe(true);
+  });
+
+  test("a template binding with NO interpolation still resolves", () => {
+    // The control for the test above: backticks alone do not make a specifier dynamic.
+    expect(resolveIdentifierImports("const M = `@scope/pkg/mod`;\nawait import(M);")).toEqual([
+      ["M", "@scope/pkg/mod"],
+    ]);
+  });
+
+  // PR #3605 R2 NON-BLOCKING. Before this, the value truncated at the escaped quote.
+  test("an escaped quote inside the literal does not terminate it", () => {
+    const escaped = 'const M = "a\\"b/mod";\nawait import(M);';
+
+    expect(resolveIdentifierImports(escaped)).toEqual([["M", 'a"b/mod']]);
+  });
+
   test("a destructured binding does not bind to an unrelated literal nearby", () => {
     const destructured = `const { M } = foo;\nconst other = "x/y";\nawait import(M);`;
 
