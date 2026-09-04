@@ -251,6 +251,75 @@ export function headShaMatchesExpected(
   return head.startsWith(expected);
 }
 
+/**
+ * How a FAILED `expectedHeadSha` match should be read (mt#4995).
+ *
+ * - `push-pending` — the expected sha and the observed head have essentially
+ *   nothing in common, which is what a commit still in flight looks like: the
+ *   remote is serving some earlier commit and the caller's will arrive. Waiting
+ *   resolves it, so the wait keeps polling. This is the case mt#3877 added the
+ *   filter for and mt#4039 kept working.
+ * - `divergent-prefix` — the two share a long common prefix and then diverge.
+ *   A commit still in flight does not do that; a caller who started from a real
+ *   ABBREVIATED sha and extended it to look like a full one does exactly that.
+ *   Waiting can never resolve it, because the value names no commit.
+ */
+export type HeadShaMismatchKind = "push-pending" | "divergent-prefix";
+
+/**
+ * Length of the common leading run of two normalized shas.
+ */
+function sharedPrefixLength(a: string, b: string): number {
+  const limit = Math.min(a.length, b.length);
+  let shared = 0;
+  while (shared < limit && a[shared] === b[shared]) shared += 1;
+  return shared;
+}
+
+/**
+ * Classify a failed `expectedHeadSha` match, or `null` when there is nothing to
+ * classify — the values match, or either side is absent so no comparison is
+ * possible (a backend without `getPullRequestHeadSha`, or `requireCurrentHead:
+ * false`).
+ *
+ * WHY A THRESHOLD OF `MIN_ABBREVIATED_SHA_LENGTH` (7), AND WHY THAT IS SAFE.
+ * Two UNRELATED commits sharing a 7-hex-character prefix is one chance in
+ * 16^7 = 268,435,456. The comparison only ever runs on hexadecimal values —
+ * `sessionPrWaitForReview` rejects a non-hex `expectedHeadSha` at its boundary
+ * — so the digits really are drawn from that alphabet, and SHA-1 output is
+ * uniform enough over a repository's history for the estimate to hold. Reusing
+ * git's own abbreviation floor rather than inventing a second constant also
+ * keeps one number to reason about: below 7 the matcher refuses to match at
+ * all, and at or above 7 a shared prefix is evidence of a shared ORIGIN rather
+ * than of coincidence.
+ *
+ * The residual false NEGATIVE is deliberate and is why the default is the
+ * conservative branch: a fabricated sha extending an OLDER head's abbreviation,
+ * on a PR whose head has since advanced, shares ~0 characters with the CURRENT
+ * head and is therefore reported as `push-pending`. That degrades to exactly
+ * today's behaviour (the wait runs its course) rather than to a wrong verdict,
+ * and catching it would mean retaining head history this wait does not keep.
+ * The same reasoning covers a sha stranded by a rebase (mem#1013): its cause is
+ * fixed upstream by mt#4046, and here it is simply not the shared-prefix shape.
+ */
+export function classifyHeadShaMismatch(
+  headSha: string | undefined,
+  expectedHeadSha: string | undefined
+): HeadShaMismatchKind | null {
+  if (headShaMatchesExpected(headSha, expectedHeadSha)) return null;
+  // `headShaMatchesExpected` returns true when either side is undefined, so
+  // reaching here guarantees both are present; the guards keep that a compile
+  // -time fact rather than an inherited assumption.
+  if (expectedHeadSha === undefined || headSha === undefined) return null;
+
+  const expected = expectedHeadSha.trim().toLowerCase();
+  const head = headSha.trim().toLowerCase();
+
+  return sharedPrefixLength(expected, head) >= MIN_ABBREVIATED_SHA_LENGTH
+    ? "divergent-prefix"
+    : "push-pending";
+}
+
 export interface SessionPrWaitForReviewMatch {
   matched: true;
   /**
@@ -465,8 +534,26 @@ export interface SessionPrWaitForReviewTimeout {
    *
    * Absent (undefined) whenever `expectedHeadSha` was not passed, so an
    * ordinary timeout payload is unchanged.
+   *
+   * mt#4995: `classification` says WHICH of the two mismatch causes this is,
+   * because they call for opposite responses and were previously reported
+   * identically. `push-pending` keeps the historical semantics (the wait ran
+   * its full budget). `divergent-prefix` means the caller's sha can never
+   * arrive, and the wait returned EARLY rather than burning the budget — so on
+   * this value `elapsedMs` is deliberately far below the configured timeout.
+   *
+   * `classification` is NON-NULLABLE by construction (PR #3641 R1): this whole
+   * object is present only when the classifier returned a kind, so a consumer
+   * reading it has a reliable discriminator rather than one it must null-check.
+   * That also makes it the machine-readable signal for "returned early" — a
+   * JSON-mode caller distinguishes an early classified return from a genuine
+   * waited-out timeout by this field, without parsing the rendered message.
    */
-  expectedHeadShaUnreached?: { expected: string; lastObservedHeadSha: string | null };
+  expectedHeadShaUnreached?: {
+    expected: string;
+    lastObservedHeadSha: string | null;
+    classification: HeadShaMismatchKind;
+  };
   /**
    * mt#2777 SC#1: whether the one-time final authoritative reviews-list
    * re-read (performed immediately before reporting this timeout) actually
@@ -1062,36 +1149,54 @@ export async function sessionPrWaitForReview(
     const remoteIsServingExpectedHead = (): boolean =>
       headShaMatchesExpected(headSha, expectedHeadSha);
 
+    // mt#4995: read off the SAME `headSha` closure the payload reports, so the
+    // classification can never describe a different observation than the
+    // `lastObservedHeadSha` printed beside it.
+    const mismatchKind = (): HeadShaMismatchKind | null =>
+      classifyHeadShaMismatch(headSha, expectedHeadSha);
+
     const buildTimeoutResult = (
       overrides: Partial<
         Pick<SessionPrWaitForReviewTimeout, "finalCheckPerformed" | "reviewerCheckRunState">
       > = {}
-    ): SessionPrWaitForReviewTimeout => ({
-      matched: false,
-      elapsedMs: now() - start,
-      pollCount,
-      lastSeenReviews: annotateReviewRejections(
-        lastReviews,
-        since,
-        resolvedReviewer,
-        headSha,
-        remoteIsServingExpectedHead()
-          ? undefined
-          : `push-not-landed: matching suppressed while remote head ${headSha ?? "<unresolved>"} != expected ${expectedHeadSha}`
-      ),
-      sinceUsed: sinceIso,
-      ...(expectedHeadSha !== undefined && !remoteIsServingExpectedHead()
-        ? {
-            expectedHeadShaUnreached: {
-              expected: expectedHeadSha,
-              lastObservedHeadSha: headSha ?? null,
-            },
-          }
-        : {}),
-      finalCheckPerformed: false,
-      reviewerCheckRunState: null,
-      ...overrides,
-    });
+    ): SessionPrWaitForReviewTimeout => {
+      // mt#4995 (PR #3641 R1): compute the classification ONCE, and let it
+      // decide whether the diagnostic is present at all. `mismatchKind()`
+      // returns null in exactly the cases `remoteIsServingExpectedHead()`
+      // returns true — both delegate to `headShaMatchesExpected` — so this is
+      // the SAME gate the field already carried, re-expressed as the value it
+      // reports. Two things follow, and the second is the point: the pair can
+      // no longer drift apart, and `classification: null` becomes
+      // UNREPRESENTABLE rather than merely unreachable.
+      const kind = mismatchKind();
+      return {
+        matched: false,
+        elapsedMs: now() - start,
+        pollCount,
+        lastSeenReviews: annotateReviewRejections(
+          lastReviews,
+          since,
+          resolvedReviewer,
+          headSha,
+          remoteIsServingExpectedHead()
+            ? undefined
+            : `push-not-landed: matching suppressed while remote head ${headSha ?? "<unresolved>"} != expected ${expectedHeadSha}`
+        ),
+        sinceUsed: sinceIso,
+        ...(expectedHeadSha !== undefined && kind !== null
+          ? {
+              expectedHeadShaUnreached: {
+                expected: expectedHeadSha,
+                lastObservedHeadSha: headSha ?? null,
+                classification: kind,
+              },
+            }
+          : {}),
+        finalCheckPerformed: false,
+        reviewerCheckRunState: null,
+        ...overrides,
+      };
+    };
 
     /**
      * mt#2777 SC#1: perform ONE final authoritative check immediately before
@@ -1203,6 +1308,30 @@ export async function sessionPrWaitForReview(
         // rejecting reviews of the prior head (getHeadSha captured once above).
         if (getHeadSha) {
           headSha = await withDeadline(getHeadSha(prNumber), ioDeadlineMs);
+
+          // mt#4995: the FIRST poll that actually observes a remote head is
+          // enough to tell a sha that has not arrived yet from one that never
+          // will. Polling on through a `divergent-prefix` mismatch spends the
+          // caller's entire budget — up to 1800s — to re-derive, at timeout,
+          // the same conclusion available right now; and a wait that returns
+          // nothing after its full budget is the documented lead-in to the
+          // bypass ladder, so the cost is not merely the wasted time.
+          //
+          // `finalizeTimeout` rather than a bare `buildTimeoutResult`: it is
+          // already bounded by its own short budget, and it attaches the fresh
+          // reviews list and `reviewerCheckRunState` a caller needs to see that
+          // the reviewer was never the problem. It cannot mis-report a review
+          // as a match here, because its `finalMatch` is gated on
+          // `remoteIsServingExpectedHead()` — the very predicate that is false.
+          if (mismatchKind() === "divergent-prefix") {
+            log.debug(
+              `session_pr_wait_for_review: PR #${prNumber} poll ${pollCount} expected sha ` +
+                `${expectedHeadSha} shares a >=${MIN_ABBREVIATED_SHA_LENGTH}-character prefix ` +
+                `with remote head ${headSha} and then diverges; it names no commit, so ` +
+                `returning now instead of waiting out the remaining budget`
+            );
+            return await finalizeTimeout();
+          }
         }
 
         const reviews = await withDeadline(listReviews(prNumber), ioDeadlineMs);

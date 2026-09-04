@@ -914,11 +914,16 @@ export const sessionPrWaitForReviewCommandParams = {
       "the filter meant to exclude it. The window is routine — session_commit regularly " +
       "exceeds the 120s tool timeout, is backgrounded, and finishes its push a minute later. " +
       "On timeout the result carries expectedHeadShaUnreached naming the sha the remote " +
-      "never reached. Ignored on backends without HEAD-sha support, or with " +
-      "requireCurrentHead: false. ABBREVIATED shas are matched as a prefix (mt#4039), so " +
-      "session_commit's short commitHash can be passed through verbatim; values under 7 " +
-      "characters, or non-hex values, are rejected with an error rather than silently " +
-      "matching nothing.",
+      "never reached, plus a classification field saying which of the two causes it is " +
+      "(mt#4995): push-pending, where the commit may still arrive and the wait polls on as " +
+      "before; or divergent-prefix, where the value shares a 7+-character prefix with the " +
+      "observed head and then diverges — the signature of an abbreviated sha padded out to " +
+      "look full. That one names no commit, so the wait RETURNS EARLY rather than spending " +
+      "the rest of timeoutSeconds on it. Ignored on backends without HEAD-sha support, or " +
+      "with requireCurrentHead: false. ABBREVIATED shas are matched as a prefix (mt#4039), " +
+      "so session_commit's short commitHash can be passed through verbatim and must NOT be " +
+      "extended by hand; values under 7 characters, or non-hex values, are rejected with an " +
+      "error rather than silently matching nothing.",
     required: false,
   },
   fullBody: {

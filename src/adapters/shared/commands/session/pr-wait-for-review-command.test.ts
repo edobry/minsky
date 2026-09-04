@@ -214,6 +214,9 @@ describe("formatTimeoutMessage (mt#2043 diagnostic visibility)", () => {
       expectedHeadShaUnreached: {
         expected: "6303291ad0000000000000000000000000000000",
         lastObservedHeadSha: "9a3a8ca4b0000000000000000000000000000000",
+        // mt#4995: these two shas share no prefix, so this is the generic
+        // branch — which is the one this test is about.
+        classification: "push-pending",
       },
       finalCheckPerformed: true,
       reviewerCheckRunState: null,
@@ -234,6 +237,47 @@ describe("formatTimeoutMessage (mt#2043 diagnostic visibility)", () => {
     expect(msg).toContain("never resolves by waiting");
     // The old wording asserted one cause as fact; it must not survive.
     expect(msg).not.toContain("PUSH NOT LANDED");
+  });
+
+  // mt#4995 SC3: when the mismatch is CLASSIFIED as a fabricated extension, the
+  // generic two-cause line stops being the right answer — one of its two causes
+  // has been ruled out by evidence, and leaving it in asks the reader to weigh a
+  // possibility the tool already eliminated. The originating incident's exact
+  // shape: `session_commit` returned the 9-character `f76e55628`, the caller
+  // padded it to 40, and the wait would have burned its whole budget.
+  test("names the extended-abbreviation cause, and drops the wait-for-the-push remedy", () => {
+    const result: SessionPrWaitForReviewTimeout = {
+      matched: false,
+      elapsedMs: 812,
+      pollCount: 1,
+      sinceUsed: "2026-09-04T21:00:00.000Z",
+      lastSeenReviews: [],
+      expectedHeadShaUnreached: {
+        expected: "f76e556285ff4d6a4e0d21b0ba1e0a54ba7d2e0f",
+        lastObservedHeadSha: "f76e556281b76e51949a057834f279e73d03a8e0",
+        classification: "divergent-prefix",
+      },
+      finalCheckPerformed: true,
+      reviewerCheckRunState: null,
+    };
+    const msg = formatTimeoutMessage(result);
+
+    // Still not silence, and still both shas — the shared header is unchanged.
+    expect(msg).toContain("EXPECTED HEAD NEVER REACHED");
+    expect(msg).toContain("NOT reviewer silence");
+    // The cause, named specifically enough to act on.
+    expect(msg).toContain("ABBREVIATED sha extended to full length");
+    expect(msg).toContain("names no commit");
+    // The remedy, including the part that caused the incident: the value was
+    // padded out precisely because the caller believed 40 characters were
+    // required, so saying "pass it verbatim" without that is half an answer.
+    expect(msg).toContain("VERBATIM");
+    expect(msg).toContain("must not");
+    expect(msg).toContain("40 characters");
+    // The load-bearing exclusion: the generic branch's advice is WRONG here and
+    // must not render. Waiting cannot resolve a sha that names no commit.
+    expect(msg).not.toContain("The push has not landed");
+    expect(msg).not.toContain("Two causes, opposite remedies");
   });
 
   test("an ordinary timeout carries no push-not-landed line", () => {
