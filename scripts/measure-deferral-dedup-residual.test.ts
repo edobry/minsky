@@ -5,25 +5,29 @@
  * different one from the same logs (AT1), so the classification rules are what need pinning: which
  * records are opportunities, which window pairs them, and what the falsifier concludes.
  *
- * Every bucket carries a DISCRIMINATING control. Without them a suite that only asserted the happy
- * path would pass just as well if a bucket had been deleted — and mis-bucketing is the exact failure
- * this task's history is made of (five causal hypotheses, four dead, several killed by a wrong
- * denominator rather than a wrong mechanism).
+ * Every bucket and every verdict carries a DISCRIMINATING control. Without them a suite that only
+ * asserted the happy path would pass just as well if a branch had been deleted — and mis-bucketing
+ * is the exact failure this task's history is made of (five causal hypotheses, four dead, several
+ * killed by a wrong denominator rather than a wrong mechanism).
  *
- * No filesystem: the classifier takes an injected `PhraseLookup`, and the store's parsing rules are
- * exercised through the pure `parseStorePhrases`. The real store is mutable per-session state, so a
- * test that read it would pass or fail on whatever happened to be on disk.
+ * No filesystem: the classifier takes an injected `FlagLookup`, and the key reconstruction is
+ * exercised through the pure `reconstructOverlapKey`. The real store is mutable per-session state,
+ * so a test that read it would pass or fail on whatever happened to be on disk.
  */
 import { describe, expect, test } from "bun:test";
 
+import { overlapTurnKey } from "../.minsky/hooks/turn-end-scan-store";
+import { turnKeyForMessage } from "../.minsky/hooks/turn-end-untaken-action-scan";
 import {
   classify,
+  corpusIsEmpty,
   pairStopFire,
-  parseStorePhrases,
   phrasesOf,
+  reconstructOverlapKey,
+  resolveWindowMs,
   wroteOverlapKeys,
+  type FlagLookup,
   type ParsedRecord,
-  type PhraseLookup,
 } from "./measure-deferral-dedup-residual";
 
 const SESSION = "11111111-2222-3333-4444-555555555555";
@@ -31,9 +35,10 @@ const OTHER_SESSION = "99999999-8888-7777-6666-555555555555";
 const T0 = Date.parse("2026-09-01T12:00:00.000Z");
 const MINUTE = 60_000;
 
-/** A lookup standing in for a store that flagged "say the word" in SESSION and nothing elsewhere. */
-const lookup: PhraseLookup = (session) =>
-  session === SESSION ? ["say the word", "offer-shape:unless"] : undefined;
+/** A tail long enough to reconstruct a key from (the hash window is 400 normalized chars). */
+const LONG_TAIL = `${"the agent said something at length. ".repeat(20)}Say the word and I'll do it.`;
+/** The key that tail's Stop fire would have written. */
+const LONG_TAIL_KEY = overlapTurnKey(LONG_TAIL, turnKeyForMessage);
 
 /** Build an `ask-routing-deferral`-shaped record. */
 function ard(
@@ -58,7 +63,7 @@ function ard(
 /** Build an `untaken-action`-shaped record. */
 function stop(
   offsetMinutes: number,
-  opts: { overlap?: boolean; reasons?: string[]; session?: string } = {}
+  opts: { overlap?: boolean; reasons?: string[]; session?: string; tail?: string } = {}
 ): ParsedRecord {
   const at = T0 + offsetMinutes * MINUTE;
   const session = opts.session ?? SESSION;
@@ -69,6 +74,7 @@ function stop(
     session_id: session,
     deferralOverlap: opts.overlap ?? true,
     suppressionReasons: opts.reasons ?? [],
+    final_message_tail: opts.tail ?? LONG_TAIL,
   };
 }
 
@@ -81,6 +87,13 @@ function indexBySession(records: ParsedRecord[]): Map<string, ParsedRecord[]> {
   }
   return m;
 }
+
+/** A lookup whose store holds exactly the given flags for SESSION and nothing for anyone else. */
+function lookupWith(flags: Array<{ key: string; phrase: string }>): FlagLookup {
+  return (session) => (session === SESSION ? flags : []);
+}
+
+const EXACT_LOOKUP = lookupWith([{ key: LONG_TAIL_KEY, phrase: "say the word" }]);
 
 describe("wroteOverlapKeys — only the injecting path writes keys", () => {
   test("an injected overlap record wrote keys", () => {
@@ -127,7 +140,7 @@ describe("classify — the four buckets, each with its discriminating control", 
       [ard(10, { reasons: ["deduped-by-untaken-action-stop"] })],
       new Map(),
       30 * MINUTE,
-      lookup
+      EXACT_LOOKUP
     );
     expect(result?.bucket).toBe("deduped");
   });
@@ -137,88 +150,127 @@ describe("classify — the four buckets, each with its discriminating control", 
       [ard(10, { reasons: ["cites-filed-ask"] })],
       indexBySession([stop(0)]),
       30 * MINUTE,
-      lookup
+      EXACT_LOOKUP
     );
     expect(result?.bucket).toBe("suppressed-otherwise");
   });
 
   test("no-opportunity: an injected fire with no preceding key-writing Stop fire is NOT a miss", () => {
-    const [result] = classify([ard(10)], new Map(), 30 * MINUTE, lookup);
+    const [result] = classify([ard(10)], new Map(), 30 * MINUTE, EXACT_LOOKUP);
     expect(result?.bucket).toBe("no-opportunity");
   });
 
   test("missed: injected, with a key-writing Stop fire inside the window", () => {
-    const [result] = classify([ard(10)], indexBySession([stop(0)]), 30 * MINUTE, lookup);
+    const [result] = classify([ard(10)], indexBySession([stop(0)]), 30 * MINUTE, EXACT_LOOKUP);
     expect(result?.bucket).toBe("missed");
     expect(result?.pairedStopAt).toBe(new Date(T0).toISOString());
   });
 });
 
-describe("classify — the falsifier verdict on a miss", () => {
+describe("classify — the falsifier is bounded to the PAIRED TURN (PR #3639 R1 BLOCKING)", () => {
   const index = indexBySession([stop(0)]);
 
-  test("key-present-phrase-matches: the flag IS in the store under a different key", () => {
-    const [result] = classify([ard(10, { phrases: ["say the word"] })], index, 30 * MINUTE, lookup);
-    expect(result?.falsifier).toBe("key-present-phrase-matches");
+  test("key-present-exact: the flag sits under THIS turn's reconstructed key", () => {
+    const [result] = classify([ard(10)], index, 30 * MINUTE, EXACT_LOOKUP);
+    expect(result?.falsifier).toBe("key-present-exact");
+    expect(result?.reconstructedKey).toBe(LONG_TAIL_KEY);
   });
 
-  test("phrase-absent: the store was read and carries no matching phrase", () => {
+  test("phrase-present-other-key: the same phrase under a DIFFERENT key is NOT the answer", () => {
+    // This is the case the first revision counted as affirmative. A stock phrase like
+    // "say the word" recurs across a session's turns, so a session-wide phrase match inflates the
+    // yes — which is precisely the BLOCKING finding this separation answers.
+    const [result] = classify(
+      [ard(10)],
+      index,
+      30 * MINUTE,
+      lookupWith([{ key: "a-different-turns-key", phrase: "say the word" }])
+    );
+    expect(result?.falsifier).toBe("phrase-present-other-key");
+  });
+
+  test("phrase-absent: the store has overlap flags for this session, none matching", () => {
     const [result] = classify(
       [ard(10, { phrases: ["offer-shape:or"] })],
       index,
       30 * MINUTE,
-      lookup
+      EXACT_LOOKUP
     );
     expect(result?.falsifier).toBe("phrase-absent");
   });
 
-  test("store-absent is NOT folded into phrase-absent — silence is not evidence", () => {
-    // The store is live per-session state; an old session's file may simply be gone. Collapsing the
-    // two would report a Stop-side write failure that was never observed.
-    const missingStore = indexBySession([stop(0, { session: OTHER_SESSION })]);
-    const [result] = classify(
-      [ard(10, { session: OTHER_SESSION })],
-      missingStore,
-      30 * MINUTE,
-      lookup
-    );
+  test("store-empty-or-absent is NOT folded into phrase-absent — silence is not evidence", () => {
+    const [result] = classify([ard(10)], index, 30 * MINUTE, lookupWith([]));
     expect(result?.bucket).toBe("missed");
-    expect(result?.falsifier).toBe("store-absent");
+    expect(result?.falsifier).toBe("store-empty-or-absent");
   });
 
-  test("an EMPTY store is phrase-absent, not store-absent — read-and-empty is a real observation", () => {
-    const emptyLookup: PhraseLookup = () => [];
-    const [result] = classify([ard(10)], index, 30 * MINUTE, emptyLookup);
-    expect(result?.falsifier).toBe("phrase-absent");
+  test("tail-too-short: an unreconstructable key is reported, never guessed", () => {
+    const shortIndex = indexBySession([stop(0, { tail: "too short to fill the hash window" })]);
+    const [result] = classify([ard(10)], shortIndex, 30 * MINUTE, EXACT_LOOKUP);
+    expect(result?.falsifier).toBe("tail-too-short");
+    expect(result?.reconstructedKey).toBeUndefined();
+  });
+
+  test("a Stop record with no tail at all is tail-too-short, not a crash", () => {
+    const noTail = indexBySession([{ ...stop(0), final_message_tail: undefined }]);
+    const [result] = classify([ard(10)], noTail, 30 * MINUTE, EXACT_LOOKUP);
+    expect(result?.falsifier).toBe("tail-too-short");
   });
 });
 
-describe("parseStorePhrases — reads only the overlap family", () => {
-  const raw = JSON.stringify({
-    flagged: [
-      "someturnkey|stop-injected-overlap|say the word",
-      "anotherkey|stop-injected-overlap|offer-shape:unless",
-      // A different family in the same store must not be read as an overlap flag.
-      "somekey|retro-admission|I was wrong",
-      42, // a non-string entry must not throw
-    ],
+describe("reconstructOverlapKey — reproduces the key the Stop fire wrote", () => {
+  test("a long-enough tail reproduces overlapTurnKey exactly", () => {
+    // The store key is overlapTurnKey(fullMessage), and the tail is the message's last 600 chars.
+    // Both slice the last 400 NORMALIZED chars, so the two agree whenever the tail still carries
+    // that many — which is what makes the exact match above meaningful rather than coincidental.
+    const fullMessage = `a much longer preamble that the tail cannot see. ${LONG_TAIL}`;
+    expect(reconstructOverlapKey({ final_message_tail: LONG_TAIL })).toBe(
+      overlapTurnKey(fullMessage, turnKeyForMessage)
+    );
   });
 
-  test("returns the overlap phrases and ignores other families", () => {
-    const phrases = parseStorePhrases(raw);
-    expect(phrases).toEqual(["say the word", "offer-shape:unless"]);
-    expect(phrases).not.toContain("I was wrong");
+  test("a tail whose NORMALIZED length is under the window yields undefined", () => {
+    // Whitespace collapse can take a long raw tail under the threshold, so the check normalizes
+    // before measuring rather than reading the raw length.
+    const whitespacey = " ".repeat(2000);
+    expect(reconstructOverlapKey({ final_message_tail: whitespacey })).toBeUndefined();
+  });
+});
+
+describe("corpusIsEmpty — BOTH logs are required (PR #3639 R1 BLOCKING)", () => {
+  test("zero Stop-side records is empty even with sibling records present", () => {
+    // The case the first revision missed: --since could filter every Stop record away and the run
+    // would report a full result in which every fire was `no-opportunity` — indistinguishable from
+    // a corpus where the dedup genuinely had nothing to do.
+    expect(corpusIsEmpty(56, 0)).toBe(true);
   });
 
-  test("a store with no flagged array yields none rather than throwing", () => {
-    expect(parseStorePhrases(JSON.stringify({}))).toEqual([]);
+  test("zero sibling records is empty", () => {
+    expect(corpusIsEmpty(0, 206)).toBe(true);
   });
 
-  test("a phrase containing the delimiter survives — the split takes the FIRST family marker", () => {
-    const tricky = JSON.stringify({
-      flagged: ["k|stop-injected-overlap|say the word|and then some"],
-    });
-    expect(parseStorePhrases(tricky)).toEqual(["say the word|and then some"]);
+  test("both populated is not empty — the discriminating control", () => {
+    expect(corpusIsEmpty(56, 206)).toBe(false);
+  });
+});
+
+describe("resolveWindowMs — absent, valid and unusable are three answers", () => {
+  test("absent yields undefined so the caller can apply its default", () => {
+    expect(resolveWindowMs(undefined)).toBeUndefined();
+  });
+
+  test("minutes convert to ms", () => {
+    expect(resolveWindowMs("30")).toBe(30 * MINUTE);
+  });
+
+  test("unparseable is null, NOT silently defaulted", () => {
+    expect(resolveWindowMs("soon")).toBeNull();
+  });
+
+  test("zero and negative are null — a non-positive window silently yields zero misses", () => {
+    expect(resolveWindowMs("0")).toBeNull();
+    expect(resolveWindowMs("-5")).toBeNull();
   });
 });
 

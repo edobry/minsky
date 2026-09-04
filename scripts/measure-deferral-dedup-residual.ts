@@ -24,18 +24,38 @@
  * - `no-opportunity` — no such preceding fire. Nothing to dedup against; NOT a miss.
  * - `suppressed-otherwise` — suppressed for an unrelated reason, so the dedup never arbitrated.
  *
- * **Part B (AT2) — the recorded falsifier.** For every `missed` record, read the live turn-end scan
- * store for its session and ask whether a `stop-injected-overlap` entry exists there carrying a
- * phrase the sibling matched:
+ * **Part B (AT2) — the recorded falsifier, bounded to the PAIRED TURN.** The spec's question is
+ * time-bounded: *"whether an overlap key written BETWEEN THE PREVIOUS REAL PROMPT AND THE SIBLING'S
+ * RUN POSITION exists in the store AND carries the phrase the sibling matched."* The store carries
+ * no timestamps, so the bound is reconstructed from the paired Stop record instead of approximated
+ * by session:
  *
- * - `key-present-phrase-matches` → the flag IS in the store under a DIFFERENT key. The Stop side did
- *   its job; only the addressing is wrong, and the candidate in `## The deeper cause` (scope the
- *   lookup to keys written since the last real prompt) is sufficient.
- * - `phrase-absent` → the store exists and does not carry the phrase. The flags are not being
- *   written on the turns that need them, and the defect is on the STOP side, not the read side.
- * - `store-absent` → no store file for that session. Reported as its own bucket and NEVER folded
- *   into `phrase-absent`: the store is live per-session state and an old session's file may simply
- *   be gone, which is silence rather than evidence.
+ * `untaken-action` writes `final_message_tail` (the last `TAIL_WINDOW_CHARS` of the message it
+ * judged) on the same record that wrote the keys, and `overlapTurnKey` hashes the last 400
+ * characters of the NORMALIZED message. So recomputing `overlapTurnKey(final_message_tail,
+ * turnKeyForMessage)` reproduces the exact key that Stop fire wrote — provided the normalized tail
+ * still has 400 characters to hash. Verdicts:
+ *
+ * - `key-present-exact` — the store holds `<that turn's key>|stop-injected-overlap|<a phrase the
+ *   sibling matched>`. **This is the spec's question answered.** The Stop side wrote the flag for
+ *   THIS turn and the read side looked under a different key.
+ * - `phrase-present-other-key` — the phrase is in the store, but under some OTHER key. Consistent
+ *   with a different turn of the same session having flagged the same stock phrase, so it is
+ *   reported separately and is NOT evidence for the addressing change.
+ * - `phrase-absent` — the session's store DOES hold overlap flags, and none of them matches. This is
+ *   the only verdict that is genuine evidence of a Stop-side residual.
+ * - `store-empty-or-absent` — the session has no overlap flags at all. Its own bucket, deliberately
+ *   never folded into `phrase-absent`. `readFlagged` fails OPEN to an empty set, so "no store file"
+ *   and "a store holding nothing" are one observation through it, and neither is evidence that the
+ *   Stop side failed to write: the store is live per-session state and an old session's file may
+ *   simply be gone. Recovering the distinction would mean re-deriving the store path here, which is
+ *   the duplication PR #3639 R1 flagged; reporting the ambiguity is the cheaper honest answer.
+ * - `tail-too-short` — the normalized tail is under 400 chars, so the key cannot be reconstructed
+ *   faithfully. Reported rather than guessed.
+ *
+ * An earlier revision of this script asked only "is this phrase anywhere in this session's store?",
+ * which drops the time bound the spec's question carries and inflates the affirmative answer with
+ * flags written on unrelated turns. Caught by `minsky-reviewer[bot]` on PR #3639 R1 (BLOCKING).
  *
  * ## The failure this script refuses to have
  *
@@ -44,27 +64,40 @@
  * reports a clean, plausible zero in every bucket. That is mem#573's cwd trap and mt#4960 hit it on
  * this exact corpus. An empty corpus therefore EXITS NON-ZERO naming the resolved path, rather than
  * reporting a result: a probe that returns the same answer whether or not the thing exists carries
- * no information (mem#704).
+ * no information (mem#704). The check runs on the raw corpus AND again after `--since` filtering,
+ * because a window that filters either log to nothing is the same empty-corpus condition arriving
+ * later.
  *
  * ## Usage
  *
  *   bun scripts/measure-deferral-dedup-residual.ts                     # human-readable
  *   bun scripts/measure-deferral-dedup-residual.ts --json              # machine-readable
  *   bun scripts/measure-deferral-dedup-residual.ts --project-dir /path/to/main/repo
- *   bun scripts/measure-deferral-dedup-residual.ts --since 2026-08-30
+ *   bun scripts/measure-deferral-dedup-residual.ts --since 2026-08-30 --window 30
  *
  * Exit 0 = measured. Exit 1 = the corpus was empty or unreadable (measurement did NOT run) — never
  * conflated with "measured, and the residual is zero".
  */
-import { readFileSync, existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 
 import { calibrationLogPath } from "../.minsky/hooks/dispatcher";
-import { STOP_INJECTED_OVERLAP_FAMILY } from "../.minsky/hooks/turn-end-scan-store";
+import {
+  STOP_INJECTED_OVERLAP_FAMILY,
+  overlapTurnKey,
+  readFlagged,
+} from "../.minsky/hooks/turn-end-scan-store";
+import { turnKeyForMessage } from "../.minsky/hooks/turn-end-untaken-action-scan";
 
 /** The suppression reason the prompt-time guard records when the handoff worked. */
 const DEDUP_REASON = "deduped-by-untaken-action-stop";
+
+/**
+ * Characters `overlapTurnKey` hashes. Mirrors `OVERLAP_TAIL_CHARS` in `turn-end-scan-store.ts`,
+ * which is module-private — used ONLY to decide whether a reconstructed tail is long enough to
+ * reproduce the key faithfully, never to recompute one (that goes through `overlapTurnKey` itself,
+ * so the hashing rule has exactly one definition).
+ */
+const OVERLAP_TAIL_CHARS = 400;
 
 /**
  * How far back from an `ask-routing-deferral` fire to look for the `untaken-action` fire it should
@@ -82,8 +115,6 @@ const PAIRING_WINDOW_MS = 30 * 60 * 1000;
 /** Windows reported alongside the headline figure, so the pairing choice is auditable. */
 const SENSITIVITY_WINDOWS_MS = [5 * 60 * 1000, PAIRING_WINDOW_MS, 4 * 60 * 60 * 1000];
 
-const STORE_DIR = join(homedir(), ".local", "state", "minsky", "turn-end-scan");
-
 interface CalibrationMatch {
   readonly class?: string;
   readonly phrase?: string;
@@ -96,6 +127,7 @@ interface CalibrationRecord {
   readonly deferralOverlap?: boolean;
   readonly suppressionReasons?: string[];
   readonly matches?: CalibrationMatch[];
+  readonly final_message_tail?: string;
 }
 
 /**
@@ -113,7 +145,13 @@ export interface ParsedRecord extends CalibrationRecord {
 }
 
 export type Bucket = "deduped" | "missed" | "no-opportunity" | "suppressed-otherwise";
-export type FalsifierVerdict = "key-present-phrase-matches" | "phrase-absent" | "store-absent";
+
+export type FalsifierVerdict =
+  | "key-present-exact"
+  | "phrase-present-other-key"
+  | "phrase-absent"
+  | "store-empty-or-absent"
+  | "tail-too-short";
 
 export interface Classified {
   readonly timestamp: string;
@@ -122,7 +160,7 @@ export interface Classified {
   readonly phrases: string[];
   readonly pairedStopAt?: string;
   readonly falsifier?: FalsifierVerdict;
-  readonly storePhraseSample?: string[];
+  readonly reconstructedKey?: string;
 }
 
 function readJsonl(path: string): ParsedRecord[] {
@@ -189,54 +227,52 @@ export function pairStopFire(
 }
 
 /**
- * Extract the `stop-injected-overlap` phrases from one store file's raw JSON.
+ * The overlap key a given Stop fire wrote, reconstructed from the tail it recorded.
  *
- * Pure, so the parsing rules — which family counts, how the phrase is recovered from the composite
- * key — are testable without touching a filesystem. The store is mutable per-session state, so a
- * test that read the real one would pass or fail on whatever happened to be on disk.
+ * `undefined` when the normalized tail is shorter than the hash window — the key would then be a
+ * hash of less text than the real one and would never match, so a miss would be indistinguishable
+ * from a genuine absence. Reported as `tail-too-short` rather than guessed.
  */
-export function parseStorePhrases(raw: string): string[] {
-  const parsed = JSON.parse(raw) as { flagged?: unknown };
-  if (!Array.isArray(parsed.flagged)) return [];
+export function reconstructOverlapKey(stopRecord: CalibrationRecord): string | undefined {
+  const tail = stopRecord.final_message_tail;
+  if (typeof tail !== "string") return undefined;
+  if (tail.replace(/\s+/g, " ").trim().length < OVERLAP_TAIL_CHARS) return undefined;
+  return overlapTurnKey(tail, turnKeyForMessage);
+}
+
+/** One session's `stop-injected-overlap` flags, as `(key, phrase)` pairs. Empty when there are none. */
+export type FlagLookup = (session: string) => Array<{ key: string; phrase: string }>;
+
+/**
+ * Read one session's `stop-injected-overlap` flags through the store module's own reader.
+ *
+ * Going through `readFlagged` rather than re-deriving the path is what keeps the store's layout,
+ * its session-id sanitizer and its fail-open posture in ONE place — PR #3639 R1 flagged the earlier
+ * duplication as a drift risk (NON-BLOCKING) and it was right: a change to the store's path scheme
+ * would have left this script silently reading nothing.
+ *
+ * `readFlagged` fails OPEN to an empty set, so an absent store and an empty one are identical
+ * through it. That collapse is REPORTED rather than worked around: an empty result becomes the
+ * `store-empty-or-absent` verdict, which is explicitly not evidence of a Stop-side write failure.
+ */
+export function readOverlapFlags(session: string): Array<{ key: string; phrase: string }> {
   const prefix = `|${STOP_INJECTED_OVERLAP_FAMILY}|`;
-  const out: string[] = [];
-  for (const entry of parsed.flagged) {
-    if (typeof entry !== "string") continue;
+  const out: Array<{ key: string; phrase: string }> = [];
+  for (const entry of readFlagged(session)) {
     const idx = entry.indexOf(prefix);
     if (idx === -1) continue;
-    out.push(entry.slice(idx + prefix.length));
+    out.push({ key: entry.slice(0, idx), phrase: entry.slice(idx + prefix.length) });
   }
   return out;
 }
-
-/**
- * Look up one session's overlap phrases on disk. The IO shell around {@link parseStorePhrases}.
- *
- * `undefined` means the store could not be read AT ALL — absent or malformed. That is deliberately
- * distinct from `[]` (read, and it carries no overlap flags), because the classifier reports the
- * two as different verdicts: silence is not evidence of a Stop-side write failure.
- */
-export function storePhrases(session: string, dir: string = STORE_DIR): string[] | undefined {
-  const safe = session.replace(/[^A-Za-z0-9_-]/g, "_");
-  const path = join(dir, `${safe}.json`);
-  if (!existsSync(path)) return undefined;
-  try {
-    return parseStorePhrases(readFileSync(path, "utf8"));
-  } catch {
-    return undefined; // unreadable is store-absent, not phrase-absent
-  }
-}
-
-/** How the classifier reaches a session's overlap flags. Injected so tests need no filesystem. */
-export type PhraseLookup = (session: string) => string[] | undefined;
 
 export function classify(
   ardRecords: ParsedRecord[],
   stopBySession: Map<string, ParsedRecord[]>,
   windowMs: number,
-  lookupPhrases: PhraseLookup = (session) => storePhrases(session)
+  lookupFlags: FlagLookup = readOverlapFlags
 ): Classified[] {
-  return ardRecords.map((ard) => {
+  return ardRecords.map((ard): Classified => {
     const phrases = phrasesOf(ard);
     const reasons = ard.suppressionReasons ?? [];
 
@@ -257,25 +293,30 @@ export function classify(
       return { timestamp: ard.timestamp, session: ard.session, bucket: "no-opportunity", phrases };
     }
 
-    // A miss. Run the falsifier against the store.
-    const inStore = lookupPhrases(ard.session);
-    let falsifier: FalsifierVerdict;
-    if (inStore === undefined) {
-      falsifier = "store-absent";
-    } else if (phrases.some((p) => inStore.includes(p))) {
-      falsifier = "key-present-phrase-matches";
-    } else {
-      falsifier = "phrase-absent";
-    }
-
-    return {
+    const base = {
       timestamp: ard.timestamp,
       session: ard.session,
-      bucket: "missed",
+      bucket: "missed" as const,
       phrases,
       pairedStopAt: paired.timestamp,
-      falsifier,
-      ...(inStore === undefined ? {} : { storePhraseSample: inStore.slice(0, 8) }),
+    };
+
+    const flags = lookupFlags(ard.session);
+    if (flags.length === 0) return { ...base, falsifier: "store-empty-or-absent" };
+
+    const expectedKey = reconstructOverlapKey(paired);
+    if (expectedKey === undefined) return { ...base, falsifier: "tail-too-short" };
+
+    const wanted = new Set(phrases);
+    const exact = flags.some((f) => f.key === expectedKey && wanted.has(f.phrase));
+    if (exact) {
+      return { ...base, falsifier: "key-present-exact", reconstructedKey: expectedKey };
+    }
+    const otherKey = flags.some((f) => wanted.has(f.phrase));
+    return {
+      ...base,
+      falsifier: otherKey ? "phrase-present-other-key" : "phrase-absent",
+      reconstructedKey: expectedKey,
     };
   });
 }
@@ -289,6 +330,45 @@ function tally<T extends string>(items: readonly T[]): Record<string, number> {
 function argValue(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
   return i === -1 ? undefined : process.argv[i + 1];
+}
+
+/** Parse `--window <minutes>` into ms. `undefined` for absent; `null` for present-but-unusable. */
+export function resolveWindowMs(arg: string | undefined): number | null | undefined {
+  if (arg === undefined) return undefined;
+  const ms = Number(arg) * 60000;
+  return Number.isFinite(ms) && ms > 0 ? ms : null;
+}
+
+/**
+ * Whether a corpus pair is unusable. BOTH logs are required: the falsifier needs Stop-side records,
+ * so a window that leaves zero of them measures nothing even with ARD records in hand.
+ *
+ * PR #3639 R1 (BLOCKING): the post-`--since` check tested only the ARD side, so a `--since` that
+ * filtered every Stop record away produced a full report in which every fire was `no-opportunity` —
+ * structurally identical to a corpus where the dedup had nothing to do.
+ */
+export function corpusIsEmpty(ardCount: number, stopCount: number): boolean {
+  return ardCount === 0 || stopCount === 0;
+}
+
+function failEmpty(
+  reason: string,
+  ardCount: number,
+  stopCount: number,
+  ardPath: string,
+  uaPath: string
+): never {
+  process.stderr.write(
+    `[measure-deferral-dedup-residual] ${reason} — measurement did NOT run.\n` +
+      `  ask-routing-deferral: ${ardCount} record(s) at ${ardPath}\n` +
+      `  untaken-action:       ${stopCount} record(s) at ${uaPath}\n` +
+      `  Both logs are required: with zero Stop-side records every fire classifies as\n` +
+      `  no-opportunity, which is indistinguishable from a corpus the dedup had nothing to do in.\n` +
+      `  These paths resolve through findRepoRoot(CLAUDE_PROJECT_DIR ?? cwd). Running from a\n` +
+      `  session workspace computes a different project key and finds nothing. Re-run with\n` +
+      `  --project-dir pointing at the MAIN repo checkout.\n`
+  );
+  process.exit(1);
 }
 
 function main(): void {
@@ -307,16 +387,8 @@ function main(): void {
   let stopRecords = readJsonl(uaPath);
 
   // Fail closed. An empty corpus is the cwd trap (mem#573 / mt#4960), not a zero residual.
-  if (ardRecords.length === 0 || stopRecords.length === 0) {
-    process.stderr.write(
-      `[measure-deferral-dedup-residual] EMPTY CORPUS — measurement did NOT run.\n` +
-        `  ask-routing-deferral: ${ardRecords.length} record(s) at ${ardPath}\n` +
-        `  untaken-action:       ${stopRecords.length} record(s) at ${uaPath}\n` +
-        `  These paths resolve through findRepoRoot(CLAUDE_PROJECT_DIR ?? cwd). Running from a\n` +
-        `  session workspace computes a different project key and finds nothing. Re-run with\n` +
-        `  --project-dir pointing at the MAIN repo checkout.\n`
-    );
-    process.exit(1);
+  if (corpusIsEmpty(ardRecords.length, stopRecords.length)) {
+    failEmpty("EMPTY CORPUS", ardRecords.length, stopRecords.length, ardPath, uaPath);
   }
 
   if (since !== undefined) {
@@ -327,13 +399,26 @@ function main(): void {
     }
     ardRecords = ardRecords.filter((r) => r.at >= cutoff);
     stopRecords = stopRecords.filter((r) => r.at >= cutoff);
-    if (ardRecords.length === 0) {
-      process.stderr.write(
-        `[measure-deferral-dedup-residual] --since ${since} left 0 ask-routing-deferral records.\n`
+    // Same condition, arriving later: the window, not the path, emptied it.
+    if (corpusIsEmpty(ardRecords.length, stopRecords.length)) {
+      failEmpty(
+        `EMPTY AFTER --since ${since}`,
+        ardRecords.length,
+        stopRecords.length,
+        ardPath,
+        uaPath
       );
-      process.exit(1);
     }
   }
+
+  const windowOverride = resolveWindowMs(argValue("--window"));
+  if (windowOverride === null) {
+    process.stderr.write(
+      `[measure-deferral-dedup-residual] bad --window: ${argValue("--window")}\n`
+    );
+    process.exit(1);
+  }
+  const windowMs = windowOverride ?? PAIRING_WINDOW_MS;
 
   const keyWriting = stopRecords.filter(wroteOverlapKeys);
   const stopBySession = new Map<string, ParsedRecord[]>();
@@ -341,16 +426,6 @@ function main(): void {
     const list = stopBySession.get(s.session) ?? [];
     list.push(s);
     stopBySession.set(s.session, list);
-  }
-
-  // `--window <minutes>` overrides the pairing window. Part A's `missed` count is sensitive to it
-  // (see the sensitivity table), so Part B's verdict must be re-runnable at other windows rather
-  // than resting on the default — a falsifier that only holds at one window is not a falsifier.
-  const windowArg = argValue("--window");
-  const windowMs = windowArg === undefined ? PAIRING_WINDOW_MS : Number(windowArg) * 60000;
-  if (!Number.isFinite(windowMs) || windowMs <= 0) {
-    process.stderr.write(`[measure-deferral-dedup-residual] bad --window: ${windowArg}\n`);
-    process.exit(1);
   }
 
   const classified = classify(ardRecords, stopBySession, windowMs);
@@ -385,7 +460,7 @@ function main(): void {
       phrases: m.phrases,
       pairedStopAt: m.pairedStopAt,
       falsifier: m.falsifier,
-      storePhraseSample: m.storePhraseSample ?? null,
+      reconstructedKey: m.reconstructedKey ?? null,
     })),
   };
 
@@ -395,30 +470,35 @@ function main(): void {
   }
 
   const ratable = (buckets["deduped"] ?? 0) + (buckets["missed"] ?? 0);
+  const bucketLines = Object.entries(buckets)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `  ${k.padEnd(24)} ${v}`)
+    .join("\n");
+  const falsifierLines =
+    misses.length === 0
+      ? "  (no misses to test)"
+      : Object.entries(falsifier)
+          .sort((a, b) => b[1] - a[1])
+          .map(([k, v]) => `  ${k.padEnd(24)} ${v}`)
+          .join("\n");
+  const sensitivityLines = sensitivity
+    .map((s) => `  ${String(s.windowMinutes).padStart(4)} min -> ${s.missed}`)
+    .join("\n");
+  const rate =
+    ratable > 0 ? ` -> ${((100 * (buckets["deduped"] ?? 0)) / ratable).toFixed(1)}% deduped` : "";
+
   process.stdout.write(
     `mt#4407 — untaken-action x ask-routing-deferral dedup residual\n\n` +
       `Corpus (${result.corpus.window}): ${result.corpus.askRoutingDeferralRecords} ask-routing-deferral, ` +
       `${result.corpus.untakenActionRecords} untaken-action (${result.corpus.untakenActionKeyWriting} key-writing ` +
       `across ${result.corpus.sessionsWithKeyWritingFires} sessions)\n` +
       `Pairing window: ${result.corpus.pairingWindowMinutes} min\n\n` +
-      `Part A — residual, denominator = ask-routing-deferral fires\n${Object.entries(buckets)
-        .sort((a, b) => b[1] - a[1])
-        .map(([k, v]) => `  ${k.padEnd(22)} ${v}`)
-        .join("\n")}\n  ${"-".repeat(22)}\n` +
-      `  arbitrated by the dedup: ${ratable}${
-        ratable > 0
-          ? ` -> ${((100 * (buckets["deduped"] ?? 0)) / ratable).toFixed(1)}% deduped\n`
-          : `\n`
-      }\nPart B — falsifier over the ${misses.length} miss(es)\n${
-        misses.length === 0
-          ? `  (no misses to test)\n`
-          : `${Object.entries(falsifier)
-              .sort((a, b) => b[1] - a[1])
-              .map(([k, v]) => `  ${k.padEnd(28)} ${v}`)
-              .join("\n")}\n`
-      }\nSensitivity of "missed" to the pairing window\n${sensitivity
-        .map((s) => `  ${String(s.windowMinutes).padStart(4)} min -> ${s.missed}`)
-        .join("\n")}\n`
+      `Part A — residual, denominator = ask-routing-deferral fires\n${bucketLines}\n` +
+      `  ${"-".repeat(24)}\n` +
+      `  arbitrated by the dedup: ${ratable}${rate}\n\n` +
+      `Part B — falsifier over the ${misses.length} miss(es), key bounded to the paired turn\n` +
+      `${falsifierLines}\n\n` +
+      `Sensitivity of "missed" to the pairing window\n${sensitivityLines}\n`
   );
 }
 
