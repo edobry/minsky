@@ -147,6 +147,19 @@ export function registerKnowledgeCommands(
 
       if (!vectorSearch) {
         // No vector storage — return degraded result immediately
+        // PR #3602 R1 (NON-BLOCKING), taken at the class level: the catch below
+        // carries a reason and this sibling degraded path did not, so the two
+        // most common ways for this command to return nothing were
+        // indistinguishable from an empty corpus and from EACH OTHER.
+        //
+        // This is the path that actually fires today, on every query: mt#4946
+        // records that `registerKnowledgeCommands` is invoked with no `deps`
+        // from its only production call site, so `vectorSearch` is always
+        // undefined. Naming that here is what makes the condition visible to
+        // the next person to run the command instead of only in a log line.
+        const degradedReason =
+          "knowledge.search: vector storage was not supplied to registerKnowledgeCommands " +
+          "(deps.vectorSearch is undefined), so no search was attempted — see mt#4946";
         log.warn("[knowledge.search] Vector storage not available, returning empty results");
         return {
           chunks: [],
@@ -156,6 +169,7 @@ export function registerKnowledgeCommands(
           redundancies: [],
           backend: "none" as const,
           degraded: true,
+          degradedReason,
         };
       }
 
