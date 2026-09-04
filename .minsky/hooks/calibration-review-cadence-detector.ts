@@ -337,6 +337,24 @@ export function formatCadenceWarning(due: ReviewDueLog[]): string {
         `Re-reviewing resets the watermark to the current count.`
       );
     }
+    // mt#4049: handled BEFORE the shared line, for the same reason the stranded
+    // leg is — the shared line quotes `injectedFiresSinceLastReview`, which this
+    // leg requires to be ZERO, so it would read "0 new fire(s)" about a log
+    // being reported as needing review. That fabricated zero is what mt#3197's
+    // deferral note predicted, and it is why this leg needed its own text
+    // rather than another label on the ternary.
+    //
+    // The question is also different in kind. Every other leg asks the reviewer
+    // to RATE fires; there are none here to rate. This asks whether the gate is
+    // too broad — which is what the suppressed count actually evidences.
+    if (d.reason === "all-suppressed") {
+      return (
+        `  - ${d.name}: suppressed ${d.suppressedSinceLastReview} of ` +
+        `${d.firesSinceLastReview} detection(s) and injected NONE — the detector is ` +
+        `running and the operator has seen nothing. Is this gate too broad? ` +
+        `Judge the suppressions, not a false-positive rate: there are no fires to rate.`
+      );
+    }
     const reasonLabel =
       d.reason === "past-threshold"
         ? "past review threshold (fires + diversity)"
