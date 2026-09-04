@@ -134,17 +134,87 @@ describe("buildFilterConditions", () => {
     expect(render(at(conditions, 1)).params).toEqual(["minsky"]);
   });
 
-  test("identifiers render UNQUOTED — the deliberate mt#4937 choice, guarded here", () => {
-    // This is the line mt#4944 is about. `dsql.raw(key)` renders `sourceName`
-    // bare, which Postgres folds to `sourcename`; `dsql.identifier(key)` would
-    // render `"sourceName"` and preserve the case. Both are wrong for today's
-    // knowledge caller (no such column exists either way), but they are wrong
-    // DIFFERENTLY, and mt#4937 deliberately kept the historical rendering so
-    // that mt#4944 changes one thing at a time. If someone "cleans this up",
-    // this test is the tripwire.
+  test("a bare identifier still renders UNQUOTED — the mt#4937 choice, guarded here", () => {
+    // `dsql.raw(key)` renders a bare key unquoted, which Postgres folds to
+    // lowercase; `dsql.identifier(key)` would quote it and preserve case.
+    // mt#4937 kept the historical unquoted rendering deliberately, and mt#4944
+    // resolved the knowledge caller at the CALLER (it now names the JSONB
+    // member) rather than by changing this. If someone "cleans this up", this
+    // test is the tripwire.
     const { sql } = render(at(buildFilterConditions({ sourceName: "minsky-design" }), 0));
     expect(sql).toContain("sourceName =");
     expect(sql).not.toContain('"sourceName"');
+  });
+});
+
+describe("buildFilterConditions — JSONB member targets (mt#4944)", () => {
+  test("a dotted key targets a JSONB member, with the member name BOUND not interpolated", () => {
+    // The whole defect: `sourceName` is a member of `metadata`, not a column.
+    // Naming it bare rendered `sourceName = $1`, folded to `sourcename`, and
+    // raised 42703 on every call.
+    const { sql, params } = render(
+      at(buildFilterConditions({ "metadata.sourceName": "minsky-design" }), 0)
+    );
+
+    expect(sql).toContain("metadata->>");
+    // The member name is a PARAMETER, so it never reaches the statement as
+    // text and cannot be case-folded or injected.
+    expect(sql).not.toContain("sourceName");
+    expect(params).toEqual(["sourceName", "minsky-design"]);
+  });
+
+  test("the column half of a dotted key is still identifier-validated", () => {
+    expect(() => buildFilterConditions({ "meta data.sourceName": "x" })).toThrow(
+      /refusing to render/
+    );
+    expect(() => buildFilterConditions({ "metadata;DROP TABLE x--.k": "v" })).toThrow(
+      /refusing to render/
+    );
+  });
+
+  test("a key with more than one dot, or an empty member, is refused rather than guessed at", () => {
+    // Nested access needs `#>>` and a path array; inventing a second syntax
+    // with no caller for it is speculative, so this fails loudly instead.
+    expect(() => buildFilterConditions({ "metadata.a.b": "x" })).toThrow(
+      /exactly one JSONB member/
+    );
+    expect(() => buildFilterConditions({ "metadata.": "x" })).toThrow(/exactly one JSONB member/);
+  });
+});
+
+describe("buildFilterConditions — array set membership (mt#4944)", () => {
+  test("an array value renders IN, not a scalar equality against an array", () => {
+    // Before mt#4944 this rendered `sources = $1` with the whole array bound to
+    // a scalar comparison — it matches nothing and reports no error, which is
+    // the silent-zero shape this task removes.
+    const { sql, params } = render(at(buildFilterConditions({ sources: ["a", "b"] }), 0));
+
+    expect(sql).toContain("sources IN (");
+    expect(sql).not.toContain("sources =");
+    expect(params).toEqual(["a", "b"]);
+  });
+
+  test("set membership composes with a JSONB member target — the real knowledge shape", () => {
+    const { sql, params } = render(
+      at(buildFilterConditions({ "metadata.sourceName": ["minsky-design", "other"] }), 0)
+    );
+
+    expect(sql).toContain("metadata->>");
+    expect(sql).toContain(" IN (");
+    expect(params).toEqual(["sourceName", "minsky-design", "other"]);
+  });
+
+  test("a single-element array still uses IN, so one and many behave the same way", () => {
+    const { sql, params } = render(at(buildFilterConditions({ sources: ["only"] }), 0));
+    expect(sql).toContain("sources IN (");
+    expect(params).toEqual(["only"]);
+  });
+
+  test("an empty array emits no predicate, symmetric with the *Exclude branch", () => {
+    // `IN ()` is a syntax error, and a CLI array flag yields `undefined` rather
+    // than `[]` when omitted — so an empty list is a degenerate input, not a
+    // request to match nothing.
+    expect(buildFilterConditions({ sources: [] })).toEqual([]);
   });
 });
 

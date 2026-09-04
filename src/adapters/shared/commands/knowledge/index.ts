@@ -18,7 +18,7 @@ import {
   type CommandDefinition,
 } from "../../command-registry";
 import { log } from "@minsky/shared/logger";
-import { getErrorMessage } from "@minsky/domain/errors/index";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import type { EmbeddingService } from "@minsky/domain/ai/embeddings/types";
 import type { VectorStorage } from "@minsky/domain/storage/vector/types";
 import type {
@@ -147,6 +147,19 @@ export function registerKnowledgeCommands(
 
       if (!vectorSearch) {
         // No vector storage — return degraded result immediately
+        // PR #3602 R1 (NON-BLOCKING), taken at the class level: the catch below
+        // carries a reason and this sibling degraded path did not, so the two
+        // most common ways for this command to return nothing were
+        // indistinguishable from an empty corpus and from EACH OTHER.
+        //
+        // This is the path that actually fires today, on every query: mt#4946
+        // records that `registerKnowledgeCommands` is invoked with no `deps`
+        // from its only production call site, so `vectorSearch` is always
+        // undefined. Naming that here is what makes the condition visible to
+        // the next person to run the command instead of only in a log line.
+        const degradedReason =
+          "knowledge.search: vector storage was not supplied to registerKnowledgeCommands " +
+          "(deps.vectorSearch is undefined), so no search was attempted — see mt#4946";
         log.warn("[knowledge.search] Vector storage not available, returning empty results");
         return {
           chunks: [],
@@ -156,6 +169,7 @@ export function registerKnowledgeCommands(
           redundancies: [],
           backend: "none" as const,
           degraded: true,
+          degradedReason,
         };
       }
 
@@ -199,7 +213,14 @@ export function registerKnowledgeCommands(
         const queryVector = await embeddingFn(params.query);
         const rawResults = await searchFn(queryVector, {
           limit,
-          filters: params.sources ? { sourceName: params.sources } : undefined,
+          // mt#4944: `sourceName` is a JSONB member of `knowledge_embeddings.metadata`,
+          // NOT a column. Naming it bare rendered `WHERE sourceName = $n`, which
+          // Postgres folds to `sourcename` and rejects with 42703 — and the catch
+          // below turned that throw into an empty result set, so this command has
+          // never returned anything when `--sources` was passed. The dotted form
+          // targets the member; the array does set membership rather than being
+          // bound to a scalar `=`.
+          filters: params.sources ? { "metadata.sourceName": params.sources } : undefined,
         });
 
         const chunks: ChunkResult[] = rawResults.map((r) => ({
@@ -292,7 +313,14 @@ export function registerKnowledgeCommands(
 
         return response;
       } catch (error) {
-        log.error("[knowledge.search] Search failed", { error: getErrorMessage(error) });
+        // mt#4944: `getLoggableErrorSummary`, not `getErrorMessage`. A
+        // DrizzleQueryError's `.message` is `Failed query: …` and the actual
+        // Postgres error — here the 42703 that made this command return nothing
+        // for its whole life — lives on `.cause`. Rendering `.message` alone
+        // would satisfy "a reason reaches the caller" while carrying none of
+        // the diagnosis, which is the defect this criterion exists to close.
+        const degradedReason = getLoggableErrorSummary(error);
+        log.error("[knowledge.search] Search failed", { error: degradedReason });
         return {
           chunks: [],
           freshness: {} as Record<ChunkId, ChunkFreshness>,
@@ -301,6 +329,10 @@ export function registerKnowledgeCommands(
           redundancies: [],
           backend: "none" as const,
           degraded: true,
+          // The reason travels WITH the payload. Without it a failed query and
+          // an empty corpus are byte-identical to every consumer, and the only
+          // record of which one happened is a log line the caller never reads.
+          degradedReason,
         };
       }
     },

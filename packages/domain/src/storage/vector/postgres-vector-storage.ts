@@ -24,15 +24,24 @@ export interface PostgresVectorStorageConfig {
  * return value, without a database or a spy on a collaborator this class
  * reaches itself (`testing-standards.mdc §Testable Design`).
  *
- * **`dsql.raw(key)` is deliberate and is NOT a cleanup target.** It reproduces
- * the historical unquoted identifier rendering exactly. Switching to
- * `dsql.identifier(key)` would quote it, which is a BEHAVIOR CHANGE: an
- * unquoted `sourceName` folds to `sourcename` in Postgres, a quoted one does
- * not. mt#4937 measured that today's only filtered caller depends on which of
- * those you pick — and gets an error either way, because there is no such
- * column at all. That is mt#4944's defect to fix, not this function's to
- * paper over; changing the rendering here would silently alter which error
- * that caller gets. Read mt#4937's `## Findings` before touching this line.
+ * **Two key forms (mt#4944).** A bare identifier (`status`) targets a COLUMN. A
+ * single-dotted key (`metadata.sourceName`) targets a JSONB member —
+ * `metadata->>'sourceName'` — with the member name BOUND as a parameter rather
+ * than interpolated, so only the column half is ever rendered as SQL text.
+ * The dotted form exists because a value can be indexed under a JSONB key and
+ * have no column of its own, which is exactly the shape that made
+ * `knowledge search --sources` unusable: it filtered on `sourceName`, which
+ * lives in `knowledge_embeddings.metadata` and is not a column, so Postgres
+ * folded the identifier to `sourcename` and raised 42703 on every call.
+ *
+ * This stays domain-agnostic per ADR-013 — "it filters by whatever column is
+ * named" — and simply widens "column" to "column or JSONB member". No
+ * knowledge-specific concept enters this layer.
+ *
+ * **Array values do SET MEMBERSHIP, not equality.** `{ status: ["A", "B"] }`
+ * renders `status IN ($1, $2)`. Before mt#4944 it rendered `status = $1` with
+ * an array bound to a scalar comparison, which matches nothing and reports no
+ * error — the silent-zero shape this task exists to remove.
  */
 export function buildFilterConditions(filters: Record<string, unknown> | undefined): SQL[] {
   const conditions: SQL[] = [];
@@ -56,7 +65,23 @@ export function buildFilterConditions(filters: Record<string, unknown> | undefin
       // would lose the wrong one. Only the suffix is the marker.
       const columnName = key.slice(0, -"Exclude".length);
       conditions.push(
-        dsql`${rawIdentifier(columnName)} NOT IN (${dsql.join(
+        dsql`${filterTarget(columnName)} NOT IN (${dsql.join(
+          value.map((v) => dsql`${v}`),
+          dsql`, `
+        )})`
+      );
+      continue;
+    }
+
+    // Set membership (e.g., sources: ['a', 'b']) — mt#4944.
+    if (Array.isArray(value)) {
+      // Symmetric with the exclusion branch above: an empty list is not a
+      // renderable predicate (`IN ()` is a syntax error), and restricting to
+      // nothing is not a request any caller can express through a CLI array
+      // flag, which yields `undefined` rather than `[]` when omitted.
+      if (value.length === 0) continue;
+      conditions.push(
+        dsql`${filterTarget(key)} IN (${dsql.join(
           value.map((v) => dsql`${v}`),
           dsql`, `
         )})`
@@ -65,10 +90,35 @@ export function buildFilterConditions(filters: Record<string, unknown> | undefin
     }
 
     // Regular equality filters (e.g., status: 'TODO')
-    conditions.push(dsql`${rawIdentifier(key)} = ${value}`);
+    conditions.push(dsql`${filterTarget(key)} = ${value}`);
   }
 
   return conditions;
+}
+
+/**
+ * The SQL expression a filter key targets: a column, or a JSONB member of one.
+ *
+ * `metadata.sourceName` becomes `metadata->>$n` with `"sourceName"` BOUND —
+ * the member name never reaches the statement as text, so the only injection
+ * surface is the column half, which {@link rawIdentifier} refuses unless it is
+ * a plain identifier. A key with more than one dot is refused rather than
+ * guessed at: nested JSONB access needs `#>>` and a path array, and inventing
+ * a second syntax here without a caller for it is speculative.
+ */
+function filterTarget(key: string): SQL {
+  const firstDot = key.indexOf(".");
+  if (firstDot === -1) return rawIdentifier(key);
+
+  const column = key.slice(0, firstDot);
+  const member = key.slice(firstDot + 1);
+  if (member.length === 0 || member.includes(".")) {
+    throw new Error(
+      `PostgresVectorStorage: refusing to render ${JSON.stringify(key)} as a filter target. ` +
+        `A dotted key addresses exactly one JSONB member, as "<column>.<member>".`
+    );
+  }
+  return dsql`${rawIdentifier(column)}->>${member}`;
 }
 
 /**
@@ -86,10 +136,17 @@ export function buildFilterConditions(filters: Record<string, unknown> | undefin
  *
  * Refusing is the right response rather than quoting. Quoting with
  * `dsql.identifier()` would accept the injection attempt and turn it into a
- * lookup of an absurd column name, and it would also change the folding
- * behavior mt#4944 depends on being left alone (see that task). A key that is
- * not an identifier is a programming error at the call site, and it should
- * fail loudly there.
+ * lookup of an absurd column name. A key that is not an identifier is a
+ * programming error at the call site, and it should fail loudly there.
+ *
+ * This function's unquoted rendering is now load-bearing for a second reason
+ * (mt#4944): it applies to the COLUMN half of a dotted key, where the value
+ * being addressed lives in a JSONB member rather than a column of its own.
+ * Quoting the column would not help that case and would break every existing
+ * caller whose column name is lowercase in the schema. The case-folding hazard
+ * that motivated the original warning here — `sourceName` folding to
+ * `sourcename` — is resolved at the CALLER (it now names `metadata.sourceName`
+ * and the member is bound, not folded), not by changing this rendering.
  */
 function rawIdentifier(name: string): SQL {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
