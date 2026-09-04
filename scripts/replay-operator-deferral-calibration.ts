@@ -24,7 +24,9 @@
  *
  *   bun scripts/replay-operator-deferral-calibration.ts [path-to-log]
  *
- * defaulting to this checkout's `.minsky/operator-deferral-calibration.jsonl`.
+ * defaulting to this checkout's `operator-deferral` calibration log under the
+ * runtime state dir (mt#4748 moved it off the working tree; mt#4971 re-pointed
+ * this reader at it).
  */
 
 import { existsSync, readFileSync } from "node:fs";

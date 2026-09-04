@@ -20,7 +20,7 @@
  *
  * ## What it does
  *
- * For every `bare-short-id` fire in `.minsky/bare-entity-ref-calibration.jsonl`,
+ * For every `bare-short-id` fire in this checkout's `bare-entity-ref` calibration log,
  * recover the judged message from that session's transcript (the last assistant
  * text block at or before the fire timestamp), re-run the scan, and apply the
  * suppression using bindings harvested from the same transcript. Reports how
