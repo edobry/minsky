@@ -163,6 +163,13 @@ const CALIBRATION_STREAMS: GuardEventStreamSource[] = [
   { stream: "retrospective-completeness", guardName: "retrospective-completeness" },
   { stream: "retrospective-trigger" }, // two guards share this log (scanner + turn-end-retro-scan)
   { stream: "silent-stretch", guardName: "silent-stretch" },
+  // Producer RETIRED 2026-09-04 (mt#4978, per ask#11629): `stop-at-decision-scan` is deleted, so
+  // this stream gains no new records. The row stays for the same reason `policy-coverage`'s does
+  // above — the log is deliberately retained on disk as the retirement's evidence (three
+  // calibration windows measuring 82% -> 92% -> ~85% false ARE the justification), and
+  // `getDeclaredCalibrationLogNames()` deliberately counts a retired producer as a DECLARATION
+  // (mt#4204), so removing the row makes the stream declared-but-unmanifested and fails
+  // `stream-manifest-coverage`. Ingest of the historical tail is unaffected.
   { stream: "stop-at-decision", guardName: "stop-at-decision" },
   { stream: "unescalated-incident", guardName: "turn-end-unescalated-incident-scan" },
   { stream: "untaken-action", guardName: "untaken-action" },
@@ -242,7 +249,6 @@ const EVALUATION_STREAMS: GuardEventStreamSource[] = [
   { stream: "operator-deferral-evaluations" },
   { stream: "retrospective-trigger-evaluations" },
   { stream: "silent-stretch-evaluations", guardName: "silent-stretch" },
-  { stream: "stop-at-decision-evaluations", guardName: "stop-at-decision" },
   // mt#4804: the five below were the evaluation half of the same gap.
   //
   // They were harder to find than their calibration siblings, and the reason is

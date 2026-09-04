@@ -526,7 +526,6 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_ACK_UNWALKED_TASK: "operator-override", // .claude/hooks/turn-end-unwalked-task-scan.ts (mt#3536) — override for the turn-end filed-but-unwalked-task Stop guard
   MINSKY_ACK_UNESCALATED_INCIDENT: "operator-override", // .claude/hooks/turn-end-unescalated-incident-scan.ts (mt#3593) — override for the turn-end operator-only-incident-without-severity-ask Stop guard
   MINSKY_SKIP_UNOWNED_FINDING_SCAN: "operator-override", // .claude/hooks/unowned-finding-scan.ts (mt#4246) — override for the log-only findings-section owner scan at the DONE transition
-  MINSKY_SKIP_STOP_AT_DECISION: "operator-override", // .claude/hooks/stop-at-decision-scan.ts (mt#3653) — override for the log-only turn-end stop-at-ripe-decision Stop scan
   MINSKY_ACK_BARE_PROHIBITION: "operator-override", // .claude/hooks/warn-bare-prohibition-dispatch.ts (mt#3162) — override for the bare-prohibition dispatch-prompt detector
   MINSKY_ACK_BARE_ENTITY_REF: "operator-override", // .claude/hooks/turn-end-bare-ref-scan.ts (mt#3286) — override for the turn-end bare/malformed entity-deeplink Stop guard
   // mt#4217 — sixteen vars the mt#1788 ESLint rule could not see for as long as

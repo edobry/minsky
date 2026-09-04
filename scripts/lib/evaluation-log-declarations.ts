@@ -75,7 +75,6 @@ export const EVALUATION_STREAM_PRODUCERS: Record<string, string> = {
   "secret-request-in-chat": ".minsky/hooks/secret-request-in-chat-detector.ts",
   "silent-stretch": ".minsky/hooks/silent-stretch-detector.ts",
   "spec-criterion-claim": ".minsky/hooks/spec-criterion-claim-detector.ts",
-  "stop-at-decision": ".minsky/hooks/stop-at-decision-scan.ts",
   "untaken-action": ".minsky/hooks/turn-end-untaken-action-scan.ts",
 };
 
