@@ -37,11 +37,12 @@
   ],
   "scripts": {
     "start": "bun run src/cli.ts",
-    "build": "rm -rf dist && bun run build:completion-manifest && bun run build:interceptor-catalog && bun build --target=bun --outdir=dist --entry-naming minsky.js --sourcemap=external --minify src/cli.ts && bun run build:mcp-shim && bun run build:copy-migrations && bun run build:copy-hooks && bun run cockpit:build && bun run build:copy-cockpit-web",
+    "build": "rm -rf dist && bun run build:completion-manifest && bun run build:interceptor-catalog && bun build --target=bun --outdir=dist --entry-naming minsky.js --sourcemap=external --minify src/cli.ts && bun run build:mcp-shim && bun run build:copy-migrations && bun run build:copy-rule-corpus && bun run build:copy-hooks && bun run cockpit:build && bun run build:copy-cockpit-web",
     "build:mcp-shim": "bun build --target=bun --outdir=dist --entry-naming mcp-shim.js --sourcemap=external --minify src/mcp/shim/entry.ts",
     "build:completion-manifest": "bun run scripts/build-completion-manifest.ts",
     "build:interceptor-catalog": "bun run scripts/build-interceptor-catalog.ts",
     "build:copy-migrations": "mkdir -p dist/storage/migrations && rm -rf dist/storage/migrations/pg && cp -r packages/domain/src/storage/migrations/pg dist/storage/migrations/pg",
+    "build:copy-rule-corpus": "mkdir -p dist/rules && rm -rf dist/rules/corpus && cp -r packages/domain/src/rules/corpus dist/rules/corpus",
     "build:copy-hooks": "bun scripts/build-copy-hooks.ts",
     "build:copy-cockpit-web": "mkdir -p dist && rm -rf dist/cockpit-web && cp -r src/cockpit/web/dist dist/cockpit-web",
     "generate:dockerfile-workspace-copies": "bun run scripts/generate-dockerfile-workspace-copies.ts",

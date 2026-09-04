@@ -6,9 +6,7 @@
 
 import nodeFs from "fs/promises";
 import path from "path";
-import { RuleService, type RuleFormat, type RuleServiceFs } from "../../rules";
-import { createRuleTemplateService } from "../rule-template-service";
-import { type RuleGenerationConfig } from "../template-system";
+import { RuleService, type RuleServiceFs } from "../../rules";
 import { readContentFromFileIfExists, parseGlobs } from "../../utils/rules-helpers";
 import type { CompileService } from "../compile/compile-service";
 import { unknownCompileTargetMessage } from "../compile/target-error-hint";
@@ -20,8 +18,6 @@ import type {
   CompileRulesTargetResult,
   GetRuleOptions,
   GetRuleResult,
-  GenerateRulesOptions,
-  GenerateRulesResult,
   CreateRuleOptions,
   CreateRuleResult,
   UpdateRuleOptions,
@@ -387,47 +383,17 @@ export async function getRule(options: GetRuleOptions): Promise<GetRuleResult> {
   return { success: true, rule };
 }
 
-// ─── Generate Rules ──────────────────────────────────────────────────────────
-
-/**
- * Generate rules from templates.
- */
-export async function generateRules(options: GenerateRulesOptions): Promise<GenerateRulesResult> {
-  const ruleTemplateService = createRuleTemplateService(options.workspacePath);
-  await ruleTemplateService.registerDefaultTemplates();
-
-  const config: RuleGenerationConfig = {
-    interface: (options.interface || "cli") as "cli" | "mcp" | "hybrid",
-    mcpEnabled: options.interface === "mcp" || options.interface === "hybrid",
-    mcpTransport: (options.mcpTransport || "stdio") as "stdio" | "http",
-    preferMcp: options.preferMcp || false,
-    ruleFormat: (options.format || "minsky") as RuleFormat,
-    outputDir:
-      options.outputDir ||
-      (options.format === "cursor"
-        ? ".cursor/rules"
-        : options.format === "generic"
-          ? ".ai/rules"
-          : ".minsky/rules"),
-  };
-
-  const selectedRules = options.rules ? options.rules.split(",").map((t) => t.trim()) : undefined;
-  const dryRun = options.dryRun || false;
-  const overwrite = options.overwrite || false;
-
-  const result = await ruleTemplateService.generateRules({
-    config,
-    selectedRules,
-    dryRun,
-    overwrite,
-  });
-  return {
-    success: result.success,
-    rules: result.rules,
-    errors: result.errors,
-    generated: result.rules.length,
-  };
-}
+// ─── Generate Rules — RETIRED (mt#4974 SC6) ──────────────────────────────────
+//
+// `generateRules` and the `rules generate` command it backed are gone with the
+// template system. Rules are no longer GENERATED from TypeScript string
+// templates at all: they ship as markdown in `packages/domain/src/rules/corpus`
+// and `init` copies the base tier into a project (`init/rule-corpus-scaffold.ts`).
+//
+// Nothing replaces the command, because nothing needed it. Its only real caller
+// was `init`, through a different function; as a user-facing command it rendered
+// templates that were unreachable under Claude Code and three of which carried
+// instructions for a `git approve` command that does not exist.
 
 // ─── Create Rule ─────────────────────────────────────────────────────────────
 

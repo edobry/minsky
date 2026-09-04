@@ -3,6 +3,10 @@ description: 'Use this when working with any command that outputs JSON, or when 
 alwaysApply: false
 tags:
   - tool-usage
+plane: product
+tier: opinionated
+minimumRung: T1
+onDemand: true
 ---
 # JSON Parsing Best Practices
 

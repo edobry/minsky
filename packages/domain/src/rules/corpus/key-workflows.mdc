@@ -1,0 +1,104 @@
+---
+name: Key Workflows
+description: Entry points for core Minsky skills - orchestrate, implement-task, merge-coordination, create-task.
+alwaysApply: true
+tags:
+  - minsky
+  - workflows
+plane: product
+tier: base
+minimumRung: T4
+---
+# Key Workflows (via skills)
+
+- **`/orchestrate`** — Full task lifecycle: selection, session, subagent dispatch, review, merge, completion
+- **`/implement-task`** — Implementation within a session: spec verification, coding, testing, PR creation
+- **`/merge-coordination`** — Coordinate merge after the `minsky-reviewer[bot]` review: watch for review, run smoke test, diagnose webhook-miss, bypass-merge bot-authored PRs.
+- **`/create-task`** — Task creation with structured spec (Summary, Success Criteria, Scope, Acceptance Tests)
+
+## Skill-chain semantics
+
+The canonical Minsky lifecycle chain is:
+
+```
+/create-task → /plan-task → /implement-task → /prepare-pr → merge
+```
+
+The `minsky-reviewer[bot]` reviews automatically on every PR push; no manual `/review-pr` invocation is needed. Use `/merge-coordination` when you need to check bot review status, diagnose reviewer-bot silence, or execute the bypass-merge path.
+
+Transitions between adjacent skills are **chain-walked by default**, NOT ceded to the user. When a skill reaches a successful hand-off point (e.g., `/plan-task` transitions a task to READY), the agent's default behavior is to invoke the next skill in the chain immediately. Stopping at the hand-off with "Use `/<next-skill>` to continue" wording is a failure mode (originating incident: 2026-05-11 `/plan-task mt#1725` sequence where the user said "proceed" three times in one session and the agent stopped each time).
+
+**Brief affirmatives at hand-off points** ("proceed", "continue", "go", "ok", "yes") mean: walk the chain forward, NOT acknowledge and stop. Per CLAUDE.md User Preferences ("Take direct action without asking: When the next step is clear, proceed immediately") this is the default in all modes.
+
+**Auto-walked transitions** (chain forward unless an explicit halt condition holds):
+
+- `/create-task` → `/plan-task` when the task was filed as **incident response** AND the response
+  was not scoped to filing (mt#2689, narrowed mt#3784). **Where the problem was raised does not
+  settle the second half** — this line read "a problem the user reported in the live conversation,
+  or one discovered during this conversation's work … filing is not the deliverable" and welded a
+  trigger to a conclusion. Read the verb aimed at YOU, not the verb inside the artifact: "file a
+  task to investigate X" makes investigation the task's CONTENT and filing your whole deliverable.
+  Three exemptions — name which when you stop:
+  - **Filed for later by design** — a background/tracking task.
+  - **Request-scope** — the instruction was to file it ("file a task to…", "make a task for…",
+    "track this"). No deferral language is needed for this to hold.
+  - **Incidental discovery** — a DIFFERENT task is this conversation's active thread and you found
+    this while working it. Default here is *keep working the primary thread and surface the filed
+    items at the close for routing* (`communication-contract.mdc §The terminal actionables block`),
+    NOT walk and not a bare stop. Walk only if it blocks the current deliverable's correctness or
+    would recur in this session's remaining work — a prose/doc fix meets neither.
+
+  Conversely, an ask answered in this conversation that authorized the work is evidence to WALK:
+  its "file tasks for X" phrasing names the record-keeping step, not a scope ceiling.
+- `/plan-task` → `/implement-task` on successful gate-pass (READY transition)
+- `/implement-task` §8 → §9 internally (PR created → drive to convergence)
+- `/implement-task` §9 reviewer-bot APPROVED → `session_pr_merge` (atomic DONE)
+- `/prepare-pr` → drive convergence (bot reviews automatically; watch via `session_pr_wait-for-review`)
+
+**Manual gate** (does NOT auto-walk, even in auto mode):
+
+- bot review → merge: a bot review never triggers merge automatically — no hook, watcher, or
+  review event calls `session_pr_merge` on your behalf. **The AGENT must invoke it explicitly.**
+  "Explicit invocation" means the agent makes the call deliberately; it does **NOT** mean asking
+  the principal for permission. An APPROVED review on the current HEAD with checks green **IS**
+  the authorization — `/implement-task` §9 lists "I'll wait for you to merge." among its
+  *forbidden turn-closers*, and `decision-defaults.mdc §User does not review PRs in the loop` says
+  to converge with the bot and surface at merge. Do not end a turn asking for merge authorization
+  on an approved, green PR: merge it, then report. The only legitimate reasons to stop are the
+  explicit halt conditions below (the destructive-action principle this carve-out cites is what
+  makes merge a deliberate call rather than an automatic side effect — not a consent requirement).
+
+**Explicit halt conditions** that override the chain-walk default at any transition:
+
+- The user said something during the prior step that explicitly defers the next step ("don't implement yet", "just plan it", "I'll handle the impl").
+- The current step surfaced a new blocking signal (failed gate criterion, dependency status mismatch, security concern).
+- The task is gated on a principal-owned decision — and you can NAME which reserved category from `principal-context.mdc §Decisions Eugene reserves` it falls under.
+
+**The third condition is a positive citation test (mt#3596).** State the category before halting on it: naming; architectural moves affecting customer experience or product surface; authorization for shared/production state changes; scope changes to in-flight work; vendor commitments; framework choices at principal-level stakes; preferences that set a durable default (a one-off preference call is yours to make). (Canonical source: `principal-context.mdc §Decisions Eugene reserves` — edit there first; this is a copy, and a test fails on divergence.) **If you cannot name one, it is not a principal decision and the chain walks.** Do not settle the question against the illustrative list below — an enumeration of bad reasons is defeated by a novel bad reason, which is how R5 passed it (mem#367). A rationale naming no category is low confidence, missing information, or a decision that is simply yours: say the first plainly and work more carefully, run the lookup for the second (`/classify-before-deferring`), make the third. **Low confidence is not a delegation boundary** — after a failure, "this is your call" is the failure talking.
+
+**Naming a category is necessary and NOT sufficient — cite the reserving ACT (mt#3855).** A
+reservation needs **principal provenance**: a quoted principal message, an ask response, or the LABEL
+of an option the principal explicitly selected. **Agent-authored artifact text is NOT provenance** —
+not a spec criterion, not an option's description or preview, not a PR body, not a memory; citing your
+own prose as a decision record is self-citation (`claim-confidence.mdc §The corpus is
+agent-authored`). Corollary: **selecting an option endorses its LABEL**, not a side-commitment buried
+in the preview text you wrote.
+
+**The first condition is a positive citation test too (mt#3855).** Quote the principal's words AND
+name which step the quote defers — its three examples each name the step outright. **A request to
+EXPLAIN is not a deferral of the work being explained**, so it does not hold and the chain walks.
+
+**A quote must SUPPORT the claim — either condition.** A genuine quote that does not say what the
+citation asserts fails the test; read it back before halting on it.
+
+Worked counter-examples for all three (R6 fabricated the reservation; R8 mis-cited a real quote):
+`/plan-task` Step 4.
+
+**Confabulated halt rationales** (illustrative, NOT the test — each names no category):
+
+- "Planning is the skill's scope; implementation is a separate skill."
+- "User might want to review the gate report before I proceed."
+- "The next move is user-driven."
+- "Re-attempting the change that took production down is your call." (R5, 2026-08-03 — the halt stood until the principal asked "sorry, what's my decision?")
+
+**Tracking task:** mt#1478. Status as of 2026-05-11: `/plan-task` Step 4's chain-walk amendment shipped; the analogous amendments to `/implement-task`, `/prepare-pr`, `/merge-coordination` SKILL exit texts are deferred until recurrence patterns at those boundaries justify the change. The bridge memory `feedback_auto_mode_chains_skills_at_affirmative_tokens` (id `4b83ff51`) covers the discipline at boundaries not yet structurally amended.

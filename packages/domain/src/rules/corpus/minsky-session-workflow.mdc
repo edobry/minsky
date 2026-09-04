@@ -1,0 +1,78 @@
+---
+name: Minsky Session Workflow
+description: How work actually happens in Minsky - isolated session workspaces, the status lifecycle, and reaching a merge through the reviewer.
+alwaysApply: true
+plane: product
+tier: base
+minimumRung: T1
+tags:
+  - minsky
+  - workflow
+---
+# Working in a Minsky session
+
+Minsky runs each task in its own **session workspace** — a full git clone on its own
+branch, created for that task and thrown away after the merge. This is the one piece of
+Minsky an agent has to understand to be useful in a project it manages.
+
+## Never edit the main workspace
+
+Start a session before changing anything:
+
+```
+minsky session start --task <taskId>
+```
+
+Every edit for that task then happens inside the session, addressed by its session id
+plus a path relative to the session root. The main checkout stays clean, so two tasks
+can be in flight without touching each other's files.
+
+If you find an unrelated bug while working a task, **file a separate task for it** rather
+than fixing it in this session. A session's diff should be readable as one change.
+
+## The status lifecycle
+
+```
+TODO → PLANNING → READY → IN-PROGRESS → IN-REVIEW → DONE
+```
+
+You set the early ones deliberately. The last one you never set:
+
+| Transition | What causes it |
+| --- | --- |
+| → IN-PROGRESS | starting the session |
+| → IN-REVIEW | **creating the PR** — not before it |
+| → DONE | **the merge, automatically** |
+
+**Never set DONE by hand.** It is set when the PR merges, and setting it yourself skips
+review, CI, and integration verification while leaving the task looking finished. The
+same goes for IN-REVIEW: it means "a PR exists," so setting it while you are still
+writing code makes the board lie about what is waiting on a human.
+
+## Reaching a merge
+
+Create the PR from the session:
+
+```
+minsky session pr create --title "<what changed>"
+```
+
+`minsky-reviewer[bot]` reviews automatically on every push — there is no command to
+request a review and no human queued behind it. Read its findings, push fixes to the
+same branch, and let it re-review. When it approves and checks are green, merge:
+
+```
+minsky session pr merge --task <taskId>
+```
+
+An approving review on the current head with green checks **is** the authorization to
+merge; the merge itself is still an explicit call you make, not something the approval
+triggers on your behalf.
+
+## Two things that are easy to get wrong
+
+- **Verify outcomes, not commands.** A command exiting 0 means it ran, not that it did
+  what you wanted. Read the state back — re-query the setting, re-read the file, count
+  the rows.
+- **Commit as you go.** A session that saves everything for one final commit loses the
+  history that makes a review tractable.

@@ -1,0 +1,74 @@
+---
+name: operational-safety-dry-run-first
+description: REQUIRED principle for destructive operations; default to dry-run and require explicit --execute to apply
+globs:
+  - src/**/*.ts
+  - src/**/*.md
+  - '**/package.json'
+alwaysApply: true
+tags:
+  - safety
+plane: product
+tier: base
+minimumRung: T1
+---
+# Operational Safety: Dry-Run First
+
+Keep potentially destructive operations safe by default.
+
+## Requirements
+- Default to preview/dry-run; perform changes only when user passes an explicit `--execute` flag.
+- Reflect this behavior in CLI help, docs, and package scripts.
+- Show a clear preview plan for what would happen before applying.
+- Provide a follow-up example with `--execute`.
+
+## Bulk shared-state mutations require a task wrapper (mt#2785)
+
+Any bulk mutation of shared/production state — a data migration, a backfill, a
+sweep that writes, any operation touching **more than 10 records** (strictly
+>10) — must be wrapped in a Minsky task (the `state-ops` kind fits no-code
+operations) BEFORE execution, so the planning gates fire: spec-read, gate (l)
+authoritative-source/decision-record check, and premise checks. Inline
+execution from a conversation is limited to individually audited operations
+at or below that threshold — e.g., the originating session's 5 single-task
+`tasks_edit --kind` corrections were appropriate inline; its 116-row script
+UPDATE was not. The threshold is grounded in observed cadence (per
+`decision-defaults §Thresholds`): routine audited inline operations in this
+project run 1–5 records; double digits is migration territory.
+
+A script existing under `scripts/` is NOT evidence the operation is still
+sanctioned — mechanisms are described by docs but sanctioned by decision
+records (RFC / ADR / memory). Before `--execute`, locate and read the
+governing decision record for the mechanism; if none exists, say so
+explicitly in the task spec.
+
+## Dry-run scope-match check (mt#2785)
+
+The dry-run is not only a preview of WHAT changes — it is a check of HOW MUCH
+changes against what the operator approved. Before `--execute`:
+
+- Compare the dry-run's change magnitude to the operator-approved scope.
+- Divergence beyond ~2x, or any divergence in the KIND of change, is a STOP:
+  re-confirm with the operator, citing both numbers ("you approved ~15
+  reclassifications; the dry-run proposes 136").
+- Approval of an operation at one magnitude is not approval at 9x. "The
+  heuristic knows more than my estimate" is the rationalization to refuse.
+
+Originating incident + cost: `docs/rules-rationale/operational-safety-dry-run-first.md
+§Dry-run scope-match check`.
+
+## Sanctioned primitives for bulk task mutation and set-diff (mt#2819)
+
+Prefer these over hand-rolled scripts, raw SQL, or `jq`/`comm` pipelines: **`tasks_bulk-edit`**
+(dry-run returns a per-record change set + a token; execute requires that token and ABORTS on
+drift since the dry-run — the scope-match check above, enforced in code) and **`refs_status`**
+(id-set cross-reference — task ids, PR numbers, and asks / memories / workspaces by either their
+`ask#N` / `mem#N` / `ws#N` short id or their uuid — in ONE call, replacing hand-rolled
+`jq`/`comm` pipelines that have contained real bugs). The >10-record task-wrapper requirement
+still applies to the operation as a whole. Mechanics:
+`docs/rules-rationale/operational-safety-dry-run-first.md §Sanctioned primitives`.
+
+## Cross-References
+- See `persistence.migrate` behavior and other commands using `--execute` semantics.
+- `tasks_bulk-edit` / `refs_status` (mt#2819) — the sanctioned bulk-mutation + set-diff primitives.
+- mt#2823 — approved-Ask ↔ harness-permission bridge (grants bind to the dry-run token).

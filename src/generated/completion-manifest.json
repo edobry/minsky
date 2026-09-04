@@ -4510,61 +4510,6 @@
           "commandId": "rules.get"
         },
         {
-          "name": "generate",
-          "description": "Generate new rules from templates",
-          "options": [
-            {
-              "flags": ["--interface"],
-              "description": "Interface preference for generated rules (cli, mcp, or hybrid)",
-              "takesValue": true,
-              "values": ["cli", "mcp", "hybrid"]
-            },
-            {
-              "flags": ["--rules"],
-              "description": "Comma-separated list of specific rule templates to generate (if not specified, generates all available templates)",
-              "takesValue": true
-            },
-            {
-              "flags": ["--output-dir"],
-              "description": "Output directory for generated rules (defaults to .cursor/rules for cursor format, .ai/rules for openai format)",
-              "takesValue": true
-            },
-            {
-              "flags": ["--dry-run"],
-              "description": "Show what would be generated without actually creating files"
-            },
-            {
-              "flags": ["--overwrite"],
-              "description": "Overwrite existing resources if they exist"
-            },
-            {
-              "flags": ["--format"],
-              "description": "Format of the rule file (cursor, generic, minsky)",
-              "takesValue": true,
-              "values": ["cursor", "generic", "minsky"]
-            },
-            {
-              "flags": ["--prefer-mcp"],
-              "description": "In hybrid mode, prefer MCP commands over CLI commands"
-            },
-            {
-              "flags": ["--mcp-transport"],
-              "description": "MCP transport method (only relevant when interface is mcp or hybrid)",
-              "takesValue": true,
-              "values": ["stdio", "http"]
-            },
-            {
-              "flags": ["--json"],
-              "description": "Output in JSON format"
-            },
-            {
-              "flags": ["--debug"],
-              "description": "Enable debug output"
-            }
-          ],
-          "commandId": "rules.generate"
-        },
-        {
           "name": "create",
           "description": "Create a new rule",
           "options": [

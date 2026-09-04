@@ -199,25 +199,6 @@ export interface GetRuleResult {
 
 // ─── Generate Rules ──────────────────────────────────────────────────────────
 
-export interface GenerateRulesOptions {
-  workspacePath: string;
-  interface?: "cli" | "mcp" | "hybrid";
-  rules?: string;
-  outputDir?: string;
-  dryRun?: boolean;
-  overwrite?: boolean;
-  format?: RuleFormat;
-  preferMcp?: boolean;
-  mcpTransport?: "stdio" | "http";
-}
-
-export interface GenerateRulesResult {
-  success: boolean;
-  rules: unknown[];
-  errors: unknown[];
-  generated: number;
-}
-
 // ─── Create Rule ─────────────────────────────────────────────────────────────
 
 export interface CreateRuleOptions {
