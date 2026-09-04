@@ -44,8 +44,17 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { detectCodeMechanismAssertion } from "../.minsky/hooks/code-mechanism-assertion-detector";
 import { hasJudgedInputCapture } from "../.minsky/hooks/judged-input-capture";
+import { calibrationLogPath } from "../.minsky/hooks/dispatcher";
 
-const DEFAULT_LOG = ".minsky/code-mechanism-assertion-calibration.jsonl";
+/**
+ * mt#4971: resolved through the WRITER's own function rather than the pre-mt#4748
+ * repo path, which no longer exists — reading it produced a SKIP that looked like
+ * "no records" rather than "wrong location". `fallbackCwd` (not `projectDir`) keeps
+ * the resolver's `CLAUDE_PROJECT_DIR` tier ahead of this checkout.
+ */
+const DEFAULT_LOG = calibrationLogPath("code-mechanism-assertion", {
+  fallbackCwd: resolve(import.meta.dir, ".."),
+});
 
 type Verdict = "same" | "changed" | "partial" | "unrecoverable";
 
