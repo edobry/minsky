@@ -47,7 +47,8 @@ separate change, deliberately not made here (`transcript.ts` was in flight on mt
 
 ## Denominator
 
-A small hardcoded `KNOWN_MODEL_WINDOWS` keyed on `message.model`, with a conservative fallback.
+A small hardcoded `KNOWN_MODEL_WINDOWS` keyed on `message.model` — matched on the exact id first,
+then on the id with trailing numeric segments stripped — with a conservative fallback.
 
 Deliberately NOT `packages/domain/src/ai/model-cache/model-limits-catalog.ts`: that module fetches
 ~1.6MB over the network with a 20s timeout. Correct for AI-completion routing, far outside the
@@ -57,6 +58,32 @@ The 1M figures are **empirical, not vendor-documented** — `claude-opus-5`, `cl
 `claude-fable-5` each cluster against a ~999K ceiling before a hard reset across 553 local
 transcripts. `claude-sonnet-5` was never observed above 222,427 locally, too small a sample to pin,
 so it is absent and takes the fallback.
+
+**The suffix retry (mt#4968).** The table is keyed on a FAMILY id, but a shipped model id often
+carries a release suffix on top of one — `claude-fable-5-1`, or a dated `claude-opus-5-20260101`.
+Exact-match alone therefore missed a model whose family was already in the table, and it missed
+SILENTLY: the fallback returns a number, not an error, so the reading looked ordinary. It cost
+more than the "one noticeable line" the paragraph below budgets for — `claude-fable-5-1` ran a
+conversation to 308,060 tokens and the gauge reported 154% of a 200K window; the agent relayed the
+figure to the principal as fact and recommended a checkpoint on it, and the principal caught it
+against Claude Code's own status line.
+
+`resolveWindow` now retries after stripping trailing all-digits segments, one at a time, until the
+id has none left. Every value it can return still comes from a key already in the table, so it
+cannot invent a window for an unmeasured family: `claude-sonnet-5-1` strips to the deliberately
+absent `claude-sonnet-5` and still takes the fallback, and `claude-zeta-9` strips to `claude-zeta`
+and does the same. Only a fully numeric final segment is stripped, so a `-preview`-style variant
+falls back rather than inheriting a window it may not share. A resolution reached by stripping is
+reported as `known-model`, because the WINDOW is measured — `windowSource` is about the
+denominator's provenance, not the id's spelling.
+
+`claude-fable-5-1` was also added to the table outright, on the same empirical basis as the other
+entries: re-measured 2026-09-04 over the transcripts then on disk, max observed fill **980,707**
+across 1,284 records. That is a direct measurement of the id, not an inheritance from its family.
+The same pass measured `claude-opus-4-7` at 227,887 over 169 records and `claude-sonnet-5` at
+157,325 over 55; both remain absent for the sample-size reason above, and both figures come from a
+smaller corpus than the 553 transcripts cited earlier (reaped conversations are gone from disk), so
+they are a second reading rather than a correction of it.
 
 **The fallback is small on purpose.** The two errors are not symmetric: under-estimating the window
 over-reports fill, costing one noticeable line; over-estimating it under-reports fill, costing the
@@ -162,10 +189,20 @@ Done at ship, recorded here so a later reader does not redo them:
 
 - **Registered in both `guard-feedback-shape.test.ts` receipts** — the producing-guard list and the
   growth-shape map, classified `"capped"` rather than `"fixed"`. Measured 2026-08-18: 269 chars on a
-  known model, 355 on the unknown-model path, which appends `assumed (model <id> not in the window
-table)` and therefore grows with the MODEL ID's length. Every other interpolation is a number, so
-  the declared `attentionCost: 400` is a measured ceiling against a realistic id rather than a proved
-  bound. If a longer id ever becomes plausible, cap the id in the render or declare a `renderProbe`;
+  known model, 355 on the unknown-model path, which appended `assumed (model <id> not in the window
+table)` and therefore grew with the MODEL ID's length. Every other interpolation is a number, so
+  the declared `attentionCost: 400` was a measured ceiling against a realistic id rather than a
+  proved bound, and this entry closed by naming the remedy: cap the id in the render or declare a
+  `renderProbe`.
+
+  **Both were done, by mt#4968** — the follow-up this paragraph was written to invite. The id is now
+  capped at `MAX_RENDERED_MODEL_ID_CHARS` (40), which removes the only unbounded axis, and
+  `renderWorstCase()` is wired as the entry's `renderProbe`. The declaration is now **450** against a
+  probe-measured worst case of **422** (271 on the ordinary known-model path). The number moved for a
+  second reason as well: mt#4968 lengthened the fallback branch so the ESTIMATED marker reaches the
+  PERCENTAGE rather than sitting on the denominator. Raising it was checked against the shared
+  per-turn budget rather than assumed safe — the guard does not enter the top-five conditional bucket
+  `MERGED_CONTEXT_BUDGET_CHARS` is derived from, and the mt#3394 budget test passes at 450;
 
 - **Canary `expects: "warn"`**, not `"calibration"`. That is the stronger assertion: `"calibration"`
   passes on both sides of the `INJECTION_ENABLED` branch, so it could not catch injection silently

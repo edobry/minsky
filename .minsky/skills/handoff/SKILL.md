@@ -30,7 +30,12 @@ Optional: a hint about what to focus on (e.g., "for next agent," "summarize the 
   - Conversation has shipped **3+ PRs** in this session
   - Conversation has run **2+ retrospectives**
   - Conversation has hit **2+ MCP disconnects** (operational friction signal)
-  - Compaction warning fires or context-density indicators surface
+  - Compaction warning fires or context-density indicators surface — but NOT on a reading marked
+    `ESTIMATED`, which means the gauge could not identify the model's context window and is
+    measuring against an assumed one that may be several times too small (mt#4968). Such a
+    reading is not evidence of anything; re-read it against Claude Code's own status line
+    (`context_window.used_percentage`) before treating it as a trigger, and never relay the
+    figure to the principal as fact.
   - User signals end-of-session intent ("stopping here," "let's pick this up later," "I need to step away")
 - **Skip** if the conversation is short and single-purpose (one PR shipped, one task done) — a normal end-of-turn summary suffices, not a full handoff.
 
