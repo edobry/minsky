@@ -315,8 +315,10 @@ export async function fetchPullRequestContext(
         filesWithoutPatch: reconstructed.filesWithoutPatch.length,
         // Named, not just counted: a file whose content GitHub withheld is one
         // the reviewer is reviewing blind, and the operator should be able to
-        // see which (mt#3018 is the sibling cap that causes it).
-        withheld: reconstructed.filesWithoutPatch,
+        // see which (mt#3018 is the sibling cap that causes it). Bounded to 20
+        // (PR #3609 R1) — the full count is on the line above, and an unbounded
+        // array here could be thousands of paths on a large PR.
+        withheld: reconstructed.filesWithoutPatch.slice(0, 20),
       }
     );
   }

@@ -78,8 +78,9 @@ export interface DiffReconstruction {
  * `"Sorry, the diff exceeded the maximum number of files (300). …:
  * {\"resource\":\"PullRequest\",\"field\":\"diff\",\"code\":\"too_large\"}"`).
  * The message check is the fallback for wrappers that drop the structured
- * response, and it cannot over-match on its own because the 406 is still
- * required.
+ * response. It matches the SERIALIZED `"code":"too_large"` pair rather than a
+ * bare `too_large` substring (PR #3609 R1) — the loose form would also match a
+ * message that merely mentions the token. The 406 is required either way.
  */
 export function isDiffTooLargeError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -104,7 +105,12 @@ export function isDiffTooLargeError(err: unknown): boolean {
     if (coded) return true;
   }
 
-  return err.message.includes("too_large");
+  // PR #3609 R1: match the SERIALIZED error object Octokit appends to the
+  // message, not a bare "too_large" substring. The loose form would also match
+  // a message that merely mentions the token — a quoted upstream error, a PR
+  // title — and a false positive here silently degrades a review that should
+  // have failed loudly.
+  return /"code"\s*:\s*"too_large"/.test(err.message);
 }
 
 /**
@@ -151,6 +157,14 @@ export function reconstructDiff(entries: readonly PrFileEntry[]): DiffReconstruc
 
     parts.push(`diff --git a/${previous} b/${entry.filename}`);
 
+    // Header pair is emitted for EVERY file, patch or not (PR #3609 R1), so
+    // each block has the same shape and a consumer cannot mistake a patch-less
+    // entry for a malformed one. With no `@@` following, the parser sets the
+    // current file and never enters a hunk, so it offers no anchors — which is
+    // correct for content it was not shown.
+    parts.push(`--- ${left}`);
+    parts.push(`+++ ${right}`);
+
     if (entry.patch === undefined || entry.patch === "") {
       filesWithoutPatch.push(entry.filename);
       parts.push(
@@ -160,8 +174,6 @@ export function reconstructDiff(entries: readonly PrFileEntry[]): DiffReconstruc
       continue;
     }
 
-    parts.push(`--- ${left}`);
-    parts.push(`+++ ${right}`);
     // GitHub's `patch` starts at the first `@@` hunk header and carries no
     // trailing newline, so the join below supplies the separator.
     parts.push(entry.patch);

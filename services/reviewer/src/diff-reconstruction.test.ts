@@ -74,6 +74,14 @@ describe("isDiffTooLargeError", () => {
     expect(isDiffTooLargeError(octokitError(403, "too_large"))).toBe(false);
   });
 
+  test("does NOT match a 406 whose message only MENTIONS too_large (PR #3609 R1)", () => {
+    // The fallback matches the serialized `"code":"too_large"` pair, not a bare
+    // substring. A message that merely mentions the token — a quoted upstream
+    // error, a PR title — must not route here, because a false positive
+    // silently degrades a review that should have failed loudly.
+    expect(isDiffTooLargeError(octokitError(406, "upstream said too_large, retrying"))).toBe(false);
+  });
+
   test("does NOT match non-errors", () => {
     expect(isDiffTooLargeError(undefined)).toBe(false);
     expect(isDiffTooLargeError({ status: 406, message: "too_large" })).toBe(false);
