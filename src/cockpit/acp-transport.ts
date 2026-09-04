@@ -235,6 +235,14 @@ interface AcpProcState {
    * through `processError`/`processExited`.
    */
   setupFailure: DriverTransportFailure | null;
+  /**
+   * The pending grace-window timer armed by the `connection.closed` watcher
+   * (mt#4943 PR #3612 R1) — non-null only while waiting to see whether
+   * `exit`/`error` arrives before `closedGraceMs` elapses. Cleared (and
+   * nulled) by the `exit`/`error` handlers and by `stop()`/teardown so a
+   * stray timer can never fire after the process is already accounted for.
+   */
+  closedGraceTimer: ReturnType<typeof setTimeout> | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -275,9 +283,24 @@ export interface AcpTransportOptions {
   /** Stable per-process identity for the `requestor` field on a created ask
    * (ADR-006 AgentId format). Defaults to a fixed cockpit-daemon identity. */
   requestorAgentId?: string;
+  /**
+   * How long, after the ACP `connection.closed` promise resolves, to wait
+   * for the child's OWN `exit`/`error` event before concluding the
+   * connection died with no such event ever coming (mt#4943 PR #3612 R1,
+   * test seam). A dying child closes its stdout — ending the SDK's receive
+   * loop and resolving `closed` — before Node fires the `ChildProcess`
+   * `exit` event, so without this grace window the `closed` watcher would
+   * routinely win the race and report a `processError` moments before the
+   * more specific, exit-code-carrying `processExited` arrives: two terminal
+   * events for one process death. Defaults to 500ms.
+   */
+  closedGraceMs?: number;
 }
 
 const DEFAULT_REQUESTOR_AGENT_ID = "minsky.cockpit:proc:acp-transport";
+
+/** Default {@link AcpTransportOptions.closedGraceMs} — see that option's doc comment. */
+const DEFAULT_CLOSED_GRACE_MS = 500;
 
 /**
  * Lazy, cached SQL handle for the production `createAskRepository` default —
@@ -311,6 +334,7 @@ export class AcpTransport implements DriverTransport {
   private readonly getAnthropicApiKey: () => string | null;
   private readonly createAskRepository: () => Promise<AskRepository | null>;
   private readonly requestorAgentId: string;
+  private readonly closedGraceMs: number;
   private readonly procState = new WeakMap<ProcessLike, AcpProcState>();
 
   constructor(opts: AcpTransportOptions = {}) {
@@ -320,6 +344,7 @@ export class AcpTransport implements DriverTransport {
     this.getAnthropicApiKey = opts.getAnthropicApiKey ?? readConfiguredAnthropicApiKey;
     this.createAskRepository = opts.createAskRepository ?? defaultCreateAskRepository;
     this.requestorAgentId = opts.requestorAgentId ?? DEFAULT_REQUESTOR_AGENT_ID;
+    this.closedGraceMs = opts.closedGraceMs ?? DEFAULT_CLOSED_GRACE_MS;
   }
 
   // -------------------------------------------------------------------------
@@ -428,6 +453,7 @@ export class AcpTransport implements DriverTransport {
       attached: false,
       closed: false,
       setupFailure: null,
+      closedGraceTimer: null,
     });
 
     return { ok: true, proc, argv: [agentCommand.command, ...agentCommand.args] };
@@ -492,6 +518,7 @@ export class AcpTransport implements DriverTransport {
     this.bindEventHandlers(state, proc, onEvent);
 
     proc.on("error", (err: Error) => {
+      this.clearClosedGraceTimer(state);
       const isEnoent = (err as NodeJS.ErrnoException).code === "ENOENT";
       const crashError = isEnoent
         ? `Failed to start ACP agent (${state.harnessKind}): not found — is it on PATH? (${err.message})`
@@ -501,6 +528,7 @@ export class AcpTransport implements DriverTransport {
     });
 
     proc.on("exit", (code, signal) => {
+      this.clearClosedGraceTimer(state);
       const crashErrorBase = `ACP agent (${state.harnessKind}) exited with code=${
         code ?? "null"
       } signal=${signal ?? "null"}`;
@@ -508,26 +536,50 @@ export class AcpTransport implements DriverTransport {
       this.failSetup(state, proc, crashErrorBase);
     });
 
-    // mt#4943 SC1 — a connection can close (its underlying stream ending)
-    // without EITHER of the two process-level listeners above ever firing
-    // (see this module's `## Does NOT cover` sibling in the mt#4943 spec for
-    // the one theoretical `ndJsonStream` race this guards against). `closed`
-    // is documented by the SDK as a promise that only ever RESOLVES, never
-    // rejects (see the module docblock's `## Wire protocol` section) — the
-    // `.catch` below is defensive only, in case a future SDK version
-    // disagrees with its own current contract.
+    // mt#4943 SC1/PR #3612 R1 — a connection can close (its underlying
+    // stream ending) without EITHER of the two process-level listeners
+    // above ever firing (see this module's `## Does NOT cover` sibling in
+    // the mt#4943 spec for the one theoretical `ndJsonStream` race this
+    // guards against). `closed` is documented by the SDK as a promise that
+    // only ever RESOLVES, never rejects (see the module docblock's `## Wire
+    // protocol` section) — the `.catch` below is defensive only, in case a
+    // future SDK version disagrees with its own current contract.
+    //
+    // A dying child closes its stdout (ending the SDK's receive loop and
+    // resolving `closed`) BEFORE Node fires the `exit` event — so reporting
+    // immediately on `closed` would routinely race ahead of the more
+    // specific, exit-code-carrying `processExited` and produce TWO terminal
+    // events for one process death (PR #3612 R1). Arm a `closedGraceMs`
+    // timer instead: if `exit`/`error`/`stop()` arrives first, it clears the
+    // timer and this watcher never fires at all; only if the window elapses
+    // with neither having arrived do we conclude the connection died with no
+    // process-level signal and report it ourselves.
     state.connection.closed
       .then(() => {
         if (state.setupFailure || state.closed) return;
-        const crashError = `ACP connection closed unexpectedly (${state.harnessKind})`;
-        onEvent({ kind: "processError", crashError });
-        this.failSetup(state, proc, crashError);
+        const timer = setTimeout(() => {
+          state.closedGraceTimer = null;
+          if (state.setupFailure || state.closed) return;
+          const crashError = `ACP connection closed unexpectedly (${state.harnessKind})`;
+          onEvent({ kind: "processError", crashError });
+          this.failSetup(state, proc, crashError);
+        }, this.closedGraceMs);
+        timer.unref?.();
+        state.closedGraceTimer = timer;
       })
       .catch(() => {
         // Defensive only — see comment above.
       });
 
     void this.runInitAndSession(state, proc, onEvent);
+  }
+
+  /** Clears (and nulls) {@link AcpProcState.closedGraceTimer} — see that
+   * field's doc comment. Idempotent: a no-op when no timer is armed. */
+  private clearClosedGraceTimer(state: AcpProcState): void {
+    if (state.closedGraceTimer === null) return;
+    clearTimeout(state.closedGraceTimer);
+    state.closedGraceTimer = null;
   }
 
   /**
@@ -828,6 +880,10 @@ export class AcpTransport implements DriverTransport {
     const state = this.procState.get(proc);
     if (!state || state.closed) return;
     state.closed = true;
+    // mt#4943 PR #3612 R1 — a graceful stop is not a connection death worth
+    // reporting; cancel any pending `closed`-watcher grace timer so it can
+    // never fire (and emit a spurious `processError`) after this point.
+    this.clearClosedGraceTimer(state);
 
     const teardown = (): void => {
       try {

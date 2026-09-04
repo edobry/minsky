@@ -588,6 +588,159 @@ describe("AcpTransport — pre-turn failures never escape as an unhandledRejecti
   });
 });
 
+describe("AcpTransport — connection.closed vs exit/error race (mt#4943 PR #3612 R1)", () => {
+  /** Kept small so these tests run fast; the transport's own default
+   * (`DEFAULT_CLOSED_GRACE_MS`) is production-sized, not test-sized. */
+  const GRACE_MS = 30;
+
+  test("exit() arriving within the grace window wins — exactly one processExited, zero processError", async () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const transport = new AcpTransport({
+      spawnFn,
+      getOpenAiApiKey: () => "sk-fake-openai",
+      closedGraceMs: GRACE_MS,
+    });
+
+    const spawnResult = transport.spawn({
+      cwd: TEST_CWD,
+      permissionMode: BYPASS_PERMISSIONS,
+      authMode: "api-key",
+      harnessKind: "codex",
+    });
+    expect(spawnResult.ok).toBe(true);
+    if (!spawnResult.ok) return;
+
+    const proc = first(calls).proc;
+    // The FULL script (answers session/new) — a request still PENDING when
+    // the connection closes rejects via the SDK's OWN pending-response
+    // cleanup (`close()` rejects every in-flight request), which reaches
+    // `runInitAndSession`'s catch directly and is a different path than the
+    // `connection.closed` watcher this test targets. Waiting for the
+    // session to be established first (below) leaves nothing pending, so
+    // closing stdout exercises ONLY the watcher.
+    scriptFakeAgent(proc);
+
+    const unhandled: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    const procEmitter = processUnhandledRejectionEmitter();
+    procEmitter.on(UNHANDLED_REJECTION_EVENT, onUnhandledRejection);
+
+    try {
+      const events: DriverTransportEvent[] = [];
+      transport.attach(spawnResult.proc, TEST_CWD, (event) => events.push(event));
+      await waitFor(() => events.some((e) => e.kind === HARNESS_SESSION_DISCOVERED));
+
+      // Ending stdout resolves the SDK's `connection.closed` (the receive
+      // loop sees EOF) — a dying child's own `exit` event typically arrives
+      // shortly after, well inside the grace window.
+      proc.stdout.end();
+      await new Promise((r) => setTimeout(r, 15));
+      proc.emit("exit", 1, null);
+
+      // Settle past the grace window — if the timer had wrongly fired
+      // anyway, this gives it time to have done so.
+      await new Promise((r) => setTimeout(r, 100));
+
+      expect(events.filter((e) => e.kind === "processExited")).toHaveLength(1);
+      expect(events.filter((e) => e.kind === "processError")).toHaveLength(0);
+      expect(unhandled).toHaveLength(0);
+    } finally {
+      procEmitter.off(UNHANDLED_REJECTION_EVENT, onUnhandledRejection);
+    }
+  });
+
+  test("no exit/error ever arrives — exactly one processError after the grace window, none before", async () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const transport = new AcpTransport({
+      spawnFn,
+      getOpenAiApiKey: () => "sk-fake-openai",
+      closedGraceMs: GRACE_MS,
+    });
+
+    const spawnResult = transport.spawn({
+      cwd: TEST_CWD,
+      permissionMode: BYPASS_PERMISSIONS,
+      authMode: "api-key",
+      harnessKind: "codex",
+    });
+    expect(spawnResult.ok).toBe(true);
+    if (!spawnResult.ok) return;
+
+    const proc = first(calls).proc;
+    // See the sibling test above for why this uses the FULL script (and
+    // waits for session discovery before closing) rather than
+    // scriptFakeAgentInitOnly.
+    scriptFakeAgent(proc);
+
+    const unhandled: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    const procEmitter = processUnhandledRejectionEmitter();
+    procEmitter.on(UNHANDLED_REJECTION_EVENT, onUnhandledRejection);
+
+    try {
+      const events: DriverTransportEvent[] = [];
+      transport.attach(spawnResult.proc, TEST_CWD, (event) => events.push(event));
+      await waitFor(() => events.some((e) => e.kind === HARNESS_SESSION_DISCOVERED));
+
+      proc.stdout.end();
+
+      // Still inside the grace window — nothing should have fired yet.
+      await new Promise((r) => setTimeout(r, 15));
+      expect(events.filter((e) => e.kind === "processError")).toHaveLength(0);
+
+      // Past the grace window: exactly one processError, and no exit event
+      // (none was ever emitted).
+      await new Promise((r) => setTimeout(r, 100));
+      expect(events.filter((e) => e.kind === "processError")).toHaveLength(1);
+      expect(events.filter((e) => e.kind === "processExited")).toHaveLength(0);
+      expect(unhandled).toHaveLength(0);
+    } finally {
+      procEmitter.off(UNHANDLED_REJECTION_EVENT, onUnhandledRejection);
+    }
+  });
+
+  test("stop() called after close but before the grace elapses — no processError", async () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const transport = new AcpTransport({
+      spawnFn,
+      getOpenAiApiKey: () => "sk-fake-openai",
+      closedGraceMs: GRACE_MS,
+    });
+
+    const spawnResult = transport.spawn({
+      cwd: TEST_CWD,
+      permissionMode: BYPASS_PERMISSIONS,
+      authMode: "api-key",
+      harnessKind: "codex",
+    });
+    expect(spawnResult.ok).toBe(true);
+    if (!spawnResult.ok) return;
+
+    const proc = first(calls).proc;
+    // See the first test in this describe block for why this uses the FULL
+    // script (and waits for session discovery before closing) rather than
+    // scriptFakeAgentInitOnly.
+    scriptFakeAgent(proc);
+
+    const events: DriverTransportEvent[] = [];
+    transport.attach(spawnResult.proc, TEST_CWD, (event) => events.push(event));
+    await waitFor(() => events.some((e) => e.kind === HARNESS_SESSION_DISCOVERED));
+
+    proc.stdout.end();
+    await new Promise((r) => setTimeout(r, 15));
+    transport.stop(proc);
+
+    // Settle well past the grace window.
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(events.filter((e) => e.kind === "processError")).toHaveLength(0);
+  });
+});
+
 describe("AcpTransport.stop — session/close lifecycle (mt#4936 PR #3596 R1)", () => {
   test("stop() sends session/close exactly once, after cancel", async () => {
     const { spawnFn, calls } = makeFakeSpawnFn();
