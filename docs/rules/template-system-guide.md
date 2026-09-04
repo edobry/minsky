@@ -1,331 +1,105 @@
-# Minsky Template System User Guide
+# The shipped rule corpus
 
-The Minsky template system enables dynamic rule generation that adapts to your project configuration, automatically generating CLI commands or MCP tool calls based on your interface preference.
+> **This file replaced the rule _template system_ guide (mt#4974).** The template
+> system it documented — `packages/domain/src/rules/templates/*.ts`,
+> `RuleTemplateService`, and the `minsky rules generate` command — no longer
+> exists. The path is kept so old links resolve to an explanation rather than a 404. Skip to [What replaced it](#what-replaced-it) for the current mechanism.
 
-## Quick Start
+## What was retired, and why
 
-### Generate Rules for Your Project
+Until mt#4974, the only rules Minsky installed into a project it manages were six
+TypeScript string templates rendered at `init` time. Measured in a scratch repo on
+2026-09-04, that mechanism was broken in three independent ways:
 
-```bash
-# Generate all rules for CLI usage
-minsky rules generate --interface=cli
+- **Nothing read the output.** None of the six carried `alwaysApply: true` or
+  `globs`, so they landed in neither `CLAUDE.md` nor `.claude/rules` — the only
+  two channels Claude Code retrieves automatically. A fresh project got a 90-byte
+  `CLAUDE.md` and 43 KB of prose no agent would ever open.
+- **Three carried wrong instructions.** They told agents to run `git approve` (a
+  command that does not exist), to set IN-REVIEW before creating the PR, and to
+  set DONE by hand — which this repository's own rules forbid outright.
+- **The failure was invisible.** Rendering required the shared command registry,
+  and `init` wrapped the call in a bare `catch {}`, so a genuine scaffolding
+  failure and a unit-test environment produced identical output: none.
 
-# Generate all rules for MCP usage
-minsky rules generate --interface=mcp
+The content worth shipping already existed as markdown in `.minsky/rules/*.mdc`.
+Re-encoding it as TypeScript string literals is what let the templates drift from
+reality without anything noticing.
 
-# Generate specific rules only
-minsky rules generate --rules=minsky-workflow-orchestrator,task-status-protocol --interface=cli
+## What replaced it
 
-# Preview what would be generated (dry run)
-minsky rules generate --interface=cli --dry-run
+**A package-resident corpus of markdown rules**, at
+`packages/domain/src/rules/corpus/*.mdc`. A shipped rule is the same kind of
+artifact the compile pipeline already reads, with three metadata fields added.
+
+| Piece                       | Where                                              |
+| --------------------------- | -------------------------------------------------- |
+| The rules themselves        | `packages/domain/src/rules/corpus/*.mdc`           |
+| Loading + tier selection    | `packages/domain/src/rules/corpus.ts`              |
+| Writing them into a project | `packages/domain/src/init/rule-corpus-scaffold.ts` |
+| Migration hashes            | `packages/domain/src/init/scaffold-history.ts`     |
+| Build copy into `dist/`     | `package.json` → `build:copy-rule-corpus`          |
+
+### Frontmatter
+
+Beyond the existing `description` / `alwaysApply` / `globs` / `tags`, a corpus
+rule declares:
+
+```yaml
+plane: product # product | plant | mixed | template
+tier: base # base | opinionated | style
+minimumRung: T1 # T0-T4
+onDemand: true # optional; see below
 ```
 
-### Available Templates
-
-The system includes 7 core templates:
-
-1. **minsky-workflow-orchestrator** - Main workflow entry point
-2. **task-implementation-workflow** - Step-by-step task implementation
-3. **minsky-session-management** - Session creation and management
-4. **task-status-protocol** - Task status checking and updates
-5. **pr-preparation-workflow** - PR creation and submission
-6. **minsky-workflow** - Basic workflow concepts
-7. **index** - Rule system overview
-
-## Interface Modes
-
-### CLI Mode (`--interface=cli`)
-
-Generates rules with CLI command syntax:
-
-```bash
-minsky tasks list [--all <value>] [--status <value>] [--filter <value>]
-minsky session start [<sessionId>] [--task <value>] [--description <value>]
-```
-
-**Use when:**
-
-- Working directly with Minsky CLI
-- Creating documentation for human users
-- Terminal-based workflows
-
-### MCP Mode (`--interface=mcp`)
-
-Generates rules with MCP tool call syntax:
-
-```xml
-<function_calls>
-<invoke name="mcp_minsky-server_tasks_list">
-<parameter name="all">optional all value</parameter>
-<parameter name="status">optional status value</parameter>
-</invoke>
-</function_calls>
-```
-
-**Use when:**
-
-- Working with AI agents via MCP
-- Integration with Claude, Cursor, or other AI tools
-- Programmatic access to Minsky functionality
-
-### Hybrid Mode (`--interface=hybrid`)
-
-Generates rules optimized for mixed usage (defaults to CLI for readability):
-
-```bash
-minsky tasks list [--all <value>] [--status <value>]
-```
-
-**Use when:**
-
-- Supporting both human users and AI agents
-- Documentation that needs to be readable but MCP-compatible
-- Development environments with mixed access patterns
-
-## Command Options
-
-### Basic Options
-
-```bash
---interface <mode>     # cli, mcp, or hybrid (required)
---rules <list>         # Comma-separated list of specific templates
---output-dir <path>    # Custom output directory (default: the selected format's
-                       #   directory — .cursor/rules, .ai/rules, or .minsky/rules)
---dry-run             # Preview generation without creating files
---overwrite           # Overwrite existing rule files
-```
-
-### Advanced Options
-
-```bash
---format <format>      # Rule format: cursor, generic, or minsky (default: cursor)
---prefer-mcp          # In hybrid mode, prefer MCP over CLI commands
---mcp-transport <type> # MCP transport: stdio or http (default: stdio)
-```
-
-## Examples
-
-### Development Workflow
-
-```bash
-# 1. Check available templates
-minsky rules list --tag template
-
-# 2. Generate core workflow rules for CLI
-minsky rules generate --interface=cli --rules=minsky-workflow-orchestrator,task-implementation-workflow
-
-# 3. Preview MCP version
-minsky rules generate --interface=mcp --dry-run
-
-# 4. Generate full rule set for production
-minsky rules generate --interface=hybrid --overwrite
-```
-
-### AI Agent Setup
-
-```bash
-# Generate MCP-optimized rules for AI agents
-minsky rules generate --interface=mcp --prefer-mcp --output-dir=.cursor/rules/mcp
-
-# Generate hybrid rules for mixed human/AI teams
-minsky rules generate --interface=hybrid --prefer-mcp
-```
-
-## Creating Custom Templates
-
-Templates are defined in `src/domain/rules/default-templates.ts`:
-
-```typescript
-const MY_CUSTOM_TEMPLATE: RuleTemplate = {
-  id: "my-custom-template",
-  name: "My Custom Template",
-  description: "Custom rule for specific workflow",
-  tags: ["custom", "workflow"],
-  generateContent: (context) => {
-    const { helpers } = context;
-
-    return `# My Custom Rule
-    
-Use ${helpers.command("tasks.list")} to list tasks.
-Use ${helpers.command("session.start")} to start sessions.`;
-  },
-  generateMeta: (context) => ({
-    name: "My Custom Template",
-    description: "Custom rule for specific workflow",
-    tags: ["custom", "workflow"],
-  }),
-};
-```
-
-### Template Context
-
-Templates receive a context object with:
-
-- `helpers.command(commandId)` - Generates appropriate command syntax
-- `config.interface` - Current interface mode (cli/mcp/hybrid)
-- `config.preferMcp` - Whether to prefer MCP in hybrid mode
-- `config.mcpTransport` - MCP transport method
-
-## Integration with Init Command
-
-The `minsky init` command automatically uses the template system:
-
-```bash
-# Generates rules based on project configuration
-minsky init --mcp true     # MCP-optimized rules (interface: hybrid)
-minsky init --mcp false    # CLI-optimized rules (interface: cli)
-```
-
-`init` has **no interface flag** (mt#4866 SC5). It derives the interface mode from
-`--mcp`: `hybrid` when MCP is enabled, `cli` when it is not
-(`packages/domain/src/init/rule-templates.ts`). This section previously showed two
-examples passing an interface flag to `init`, which has never been a parameter of
-that command — `src/adapters/shared/commands/init.ts` declares `repo`, `session`,
-`backend`, `overwrite`, `workspacePath`, `githubOwner`, `githubRepo`, `ruleFormat`,
-`mcp`, `mcpTransport`, `mcpPort` and `mcpHost`, and nothing else.
-
-`--interface` **is** a real flag on `minsky rules generate`, which is what the rest
-of this guide documents; only the `init` examples were wrong.
-
-### Re-running `init` on an existing project (mt#4866)
-
-`init` returns early when `.minsky/config.yaml` already exists, so `--overwrite` is
-the only way to re-run it. **`--overwrite` merges; it does not replace.** Every
-top-level key `init` does not itself emit — your `rules:` selection, and anything
-else you added — is preserved, while the keys `init` owns (`tasks`, `persistence`,
-`logger`, and `repository`/`project` when derivable) are refreshed.
-
-Two properties worth knowing:
-
-- **The merge is top-level only.** A section `init` owns is replaced wholesale
-  rather than deep-merged, so a sub-key `init` has stopped emitting does not
-  survive forever in your config.
-- **Values are preserved; formatting may be normalized.** The merge round-trips
-  through the YAML parser, so a config in the standard block style comes back
-  byte-identical, but hand-authored flow style (`disabled: [a, b]`) is rewritten to
-  block style and **comments are dropped**.
-
-If `.minsky/config.yaml` exists but is not valid YAML, `init --overwrite`
-**refuses and exits non-zero** rather than replacing it — the keys it cannot parse
-are keys it cannot preserve. Repair the file, or move it aside and re-run.
-
-### Which compile targets a bare `minsky compile` writes (mt#4866)
-
-A bare `minsky compile` regenerates every target whose `.minsky/` source directory
-exists. For a project that records `workspace.harness: claude-code` (written by
-`minsky setup` into `.minsky/config.local.yaml`), two targets are **skipped**:
-`cursor-rules-ts` (`.cursor/rules/`) and `agents.md` (`AGENTS.md`). Claude Code
-reads neither, and writing them produced files nothing in the project consumed.
-
-`claude.md` and `claude-rules` are never skipped — those are the two channels
-Claude Code actually reads.
-
-Two ways to get the skipped targets anyway:
-
-1. **Name it explicitly:** `minsky compile --target cursor-rules-ts`. An explicit
-   target always compiles.
-2. **Create the output once.** If `.cursor/rules/` or `AGENTS.md` already exists,
-   it is treated as wanted and kept up to date by every bare compile from then on.
-   The two are tracked independently.
-
-If no harness is recorded, nothing is skipped — behaviour is unchanged. The
-pre-commit compile-staleness check applies the same rule and prints a line naming
-any target it is not checking, so a skipped output is never silently unmaintained.
-
-### `rules enable` / `rules disable` validate the id (mt#4866)
-
-Both commands reject an id that is neither a rule in `.minsky/rules/` nor a rule
-`minsky init` can scaffold. The command exits non-zero, names the id, and **does
-not write the config** — previously an unknown id was accepted and persisted, and
-a config naming a rule that does not exist resolved to no rules at all.
-
-Selection semantics: the active set starts from the full rule corpus, `presets` and
-`enabled` **add** to it, and `disabled` **subtracts**. A config with only `disabled`
-set therefore narrows the corpus rather than emptying it. Note that because the
-starting set is currently the whole corpus, `presets` and `enabled` have nothing to
-add and are effectively inert; they become meaningful once rules carry tier
-metadata and the starting set is narrower.
-
-## Troubleshooting
-
-### Common Issues
-
-**Templates not loading:**
-
-```bash
-# Check if templates are available
-minsky rules list --tag template
-```
-
-**Generation fails:**
-
-```bash
-# Use dry-run to debug
-minsky rules generate --dry-run --interface=cli
-```
-
-**Wrong command syntax:**
-
-```bash
-# Verify interface mode
-minsky rules generate --interface=mcp --rules=minsky-workflow-orchestrator --dry-run
-```
-
-### Debug Mode
-
-Enable debug logging for detailed output:
-
-```bash
-export DEBUG=minsky:rules
-minsky rules generate --interface=cli
-```
-
-## Best Practices
-
-1. **Use appropriate interface mode** for your workflow
-2. **Generate specific rules** rather than all rules when possible
-3. **Use dry-run** to preview before generating
-4. **Keep templates focused** on specific workflows
-5. **Test both CLI and MCP modes** for custom templates
-
-## Advanced Usage
-
-### Custom Output Directories
-
-```bash
-# Generate rules for different environments
-minsky rules generate --interface=cli --output-dir=.cursor/rules/dev
-minsky rules generate --interface=mcp --output-dir=.cursor/rules/prod
-```
-
-### Rule Validation
-
-```bash
-# Validate generated rules
-minsky rules generate --dry-run | grep -E "(minsky|function_calls)"
-```
-
-### Template Development
-
-```bash
-# Test template changes
-minsky rules generate --rules=my-template --dry-run --interface=cli
-minsky rules generate --rules=my-template --dry-run --interface=mcp
-```
-
-## Migration from Static Rules
-
-To migrate from static rules to templates:
-
-1. Identify CLI commands in existing rules
-2. Replace with `${helpers.command("command.id")}` syntax
-3. Test generation in all interface modes
-4. Update rule references to use generated versions
-
----
-
-For more information, see:
-
-- [Rule System Architecture](../architecture/interface-agnostic-commands.md)
-- [MCP Integration Guide](../mcp-integration.md)
-- [Contributing Guidelines](../../CONTRIBUTING.md)
+`plane` records whether a rule is useful outside Minsky itself. `tier` decides
+what ships and what a user may decline. `minimumRung` is the lowest adoption rung
+at which the rule is proposed.
+
+**A tier is not an enforcement level.** `base` does not bind more strongly than
+`opinionated` once both are present — it means the user cannot decline it, because
+declining breaks Minsky.
+
+`onDemand: true` declares that landing in neither `CLAUDE.md` nor `.claude/rules`
+is _deliberate_ — the rule is fetched by name with `rules_get`. Without the marker,
+that state is indistinguishable from a misconfigured rule (mt#3107).
+
+**These fields never reach harness output.** `buildRuleMdc` composes
+`.cursor/rules/*.mdc` frontmatter from its own allow-list, so metadata that steers
+_shipping_ cannot leak into an artifact that steers _behavior_.
+
+### What `init` writes
+
+Only the `base` tier. Opinionated rules ship in the corpus and are deliberately
+**not** written, because until Phase 2 (mt#573) wires selection there is no way for
+a user to decline one — and installing a declinable rule nobody was asked about is
+the thing that must not happen at any intermediate step. `init` reports what it
+withheld.
+
+### Overwrite is content-aware
+
+`init --overwrite` used to replace rule files unconditionally, which for a file a
+user may have edited is indistinguishable from discarding their work. It now
+replaces a file whose content matches a hash Minsky is known to have shipped, and
+**reports** one that does not, leaving it alone. The hash table and its coverage
+bound are documented in `scaffold-history.ts`.
+
+## Adding or changing a shipped rule
+
+1. Add or edit the `.mdc` under `packages/domain/src/rules/corpus/`.
+2. Give it `plane`, `tier`, and `minimumRung`. If it is neither always-apply nor
+   glob-scoped, add `onDemand: true` — or it ships unreachable.
+3. Run the corpus tests: `bun test packages/domain/src/rules/corpus.test.ts`.
+
+Promoting a rule to `base` is not a routine edit: it makes the rule
+non-declinable for every Minsky user. The current base set was scoped by the
+principal (recorded on mt#4964) rather than derived from the corpus audit's
+candidate tier column.
+
+## Related
+
+- RFC "The rules Minsky ships" (Notion `3ce937f0`, Accepted 2026-09-04) — the
+  plane split, tiers, and selection-at-init design.
+- mt#4744 — the 61-row corpus audit the promotion set comes from.
+- mt#573 — Phase 2, which wires selection so opinionated rules become installable.
+- ADR-016 — the compile pipeline this corpus feeds.

@@ -95,12 +95,28 @@ reopens this will need them:
   (`tool-similarity-service.ts:112`, `:122`), which is harmless there because the tool catalog is
   genuinely instance-wide.
 - **Slug collision is the guaranteed default on onboarding a second project.**
-  `packages/domain/src/init.ts:211-213` scaffolds rules from the template system on every `minsky
-init`, and `packages/domain/src/init/rule-templates.ts:31-38` hardcodes that set (currently 6 of
-  7 templates — mt#4866 owns the omission). So a second project starts with the same slugs by
-  construction. Content-hash skip-if-unchanged keeps identical copies harmless; the moment one
-  project CUSTOMIZES a shared-slug rule, the shared table starts serving one project's rule text to
-  the other, silently.
+  `packages/domain/src/init.ts` scaffolds rules on every `minsky init` from a fixed shipped set, so
+  a second project starts with the same slugs by construction. Content-hash skip-if-unchanged keeps
+  identical copies harmless; the moment one project CUSTOMIZES a shared-slug rule, the shared table
+  starts serving one project's rule text to the other, silently.
+
+  **Updated 2026-09-04 by mt#4974, which replaced the mechanism this finding was measured against.**
+  The original wording cited `packages/domain/src/init/rule-templates.ts:31-38`, which hardcoded 6
+  of 7 TypeScript templates. That file and the whole template system are deleted. The scaffolded set
+  is now the `base` tier of the package-resident corpus
+  (`packages/domain/src/rules/corpus/*.mdc`), selected by `selectScaffoldableRules`
+  (`packages/domain/src/rules/corpus.ts`) and written by
+  `packages/domain/src/init/rule-corpus-scaffold.ts`.
+
+  **The finding holds and its surface got LARGER, which is the part worth carrying forward.** The
+  scaffolded slugs are still fixed and still identical across projects — `key-workflows`,
+  `minsky-session-workflow`, `operational-safety-dry-run-first`,
+  `task-status-workflow-protocol` — so collision remains the default rather than the exception. Two
+  changes push the trigger closer, not further away: the corpus ships 17 rules where the templates
+  shipped 7, and Phase 2 (mt#573) will make the other 13 installable per project, which is precisely
+  the "one project CUSTOMIZES a shared-slug rule" case. mt#4974 deliberately did NOT add `project_id`,
+  filter the read path, or otherwise act on this ADR's decision — it only kept this finding pointing
+  at code that exists.
 
 ## The trigger
 

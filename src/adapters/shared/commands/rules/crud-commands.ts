@@ -12,13 +12,11 @@ import { log } from "@minsky/shared/logger";
 import { resolveWorkspacePath as defaultResolveWorkspacePath } from "@minsky/domain/workspace";
 import {
   getRule as defaultGetRule,
-  generateRules as defaultGenerateRules,
   createRule as defaultCreateRule,
   updateRule as defaultUpdateRule,
 } from "@minsky/domain/rules/rules-command-operations";
 import {
   rulesGetCommandParams,
-  rulesGenerateCommandParams,
   rulesCreateCommandParams,
   rulesUpdateCommandParams,
 } from "./rules-parameters";
@@ -28,7 +26,6 @@ import {
  */
 export interface RulesCrudCommandsDeps {
   resolveWorkspacePath?: typeof defaultResolveWorkspacePath;
-  generateRules?: typeof defaultGenerateRules;
   getRule?: typeof defaultGetRule;
   createRule?: typeof defaultCreateRule;
   updateRule?: typeof defaultUpdateRule;
@@ -41,7 +38,6 @@ export function registerCrudCommands(
   deps?: RulesCrudCommandsDeps
 ): void {
   const resolveWorkspacePath = deps?.resolveWorkspacePath ?? defaultResolveWorkspacePath;
-  const generateRules = deps?.generateRules ?? defaultGenerateRules;
   const getRule = deps?.getRule ?? defaultGetRule;
   const createRule = deps?.createRule ?? defaultCreateRule;
   const updateRule = deps?.updateRule ?? defaultUpdateRule;
@@ -68,39 +64,11 @@ export function registerCrudCommands(
     },
   });
 
-  targetRegistry.registerCommand({
-    id: "rules.generate",
-    category: CommandCategory.RULES,
-    name: "generate",
-    description: "Generate new rules from templates",
-    parameters: rulesGenerateCommandParams,
-    execute: async (params) => {
-      log.debug("Executing rules.generate command", { params });
-      try {
-        const workspacePath = await resolveWorkspacePath({});
-        return await generateRules({
-          workspacePath,
-          interface: params.interface,
-          rules: params.rules,
-          outputDir: params.outputDir,
-          dryRun: params.dryRun,
-          overwrite: params.overwrite,
-          format: params.format as RuleFormat | undefined,
-          preferMcp: params.preferMcp,
-          mcpTransport: params.mcpTransport,
-        });
-      } catch (error) {
-        log.error("Failed to generate rules", {
-          error: getErrorMessage(error),
-          interface: params.interface,
-          selectedRules: params.rules,
-          dryRun: params.dryRun,
-          overwrite: params.overwrite,
-        });
-        throw error;
-      }
-    },
-  });
+  // `rules.generate` was registered here until mt#4974 SC6. It rendered the
+  // TypeScript rule templates, which are retired: rules now ship as markdown in
+  // `packages/domain/src/rules/corpus` and `init` installs the base tier. There
+  // is no replacement command — see `crud-operations.ts` for why nothing needed
+  // one.
 
   targetRegistry.registerCommand({
     id: "rules.create",

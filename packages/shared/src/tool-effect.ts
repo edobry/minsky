@@ -266,7 +266,6 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   "rules.create": "mutates",
   "rules.disable": "mutates",
   "rules.enable": "mutates",
-  "rules.generate": "mutates",
   "rules.index-embeddings": "mutates",
   "rules.migrate": "mutates",
   "rules.update": "mutates",

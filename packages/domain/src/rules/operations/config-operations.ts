@@ -12,7 +12,7 @@ import { log } from "@minsky/shared/logger";
 import { RuleService } from "../../rules";
 import { resolveActiveRules } from "../rule-selection";
 import { RULE_PRESETS } from "../../configuration/schemas/rules";
-import { DEFAULT_TEMPLATES } from "../default-templates";
+import { loadRuleCorpus } from "../corpus";
 import { ValidationError, getErrorMessage } from "../../errors/index";
 import type { RulesSelectionConfig, RulesConfigResult, RulesPresetsResult } from "./types";
 
@@ -87,10 +87,16 @@ export async function writeRulesSelectionConfig(
  * appears in `listRules`. Validating against on-disk sources alone would reject
  * those as typos.
  *
- * Read from `DEFAULT_TEMPLATES` — the registry — rather than from the narrower
- * hardcoded list `init` currently scaffolds, so the seventh template
- * (`minsky-session-management`, omitted from that list per SC4) is still a
- * selectable id.
+ * Read from the shipped CORPUS rather than from the narrower list `init` writes,
+ * so a declinable rule that ships but is not scaffolded is still a selectable id.
+ *
+ * mt#4974 SC6 re-pointed this from `DEFAULT_TEMPLATES` — the retired template
+ * registry — to `loadRuleCorpus`. It is the same question asked of a different
+ * source of truth: "which ids could this project legitimately name?" The move was
+ * forced rather than optional, since deleting the template system removes the
+ * only registry this had. Note the set got LARGER and more honest: the templates
+ * offered 7 ids, of which 6 were ever written; the corpus offers 17, of which 4
+ * are written today and 13 become selectable when Phase 2 (mt#573) lands.
  */
 async function knownRuleIds(workspacePath: string): Promise<Set<string>> {
   const ruleService = new RuleService(workspacePath);
@@ -100,7 +106,7 @@ async function knownRuleIds(workspacePath: string): Promise<Set<string>> {
     for (const rule of await ruleService.listRules({})) ids.add(rule.id);
   } catch (error) {
     // A workspace with no `.minsky/rules/` yet is the fresh-init case, not a
-    // failure: the template ids below still make validation meaningful. Surfaced
+    // failure: the corpus ids below still make validation meaningful. Surfaced
     // rather than swallowed, so a genuinely broken rules directory is visible.
     log.debug("rules selection: could not list on-disk rules while validating an id", {
       workspacePath,
@@ -108,7 +114,18 @@ async function knownRuleIds(workspacePath: string): Promise<Set<string>> {
     });
   }
 
-  for (const template of DEFAULT_TEMPLATES) ids.add(template.id);
+  try {
+    for (const rule of await loadRuleCorpus()) ids.add(rule.id);
+  } catch (error) {
+    // Same posture as above, and for the same reason: a missing corpus must not
+    // turn a valid `rules disable` into a spurious "unknown rule id". The
+    // on-disk ids collected above still make validation meaningful, and
+    // `resolveRuleCorpusDir` has already failed loudly by the time we get here.
+    log.debug("rules selection: could not load the shipped corpus while validating an id", {
+      error: getErrorMessage(error),
+    });
+  }
+
   return ids;
 }
 

@@ -71,7 +71,15 @@ export async function scaffoldRulesFromCorpus(
   rulesDirPath: string,
   overwrite: boolean,
   fs: ScaffoldFsDeps,
-  corpusDir?: string
+  corpusDir?: string,
+  /**
+   * The shipped-content hash table. Injected so a test can exercise the
+   * recognized-vs-edited DECISION with content it controls, rather than
+   * mutating the real table — which cannot be done safely, since restoring a
+   * key that was never there means deleting it, and getting that wrong leaks
+   * into whatever test runs next.
+   */
+  knownHashes: Readonly<Record<string, readonly string[]>> = HISTORICAL_SCAFFOLD_HASHES
 ): Promise<ScaffoldResult> {
   const corpus = await loadRuleCorpus(corpusDir);
   const scaffoldable = selectScaffoldableRules(corpus);
@@ -105,7 +113,7 @@ export async function scaffoldRulesFromCorpus(
     }
 
     const existingHash = hashRuleContent(existing);
-    const known = isKnownShippedContent(rule.id, existingHash);
+    const known = isKnownShippedContent(rule.id, existingHash, knownHashes);
     if (known) {
       await fs.writeFile(target, rule.raw);
       outcomes.push({ id: rule.id, action: "refreshed" });
@@ -134,10 +142,14 @@ export async function scaffoldRulesFromCorpus(
  * would score every pre-migration file as diverged and refuse the migration
  * this table exists to enable.
  */
-function isKnownShippedContent(id: string, hash: string): boolean {
-  const forId = HISTORICAL_SCAFFOLD_HASHES[id];
+function isKnownShippedContent(
+  id: string,
+  hash: string,
+  table: Readonly<Record<string, readonly string[]>>
+): boolean {
+  const forId = table[id];
   if (forId?.includes(hash)) return true;
-  return Object.values(HISTORICAL_SCAFFOLD_HASHES).some((hashes) => hashes.includes(hash));
+  return Object.values(table).some((hashes) => hashes.includes(hash));
 }
 
 /**

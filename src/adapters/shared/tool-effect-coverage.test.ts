@@ -165,7 +165,6 @@ const REGISTERED_TOOL_IDS: readonly string[] = [
   "rules.create",
   "rules.disable",
   "rules.enable",
-  "rules.generate",
   "rules.get",
   "rules.index-embeddings",
   "rules.list",

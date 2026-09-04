@@ -38,10 +38,14 @@ import { enableRule, disableRule, readRulesSelectionConfig } from "./config-oper
 import { ValidationError } from "../../errors/index";
 
 const REAL_RULE_ID = "a-real-local-rule";
-const SCAFFOLDED_TEMPLATE_ID = "minsky-workflow";
-// The seventh template, omitted from init's scaffold list per SC4 but still a
-// selectable id because validation reads DEFAULT_TEMPLATES, not that list.
-const SEVENTH_TEMPLATE_ID = "minsky-session-management";
+// mt#4974 SC6 re-pointed id validation from the retired template registry to the
+// shipped corpus. The two CASES these fixtures cover are unchanged — a rule init
+// writes, and a rule that ships without being written — so only the ids moved.
+const SCAFFOLDED_RULE_ID = "key-workflows";
+// A rule that ships in the corpus but is NOT scaffolded (tier `opinionated`), so
+// it is selectable without ever appearing on disk. This is the same shape the
+// seventh template used to have, now the default for 13 of the 17 shipped rules.
+const SHIPPED_BUT_UNSCAFFOLDED_ID = "git-safety";
 const UNKNOWN_ID = "no-such-rule-xyz";
 
 let scratchDirs: string[] = [];
@@ -118,26 +122,26 @@ describe("rules selection id validation (mt#4866 SC1)", () => {
   // A user may decline a rule `init` is about to scaffold, or one they deleted by
   // hand. Neither appears in listRules, so validating against on-disk sources
   // alone would reject both as typos.
-  it("accepts a scaffoldable template id that is not on disk", async () => {
+  it("accepts a scaffoldable rule id that is not on disk", async () => {
     const dir = await makeWorkspace();
-    const result = await disableRule(dir, SCAFFOLDED_TEMPLATE_ID);
-    expect(result.disabled).toContain(SCAFFOLDED_TEMPLATE_ID);
+    const result = await disableRule(dir, SCAFFOLDED_RULE_ID);
+    expect(result.disabled).toContain(SCAFFOLDED_RULE_ID);
   });
 
-  it("accepts the seventh template id, which init does not scaffold (SC4)", async () => {
+  it("accepts a shipped rule id that init does not scaffold (mt#4974 SC5)", async () => {
     const dir = await makeWorkspace();
-    const result = await enableRule(dir, SEVENTH_TEMPLATE_ID);
-    expect(result.enabled).toContain(SEVENTH_TEMPLATE_ID);
+    const result = await enableRule(dir, SHIPPED_BUT_UNSCAFFOLDED_ID);
+    expect(result.enabled).toContain(SHIPPED_BUT_UNSCAFFOLDED_ID);
   });
 
   // A workspace with no `.minsky/rules/` at all is the pre-init case, not a
-  // failure: template ids still validate, unknown ids still reject.
-  it("validates against template ids when no rules directory exists yet", async () => {
+  // failure: corpus ids still validate, unknown ids still reject.
+  it("validates against corpus ids when no rules directory exists yet", async () => {
     const dir = await mkdtemp(join(tmpdir(), "mt4866-config-ops-bare-"));
     scratchDirs.push(dir);
 
     await expect(disableRule(dir, UNKNOWN_ID)).rejects.toThrow(ValidationError);
-    const result = await disableRule(dir, SCAFFOLDED_TEMPLATE_ID);
-    expect(result.disabled).toContain(SCAFFOLDED_TEMPLATE_ID);
+    const result = await disableRule(dir, SCAFFOLDED_RULE_ID);
+    expect(result.disabled).toContain(SCAFFOLDED_RULE_ID);
   });
 });
