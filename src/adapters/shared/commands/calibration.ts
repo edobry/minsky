@@ -672,7 +672,9 @@ export function registerCalibrationCommands(): void {
           "log has grown to by ack time — records that arrive mid-pass stay unreviewed and " +
           "are reported as `midPassArrivals` rather than silently marked seen. A token that " +
           "is malformed, or that claims more records than the log holds, is REJECTED (no " +
-          "watermark moves); one whose count sits below an existing watermark is raised to it.",
+          "watermark moves); one whose count sits below an existing watermark is raised to it " +
+          "— UNLESS that watermark is stranded above the log's own record count, in which case " +
+          "it is reset to 0 and the log's records go back in the review queue (mt#4941).",
         required: false,
       },
       askId: {
@@ -934,6 +936,7 @@ export function registerCalibrationCommands(): void {
         let skippedOpenAskPaths: string[] = [];
         let midPassArrivals: { path: string; count: number }[] = [];
         let clampedPaths: string[] = [];
+        let repairedPaths: string[] = [];
         let unreceiptedPaths: string[] = [];
         let newlyDuePaths: string[] = [];
         let claimHeldPaths: string[] = [];
@@ -976,6 +979,7 @@ export function registerCalibrationCommands(): void {
           }
           midPassArrivals = reconciliation.midPassArrivals;
           clampedPaths = reconciliation.clampedPaths;
+          repairedPaths = reconciliation.repairedPaths;
           unreceiptedPaths = reconciliation.unreceiptedPaths;
           newlyDuePaths = reconciliation.newlyDuePaths;
           claimHeldPaths = reconciliation.claimHeldPaths;
@@ -1001,9 +1005,40 @@ export function registerCalibrationCommands(): void {
               params.askId
             );
             const { drifted } = await persistWatermarks(watermarks, updated, advancedPaths);
+            const driftedSet = new Set(drifted);
             // An ack whose every target drifted advanced nothing. Reporting it
             // as advanced is what makes the race silent (mt#3899).
-            watermarkAdvanced = drifted.length < advancedPaths.size;
+            //
+            // mt#4941: nor does an ack whose every target was CLAMPED. A clamp
+            // writes the watermark's existing value straight back, so the write
+            // LANDS and nothing moves — which is how 13 permanently-stranded
+            // logs got `watermarkAdvanced: true` from every ack while their
+            // counts sat unchanged. Counting write ATTEMPTS cannot see that;
+            // asking whether the persisted entry differs from the baseline
+            // answers the question the field's name actually asks, and covers
+            // the clamped case, the stranded repair, and a receipt that merely
+            // re-states the current count — without enumerating any of them.
+            //
+            // CREATING an entry counts as movement even at count 0, and that
+            // case is not academic: a `never-fired` log has no records to
+            // count, so its ack changes no number and still takes it out of
+            // the review-due set for good. Comparing counts alone reported
+            // that ack as advancing nothing (caught by mt#4408's AT3).
+            // `lastReviewedAt` is deliberately NOT compared — it changes on
+            // every ack, so including it would make this true unconditionally.
+            // A REPAIR is not an advance either, and in the opposite direction:
+            // it resets a stranded watermark to 0, which moves the number a long
+            // way while recording no review at all. `repairedPaths` reports it,
+            // so a repair-only pass reads honestly as `watermarkAdvanced: false`
+            // beside a populated `repairedPaths` — nothing reviewed, N strands
+            // cleared.
+            const repairedSet = new Set(reconciliation.repairedPaths);
+            watermarkAdvanced = [...advancedPaths].some((p) => {
+              if (driftedSet.has(p) || repairedSet.has(p)) return false;
+              const before = watermarks[p];
+              if (before === undefined) return updated[p] !== undefined;
+              return updated[p]?.lastReviewedCount !== before.lastReviewedCount;
+            });
           }
         }
 
@@ -1074,6 +1109,9 @@ export function registerCalibrationCommands(): void {
             // the tail rather than infer it from a later sweep.
             midPassArrivals,
             clampedPaths,
+            // mt#4941: the stranded counterpart of `clampedPaths` — watermarks
+            // brought back DOWN to a count their log can actually support.
+            repairedPaths,
             unreceiptedPaths,
             // mt#4391: logs that became review-due AFTER this pass's token was
             // issued. Not advanced, because nobody classified them — the
@@ -1089,11 +1127,32 @@ export function registerCalibrationCommands(): void {
         }
 
         const text = formatResult(results, reviewDue);
-        const suffix = watermarkAdvanced
-          ? "\nWatermarks advanced for review-due logs."
-          : params.ack && skippedOpenAskPaths.length === 0
-            ? "\nNo review-due logs to advance."
-            : "";
+        // PR #3614 R1 (non-blocking, mt#4941): this line used to be derivable
+        // from `watermarkAdvanced` alone, because that flag was true whenever
+        // any write was attempted. It is now false for two passes that did real
+        // work — a repair-only ack and a clamp-only ack — so deriving it that
+        // way prints "No review-due logs to advance." directly above a report of
+        // 13 repairs. That is the same misreport this task exists to end, one
+        // layer up: the operator reads the summary line, not the sixth suffix.
+        //
+        // Both no-advance cases are named, not just the repair one — a
+        // clamp-only ack was already reaching the misleading line before this
+        // change, and the class is "the watermark did not move, for a reason
+        // worth stating" rather than the one instance the reviewer saw.
+        let suffix = "";
+        if (watermarkAdvanced) {
+          suffix = "\nWatermarks advanced for review-due logs.";
+        } else if (repairedPaths.length > 0) {
+          suffix =
+            `\nNo watermark advanced — this pass classified nothing — but ` +
+            `${repairedPaths.length} stranded watermark(s) were repaired (see below).`;
+        } else if (clampedPaths.length > 0) {
+          suffix =
+            `\nNo watermark advanced: all ${clampedPaths.length} target(s) were clamped to the ` +
+            `count already recorded (see below).`;
+        } else if (params.ack && skippedOpenAskPaths.length === 0) {
+          suffix = "\nNo review-due logs to advance.";
+        }
         const clearedSuffix = clearedAskId ? "\nCleared resolved ask from watermark(s)." : "";
         const skippedSuffix =
           skippedOpenAskPaths.length > 0
@@ -1139,6 +1198,14 @@ export function registerCalibrationCommands(): void {
           clampedPaths.length > 0
             ? `\nRaised ${clampedPaths.length} count(s) to the existing watermark — the token ` +
               `predates a later review: ${clampedPaths.join(", ")}`
+            : "";
+        const repairedSuffix =
+          repairedPaths.length > 0
+            ? `\nRepaired ${repairedPaths.length} stranded watermark(s) — each sat ABOVE its log's ` +
+              `record count, so its basis was gone. Reset to 0 rather than to the count this ` +
+              `sweep observed: a stranded sweep shows the reviewer nothing, so those records ` +
+              `have never been classified and are now back in the queue. Expect these logs in ` +
+              `the next sweep with a real backlog: ${repairedPaths.join(", ")}`
             : "";
         const unreceiptedSuffix =
           unreceiptedPaths.length > 0
@@ -1192,6 +1259,7 @@ export function registerCalibrationCommands(): void {
             claimedSuffix +
             midPassSuffix +
             clampedSuffix +
+            repairedSuffix +
             unreceiptedSuffix +
             newlyDueSuffix +
             claimHeldSuffix +
@@ -1205,6 +1273,7 @@ export function registerCalibrationCommands(): void {
           reviewToken,
           midPassArrivals,
           clampedPaths,
+          repairedPaths,
           unreceiptedPaths,
           newlyDuePaths,
           claimHeldPaths,
