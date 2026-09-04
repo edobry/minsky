@@ -20,6 +20,7 @@ import {
   ruleTsPath,
   ruleMdcPath,
 } from "./rule-sources";
+import { buildRuleMdc } from "./targets/cursor-rules-ts";
 import type { MinskyCompileFsDeps } from "./types";
 
 /**
@@ -214,5 +215,107 @@ describe("corpus fidelity — real .minsky/rules/*.mdc round-trip (Phase 2/3 acc
     // with zero skips. Any parse failure here is a reader regression.
     expect(errors).toEqual([]);
     expect(validCount).toBe(mdcSources.length);
+  });
+});
+
+describe("mt#4974 SC1/SC2 — plane/tier/rung passthrough, and its absence from harness output", () => {
+  /** A source carrying every field mt#4974 adds, plus the pre-existing ones. */
+  const TIERED_MDC = [
+    "---",
+    "description: A promoted product rule",
+    "alwaysApply: true",
+    "plane: product",
+    "tier: base",
+    "minimumRung: T1",
+    "---",
+    "Body text.",
+  ].join("\n");
+
+  it("AT2 — the new frontmatter survives parse with the values the source declared", () => {
+    const result = extractRuleDefinitionFromMdc(TIERED_MDC, "/rules/promoted.mdc");
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+
+    expect(result.rule.plane).toBe("product");
+    expect(result.rule.tier).toBe("base");
+    expect(result.rule.minimumRung).toBe("T1");
+    // Pre-existing fields are unaffected by the widened allow-list.
+    expect(result.rule.alwaysApply).toBe(true);
+    expect(result.rule.description).toBe("A promoted product rule");
+    expect(result.rule.content).toBe("Body text.");
+  });
+
+  it("AT2 — the cursor-rules-ts output omits them, so the mt#2995 byte-parity contract holds", () => {
+    const result = extractRuleDefinitionFromMdc(TIERED_MDC, "/rules/promoted.mdc");
+    if ("error" in result) throw new Error(`fixture failed to parse: ${result.error}`);
+
+    const emitted = buildRuleMdc(result.rule);
+
+    // The point of the assertion: metadata that steers SHIPPING must not leak
+    // into a harness artifact that steers BEHAVIOR. `buildRuleMdc` allow-lists
+    // its own five keys, so this holds by construction — asserted rather than
+    // inspected, because the failure mode is silent (a spread would emit them
+    // and nothing else would complain).
+    expect(emitted).not.toContain("plane:");
+    expect(emitted).not.toContain("tier:");
+    expect(emitted).not.toContain("minimumRung:");
+    expect(emitted).not.toContain("onDemand:");
+    // ...while the keys it IS responsible for still appear.
+    expect(emitted).toContain("description: A promoted product rule");
+    expect(emitted).toContain("alwaysApply: true");
+    expect(emitted).toContain("Body text.");
+  });
+
+  it("marks a deliberately on-demand rule, distinguishing it from a misconfigured one (mt#3107)", () => {
+    // The whole point of the marker: this rule carries NEITHER `alwaysApply: true`
+    // NOR `globs`, which before mt#4974 was indistinguishable from a mistake.
+    const onDemand = [
+      "---",
+      "description: An operational reference, fetched by name",
+      "plane: product",
+      "tier: opinionated",
+      "onDemand: true",
+      "---",
+      "Reference body.",
+    ].join("\n");
+
+    const result = extractRuleDefinitionFromMdc(onDemand, "/rules/reference.mdc");
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+
+    expect(result.rule.onDemand).toBe(true);
+    expect(result.rule.globs).toBeUndefined();
+    expect(result.rule.alwaysApply).toBeUndefined();
+  });
+
+  it("leaves the new fields UNDEFINED when the source omits them, rather than defaulting", () => {
+    // Guards the choice recorded in `schemas.ts`: these are `.optional()` with no
+    // `.default()`. A default would materialize the key on all 54 pre-split rules
+    // and make "unclassified" indistinguishable from a real value.
+    const bare = "---\ndescription: A rule that predates the plane split\n---\nBody.";
+    const result = extractRuleDefinitionFromMdc(bare, "/rules/legacy.mdc");
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+
+    expect(result.rule.plane).toBeUndefined();
+    expect(result.rule.tier).toBeUndefined();
+    expect(result.rule.minimumRung).toBeUndefined();
+    expect(result.rule.onDemand).toBeUndefined();
+    expect(Object.keys(result.rule)).not.toContain("plane");
+  });
+
+  it("REJECTS a value outside each enum instead of passing it through", () => {
+    // Without this the fields would be free-text: a typo'd tier would parse
+    // clean and then silently fail to match any selection rule downstream.
+    const badTier = "---\ndescription: d\ntier: core\n---\nBody.";
+    const badPlane = "---\ndescription: d\nplane: shipped\n---\nBody.";
+    const badRung = "---\ndescription: d\nminimumRung: T9\n---\nBody.";
+
+    // `core` is the RETIRED placeholder vocabulary (ask#11286 replaced
+    // core/recommended/optional with base/opinionated/style), so a stale source
+    // carrying it must fail loudly rather than be dropped to undefined.
+    expect("error" in extractRuleDefinitionFromMdc(badTier, "/rules/a.mdc")).toBe(true);
+    expect("error" in extractRuleDefinitionFromMdc(badPlane, "/rules/b.mdc")).toBe(true);
+    expect("error" in extractRuleDefinitionFromMdc(badRung, "/rules/c.mdc")).toBe(true);
   });
 });

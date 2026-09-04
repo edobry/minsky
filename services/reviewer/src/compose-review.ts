@@ -9,6 +9,7 @@
 
 import type { ReviewToolCall, SubmitFindingArgs, SubmitInlineCommentArgs } from "./output-tools";
 import { isResolutionNoteText } from "./resolution-note-guard";
+import { SYNTHESIZED_FINDING_FILE, RECOVERY_FIRE_MARKER_PREFIX } from "./empty-findings-recovery";
 
 // ---------------------------------------------------------------------------
 // Severity ordering
@@ -322,9 +323,36 @@ export function composeReviewBody(
     // resolution-note mis-tag bug class. The emission-layer guard normally
     // reclassifies these before composition; this diagnostic covers the residual
     // / legacy / replay case where one still reaches the reconciler.
+    // mt#4977: EXCLUDE the mt#2685 synthesized placeholder. Its `details`
+    // embeds the model's whole conclusion summary verbatim, so any
+    // resolution-flavoured sentence anywhere in that prose makes this predicate
+    // true — and the banner then tells the operator the finding is "likely
+    // mis-tagged rather than a genuine blocker". For a synthesized finding that
+    // is never right: it carries no model severity judgment to be mis-tagged,
+    // and the conclusion it quotes is by construction a REQUEST_CHANGES.
+    //
+    // Found by mt#4977's false-positive sweep, not hypothesised: PR #2448 r2's
+    // placeholder quotes "The prior BLOCKING issue was addressed: … However,
+    // Success Criterion 6 remains unmet … Please either wire … or update the
+    // spec" — a real blocking demand the banner would have invited an operator
+    // to dismiss. Pre-existing (the shipped pattern already matched it); fixed
+    // here because the sweep surfaced it.
+    // PR #3633 R2 (non-blocking, adopted): identify the synthesized finding by
+    // EITHER of its two independent markers, not just the `file` sentinel. Two
+    // ways the single check fails — a real file pathologically named
+    // "(review summary)" would be excluded when it should be warned about, and
+    // a future synthesis that changes the sentinel while keeping the durable
+    // details prefix would silently stop being excluded. The prefix is the
+    // stronger identifier of the two (mt#2926 made it a cross-file contract the
+    // fire-rate script matches on), so checking both survives either changing.
+    const isSynthesized = (tc: Extract<ReviewToolCall, { name: "submit_finding" }>): boolean =>
+      tc.args.file === SYNTHESIZED_FINDING_FILE ||
+      tc.args.details.startsWith(RECOVERY_FIRE_MARKER_PREFIX);
     const resolutionNoteBlockers = findings.filter(
       (tc) =>
-        tc.args.severity === "BLOCKING" && isResolutionNoteText(tc.args.summary, tc.args.details)
+        tc.args.severity === "BLOCKING" &&
+        !isSynthesized(tc) &&
+        isResolutionNoteText(tc.args.summary, tc.args.details)
     );
     const resolutionNoteNote =
       resolutionNoteBlockers.length > 0

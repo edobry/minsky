@@ -6,7 +6,7 @@ import type { FsLike } from "./interfaces/fs-like";
 import { createRealFs } from "./interfaces/real-fs";
 import { getMinskyConfigContentYaml } from "./init/config-content";
 import { mergeProjectConfigYaml, UnmergeableConfigError } from "./init/config-merge";
-import { generateRulesWithTemplateSystem } from "./init/rule-templates";
+import { describeScaffoldResult, scaffoldRulesFromCorpus } from "./init/rule-corpus-scaffold";
 import { RULE_FORMAT_OUTPUT_DIR } from "./rules/types";
 import { runMinskyCompile } from "./compile/compile";
 /**
@@ -44,11 +44,14 @@ export function detectRepositoryBackend(repoPath: string): ResolvedRepositoryCon
 
 // Re-export content helpers for consumers that may reference them
 export { getMinskyConfigContentYaml } from "./init/config-content";
+// mt#4974 SC6: `getMinskyRuleContent` / `getRulesIndexContent` /
+// `generateRulesWithTemplateSystem` are gone with the template system. The
+// corpus scaffold replaces them; its result type is what callers now inspect.
 export {
-  getMinskyRuleContent,
-  getRulesIndexContent,
-  generateRulesWithTemplateSystem,
-} from "./init/rule-templates";
+  describeScaffoldResult,
+  scaffoldRulesFromCorpus,
+  type ScaffoldResult,
+} from "./init/rule-corpus-scaffold";
 
 export const initializeProjectParamsSchema = z.object({
   repoPath: z.string(),
@@ -145,6 +148,16 @@ export interface InitializeProjectDeps {
   /** Which MCP client / harness is running init. Defaults to real detection. */
   resolveClient?: () => string;
   /**
+   * Operator-facing INFORMATIONAL sink (mt#4974). Defaults to `log.cli`.
+   *
+   * Deliberately separate from `warn` below. `warn` means something is wrong,
+   * and `init-backend-selection.test.ts` asserts it stays empty on a healthy
+   * run — so routine scaffold reporting ("wrote 4 base rules", "13 declinable
+   * rules were not installed") cannot share it without making a successful
+   * init indistinguishable from a broken one.
+   */
+  info?: (message: string) => void;
+  /**
    * Operator-facing warning sink (mt#4770). Defaults to `log.cliWarn`.
    *
    * Injected for the same reason `compileForHarness` is: the messages below
@@ -163,6 +176,9 @@ export async function initializeProject(
 ): Promise<void> {
   const resolveClient = deps.resolveClient ?? resolveInitClient;
   const warn = deps.warn ?? ((message: string) => log.cliWarn(message));
+  // Separate channel from `warn` on purpose (mt#4974): `warn` is mt#4770's
+  // "something is wrong" signal, and a successful scaffold must not use it.
+  const info = deps.info ?? ((message: string) => log.cli(message));
   const compileForHarness =
     deps.compileForHarness ??
     (async (target: string, workspacePath: string) => runMinskyCompile({ target, workspacePath }));
@@ -211,16 +227,39 @@ export async function initializeProject(
   const rulesDirPath = path.join(repoPath, ...RULE_FORMAT_OUTPUT_DIR[ruleFormat].split("/"));
   await createDirectoryIfNotExists(rulesDirPath, fileSystem);
 
-  // Generate rules using template system (tolerate missing command registry in tests)
+  // mt#4974 SC3/SC5: scaffold from the package-resident product corpus.
+  //
+  // This replaces `generateRulesWithTemplateSystem`, which rendered six
+  // TypeScript string templates that Claude Code could not reach and three of
+  // which carried wrong instructions. Two differences matter beyond the source:
+  //
+  //   - Only the `base` tier is written. Opinionated rules ship in the corpus
+  //     and are deliberately withheld until Phase 2 (mt#573) can ask the user,
+  //     so no intermediate state emits more than was chosen.
+  //   - The failure is SURFACED, not swallowed. The old call sat in a bare
+  //     `catch {}` because the template renderer needs the shared command
+  //     registry loaded and throws without it — which meant a real scaffolding
+  //     failure and a unit-test environment were indistinguishable, and a
+  //     project with zero rules looked exactly like a successful run. The
+  //     corpus reader has no registry dependency, so there is nothing left to
+  //     tolerate.
   try {
-    await generateRulesWithTemplateSystem(
-      rulesDirPath,
-      ruleFormat,
-      overwrite,
-      mcp?.enabled ?? false
+    const scaffold = await scaffoldRulesFromCorpus(rulesDirPath, overwrite, fileSystem);
+    const described = describeScaffoldResult(scaffold);
+    // Routine outcomes go to `info`; only a kept-because-edited rule warns. The
+    // warning channel is mt#4770's "something is wrong" signal and
+    // `init-backend-selection.test.ts` asserts it stays empty on a healthy run.
+    for (const line of described.info) info(line);
+    for (const line of described.warnings) warn(line);
+  } catch (error) {
+    // `init` still succeeds — a project with config but no rules is recoverable
+    // by re-running — but the operator has to hear about it
+    // (`work-completion.mdc §Invocation path`).
+    warn(
+      `minsky init: could not scaffold rules from the shipped corpus. The rest of ` +
+        `initialization completed; re-run \`minsky init\` to retry. Cause: ` +
+        `${error instanceof Error ? error.message : String(error)}`
     );
-  } catch (_e) {
-    // Skip rule generation when the command registry isn't available (unit tests)
   }
 
   // mt#4715: scaffolding SOURCES is only half the job. `ruleFormat` picks a

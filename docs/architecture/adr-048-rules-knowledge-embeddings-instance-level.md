@@ -95,12 +95,28 @@ reopens this will need them:
   (`tool-similarity-service.ts:112`, `:122`), which is harmless there because the tool catalog is
   genuinely instance-wide.
 - **Slug collision is the guaranteed default on onboarding a second project.**
-  `packages/domain/src/init.ts:211-213` scaffolds rules from the template system on every `minsky
-init`, and `packages/domain/src/init/rule-templates.ts:31-38` hardcodes that set (currently 6 of
-  7 templates — mt#4866 owns the omission). So a second project starts with the same slugs by
-  construction. Content-hash skip-if-unchanged keeps identical copies harmless; the moment one
-  project CUSTOMIZES a shared-slug rule, the shared table starts serving one project's rule text to
-  the other, silently.
+  `packages/domain/src/init.ts` scaffolds rules on every `minsky init` from a fixed shipped set, so
+  a second project starts with the same slugs by construction. Content-hash skip-if-unchanged keeps
+  identical copies harmless; the moment one project CUSTOMIZES a shared-slug rule, the shared table
+  starts serving one project's rule text to the other, silently.
+
+  **Updated 2026-09-04 by mt#4974, which replaced the mechanism this finding was measured against.**
+  The original wording cited `packages/domain/src/init/rule-templates.ts:31-38`, which hardcoded 6
+  of 7 TypeScript templates. That file and the whole template system are deleted. The scaffolded set
+  is now the `base` tier of the package-resident corpus
+  (`packages/domain/src/rules/corpus/*.mdc`), selected by `selectScaffoldableRules`
+  (`packages/domain/src/rules/corpus.ts`) and written by
+  `packages/domain/src/init/rule-corpus-scaffold.ts`.
+
+  **The finding holds and its surface got LARGER, which is the part worth carrying forward.** The
+  scaffolded slugs are still fixed and still identical across projects — `key-workflows`,
+  `minsky-session-workflow`, `operational-safety-dry-run-first`,
+  `task-status-workflow-protocol` — so collision remains the default rather than the exception. Two
+  changes push the trigger closer, not further away: the corpus ships 17 rules where the templates
+  shipped 7, and Phase 2 (mt#573) will make the other 13 installable per project, which is precisely
+  the "one project CUSTOMIZES a shared-slug rule" case. mt#4974 deliberately did NOT add `project_id`,
+  filter the read path, or otherwise act on this ADR's decision — it only kept this finding pointing
+  at code that exists.
 
 ## The trigger
 
@@ -153,9 +169,16 @@ deferred"**:
 | `rules_embeddings`     | Needs-scoping in principle; fix deferred | **Deferred behind a named trigger** (§The trigger) |
 
 The other six rows are unchanged. mt#2417's separately-recorded gap — that
-`TaskSimilarityService.similarToTask()` and `MemoryService.similar()` do not enforce project
-scoping despite tasks and memories being covered-transitively — is **not** addressed here and
-remains owned by mt#2939.
+`TaskSimilarityService.similarToTask()` and `MemoryService.similar()` did not enforce project
+scoping despite tasks and memories being covered-transitively — is **not** addressed here, and is
+**already closed**: mt#2939 shipped that fix on 2026-07-20, roughly six weeks before this ADR was
+written. Nothing remains owed on it.
+
+> Corrected 2026-09-04 (mt#4957). This sentence originally read "remains owned by mt#2939",
+> describing shipped work as pending. The citation was copied from mt#2417's
+> `### Known gap discovered` section — _"Follow-up filed: mt#2939"_, an accurate statement about
+> FILING that says nothing about status — and its status was never looked up. mt#2417's section is
+> now annotated CLOSED so the next reader cannot repeat the inference.
 
 ## What would reopen this
 
@@ -172,5 +195,5 @@ ADR-021 (project-scoping resolution model — _Proposed_; governs HOW scope reso
 already scoped, not WHETHER a table should be) · RFC `37a937f0-3cb4-81ed-9a08-fbdeebd8845d`
 ("Minsky beyond Minsky", the governing record) · mt#2391 (Phase 1, IN-PROGRESS; entity set disjoint
 from this one) · mt#2417 (the audit this supersedes two rows of) · mt#2938 (this decision's task) ·
-mt#2939 (the similarity-endpoint scoping gap, separate) · mt#4919 / mt#4937 (the filtered-recall
+mt#2939 (the similarity-endpoint scoping gap, separate — DONE 2026-07-20) · mt#4919 / mt#4937 (the filtered-recall
 defect and its fix) · mt#4866 (init's template set) · ask#11550 (the ratification).

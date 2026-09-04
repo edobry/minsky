@@ -16,11 +16,24 @@
  * That self-contradiction is expensive downstream: `composeReviewBody`'s
  * `reconcileEventWithBlockingCount` (mt#2655) correctly refuses to let an
  * APPROVE coexist with a BLOCKING finding and downgrades the event to
- * REQUEST_CHANGES — which also fails the `minsky-reviewer/findings` required
- * check. The result is an approved-in-substance PR blocked by its own reviewer's
- * bookkeeping, and `forceBypass` cannot clear a failing required check (only a
- * retrigger or `MINSKY_SKIP_REQUIRED_CHECKS` can) — so the bug is
- * disproportionately expensive for subagent-driven convergence.
+ * REQUEST_CHANGES. The result is an approved-in-substance PR carrying an
+ * outstanding CHANGES_REQUESTED review — so convergence cannot finish until
+ * another round clears it, which is disproportionately expensive for
+ * subagent-driven convergence.
+ *
+ * CORRECTION (mt#4897). This passage previously added "which also fails the
+ * `minsky-reviewer/findings` required check" and "`forceBypass` cannot clear a
+ * failing required check (only a retrigger or `MINSKY_SKIP_REQUIRED_CHECKS`
+ * can)." **Both rested on a false premise** — that check is not required — so
+ * the real cost is the outstanding REVIEW named above, not a failing check.
+ *
+ * The current required-check list is deliberately not restated here: it is
+ * mutable repository configuration, and a frozen copy of it is what made the
+ * original claim wrong. mt#4897 records the reading and its date.
+ *
+ * This guard's behaviour is unchanged and still correct on its own terms: it
+ * prevents the model emitting a finding whose severity contradicts its text,
+ * which is a defect regardless of what any check does downstream.
  *
  * ## Why this lives at emission, not in the aggregator
  *
@@ -72,6 +85,25 @@ import type { SubmitFindingArgs } from "./output-tools";
  * "requires action", "unresolved race condition"). The regression suite in
  * `resolution-note-guard.test.ts` pins both directions, including adversarial
  * substrings.
+ *
+ * ## The linking verb is load-bearing — do NOT make it optional (mt#4977)
+ *
+ * Every alternative here requires a linking verb before the resolved-word
+ * ("... IS resolved", "... HAS BEEN addressed"). A verbless past-participle
+ * form ("prior blocking finding addressed") is therefore NOT matched, and that
+ * is deliberate: dropping the verb requirement was measured against nine
+ * adversarial negatives and broke three realistic reviewer phrasings —
+ * "this finding addressed a different concern than the one filed", "the issue
+ * resolved nothing about the underlying race", and "the concern addressed by
+ * this helper is out of scope". All three are genuine defect prose that would
+ * have been silently downgraded to NON-BLOCKING.
+ *
+ * The verbless form is a known, accepted residual. If a THIRD distinct
+ * paraphrase miss lands on this pattern, stop widening and climb to a semantic
+ * mechanism instead — the guard's paraphrase axis is unbounded and an
+ * enumeration cannot close it (mt#4977 `## Planning Audit` premise (iv), and
+ * ADR-024's arms-race framing, which is the same argument for a family this
+ * guard is not a member of).
  */
 export const RESOLUTION_NOTE_PATTERN = new RegExp(
   [
@@ -80,7 +112,15 @@ export const RESOLUTION_NOTE_PATTERN = new RegExp(
     "(?:already|since) (?:been )?(?:resolved|addressed|fixed|handled)",
     "(?:has|have|had|is|was) (?:been |now |since been )?(?:resolved|addressed|fixed|handled) " +
       "(?:in|by) (?:the )?(?:current |latest |updated )?(?:diff|commit|fix|change|pr|pull request)",
-    "(?:the )?(?:original |prior |previous |r\\d+ )?(?:block|blocking finding|finding|issue|concern) " +
+    // mt#4977 widened the NOUN set only. The model writes the severity token
+    // itself as the noun — "the prior BLOCKING is resolved" — and neither
+    // `block` (a different word under `\b`) nor `blocking finding` (which
+    // requires the following word) reaches it. Longest-first ordering matters:
+    // `blocking finding` must be tried before the bare `blocking`, or the
+    // latter would consume the qualifier and strand `finding` outside the
+    // alternative.
+    "(?:the )?(?:original |prior |previous |r\\d+ )?" +
+      "(?:blocking finding|blocking issue|blocking concern|blocking|block|finding|issue|concern) " +
       "(?:is|was|has (?:now )?been) (?:now )?(?:resolved|addressed|fixed|handled)",
     "no longer (?:applies|an issue|blocking|relevant|a concern)",
     "fix (?:verified|confirmed)",

@@ -1,0 +1,121 @@
+---
+name: cockpit-deeplinks
+description: Emit clickable markdown deeplinks [label](minsky://type/id) when referencing Minsky entities (tasks/asks/sessions/memories/changesets) in terminal output, so the principal can click through to the cockpit.
+alwaysApply: true
+tags:
+  - cockpit
+  - preferences
+  - output
+plane: product
+tier: opinionated
+minimumRung: T3
+---
+# Cockpit Deeplinks in Terminal Output
+
+When you reference a Minsky entity — a **task**, **ask**, **session**, **memory**, or **changeset
+(PR)** — in your live terminal output, wrap the reference as a clickable markdown deeplink so a
+click opens that entity in the cockpit:
+
+```
+[<clean label>](minsky://<type>/<id>)
+```
+
+Always emit the link, even when the cockpit isn't running (the tray's scheme handler, mt#2528,
+launches it) and even on terminals without OSC-8 (it degrades to the plain label — why the label
+must always be a readable ref on its own). Full mechanism: `docs/rules-rationale/cockpit-deeplinks.md`.
+
+## The five entity types
+
+| Entity    | URI form                       | Example                              | Note |
+| --------- | ------------------------------ | ------------------------------------ | ---- |
+| task      | `minsky://task/<id>`           | `minsky://task/mt%232370`            | the `#` in a task id MUST be percent-encoded as `%23` |
+| ask       | `minsky://ask/<uuid>`          | `minsky://ask/38b1c0de-…`            | uuid is URL-safe; no encoding |
+| session   | `minsky://session/<uuid>`      | `minsky://session/2154425b-…`        | URI type is `session` (NOT `agent` or `workspace`), even though the cockpit page is `/agents/<id>` (the workspace detail page — see ADR-022 stage 2, mt#2527, for the deferred `session_*` → `workspace_*` boundary this URI type stays on the near side of) |
+| memory    | `minsky://memory/<uuid>`       | `minsky://memory/bd38be2c-…`         | uuid is URL-safe; no encoding |
+| changeset | `minsky://changeset/<pr-num>`  | `minsky://changeset/1234`            | id == PR number (positive integer); cockpit route is `/changeset/<id>` (mt#2535) |
+
+Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are already URL-safe. PR numbers contain only digits and need no encoding.
+
+**These five are what you EMIT — the codec ACCEPTS two more (mt#3800, mt#4010).** `parseMinskyUri`
+also resolves `minsky://conversation/<agentSessionId>`, which is how `/cockpit` hands the tray the
+conversation the operator is sitting in, and `minsky://interceptor/<guardName>`, which addresses a
+row in the `/interceptors` catalog. Both are in-system entry points rather than references you
+write in prose: a conversation uuid is unreadable as a label and the reader is already inside the
+conversation, and a guard name in chat is a code symbol, not an entity the principal navigates to.
+Keep emitting these five.
+
+## Short ids (`mem#N` / `ask#N` / `ws#N`) are a LABEL form, not a link target
+
+Memories, asks, and workspaces also have numeric short ids (ADR-029). They are **not** a
+`minsky://` id form: ADR-029 fixes the UUID as "the **sole** `minsky://<type>/<uuid>` deeplink
+target," so that every already-emitted link keeps resolving forever. Do not write
+`minsky://memory/mem%23728`.
+
+Use the short id as the **label** and the UUID as the **target** — the same label/target split
+the table above already prescribes (clean readable ref in the label, full id in the URL):
+
+```
+[mem#728](minsky://memory/d8891fad-b156-46e1-8940-98067eb097a9)
+```
+
+**When you don't have the UUID, write the bare short id and leave it unlinked.** In the cockpit it
+still resolves: the linkifier recognizes `mem#N`/`ask#N`/`ws#N` as bare references and links them
+against its id-set, exactly as it already does for `mt#NNNN` (mt#3259). A bare short id in a spec,
+memory, or PR body is therefore clickable in the cockpit without any markdown — it just isn't
+clickable in the terminal, which is why the linked form above is still preferred when the UUID is
+at hand.
+
+## Format rules
+
+- **Label = the clean human-readable ref, kept verbatim.** For a task that is the bare `mt#2370` (with the `#`, unencoded — only the URI gets `%23`). For a UUID entity use a short readable label (a name, or a short id prefix) so the principal is not reading a raw UUID; the target still carries the **full** id.
+- **Keep the label free of markdown-link metacharacters.** No `]`, `(`, or `)` in the label — those break the `[label](url)` syntax. A clean entity ref (`mt#2370`, a short id, a short name) never contains them. The id in the target is percent-encoded by the codec, so the URL side is always safe to close at the first `)`.
+- **No host or port in the link.** Never `http://localhost:<port>/…`. The custom `minsky://` scheme is port-independent and keeps the stored transcript clean across cockpit restarts. This governs terminal/chat/cockpit emission; the one sanctioned host-carrying form is the https bridge below, for surfaces that reject the scheme outright.
+- **Always emit; degrade gracefully.** Terminals without OSC-8 support show the plain label text — which is why the label must be a readable ref, not the URL.
+- **Task and PR refs linkify themselves on Claude Code (mt#2565) — write the clean bare ref.** A `MessageDisplay` hook rewrites every bare `mt#NNNN` and `PR #N` into a deeplink as the message is displayed, while the stored transcript keeps the bare ref; a ref you linked by hand is left alone, and refs inside code fences, inline spans and blockquotes are never touched. This retires the old ration for these two classes — it capped linking at "typically the first mention," and the measured result was 31 linked vs 232 bare in one session, a fully compliant message that still read as not linkified. Two limits decide what authoring discipline still owns. The hook is **Claude Code only**, so hand-link when the output is bound elsewhere. Second, short ids resolve through a CACHE, so their coverage is best-effort: `ask#N` / `mem#N` / `ws#N` target a UUID (ADR-029) the display path cannot derive, so mt#3914 feeds the hook a short-id→UUID map refreshed out-of-band by a cockpit sweep. An id in the map is linked; an id absent from it — minted since the last refresh, or refreshed by nothing because no cockpit is running — stays bare. A wrong target is never emitted. **So the rules below still bind for these three: write the linked form when you hold the UUID.** The display path is a floor under the class that actually fails (mem#623 R6 measured 6 of 6 derivable refs linked and 0 of 3 of these, in a message handing the principal decisions), not a licence to stop. Detail: `docs/rules-rationale/cockpit-deeplinks.md §The one-link-per-entity ration is provisional`.
+
+- **The unit is the MESSAGE, and this is a FLOOR (mt#3286).** The ration above is a CEILING — "one per entity per message is plenty" bounds how much you may link. It was read for years as if it also set the floor, and it does not. The floor: **link the first mention of an entity in EVERY message where it appears**, not once per conversation. A turn's **closing or action message additionally links every pending-decision entity**, even when an earlier message in the same turn already linked it — the closing message is where the operator acts, and a link three messages up is not at hand there. Recurrences: mem#623 R3 (the ref was linked early in the turn and bare at the close; the operator reported "I don't see a link"), R4, R5, R6. All four were compliant with the ceiling and unusable anyway, which is what a missing floor looks like. Enforced advisory-only by the `turn-end-bare-ref-scan` Stop observer (calibration-first per ADR-024); on Claude Code its `mt#` / `PR #` classes now have little left to catch, and since mt#3960 its short-id class fires only on an id the display map cannot resolve — which is exactly the case this floor still binds for. Its two malformed-link classes are untouched by either: a link that is present but wrong is not a missing link, so nothing downstream repairs it.
+- **PR / changeset references use the `changeset` type.** Emit `[PR #<n>](minsky://changeset/<n>)` when referencing a PR by number. The label should be the human-readable form (`PR #1234`); the id in the URI is the plain PR number (`1234`). Bare `#1234` without the `PR` prefix stays plain text.
+
+## Examples
+
+`Implemented [mt#2519](minsky://task/mt%232519).` On a non-OSC-8 terminal this renders as plain text — still readable.
+
+## The https bridge form for https-only surfaces (mt#4604)
+
+Some destinations accept only http(s) link targets and strip a `minsky://` link at ingestion —
+Notion does (verified by read-back, 2026-08-25); GitHub-rendered bodies, Slack, and email are the
+same class. When a link is bound for such a surface, emit the bridge form — same label, same
+percent-encoding, the URI wrapped in the bridge route:
+
+```
+[mt#2865](https://minsky-mcp-production.up.railway.app/r/task/mt%232865)
+```
+
+`GET /r/<type>/<id>` on the MCP server (`src/mcp/deeplink-bridge.ts`) serves an interstitial that
+hands off to `minsky://<type>/<id>`; it validates through the shared codec, so the accepted types
+and id encoding are identical to the scheme form. `minsky://` stays canonical everywhere else. The
+path shape is host-stable: if a brand domain ever replaces the Railway host, relinking is a host
+swap only. Cockpit prose does not yet recognize the bridge form as an entity ref (mt#4607).
+
+## Terminal caveats
+
+tmux needs `set -g allow-passthrough on` for OSC-8. Non-OSC-8 terminals (older emulators, pipes,
+CI logs) show the plain label.
+
+**Ghostty ≤ 1.3.1 renders a `minsky://` deeplink and silently does nothing on click (mt#4333)** —
+a dead control rather than a degraded label, and `https://` in the same message opens fine. Cause:
+Ghostty had no custom-scheme dispatch until `macos/Sources/Helpers/UntrustedURL.swift` (whose
+`default:` branch returns `.confirm` for any non-http/https/mailto/file scheme) landed in commit
+`77537c806` on 2026-08-05 — after `v1.3.1`, still the newest release, so it ships only on
+unreleased `main`/`tip`. **Emit deeplinks normally regardless**; nothing about what you write
+changes. The one-command re-check that retires this caveat, the withdrawn alternatives, and the
+corrected history of an earlier wrong workaround:
+`docs/rules-rationale/cockpit-deeplinks.md §Ghostty ≤ 1.3.1 does not dispatch custom schemes`.
+
+## Cross-references
+
+mt#2517 (parent umbrella) · mt#2518 (Surface B linkifier + shared codec) · mt#2528 (`minsky://`
+scheme handler) · mt#2535 (`/changeset/:id` route) · mt#2536 (PR/changeset linkification) ·
+`src/cockpit/web/lib/entity-codec.ts` (the codec this format matches) ·
+`terminology-workspace-conversation.mdc` (the `session` URI type is deliberately NOT renamed).
+Full detail: `docs/rules-rationale/cockpit-deeplinks.md`.

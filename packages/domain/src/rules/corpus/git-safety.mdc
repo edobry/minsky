@@ -1,0 +1,14 @@
+---
+description: "Git safety: destructive operations require structured handling via the git-safety skill"
+globs: []
+alwaysApply: false
+tags:
+  - safety
+  - workflow
+plane: product
+tier: opinionated
+minimumRung: T1
+onDemand: true
+---
+
+Destructive git operations (reset --hard, rebase, push --force, checkout --, restore, clean -f, branch -D) require the git-safety skill. See `.claude/skills/git-safety/SKILL.md` for the structured protocol (`restore --staged` is index-only and excluded). ESLint rule `custom/no-unsafe-git-exec` structurally blocks untimed git execs at lint time.

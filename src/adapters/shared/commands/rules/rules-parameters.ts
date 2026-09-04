@@ -6,9 +6,7 @@ import { type CommandParameterMap } from "../../command-registry";
 import {
   RULE_CONTENT_DESCRIPTION,
   RULE_DESCRIPTION_DESCRIPTION,
-  RULE_FORMAT_DESCRIPTION,
   RULE_NAME_DESCRIPTION,
-  OVERWRITE_DESCRIPTION,
 } from "../../../../utils/option-descriptions";
 import { CommonParameters, RulesParameters, composeParams } from "../../common-parameters";
 
@@ -61,65 +59,6 @@ export const rulesGetCommandParams = composeParams(
   {
     id: RulesParameters.id,
     format: RulesParameters.format,
-  },
-  {
-    json: CommonParameters.json,
-    debug: CommonParameters.debug,
-  }
-) satisfies CommandParameterMap;
-
-export const rulesGenerateCommandParams = composeParams(
-  {
-    interface: {
-      schema: z.enum(["cli", "mcp", "hybrid"]),
-      description: "Interface preference for generated rules (cli, mcp, or hybrid)",
-      required: false,
-      defaultValue: "cli",
-    },
-    rules: {
-      schema: z.string().optional(),
-      description:
-        "Comma-separated list of specific rule templates to generate " +
-        "(if not specified, generates all available templates)",
-      required: false,
-    },
-    outputDir: {
-      schema: z.string().optional(),
-      description:
-        "Output directory for generated rules (defaults to .cursor/rules " +
-        "for cursor format, .ai/rules for openai format)",
-      required: false,
-    },
-    dryRun: {
-      schema: z.boolean(),
-      description: "Show what would be generated without actually creating files",
-      required: false,
-      defaultValue: false,
-    },
-    overwrite: {
-      schema: z.boolean(),
-      description: OVERWRITE_DESCRIPTION,
-      required: false,
-      defaultValue: false,
-    },
-    format: {
-      schema: z.enum(["cursor", "generic", "minsky"]),
-      description: RULE_FORMAT_DESCRIPTION,
-      required: false,
-      defaultValue: "cursor",
-    },
-    preferMcp: {
-      schema: z.boolean(),
-      description: "In hybrid mode, prefer MCP commands over CLI commands",
-      required: false,
-      defaultValue: false,
-    },
-    mcpTransport: {
-      schema: z.enum(["stdio", "http"]),
-      description: "MCP transport method (only relevant when interface is mcp or hybrid)",
-      required: false,
-      defaultValue: "stdio",
-    },
   },
   {
     json: CommonParameters.json,

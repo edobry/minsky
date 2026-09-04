@@ -527,7 +527,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
         log.cli(`Error: ${result.error}`);
       }
 
-      // Handle error array (e.g., from rules generate command)
+      // Handle error array (e.g., from a command returning per-item errors)
       if (result.errors && Array.isArray(result.errors) && result.errors.length > 0) {
         log.cli("Errors:");
         (result.errors as unknown[]).forEach((error: unknown, index: number) => {

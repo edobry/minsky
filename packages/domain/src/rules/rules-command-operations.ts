@@ -7,7 +7,7 @@
  *                                        writeRulesSelectionConfig, enableRule,
  *                                        disableRule, getRulesConfig, getRulesPresets
  *   - operations/crud-operations.ts    — listRulesFiltered, compileRules, getRule,
- *                                        generateRules, createRule, updateRule
+ *                                        createRule, updateRule
  *   - operations/migration-operations.ts — migrateRules, indexRuleEmbeddings,
  *                                          searchRulesEnhanced
  */
@@ -28,8 +28,6 @@ export type {
   CompileRulesResult,
   GetRuleOptions,
   GetRuleResult,
-  GenerateRulesOptions,
-  GenerateRulesResult,
   CreateRuleOptions,
   CreateRuleResult,
   UpdateRuleOptions,
@@ -49,7 +47,6 @@ export {
   listRulesFiltered,
   compileRules,
   getRule,
-  generateRules,
   createRule,
   updateRule,
 } from "./operations/crud-operations";
