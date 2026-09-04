@@ -457,4 +457,69 @@ describe("Init reports rules unreachable by the harness (mt#4770)", () => {
 
     expect(warnings).toEqual([]);
   });
+
+  // ─── init tells the operator about a file it left alone (mt#4986 SC2/SC5) ──
+  //
+  // Pre-fix, measured live 2026-09-04 at `1c7a6366c`: `init` replaced a
+  // hand-written 140-byte CLAUDE.md with 15,085 bytes, zero original lines
+  // surviving, and emitted NOTHING. The compile layer now refuses the write;
+  // this is the half that makes the refusal visible, because a silent skip
+  // reproduces the defect in a quieter form.
+
+  const FOREIGN_CLAUDE_MD_PATH = `${testRepo}/CLAUDE.md`;
+
+  const skippedForeign = (
+    definitionsIncluded: string[],
+    definitionsSkipped: string[]
+  ): HarnessCompileAccounting => ({
+    definitionsIncluded,
+    definitionsSkipped,
+    skippedForeignOutputs: [
+      {
+        path: FOREIGN_CLAUDE_MD_PATH,
+        reason: `${FOREIGN_CLAUDE_MD_PATH} was left untouched — it does not carry Minsky's generated-file banner`,
+      },
+    ],
+  });
+
+  const foreignWarnings = (warnings: string[]): string[] =>
+    warnings.filter((w) => w.includes("left untouched"));
+
+  test("reports a monolithic output left alone because it is the user's file", async () => {
+    const warnings = await runCapturingWarnings(async (target) =>
+      target === "claude.md" ? skippedForeign([], ["always-rule"]) : accounting([], ["always-rule"])
+    );
+
+    const reported = foreignWarnings(warnings);
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toContain(FOREIGN_CLAUDE_MD_PATH);
+    expect(reported[0]).toContain("banner");
+  });
+
+  test("reports the skip BEFORE the unreachability warning it explains", async () => {
+    // Ordering is the whole point of emitting both. With CLAUDE.md left alone
+    // every base rule is also unreachable, and the unreachability warning on
+    // its own sends the operator hunting for a frontmatter problem that does
+    // not exist.
+    const warnings = await runCapturingWarnings(async (target) =>
+      target === "claude.md" ? skippedForeign([], ["always-rule"]) : accounting([], ["always-rule"])
+    );
+
+    const foreignIndex = warnings.findIndex((w) => w.includes("left untouched"));
+    const reachabilityIndex = warnings.findIndex((w) => w.includes("not reachable by Claude"));
+
+    expect(foreignIndex).toBeGreaterThanOrEqual(0);
+    expect(reachabilityIndex).toBeGreaterThanOrEqual(0);
+    expect(foreignIndex).toBeLessThan(reachabilityIndex);
+  });
+
+  test("says nothing about foreign outputs when there are none", async () => {
+    const warnings = await runCapturingWarnings(async (target) =>
+      target === "claude.md"
+        ? accounting(["always-rule"], ["scoped-rule"])
+        : accounting(["scoped-rule"], ["always-rule"])
+    );
+
+    expect(foreignWarnings(warnings)).toEqual([]);
+  });
 });

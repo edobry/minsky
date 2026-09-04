@@ -15,6 +15,26 @@ import type { MinskyCompileFsDeps } from "./types";
 import type { SizeBudget } from "./size-budget";
 import type { MemoryLoadingMode } from "../configuration/schemas/memory";
 import { unknownCompileTargetMessage } from "../rules/compile/target-error-hint";
+import {
+  isForeignMonolith,
+  monolithicSkipIfNotOurs,
+  monolithicOutputName,
+} from "./monolithic-ownership";
+
+/**
+ * A target a bare invocation SKIPPED, with why.
+ *
+ * `kind` exists so callers can act on the two gates differently without
+ * string-matching the prose (mt#4986). They have opposite remedies: a
+ * `"harness"` skip is opted into with `--target`, while doing that on a
+ * `"foreign"` skip would overwrite the user's file — the exact thing the gate
+ * is protecting.
+ */
+export interface MinskyCompileGatedTarget {
+  target: string;
+  kind: "harness" | "foreign";
+  reason: string;
+}
 
 export interface RunMinskyCompileOptions {
   /** Target to compile. When omitted, all applicable targets are probed and compiled (mt#2803). */
@@ -79,6 +99,11 @@ export function minskyCompileTargetsFromPresence(present: {
    * this change a no-op here.
    */
   existingOutputs?: { cursorRules: boolean; agentsMd: boolean };
+  /**
+   * Whether each monolithic output on disk is the user's own file (mt#4986
+   * SC3). See {@link minskyCompileTargetsWithGateReport} for the full rationale.
+   */
+  foreignOutputs?: { claudeMd: boolean; agentsMd: boolean };
 }): string[] {
   // mt#4866 SC3. `cursor-rules-ts` and `agents.md` were selected on the presence
   // of `.minsky/rules/` alone, regardless of harness — so a bare `minsky compile`
@@ -123,28 +148,67 @@ export function minskyCompileTargetsWithGateReport(present: {
   hooks: boolean;
   harness?: string;
   existingOutputs?: { cursorRules: boolean; agentsMd: boolean };
-}): { targets: string[]; gatedOut: { target: string; reason: string }[] } {
+  /**
+   * Whether each monolithic output on disk is the USER's file rather than ours
+   * — present, and not carrying the generation banner (mt#4986 SC3).
+   *
+   * This is the narrowing SC3 asks for, expressed as its own input rather than
+   * by redefining `existingOutputs.agentsMd`. Both readings gate `agents.md`
+   * out for a foreign `AGENTS.md`; a separate field ALSO covers the two cases
+   * `existingOutputs` cannot reach, because that field only ever unlocks a
+   * harness escape: a foreign `AGENTS.md` under a NON-claude-code harness
+   * (where the escape is never consulted), and `CLAUDE.md`, which has no
+   * presence gate at all — it is pushed unconditionally below, so there was
+   * nothing to narrow. `CLAUDE.md` is the file this task is named for, and a
+   * literal reading of "narrow the presence rule" would not have reached it.
+   */
+  foreignOutputs?: { claudeMd: boolean; agentsMd: boolean };
+}): { targets: string[]; gatedOut: MinskyCompileGatedTarget[] } {
   const claudeCodeOnly = present.harness === "claude-code";
   const cursorRulesExists = present.existingOutputs?.cursorRules ?? false;
   const agentsMdExists = present.existingOutputs?.agentsMd ?? false;
+  const claudeMdIsForeign = present.foreignOutputs?.claudeMd ?? false;
+  const agentsMdIsForeign = present.foreignOutputs?.agentsMd ?? false;
 
   const targets: string[] = [];
-  const gatedOut: { target: string; reason: string }[] = [];
+  const gatedOut: MinskyCompileGatedTarget[] = [];
 
-  const gateReason = (output: string): string =>
-    `harness is "claude-code", which does not read ${output}, and ${output} does not ` +
-    `already exist. Compile it explicitly with --target to opt in, or create ${output} ` +
-    `once and it will be maintained from then on.`;
+  const harnessGate = (target: string, output: string): MinskyCompileGatedTarget => ({
+    target,
+    kind: "harness",
+    reason:
+      `harness is "claude-code", which does not read ${output}, and ${output} does not ` +
+      `already exist. Compile it explicitly with --target to opt in, or create ${output} ` +
+      `once and it will be maintained from then on.`,
+  });
+
+  // mt#4986. Deliberately NOT phrased as "…does not exist": the file is right
+  // there, which is what makes the old rule read its presence as consent.
+  const foreignGate = (target: string, output: string): MinskyCompileGatedTarget => ({
+    target,
+    kind: "foreign",
+    reason:
+      `${output} exists but does not carry Minsky's generated-file banner, so it is treated ` +
+      `as yours and is never overwritten. Move it aside and re-run to hand the file to Minsky.`,
+  });
 
   if (present.skills) targets.push("claude-skills");
   if (present.rules) {
     if (!claudeCodeOnly || cursorRulesExists) targets.push("cursor-rules-ts");
-    else gatedOut.push({ target: "cursor-rules-ts", reason: gateReason(".cursor/rules") });
+    else gatedOut.push(harnessGate("cursor-rules-ts", ".cursor/rules"));
 
-    targets.push("claude.md");
+    // Foreign-ownership is checked BEFORE the harness gate, and unconditionally:
+    // whose file it is does not depend on which harness the project runs.
+    if (!claudeMdIsForeign) targets.push("claude.md");
+    else gatedOut.push(foreignGate("claude.md", "CLAUDE.md"));
 
-    if (!claudeCodeOnly || agentsMdExists) targets.push("agents.md");
-    else gatedOut.push({ target: "agents.md", reason: gateReason("AGENTS.md") });
+    if (agentsMdIsForeign) {
+      gatedOut.push(foreignGate("agents.md", "AGENTS.md"));
+    } else if (!claudeCodeOnly || agentsMdExists) {
+      targets.push("agents.md");
+    } else {
+      gatedOut.push(harnessGate("agents.md", "AGENTS.md"));
+    }
 
     targets.push("claude-rules");
   }
@@ -202,6 +266,24 @@ export async function probeMinskyCompileTargets(
   workspacePath: string,
   fsDeps: MinskyCompileFsDeps
 ): Promise<string[]> {
+  return (await probeMinskyCompileTargetsWithGateReport(workspacePath, fsDeps)).targets;
+}
+
+/**
+ * As {@link probeMinskyCompileTargets}, plus which targets the gates SKIPPED.
+ *
+ * Added by mt#4986 for the same reason `minskyCompileTargetsWithGateReport`
+ * exists one layer down: the gate is otherwise invisible, and for a `"foreign"`
+ * skip invisibility is the defect itself — the whole point is telling the
+ * operator their file was left alone. `runMinskyCompile` dropped the report on
+ * the floor, so a bare `minsky compile` in a project with its own `CLAUDE.md`
+ * printed only the targets that DID run and said nothing about the one that
+ * did not.
+ */
+export async function probeMinskyCompileTargetsWithGateReport(
+  workspacePath: string,
+  fsDeps: MinskyCompileFsDeps
+): Promise<{ targets: string[]; gatedOut: MinskyCompileGatedTarget[] }> {
   const pathExists = async (candidate: string): Promise<boolean> => {
     try {
       await fsDeps.access(candidate);
@@ -211,7 +293,7 @@ export async function probeMinskyCompileTargets(
     }
   };
 
-  return minskyCompileTargetsFromPresence({
+  return minskyCompileTargetsWithGateReport({
     skills: await pathExists(path.join(workspacePath, ".minsky", "skills")),
     rules: await pathExists(path.join(workspacePath, ".minsky", "rules")),
     agents: await pathExists(path.join(workspacePath, ".minsky", "agents")),
@@ -222,6 +304,13 @@ export async function probeMinskyCompileTargets(
     existingOutputs: {
       cursorRules: await pathExists(path.join(workspacePath, ".cursor", "rules")),
       agentsMd: await pathExists(path.join(workspacePath, "AGENTS.md")),
+    },
+    // mt#4986 SC3: whose file is it. Read here, at the one place that already
+    // touches the filesystem, so the pure mapping above stays testable without
+    // fs stubbing — the same split `existingOutputs` already uses.
+    foreignOutputs: {
+      claudeMd: await isForeignMonolith(path.join(workspacePath, "CLAUDE.md"), fsDeps),
+      agentsMd: await isForeignMonolith(path.join(workspacePath, "AGENTS.md"), fsDeps),
     },
   });
 }
@@ -285,18 +374,51 @@ export async function runMinskyCompile(
 
   // mt#2803: bare invocation — regenerate every applicable target instead of
   // silently compiling only the single new-pipeline default.
-  const probedTargets = await probeMinskyCompileTargets(workspacePath, fsDeps);
+  const { targets: probedTargets, gatedOut } = await probeMinskyCompileTargetsWithGateReport(
+    workspacePath,
+    fsDeps
+  );
   const targetIds = probedTargets.length > 0 ? probedTargets : ["claude-skills"];
+
+  // mt#4986 SC2. A target gated out as FOREIGN never runs, so its own refusal
+  // never fires and `skippedForeignOutputs` would be empty — the operator would
+  // be told nothing at all, which is the defect in a quieter form. Seed the
+  // report from the gate instead. The `"harness"` kind is deliberately NOT
+  // seeded here: that gate is normal narrowing, already documented, and not a
+  // file anyone is protecting.
+  const gateSkippedForeign: { path: string; reason: string }[] = [];
+  for (const entry of gatedOut) {
+    if (entry.kind !== "foreign") continue;
+    // Explicit lookup, not a ternary (PR #3643 R1): a third monolithic target
+    // would otherwise be silently reported against AGENTS.md — a wrong PATH in
+    // an operator-facing message, which nothing type-checks. An unknown target
+    // yields no entry rather than a fabricated one.
+    const outputName = monolithicOutputName(entry.target);
+    if (outputName === undefined) continue;
+    // Re-reads the file rather than reconstructing the reason from the gate's
+    // boolean: the reason has to name WHY (unreadable vs. hand-authored), and the
+    // helper is the one place that pairs the read with the wording it licenses.
+    const skip = await monolithicSkipIfNotOurs(path.join(workspacePath, outputName), fsDeps);
+    if (skip !== undefined) gateSkippedForeign.push(skip);
+  }
 
   const [onlyTargetId] = targetIds;
   if (targetIds.length === 1 && onlyTargetId) {
-    return compileSingleMinskyTarget(compileService, onlyTargetId, options, workspacePath);
+    const single = await compileSingleMinskyTarget(
+      compileService,
+      onlyTargetId,
+      options,
+      workspacePath
+    );
+    const merged = [...gateSkippedForeign, ...(single.skippedForeignOutputs ?? [])];
+    return merged.length > 0 ? { ...single, skippedForeignOutputs: merged } : single;
   }
 
   const targets: MinskyCompileTargetOutcome[] = [];
   const filesWritten: string[] = [];
   const definitionsIncluded: string[] = [];
   const definitionsSkipped: string[] = [];
+  const skippedForeignOutputs: { path: string; reason: string }[] = [...gateSkippedForeign];
   let overallStale = false;
 
   for (const targetId of targetIds) {
@@ -311,6 +433,9 @@ export async function runMinskyCompile(
     filesWritten.push(...single.filesWritten);
     definitionsIncluded.push(...single.definitionsIncluded);
     definitionsSkipped.push(...single.definitionsSkipped);
+    // mt#4986 SC2: concatenated like the other per-target arrays, so a caller
+    // reading only the top-level result still learns a file was left alone.
+    skippedForeignOutputs.push(...(single.skippedForeignOutputs ?? []));
   }
 
   return {
@@ -318,6 +443,7 @@ export async function runMinskyCompile(
     filesWritten,
     definitionsIncluded,
     definitionsSkipped,
+    skippedForeignOutputs: skippedForeignOutputs.length > 0 ? skippedForeignOutputs : undefined,
     check: options.check,
     stale: options.check ? overallStale : undefined,
     targets,

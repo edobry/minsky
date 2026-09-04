@@ -96,6 +96,13 @@ export function createCompileCommand(): Command {
         // probed targets rather than stopping at the first. mt#2992 adds
         // size-budget reporting per target, using the same "fix staleness
         // first" precedence classifyCompileCheckError encodes.
+        // mt#4986 SC2 — see the sibling renderer in
+        // `src/adapters/shared/commands/compile/compile-commands.ts` for why
+        // this is top-level rather than per-target.
+        for (const skipped of result.skippedForeignOutputs ?? []) {
+          log.cli(`[compile] ${skipped.reason}`);
+        }
+
         if (result.targets && result.targets.length > 0) {
           let anyStale = false;
           let anyBudgetFailure = false;

@@ -22,6 +22,15 @@ import { runMinskyCompile } from "./compile/compile";
 export interface HarnessCompileAccounting {
   definitionsIncluded: string[];
   definitionsSkipped: string[];
+  /**
+   * Monolithic outputs the compile refused to write because they are the
+   * user's own file (mt#4986 SC2).
+   *
+   * Optional so every existing stub keeps compiling; absent and empty mean the
+   * same thing. The same compiler tie described above applies — the default
+   * `compileForHarness` returns `runMinskyCompile`'s result directly.
+   */
+  skippedForeignOutputs?: { path: string; reason: string }[];
 }
 import {
   resolveRepositoryFromGitRemote,
@@ -314,6 +323,7 @@ export async function initializeProject(
     // source of truth that a later change to either one could silently falsify.
     const reachable = new Set<string>();
     const compiled = new Set<string>();
+    const foreignOutputs: { path: string; reason: string }[] = [];
     let accountingComplete = true;
 
     for (const target of ["claude.md", "claude-rules"]) {
@@ -326,6 +336,7 @@ export async function initializeProject(
         for (const id of result.definitionsSkipped ?? []) {
           compiled.add(id);
         }
+        foreignOutputs.push(...(result.skippedForeignOutputs ?? []));
       } catch (error) {
         // SURFACED, not swallowed (mt#4715 SC5). `init` must still succeed —
         // a project with sources but no compiled output is recoverable by
@@ -346,6 +357,18 @@ export async function initializeProject(
     // ineligible — the per-target failure above already covers that case, and
     // stacking an "unreachable" claim on top of it would state a conclusion
     // this run cannot support.
+    // mt#4986 SC2. Emitted BEFORE the unreachability warning below, and that
+    // order is load-bearing: when `CLAUDE.md` is the user's, every base rule
+    // also shows up as unreachable, and the two messages together are the whole
+    // truth — this one says which file was left alone and why, the next says
+    // what that costs. On its own the unreachability warning would send the
+    // operator hunting for a frontmatter problem that does not exist.
+    for (const { reason } of foreignOutputs) {
+      // `reason` already names the file (`foreignOutputSkipReason`), so there is
+      // nothing to interpolate here.
+      warn(`minsky init: ${reason}`);
+    }
+
     if (accountingComplete) {
       const unreachable = [...compiled].filter((id) => !reachable.has(id)).sort();
       if (unreachable.length > 0) {

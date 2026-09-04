@@ -61,6 +61,22 @@ export interface MinskyCompileResult {
    */
   skipReasons?: string[];
   /**
+   * Monolithic outputs this run REFUSED to write because they are the user's
+   * own file, not Minsky's (mt#4986).
+   *
+   * Distinct from `skipReasons`, which explains why individual RULES were left
+   * out of an output that was still written. This says a whole OUTPUT FILE was
+   * left alone. The path is deliberately absent from `filesWritten` — reporting
+   * a file we declined to write as written is the false-completion class this
+   * task exists in.
+   *
+   * Carried on the result rather than logged, for the same reason `skipReasons`
+   * is (see above): the CLI discards `log.warn`, so a reason written to it is
+   * written and thrown away on every real invocation — and silence here
+   * reproduces the original defect in a quieter form.
+   */
+  skippedForeignOutputs?: { path: string; reason: string }[];
+  /**
    * Dry-run content.
    * - Single-file targets: the full file content.
    * - Multi-file targets: a concatenated summary (for display only).

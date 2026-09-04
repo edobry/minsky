@@ -164,6 +164,49 @@ describe("compileCheckTargets (mt#2497, extended mt#2304, mt#3058)", () => {
       ).toEqual(["cursor-rules-ts", "claude.md", "agents.md", "claude-rules"]);
     });
   });
+
+  // ─── mt#4986 SC3: the foreign-ownership gate, mirrored ─────────────────────
+  //
+  // Same lockstep argument as the harness gate above, one gate later: the
+  // compile no longer writes a monolithic output the user owns, so this check
+  // must stop demanding it be fresh. Without the mirror, a project with its own
+  // CLAUDE.md is told at every commit that it is stale, with no invocation able
+  // to refresh it — and the one that would (`--target claude.md`) is refused by
+  // the writer, so the operator has no way out at all.
+  describe("foreign-ownership gate (mt#4986 SC3)", () => {
+    const RULES_ONLY = { skills: false, rules: true, agents: false, hooks: false };
+
+    test("drops claude.md when CLAUDE.md is the user's", () => {
+      expect(
+        compileCheckTargets({
+          ...RULES_ONLY,
+          foreignOutputs: { claudeMd: true, agentsMd: false },
+        })
+      ).toEqual(["cursor-rules-ts", "agents.md", "claude-rules"]);
+    });
+
+    test("drops agents.md when AGENTS.md is the user's, even with the harness escape open", () => {
+      expect(
+        compileCheckTargets({
+          ...RULES_ONLY,
+          harness: "claude-code",
+          existingOutputs: { cursorRules: true, agentsMd: true },
+          foreignOutputs: { claudeMd: false, agentsMd: true },
+        })
+      ).not.toContain("agents.md");
+    });
+
+    // This repository's own case: both monolithic files carry the banner, so
+    // the gate is inert and the pre-commit check verifies exactly what it did.
+    test("is inert when both monolithic outputs are ours", () => {
+      expect(
+        compileCheckTargets({
+          ...RULES_ONLY,
+          foreignOutputs: { claudeMd: false, agentsMd: false },
+        })
+      ).toEqual(compileCheckTargets(RULES_ONLY));
+    });
+  });
 });
 
 describe("claudeHooksCompileAffected (mt#2977)", () => {
