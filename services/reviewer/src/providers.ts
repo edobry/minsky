@@ -20,7 +20,8 @@ import {
   OUTPUT_TOOL_DEFINITIONS,
   parseToolCall,
   parseToolCallExpanded,
-  BATCHED_SPEC_VERIFICATION_TOOL,
+  BATCHED_FINDINGS_TOOL,
+  BATCHED_TOOL_EXPANSIONS,
   type ReviewToolCall,
 } from "./output-tools";
 import { withTimeout, TimeoutError } from "./with-timeout";
@@ -736,6 +737,60 @@ const REVIEWER_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = 
 const OUTPUT_TOOL_NAMES = new Set<string>(OUTPUT_TOOL_DEFINITIONS.map((t) => t.function.name));
 
 /**
+ * Tool names whose args carry a BATCH that expands to N singular calls
+ * (mt#3545, extended mt#4979). Derived from the expansion registry rather than
+ * listed here, so a third batch tool needs no edit in this file.
+ */
+const BATCH_TOOL_NAMES = new Set<string>(Object.keys(BATCHED_TOOL_EXPANSIONS));
+
+/**
+ * Apply the mt#2863 / mt#3300 resolution-note guard to one parsed
+ * `submit_finding`, mutating its args in place and logging the decision.
+ *
+ * Extracted (mt#4979) because there are now THREE emission paths for a
+ * `submit_finding` — the main loop's singular branch, the main loop's BATCH
+ * branch via `submit_findings`, and mt#2926's post-loop forced pass — and a
+ * guard applied at only some of them is a route around it. That is the exact
+ * gap class mt#2926 was filed to close, so re-creating it while adding the
+ * batch tool would be self-defeating.
+ *
+ * Note this is precisely where mt#3545's "the blast radius is nil" stops
+ * generalising: it held for `submit_spec_verifications` because NO emission
+ * guard applies to a spec verification, which is why the batch branch could
+ * bypass the singular path wholesale. Findings are the case that breaks that
+ * assumption.
+ */
+function applyResolutionNoteGuard(
+  parsed: Extract<ReviewToolCall, { name: "submit_finding" }>,
+  logFields: Record<string, unknown>
+): void {
+  const evaluation = evaluateSubmitFindingCall({ args: parsed.args });
+  if (evaluation.decision === "reclassify") {
+    log.info("reviewer.submit_finding_resolution_note_reclassified", {
+      event: "reviewer.submit_finding_resolution_note_reclassified",
+      provider: "openai",
+      ...logFields,
+      file: parsed.args.file,
+      line: parsed.args.line,
+      argumentKind: evaluation.argumentKind,
+      reason: evaluation.reason,
+    });
+    parsed.args.severity = evaluation.newSeverity;
+  } else if (evaluation.decision === "reject") {
+    log.info("reviewer.submit_finding_resolution_note_rejected", {
+      event: "reviewer.submit_finding_resolution_note_rejected",
+      provider: "openai",
+      ...logFields,
+      file: parsed.args.file,
+      line: parsed.args.line,
+      argumentKind: evaluation.argumentKind,
+      reason: evaluation.reason,
+    });
+    parsed.args.details = markUntrackedDeferral(parsed.args.details);
+  }
+}
+
+/**
  * All tools registered with the model in the tool-use loop: the two
  * read-only reviewer tools (read_file, list_directory) plus the six
  * structured output tools (submit_finding, submit_inline_comment,
@@ -835,8 +890,13 @@ const CONCLUDE_REVIEW_REMINDER_USER_MSG =
  * siblings above: if submit_finding is somehow absent (refactor slip), only
  * this pass is disabled and the mt#2685 recovery synthesis takes over.
  */
+// mt#4979: the forced pass pins the BATCHED tool, not the singular one. A
+// pinned tool_choice returns exactly ONE call (measured 3/3 on live gpt-5 in
+// mt#2926's smoke), so pinning `submit_finding` capped recovery at one finding
+// however many the conclusion named. One call carrying N findings lifts that
+// ceiling without loosening the pin that guarantees emission at all.
 const SUBMIT_FINDING_RAW_DEF = OUTPUT_TOOL_DEFINITIONS.find(
-  (t) => t.function.name === "submit_finding"
+  (t) => t.function.name === BATCHED_FINDINGS_TOOL
 );
 const SUBMIT_FINDING_TOOL_DEF: OpenAI.Chat.Completions.ChatCompletionTool | null =
   SUBMIT_FINDING_RAW_DEF
@@ -1237,50 +1297,35 @@ async function forceFindings(
 
   let emittedCount = 0;
   for (const toolCall of rawToolCalls) {
-    if (toolCall.function.name !== "submit_finding") continue;
+    // mt#4979: the pinned tool is the BATCH form, so one returned call carries
+    // N findings. The singular name is still accepted — the model may emit it
+    // despite the pin, and dropping a well-formed finding because it arrived
+    // under the other name would re-create the lossy channel this pass exists
+    // to close.
+    const fnName = toolCall.function.name;
+    if (fnName !== BATCHED_FINDINGS_TOOL && fnName !== "submit_finding") continue;
     try {
-      const parsed = parseToolCall("submit_finding", toolCall.function.arguments);
-      // Narrowing for the guard below: parseToolCall is keyed by the name we
-      // just matched, so this branch is structurally unreachable — it exists
-      // to keep the discriminated union honest rather than to cast.
-      if (parsed.name !== "submit_finding") continue;
+      const expanded = parseToolCallExpanded(fnName, toolCall.function.arguments);
+      for (const parsed of expanded) {
+        // The expansion of either accepted name yields only submit_finding
+        // entries; the check keeps the discriminated union honest.
+        if (parsed.name !== "submit_finding") continue;
 
-      // mt#2863 / mt#3300 emission guard, applied on this path for the same
-      // reason it is applied in the main loop: a BLOCKING finding whose text
-      // reads as a completed resolution note is self-contradictory, and this
-      // pass must not become a route around that.
-      const evaluation = evaluateSubmitFindingCall({ args: parsed.args });
-      if (evaluation.decision === "reclassify") {
-        log.info("reviewer.submit_finding_resolution_note_reclassified", {
-          event: "reviewer.submit_finding_resolution_note_reclassified",
-          provider: "openai",
-          phase: "post_loop_forced_findings",
-          file: parsed.args.file,
-          line: parsed.args.line,
-          argumentKind: evaluation.argumentKind,
-          reason: evaluation.reason,
-        });
-        parsed.args.severity = evaluation.newSeverity;
-      } else if (evaluation.decision === "reject") {
-        log.info("reviewer.submit_finding_resolution_note_rejected", {
-          event: "reviewer.submit_finding_resolution_note_rejected",
-          provider: "openai",
-          phase: "post_loop_forced_findings",
-          file: parsed.args.file,
-          line: parsed.args.line,
-          argumentKind: evaluation.argumentKind,
-          reason: evaluation.reason,
-        });
-        parsed.args.details = markUntrackedDeferral(parsed.args.details);
+        // mt#2863 / mt#3300 emission guard, applied on this path for the same
+        // reason it is applied in the main loop: a BLOCKING finding whose text
+        // reads as a completed resolution note is self-contradictory, and this
+        // pass must not become a route around that.
+        applyResolutionNoteGuard(parsed, { phase: "post_loop_forced_findings" });
+
+        accumulatedToolCalls.push(parsed);
+        emittedCount += 1;
       }
-
-      accumulatedToolCalls.push(parsed);
-      emittedCount += 1;
       log.info("reviewer.output_tool_call", {
         event: "reviewer.output_tool_call",
         provider: "openai",
-        tool: "submit_finding",
+        tool: fnName,
         count: accumulatedToolCalls.length,
+        expandedTo: expanded.length,
         phase: "post_loop_forced_findings",
       });
     } catch (err: unknown) {
@@ -1288,7 +1333,7 @@ async function forceFindings(
       log.info("reviewer.output_tool_call_parse_error", {
         event: "reviewer.output_tool_call_parse_error",
         provider: "openai",
-        tool: "submit_finding",
+        tool: fnName,
         phase: "post_loop_forced_findings",
         error: errMsg,
       });
@@ -1593,15 +1638,25 @@ export async function callOpenAIWithClient(
       const fnName = toolCall.function.name;
       let resultContent: string;
 
-      if (fnName === BATCHED_SPEC_VERIFICATION_TOOL) {
-        // mt#3545: the batched form expands to N singular
-        // submit_spec_verification calls. Handled in its own branch rather than
-        // threading a list through the singular path, because none of that
-        // path's guards (conclude_review coherence, finding resolution notes)
-        // apply to spec verifications — and a list-shaped `parsed` would have
-        // reordered entries relative to the spec.
+      if (BATCH_TOOL_NAMES.has(fnName)) {
+        // mt#3545: the batched form expands to N singular calls. Handled in its
+        // own branch rather than threading a list through the singular path,
+        // because a list-shaped `parsed` would have reordered entries relative
+        // to the spec.
+        //
+        // mt#3545's other reason — "none of that path's guards apply" — was
+        // true of spec verifications and is NOT true of the mt#4979
+        // `submit_findings` batch: the resolution-note guard applies to every
+        // finding regardless of which tool carried it. So the guard runs per
+        // expanded entry below. The conclude_review coherence guard still does
+        // not apply here, because no batch tool carries a conclusion.
         try {
           const expanded = parseToolCallExpanded(fnName, toolCall.function.arguments);
+          for (const call of expanded) {
+            if (call.name === "submit_finding") {
+              applyResolutionNoteGuard(call, { round, phase: "batch", tool: fnName });
+            }
+          }
           accumulatedToolCalls.push(...expanded);
           log.info("reviewer.output_tool_call", {
             event: "reviewer.output_tool_call",
@@ -1690,34 +1745,7 @@ export async function callOpenAIWithClient(
           // persisted finding body, forcing a genuine fix, a named spec
           // amendment, or a task-id-tracked deferral before it can converge.
           if (parsed.name === "submit_finding") {
-            const evaluation = evaluateSubmitFindingCall({ args: parsed.args });
-            if (evaluation.decision === "reclassify") {
-              log.info("reviewer.submit_finding_resolution_note_reclassified", {
-                event: "reviewer.submit_finding_resolution_note_reclassified",
-                provider: "openai",
-                round,
-                file: parsed.args.file,
-                line: parsed.args.line,
-                argumentKind: evaluation.argumentKind,
-                reason: evaluation.reason,
-              });
-              parsed.args.severity = evaluation.newSeverity;
-            } else if (evaluation.decision === "reject") {
-              log.info("reviewer.submit_finding_resolution_note_rejected", {
-                event: "reviewer.submit_finding_resolution_note_rejected",
-                provider: "openai",
-                round,
-                file: parsed.args.file,
-                line: parsed.args.line,
-                argumentKind: evaluation.argumentKind,
-                reason: evaluation.reason,
-              });
-              // mt#3300 R1 non-blocking: idempotent prepend — a re-raised
-              // finding can carry its own prior (already-marked) text
-              // forward across rounds; markUntrackedDeferral avoids
-              // accumulating duplicate markers on retries.
-              parsed.args.details = markUntrackedDeferral(parsed.args.details);
-            }
+            applyResolutionNoteGuard(parsed, { round });
           }
 
           accumulatedToolCalls.push(parsed);

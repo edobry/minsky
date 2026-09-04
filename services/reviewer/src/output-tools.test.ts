@@ -13,6 +13,8 @@
 
 import { describe, expect, test } from "bun:test";
 import {
+  BATCHED_TOOL_EXPANSIONS,
+  MAX_BATCHED_FINDINGS,
   OUTPUT_TOOL_DEFINITIONS,
   parseToolCall,
   parseToolCallExpanded,
@@ -625,12 +627,24 @@ describe("parseToolCall — submit_inline_comment — inReplyTo", () => {
 // ---------------------------------------------------------------------------
 
 describe("OUTPUT_TOOL_DEFINITIONS", () => {
-  test("has exactly 8 entries", () => {
-    // 8 as of mt#3545, which added the batched `submit_spec_verifications`
-    // alongside the singular form. This count is a deliberate guard: adding a
-    // tool widens the model's option surface and should be a decision, not a
+  test("has exactly 9 entries", () => {
+    // 9 as of mt#4979, which added the batched `submit_findings` alongside the
+    // singular form — the same move mt#3545 made for spec verifications (which
+    // took this count to 8). This count is a deliberate guard: adding a tool
+    // widens the model's option surface and should be a decision, not a
     // drive-by, so the number is asserted rather than derived.
-    expect(OUTPUT_TOOL_DEFINITIONS).toHaveLength(8);
+    expect(OUTPUT_TOOL_DEFINITIONS).toHaveLength(9);
+  });
+
+  test("every batch tool in the expansion registry is a REGISTERED definition", () => {
+    // A batch tool with an expansion but no definition is never offered to the
+    // model (dead code); a definition with no expansion would fall through to
+    // parseToolCall and throw on the batch shape. Both directions are silent
+    // failures, so the census asserts the two sets agree.
+    const registered = new Set(OUTPUT_TOOL_DEFINITIONS.map((d) => d.function.name));
+    for (const batchName of Object.keys(BATCHED_TOOL_EXPANSIONS)) {
+      expect(registered.has(batchName)).toBe(true);
+    }
   });
 
   test("each entry has type: function", () => {
@@ -856,5 +870,87 @@ describe("ReviewToolCall discriminated union", () => {
     } else {
       throw new Error("Expected conclude_review");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4979 — the batched submit_findings tool
+// ---------------------------------------------------------------------------
+
+describe("parseToolCallExpanded — submit_findings (mt#4979)", () => {
+  const finding = (file: string, summary: string) => ({
+    severity: "BLOCKING" as const,
+    file,
+    line: 1,
+    summary,
+    details: "d",
+  });
+
+  test("expands N entries into N singular submit_finding calls, in order", () => {
+    // Order matters: findings are rendered in emit order within a severity
+    // (compose-review's sort is stable), so a reordering expansion would
+    // silently shuffle the review body.
+    const calls = parseToolCallExpanded(
+      "submit_findings",
+      JSON.stringify({
+        findings: [finding("a.ts", "first"), finding("b.ts", "second"), finding("c.ts", "third")],
+      })
+    );
+
+    expect(calls).toHaveLength(3);
+    expect(calls.every((c) => c.name === "submit_finding")).toBe(true);
+    expect(calls.map((c) => (c.args as { summary: string }).summary)).toEqual([
+      "first",
+      "second",
+      "third",
+    ]);
+  });
+
+  test("a single-entry batch is valid and yields one call", () => {
+    const calls = parseToolCallExpanded(
+      "submit_findings",
+      JSON.stringify({ findings: [finding("a.ts", "only")] })
+    );
+    expect(calls).toHaveLength(1);
+  });
+
+  test("rejects an empty batch", () => {
+    // An empty findings array is not "no findings" — the model says that by not
+    // calling the tool. Accepting it would let a forced pass report success
+    // having recorded nothing.
+    expect(() =>
+      parseToolCallExpanded("submit_findings", JSON.stringify({ findings: [] }))
+    ).toThrow(/Invalid args/);
+  });
+
+  test("rejects a batch over MAX_BATCHED_FINDINGS", () => {
+    const oversized = Array.from({ length: MAX_BATCHED_FINDINGS + 1 }, (_, i) =>
+      finding(`f${i}.ts`, `s${i}`)
+    );
+    expect(() =>
+      parseToolCallExpanded("submit_findings", JSON.stringify({ findings: oversized }))
+    ).toThrow(/Invalid args/);
+  });
+
+  test("one malformed entry rejects the WHOLE batch — all-or-nothing", () => {
+    // Matching the batched-spec-verification contract: a partial verdict set is
+    // worse than none, because the caller cannot tell which entries were lost.
+    expect(() =>
+      parseToolCallExpanded(
+        "submit_findings",
+        JSON.stringify({
+          findings: [finding("a.ts", "good"), { severity: "BLOCKING", file: "b.ts" }],
+        })
+      )
+    ).toThrow(/Invalid args/);
+  });
+
+  test("the singular tool is untouched by the batch path", () => {
+    const calls = parseToolCallExpanded(
+      "submit_finding",
+      JSON.stringify(finding("a.ts", "singular"))
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.name).toBe("submit_finding");
   });
 });

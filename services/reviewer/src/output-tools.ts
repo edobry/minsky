@@ -71,6 +71,43 @@ export const SubmitFindingArgsSchema = z.object({
 export type SubmitFindingArgs = z.infer<typeof SubmitFindingArgsSchema>;
 
 /**
+ * Upper bound on findings carried in one batched call (mt#4979).
+ *
+ * Same reasoning as {@link MAX_BATCHED_SPEC_VERIFICATIONS} — an unbounded array
+ * is a denial-of-context vector — but deliberately SMALLER, because a finding
+ * carries two free-text fields (`summary` and `details`, the latter holding
+ * rationale plus a suggested fix) where a verification carries one short
+ * evidence string. A review with more than 20 distinct findings is already
+ * past the point where the batch is the problem.
+ */
+export const MAX_BATCHED_FINDINGS = 20;
+
+/**
+ * Args for the batched `submit_findings` tool (mt#4979).
+ *
+ * The singular tool requires one call per finding. That is a cost in the main
+ * loop, and a hard CEILING on the mt#2926 post-loop forced-findings pass: that
+ * pass pins `tool_choice` to a single function, which returns exactly one call,
+ * so a conclusion naming several blocking issues recovered only the first.
+ * Measured 3/3 on live gpt-5 (`scripts/smoke-forced-findings.ts`): every
+ * attempt returned one finding for a two-defect conclusion.
+ *
+ * This tool carries all of them in ONE call. Deliberately a separate tool
+ * rather than a widened `submit_finding` schema, exactly as mt#3545 chose for
+ * spec verifications: `parseToolCallExpanded` expands a batch into N singular
+ * `submit_finding` entries, so `compose-review`, `review-provenance`, the
+ * mt#2863 resolution-note guard and mt#2926's `forceFindings` append loop all
+ * keep matching the shape they already handle. The ceiling lifts; the blast
+ * radius is nil.
+ */
+export const SubmitFindingsArgsSchema = z.object({
+  /** One entry per distinct issue, in the order they should be reported. */
+  findings: z.array(SubmitFindingArgsSchema).min(1).max(MAX_BATCHED_FINDINGS),
+});
+
+export type SubmitFindingsArgs = z.infer<typeof SubmitFindingsArgsSchema>;
+
+/**
  * Args for the `submit_inline_comment` tool.
  *
  * An inline comment is a targeted annotation on a specific line, typically
@@ -441,6 +478,79 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
           },
         },
         required: ["severity", "file", "line", "summary", "details"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "submit_findings",
+      description:
+        "PREFERRED over submit_finding: record ALL findings in a SINGLE call. Pass one entry " +
+        "per distinct issue. Each entry takes the same severity/file/line/summary/details " +
+        "fields as the singular tool and is validated identically. Use this instead of " +
+        "emitting the singular tool repeatedly — it leaves you more of your tool budget for " +
+        "verification and for concluding the review.",
+      parameters: {
+        type: "object",
+        properties: {
+          findings: {
+            type: "array",
+            minItems: 1,
+            maxItems: MAX_BATCHED_FINDINGS,
+            description: "One entry per distinct issue found in the diff.",
+            items: {
+              type: "object",
+              properties: {
+                severity: {
+                  type: "string",
+                  enum: ["BLOCKING", "NON-BLOCKING", "PRE-EXISTING"],
+                  description:
+                    "Issue severity. BLOCKING = must fix before merge; " +
+                    "NON-BLOCKING = nit/observation, does not block; " +
+                    "PRE-EXISTING = existed before this PR.",
+                },
+                file: {
+                  type: "string",
+                  minLength: 1,
+                  description:
+                    "File path relative to the repository root (e.g. src/domain/session.ts).",
+                },
+                line: {
+                  type: "integer",
+                  minimum: 1,
+                  description: "1-based line number where the finding applies.",
+                },
+                lineEnd: {
+                  type: "integer",
+                  minimum: 1,
+                  description:
+                    "Last line of a multi-line finding range (1-based, inclusive). Omit for single-line findings.",
+                },
+                side: {
+                  type: "string",
+                  enum: ["LEFT", "RIGHT"],
+                  description:
+                    "Diff side: RIGHT for additions (new file), LEFT for deletions (old file). Omit when not diff-position-specific.",
+                },
+                summary: {
+                  type: "string",
+                  minLength: 1,
+                  description: "One-sentence summary of the finding.",
+                },
+                details: {
+                  type: "string",
+                  minLength: 1,
+                  description: "Full explanation with rationale and suggested fix.",
+                },
+              },
+              required: ["severity", "file", "line", "summary", "details"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["findings"],
         additionalProperties: false,
       },
     },
@@ -879,6 +989,54 @@ export function parseToolCall(name: string, argsJson: string): ReviewToolCall {
 /** Tool name for the batched spec-verification form (mt#3545). */
 export const BATCHED_SPEC_VERIFICATION_TOOL = "submit_spec_verifications";
 
+/** Name of the batched findings tool (mt#4979). */
+export const BATCHED_FINDINGS_TOOL = "submit_findings";
+
+/**
+ * The batch tools and how each expands into singular `ReviewToolCall`s.
+ *
+ * A registry rather than a chain of `if`s so adding a third batch tool is one
+ * entry, and so the set is enumerable — `providers.ts` needs to know which
+ * names are batch tools without duplicating the list, and the census test in
+ * `output-tools.test.ts` asserts every entry here is a REGISTERED tool
+ * definition (a batch tool the model is never offered is dead code, and a
+ * definition with no expansion would reach `parseToolCall` and throw on the
+ * batch shape).
+ */
+export type BatchExpansionResult =
+  | { success: true; calls: ReviewToolCall[] }
+  | { success: false; error: z.ZodError };
+
+/**
+ * Each entry validates the batch args and expands them in ONE closure, so the
+ * schema and its expansion cannot drift apart and neither needs a widened
+ * parameter type — the pairing is what a `{ schema, expand }` record could not
+ * express without erasing the arg type.
+ */
+export type BatchExpander = (rawArgs: unknown) => BatchExpansionResult;
+
+export const BATCHED_TOOL_EXPANSIONS: Record<string, BatchExpander> = {
+  [BATCHED_SPEC_VERIFICATION_TOOL]: (rawArgs) => {
+    const result = SubmitSpecVerificationsArgsSchema.safeParse(rawArgs);
+    if (!result.success) return { success: false, error: result.error };
+    return {
+      success: true,
+      calls: result.data.verifications.map((args) => ({
+        name: "submit_spec_verification" as const,
+        args,
+      })),
+    };
+  },
+  [BATCHED_FINDINGS_TOOL]: (rawArgs) => {
+    const result = SubmitFindingsArgsSchema.safeParse(rawArgs);
+    if (!result.success) return { success: false, error: result.error };
+    return {
+      success: true,
+      calls: result.data.findings.map((args) => ({ name: "submit_finding" as const, args })),
+    };
+  },
+};
+
 /**
  * Parse a raw model tool call into ONE OR MORE typed `ReviewToolCall`s (mt#3545).
  *
@@ -898,7 +1056,13 @@ export const BATCHED_SPEC_VERIFICATION_TOOL = "submit_spec_verifications";
  *   contract as `parseToolCall`, so the caller's error handling is unchanged.
  */
 export function parseToolCallExpanded(name: string, argsJson: string): ReviewToolCall[] {
-  if (name !== BATCHED_SPEC_VERIFICATION_TOOL) {
+  // mt#4979 generalised this from a single batch tool to a set. There are now
+  // two (`submit_spec_verifications`, `submit_findings`) and the expansion is
+  // identical in shape for both: validate the batch schema, then map each entry
+  // to a singular ReviewToolCall so every downstream consumer keeps matching
+  // the shape it already handles.
+  const expand = BATCHED_TOOL_EXPANSIONS[name];
+  if (expand === undefined) {
     return [parseToolCall(name, argsJson)];
   }
 
@@ -910,7 +1074,7 @@ export function parseToolCallExpanded(name: string, argsJson: string): ReviewToo
     throw new Error(`Failed to parse argsJson for tool "${name}" as JSON: ${message}`);
   }
 
-  const result = SubmitSpecVerificationsArgsSchema.safeParse(rawArgs);
+  const result = expand(rawArgs);
   if (!result.success) {
     const issues = result.error.issues
       .map((issue) => `  - ${issue.path.join(".") || "(root)"}: ${issue.message}`)
@@ -918,8 +1082,5 @@ export function parseToolCallExpanded(name: string, argsJson: string): ReviewToo
     throw new Error(`Invalid args for tool "${name}":\n${issues}`);
   }
 
-  return result.data.verifications.map((args) => ({
-    name: "submit_spec_verification" as const,
-    args,
-  }));
+  return result.calls;
 }
