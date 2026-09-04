@@ -112,17 +112,37 @@ export function formatTimeoutMessage(result: SessionPrWaitForReviewTimeout): str
   // "wait longer / investigate the reviewer" to "the push never landed", and a
   // diagnostic only present in --json is not present for the reader who hit it.
   if (expectedHeadShaUnreached) {
-    const { expected, lastObservedHeadSha } = expectedHeadShaUnreached;
+    const { expected, lastObservedHeadSha, classification } = expectedHeadShaUnreached;
     lines.push(
       `  EXPECTED HEAD NEVER REACHED: remote head ${lastObservedHeadSha ?? "<unresolved>"} ` +
         `never became expected ${expected}. No review was considered — this is NOT reviewer ` +
-        `silence.`,
-      `  Two causes, opposite remedies. (1) The push has not landed — confirm it and wait; ` +
-        `that one resolves. (2) The head moved after you captured your sha, so yours is ` +
-        `stale — that one never resolves by waiting. Take the expected sha from whichever ` +
-        `call last pushed, and re-wait against ` +
-        `${lastObservedHeadSha ?? "the observed head"} (mt#4046).`
+        `silence.`
     );
+    if (classification === "divergent-prefix") {
+      // mt#4995: the generic two-cause text below is not wrong here, but it
+      // makes the reader weigh a possibility already ruled out — the shared
+      // prefix says the value was DERIVED from a real head rather than being a
+      // different commit, so "wait for the push" cannot apply. Name the one
+      // cause that fits and the exact remedy for it.
+      lines.push(
+        `  CAUSE: your sha shares its opening characters with the remote head and then ` +
+          `diverges. That is what an ABBREVIATED sha extended to full length looks like — ` +
+          `it names no commit, so waiting could never have resolved it. Returned now ` +
+          `instead of spending the rest of the timeout.`,
+        `  REMEDY: pass the commitHash from whichever call last pushed, VERBATIM. It is ` +
+          `matched as a prefix by design, so an abbreviated value is correct and must not ` +
+          `be padded out to 40 characters. Re-wait against ` +
+          `${lastObservedHeadSha ?? "the observed head"} (mt#4039, mt#4046).`
+      );
+    } else {
+      lines.push(
+        `  Two causes, opposite remedies. (1) The push has not landed — confirm it and wait; ` +
+          `that one resolves. (2) The head moved after you captured your sha, so yours is ` +
+          `stale — that one never resolves by waiting. Take the expected sha from whichever ` +
+          `call last pushed, and re-wait against ` +
+          `${lastObservedHeadSha ?? "the observed head"} (mt#4046).`
+      );
+    }
   }
   lines.push(
     finalCheckPerformed
