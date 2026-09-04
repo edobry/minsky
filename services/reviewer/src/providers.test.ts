@@ -21,6 +21,8 @@ import { captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
  * the tool name has one definition to keep in sync with output-tools.ts.
  */
 const TOOL_DOC_IMPACT = "submit_documentation_impact";
+const TOOL_SPEC_VERIFICATION = "submit_spec_verification";
+const EVENT_FORCED_FINDINGS_PASS = "reviewer.forced_findings_pass";
 const DOC_IMPACT_KIND_NO_UPDATE = "no-update-needed";
 
 describe("isReasoningModel", () => {
@@ -2706,5 +2708,302 @@ describe("callOpenAIWithClient per-round budget counter (mt#3547)", () => {
     expect(result.toolLoop?.concludedInLoop).toBe(false);
     expect(result.toolLoop?.forcedConcludeGateBranch).toBe("emitted_nothing");
     expect(result.toolLoop?.roundsUsed).toBe(2);
+  });
+});
+
+// ----- Post-loop forced FINDINGS pass (mt#2926) -----
+//
+// The wiring half. `forced-findings-guard.test.ts` covers the predicate in
+// isolation; these drive the real `callOpenAIWithClient` path, because a pure
+// decision function with green unit tests and no proof that production
+// actually invokes it is the mt#1071 / mt#2416 shape this repo has shipped
+// twice (`/implement-task` §7 item 8, caller direction).
+//
+// The shape under test is review 5116536812 on PR #3623 (2026-09-04): ten
+// rounds producing only spec verifications, then both forced passes, then a
+// REQUEST_CHANGES verdict with an empty structured findings channel.
+
+describe("post-loop forced findings pass (mt#2926)", () => {
+  const MODEL = "gpt-4o";
+
+  const usage = () => ({
+    prompt_tokens: 100,
+    completion_tokens: 50,
+    total_tokens: 150,
+    completion_tokens_details: { reasoning_tokens: 0 },
+  });
+
+  const toolCall = (id: string, name: string, args: unknown) => ({
+    id,
+    type: "function",
+    function: { name, arguments: JSON.stringify(args) },
+  });
+
+  const withToolCalls = (calls: unknown[]) => ({
+    choices: [{ message: { content: null, tool_calls: calls } }],
+    usage: usage(),
+  });
+
+  const withText = (content: string) => ({
+    choices: [{ message: { content, tool_calls: undefined } }],
+    usage: usage(),
+  });
+
+  const SPEC_VERIFICATION = {
+    criterion: "SC1 — the thing is done",
+    status: "Met",
+    evidence: "src/foo.ts:1-10",
+  };
+
+  const DOC_IMPACT = { kind: "no-update-needed", evidence: "No documented behavior changed." };
+
+  const REQUEST_CHANGES = {
+    event: "REQUEST_CHANGES",
+    summary:
+      "Request changes. (1) The pre-commit gate diverges when no harness is recorded. " +
+      "(2) Init's merge fallback overwrites an unreadable config with only a log warning.",
+  };
+
+  const tools: ReviewerToolContext = {
+    readFile: mock(async () => null),
+    listDirectory: mock(async () => null),
+  };
+
+  /** Fake client that records every request and replays a queued response list. */
+  function makeCountingClient(responses: unknown[]): {
+    client: OpenAI;
+    calls: Array<{ messages: unknown[]; tool_choice?: unknown }>;
+  } {
+    let i = 0;
+    const calls: Array<{ messages: unknown[]; tool_choice?: unknown }> = [];
+    const client = {
+      chat: {
+        completions: {
+          create: async (params: { messages: unknown[]; tool_choice?: unknown }) => {
+            calls.push({ messages: [...params.messages], tool_choice: params.tool_choice });
+            const next = responses[i++];
+            if (next === undefined) {
+              // Explicit, rather than letting `undefined.usage` throw into the
+              // caller's catch: an unplanned extra API call is a test-design
+              // error and must not be absorbed as a graceful degradation.
+              throw new Error(
+                `fake client: unexpected API call #${i} (only ${responses.length} queued)`
+              );
+            }
+            return next;
+          },
+        },
+      },
+    } as unknown as OpenAI;
+    return { client, calls };
+  }
+
+  async function capturing<T>(fn: () => Promise<T>): Promise<{ events: string[]; result: T }> {
+    const { logs, restore } = captureConsoleLogs();
+    try {
+      const result = await fn();
+      return { events: [...logs], result };
+    } finally {
+      restore();
+    }
+  }
+
+  test("fires on the incident shape and lands the model's own findings in the structured channel", async () => {
+    const { client, calls } = makeCountingClient([
+      withToolCalls([toolCall("s1", TOOL_SPEC_VERIFICATION, SPEC_VERIFICATION)]),
+      withText("Done reviewing."),
+      withToolCalls([toolCall("d1", TOOL_DOC_IMPACT, DOC_IMPACT)]),
+      withToolCalls([toolCall("c1", "conclude_review", REQUEST_CHANGES)]),
+      // The forced findings pass: the model files the two issues its own
+      // conclusion named, each anchored to a real file and line.
+      withToolCalls([
+        toolCall("f1", "submit_finding", {
+          severity: "BLOCKING",
+          file: "src/hooks/pre-commit.ts",
+          line: 2403,
+          summary: "Gate diverges silently when no harness is recorded",
+          details: "Add an explicit warning so teams are not told to refresh outputs.",
+        }),
+        toolCall("f2", "submit_finding", {
+          severity: "BLOCKING",
+          file: "packages/domain/src/init.ts",
+          line: 165,
+          summary: "Unreadable config is overwritten with only a log warning",
+          details: "Fail closed or require a flag; silent data loss in CI otherwise.",
+        }),
+      ]),
+    ]);
+
+    const { events, result } = await capturing(() =>
+      callOpenAIWithClient(client, MODEL, "system", "user", tools)
+    );
+
+    const findings = result.toolCalls.filter((tc) => tc.name === "submit_finding");
+    expect(findings).toHaveLength(2);
+    // The whole point: real locations, not the "(review summary):1" sentinel
+    // the mt#2685 synthesis would otherwise have supplied.
+    expect(findings.map((f) => f.args.file)).toEqual([
+      "src/hooks/pre-commit.ts",
+      "packages/domain/src/init.ts",
+    ]);
+    expect(findings.every((f) => f.args.severity === "BLOCKING")).toBe(true);
+
+    const fired = findLogEvent(events, EVENT_FORCED_FINDINGS_PASS);
+    expect(fired).not.toBeNull();
+    expect(fired?.["fired"]).toBe(true);
+    expect(fired?.["emitted_count"]).toBe(2);
+    expect(fired?.["fell_back_to_recovery_synth"]).toBe(false);
+
+    // Five API calls: two loop rounds, forced doc-impact, forced conclude,
+    // forced findings. The last one is pinned to submit_finding.
+    expect(calls).toHaveLength(5);
+    expect(calls[4]?.tool_choice).toEqual({
+      type: "function",
+      function: { name: "submit_finding" },
+    });
+  });
+
+  test("does not fire when the review already carries a BLOCKING finding — no extra API call", async () => {
+    const { client, calls } = makeCountingClient([
+      withToolCalls([
+        toolCall("f1", "submit_finding", {
+          severity: "BLOCKING",
+          file: "src/foo.ts",
+          line: 42,
+          summary: "Missing null check",
+          details: "May be null here.",
+        }),
+        toolCall("c1", "conclude_review", REQUEST_CHANGES),
+      ]),
+      withText("Done."),
+      withToolCalls([toolCall("d1", TOOL_DOC_IMPACT, DOC_IMPACT)]),
+    ]);
+
+    const { events, result } = await capturing(() =>
+      callOpenAIWithClient(client, MODEL, "system", "user", tools)
+    );
+
+    expect(result.toolCalls.filter((tc) => tc.name === "submit_finding")).toHaveLength(1);
+    // The counting client throws on an unqueued call, so this length assertion
+    // is what proves no extra model spend on the common path.
+    expect(calls).toHaveLength(3);
+
+    const skipped = findLogEvent(events, EVENT_FORCED_FINDINGS_PASS);
+    expect(skipped?.["fired"]).toBe(false);
+    expect(skipped?.["skip_reason"]).toBe("blocking-finding-present");
+  });
+
+  test("does not fire on an APPROVE conclusion with zero findings", async () => {
+    const { client, calls } = makeCountingClient([
+      withToolCalls([toolCall("c1", "conclude_review", { event: "APPROVE", summary: "Clean." })]),
+      withText("Done."),
+      withToolCalls([toolCall("d1", TOOL_DOC_IMPACT, DOC_IMPACT)]),
+    ]);
+
+    const { events } = await capturing(() =>
+      callOpenAIWithClient(client, MODEL, "system", "user", tools)
+    );
+
+    expect(calls).toHaveLength(3);
+    const skipped = findLogEvent(events, EVENT_FORCED_FINDINGS_PASS);
+    expect(skipped?.["fired"]).toBe(false);
+    expect(skipped?.["skip_reason"]).toBe("not-request-changes");
+  });
+
+  test("shallow-copies messages and ends the forced call with a submit_finding instruction", async () => {
+    const { client, calls } = makeCountingClient([
+      withToolCalls([toolCall("s1", TOOL_SPEC_VERIFICATION, SPEC_VERIFICATION)]),
+      withText("Done."),
+      withToolCalls([toolCall("d1", TOOL_DOC_IMPACT, DOC_IMPACT)]),
+      withToolCalls([toolCall("c1", "conclude_review", REQUEST_CHANGES)]),
+      withToolCalls([
+        toolCall("f1", "submit_finding", {
+          severity: "BLOCKING",
+          file: "src/foo.ts",
+          line: 1,
+          summary: "s",
+          details: "d",
+        }),
+      ]),
+    ]);
+
+    await capturing(() => callOpenAIWithClient(client, MODEL, "system", "user", tools));
+
+    const lastLoopMessages = calls[1]?.messages as unknown[];
+    const concludeCallMessages = calls[3]?.messages as unknown[];
+    const findingsCallMessages = calls[4]?.messages as unknown[];
+
+    // The non-mutation invariant, stated as the equality it actually implies.
+    // Each forced pass appends (exit turn + its own reminder) to a COPY of the
+    // shared `messages` array, so both land at the same length. If either pass
+    // mutated the shared array instead, the later call would be strictly
+    // longer — which is precisely what this catches, and what a naive
+    // "findings > conclude" assertion would have asserted backwards.
+    expect(findingsCallMessages.length).toBe(concludeCallMessages.length);
+    expect(findingsCallMessages.length).toBeGreaterThan(lastLoopMessages.length);
+
+    const last = findingsCallMessages[findingsCallMessages.length - 1] as {
+      role: string;
+      content: string;
+    };
+    expect(last.role).toBe("user");
+    expect(last.content).toContain("submit_finding");
+    // The conclusion summary is carried back so the model structures what it
+    // already said rather than re-deriving it.
+    expect(last.content).toContain("Init's merge fallback overwrites an unreadable config");
+  });
+
+  test("records the fall-back when the pass returns no findings, leaving the mt#2685 synthesis to cover it", async () => {
+    const { client } = makeCountingClient([
+      withToolCalls([toolCall("s1", TOOL_SPEC_VERIFICATION, SPEC_VERIFICATION)]),
+      withText("Done."),
+      withToolCalls([toolCall("d1", TOOL_DOC_IMPACT, DOC_IMPACT)]),
+      withToolCalls([toolCall("c1", "conclude_review", REQUEST_CHANGES)]),
+      // Model returns prose instead of a tool call on the forced pass.
+      withText("I have nothing further to add."),
+    ]);
+
+    const { events, result } = await capturing(() =>
+      callOpenAIWithClient(client, MODEL, "system", "user", tools)
+    );
+
+    expect(result.toolCalls.filter((tc) => tc.name === "submit_finding")).toHaveLength(0);
+
+    const fired = findLogEvent(events, EVENT_FORCED_FINDINGS_PASS);
+    expect(fired?.["fired"]).toBe(true);
+    expect(fired?.["emitted_count"]).toBe(0);
+    // Distinguishes "did not need to fire" from "fired and did not help" — the
+    // two produce the same downstream artifact (mt#2685's synthesized finding)
+    // and must be separable on a dashboard.
+    expect(fired?.["fell_back_to_recovery_synth"]).toBe(true);
+  });
+
+  test("applies the mt#2863 resolution-note guard on this path too", async () => {
+    // The forced pass must not become a second submit_finding emission route
+    // that bypasses an emission guard — that is the class of gap this whole
+    // task exists to close.
+    const { client } = makeCountingClient([
+      withToolCalls([toolCall("s1", TOOL_SPEC_VERIFICATION, SPEC_VERIFICATION)]),
+      withText("Done."),
+      withToolCalls([toolCall("d1", TOOL_DOC_IMPACT, DOC_IMPACT)]),
+      withToolCalls([toolCall("c1", "conclude_review", REQUEST_CHANGES)]),
+      withToolCalls([
+        toolCall("f1", "submit_finding", {
+          severity: "BLOCKING",
+          file: "src/foo.ts",
+          line: 42,
+          summary: "Follow-up to the R1 block",
+          details: "No action required — resolved in the current diff.",
+        }),
+      ]),
+    ]);
+
+    const { result } = await capturing(() =>
+      callOpenAIWithClient(client, MODEL, "system", "user", tools)
+    );
+
+    const findings = result.toolCalls.filter((tc) => tc.name === "submit_finding");
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.args.severity).toBe("NON-BLOCKING");
   });
 });

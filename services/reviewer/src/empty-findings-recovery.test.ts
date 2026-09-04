@@ -11,6 +11,7 @@ import { describe, expect, test } from "bun:test";
 import {
   applyEmptyFindingsRecovery,
   MAX_SYNTHESIZED_SUMMARY_CHARS,
+  RECOVERY_FIRE_MARKER_PREFIX,
   SYNTHESIZED_FINDING_FILE,
   truncateSummaryForDetails,
 } from "./empty-findings-recovery";
@@ -192,4 +193,37 @@ describe("applyEmptyFindingsRecovery — bounded details (mt#2685 review R1)", (
     expect(details).not.toContain(hugeSummary); // full untruncated summary must not appear
     expect(details).toContain("[truncated");
   });
+});
+
+// ---------------------------------------------------------------------------
+// The marker prefix is a cross-file contract (mt#2926)
+// ---------------------------------------------------------------------------
+
+describe("RECOVERY_FIRE_MARKER_PREFIX", () => {
+  test("the synthesized finding's details still START with the marker prefix", () => {
+    // measure-recovery-fire-rate.ts detects a fire by matching this string in
+    // the POSTED GitHub review body — the only durable, credential-free record
+    // of this pass's rate. If the details text stops carrying the prefix, that
+    // script reports zero fires with no error, because "marker absent" and
+    // "pass never fired" are the same observation to it. Rewriting the opening
+    // sentence is the edit this pins; appending after it is fine and is what
+    // mt#2926 did.
+    const result = applyEmptyFindingsRecovery([
+      {
+        name: "conclude_review",
+        args: { event: "REQUEST_CHANGES", summary: "Blocking issues found." },
+      },
+    ]);
+
+    expect(result.applied).toBe(true);
+    expect(result.synthesizedFinding?.details.startsWith(RECOVERY_FIRE_MARKER_PREFIX)).toBe(true);
+  });
+
+  // A companion test asserting the measurement script no longer holds its own
+  // copy of this literal was written and REMOVED: it needed `readFileSync`,
+  // which `custom/no-real-fs-in-tests` forbids, and the rule is right — a test
+  // that reads the repo off disk is not hermetic. The duplication is gone by
+  // construction instead: the script imports RECOVERY_FIRE_MARKER_PREFIX, so
+  // there is no second value left to drift. This pin covers the hazard that
+  // remains, which is the details text ceasing to start with the marker.
 });

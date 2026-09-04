@@ -32,6 +32,11 @@ import {
   DEFAULT_MAX_CONCLUDE_REVIEW_REJECTIONS,
 } from "./conclude-review-guard";
 import { evaluateSubmitFindingCall, markUntrackedDeferral } from "./resolution-note-guard";
+import {
+  evaluateForcedFindingsPass,
+  buildForcedFindingsUserMessage,
+  describeForcedFindingsOutcome,
+} from "./forced-findings-guard";
 
 /**
  * Default model timeout used when callOpenAIWithClient is called without an
@@ -742,7 +747,12 @@ const OUTPUT_TOOL_NAMES = new Set<string>(OUTPUT_TOOL_DEFINITIONS.map((t) => t.f
  * Record<string, unknown>. We map each definition to rebuild the object with the
  * OpenAI-SDK-compatible parameter type instead of casting.
  */
-const ALL_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+// Exported (mt#2926) so the forced-findings live smoke sends the SAME tools
+// array production sends. Rebuilding it in the script would make the smoke's
+// request diverge from the real one on exactly the axis mem#614 measured —
+// array width against a pinned tool_choice — which is the axis the smoke
+// exists to keep honest.
+export const ALL_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   ...REVIEWER_TOOL_DEFINITIONS,
   ...OUTPUT_TOOL_DEFINITIONS.map((def) => ({
     type: "function" as const,
@@ -816,6 +826,29 @@ const CONCLUDE_REVIEW_TOOL_DEF: OpenAI.Chat.Completions.ChatCompletionTool | nul
 /** User message injected before the post-loop forced conclude_review pass. */
 const CONCLUDE_REVIEW_REMINDER_USER_MSG =
   "Your review is incomplete. Emit conclude_review(event, summary) now as your final tool call.";
+
+/**
+ * The submit_finding tool definition extracted from OUTPUT_TOOL_DEFINITIONS,
+ * adapted to the OpenAI SDK's tool-shape. Used by the post-loop forced
+ * findings pass (mt#2926) to constrain the model to emit submit_finding via
+ * tool_choice. Same runtime-guard-not-module-throw pattern as its two
+ * siblings above: if submit_finding is somehow absent (refactor slip), only
+ * this pass is disabled and the mt#2685 recovery synthesis takes over.
+ */
+const SUBMIT_FINDING_RAW_DEF = OUTPUT_TOOL_DEFINITIONS.find(
+  (t) => t.function.name === "submit_finding"
+);
+const SUBMIT_FINDING_TOOL_DEF: OpenAI.Chat.Completions.ChatCompletionTool | null =
+  SUBMIT_FINDING_RAW_DEF
+    ? {
+        type: "function" as const,
+        function: {
+          name: SUBMIT_FINDING_RAW_DEF.function.name,
+          description: SUBMIT_FINDING_RAW_DEF.function.description,
+          parameters: SUBMIT_FINDING_RAW_DEF.function.parameters as Record<string, unknown>,
+        },
+      }
+    : null;
 
 /**
  * Subset of the model invocation parameters preserved across the main loop and
@@ -1094,6 +1127,179 @@ async function forceDocumentationImpact(
   }
 
   return { ...tokenUsage, emitted: false };
+}
+
+/**
+ * Run a single forced `submit_finding` API call and append every parseable
+ * finding it returns to `accumulatedToolCalls` (mt#2926).
+ *
+ * Same pattern as `forceConcludeReview` / `forceDocumentationImpact` — full
+ * `tools` array for prompt-cache continuity (mt#2722), `tool_choice` pinned
+ * to the one function we require. Fires AFTER `forceConcludeReview`, because
+ * its trigger is a property of the CONCLUSION: we cannot know the verdict is
+ * an incoherent REQUEST_CHANGES until the conclusion exists. See
+ * `forced-findings-guard.ts` for the trigger predicate and why it is keyed on
+ * final accumulated state rather than on which path produced it.
+ *
+ * Two deliberate differences from its two siblings:
+ *
+ * 1. **Every returned call is appended, not just the first.** Those passes
+ *    require exactly one artifact (one conclusion, one doc-impact verdict) so
+ *    they return on the first match; a review can have several blocking
+ *    findings, and a pinned `tool_choice` does not forbid the model from
+ *    emitting more than one call to the pinned function. Dropping the rest
+ *    would silently re-create a lossy channel — the defect this pass exists
+ *    to close.
+ * 2. **The mt#2863 / mt#3300 resolution-note guard is applied** to each
+ *    finding, exactly as the main loop applies it at its own parse site.
+ *    Without this, the forced path would be a second `submit_finding`
+ *    emission route that bypasses an emission guard — the same shape of gap
+ *    that made this task necessary.
+ *
+ * Conversation history is NOT mutated: a shallow-copied `forcedMessages`
+ * array is passed to the API, so the caller's `messages` array is unaffected.
+ *
+ * @returns Token usage, whether a provider call was actually ATTEMPTED, and how
+ *          many findings were appended. `attempted` is separate from a zero
+ *          count on purpose (PR #3627 R1): the missing-tool-def branch returns
+ *          before any call, and a caller that sees only `emittedCount: 0`
+ *          cannot tell that apart from a call that came back empty.
+ */
+async function forceFindings(
+  client: OpenAI,
+  baseParams: ChatCreateBaseParams,
+  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+  exitMessage: OpenAI.Chat.Completions.ChatCompletionMessage | null,
+  accumulatedToolCalls: ReviewToolCall[],
+  conclusionSummary: string,
+  timeoutMs: number
+): Promise<{
+  promptTokens: number;
+  completionTokens: number;
+  reasoningTokens: number;
+  cachedTokens: number;
+  attempted: boolean;
+  emittedCount: number;
+}> {
+  if (!SUBMIT_FINDING_TOOL_DEF) {
+    log.info("reviewer.submit_finding_tool_def_missing", {
+      event: "reviewer.submit_finding_tool_def_missing",
+      provider: "openai",
+      severity: "error",
+    });
+    return {
+      promptTokens: 0,
+      completionTokens: 0,
+      reasoningTokens: 0,
+      cachedTokens: 0,
+      attempted: false,
+      emittedCount: 0,
+    };
+  }
+
+  const forcedMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    ...messages,
+    ...(exitMessage ? [exitMessage] : []),
+    { role: "user", content: buildForcedFindingsUserMessage(conclusionSummary) },
+  ];
+
+  const response = await withTimeout(
+    "openai.chat.completions.create.forceFindings",
+    timeoutMs,
+    (signal) =>
+      client.chat.completions.create(
+        {
+          ...baseParams,
+          messages: forcedMessages,
+          tools: ALL_TOOL_DEFINITIONS,
+          tool_choice: {
+            type: "function",
+            function: { name: SUBMIT_FINDING_TOOL_DEF.function.name },
+          },
+        },
+        { signal }
+      )
+  );
+
+  const usage = response.usage;
+  const tokenUsage = {
+    promptTokens: usage?.prompt_tokens ?? 0,
+    completionTokens: usage?.completion_tokens ?? 0,
+    reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens ?? 0,
+    cachedTokens: usage?.prompt_tokens_details?.cached_tokens ?? 0,
+  };
+
+  const message = response.choices[0]?.message;
+  const rawToolCalls = message?.tool_calls;
+  if (!rawToolCalls || rawToolCalls.length === 0) {
+    return { ...tokenUsage, attempted: true, emittedCount: 0 };
+  }
+
+  let emittedCount = 0;
+  for (const toolCall of rawToolCalls) {
+    if (toolCall.function.name !== "submit_finding") continue;
+    try {
+      const parsed = parseToolCall("submit_finding", toolCall.function.arguments);
+      // Narrowing for the guard below: parseToolCall is keyed by the name we
+      // just matched, so this branch is structurally unreachable — it exists
+      // to keep the discriminated union honest rather than to cast.
+      if (parsed.name !== "submit_finding") continue;
+
+      // mt#2863 / mt#3300 emission guard, applied on this path for the same
+      // reason it is applied in the main loop: a BLOCKING finding whose text
+      // reads as a completed resolution note is self-contradictory, and this
+      // pass must not become a route around that.
+      const evaluation = evaluateSubmitFindingCall({ args: parsed.args });
+      if (evaluation.decision === "reclassify") {
+        log.info("reviewer.submit_finding_resolution_note_reclassified", {
+          event: "reviewer.submit_finding_resolution_note_reclassified",
+          provider: "openai",
+          phase: "post_loop_forced_findings",
+          file: parsed.args.file,
+          line: parsed.args.line,
+          argumentKind: evaluation.argumentKind,
+          reason: evaluation.reason,
+        });
+        parsed.args.severity = evaluation.newSeverity;
+      } else if (evaluation.decision === "reject") {
+        log.info("reviewer.submit_finding_resolution_note_rejected", {
+          event: "reviewer.submit_finding_resolution_note_rejected",
+          provider: "openai",
+          phase: "post_loop_forced_findings",
+          file: parsed.args.file,
+          line: parsed.args.line,
+          argumentKind: evaluation.argumentKind,
+          reason: evaluation.reason,
+        });
+        parsed.args.details = markUntrackedDeferral(parsed.args.details);
+      }
+
+      accumulatedToolCalls.push(parsed);
+      emittedCount += 1;
+      log.info("reviewer.output_tool_call", {
+        event: "reviewer.output_tool_call",
+        provider: "openai",
+        tool: "submit_finding",
+        count: accumulatedToolCalls.length,
+        phase: "post_loop_forced_findings",
+      });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log.info("reviewer.output_tool_call_parse_error", {
+        event: "reviewer.output_tool_call_parse_error",
+        provider: "openai",
+        tool: "submit_finding",
+        phase: "post_loop_forced_findings",
+        error: errMsg,
+      });
+      // Malformed finding: skip it and keep going — one bad call must not
+      // discard its well-formed siblings from the same response. If NONE
+      // parse, emittedCount stays 0 and the mt#2685 recovery pass supplies
+      // the placeholder downstream, exactly as it does today.
+    }
+  }
+
+  return { ...tokenUsage, attempted: true, emittedCount };
 }
 
 /**
@@ -1698,13 +1904,23 @@ export async function callOpenAIWithClient(
   //     the `&& hasEmittedOutputCalls` clause so both cases reach the forced
   //     pass. Live instance: PR #973 (mt#1618, 2026-05-07 18:54Z).
   //
-  // Tool-list scope for the empty-case forced pass: narrow to conclude_review
-  // only, matching mt#1471's behavior for consistency. Alternative not taken:
-  // include the full ALL_TOOL_DEFINITIONS list so the model could retroactively
-  // emit findings before concluding. Rejected because the forced pass is a
-  // last-resort structural backstop — retroactive findings from an otherwise-
-  // empty pass would be unanchored from the read_file / list_directory evidence
-  // the model never gathered, producing hallucinated severity assessments.
+  // Tool-list scope for the forced pass (CORRECTED mt#2926 — this comment
+  // described mt#1471's original narrow array long after mt#2722 replaced it).
+  // What actually ships: the FULL ALL_TOOL_DEFINITIONS array, for prompt-cache
+  // continuity, with `tool_choice` pinned to conclude_review. The pin is what
+  // constrains emission — array width does not (mem#614: 6/6 emission on gpt-5
+  // after the widening) — so submit_finding is present in the array and
+  // unreachable on this call regardless.
+  //
+  // The alternative mt#1471 recorded as rejected — let the model retroactively
+  // emit findings before concluding, because findings from an otherwise-empty
+  // pass would be unanchored from read_file / list_directory evidence it never
+  // gathered — is a claim about the `emitted_nothing` branch, where the model
+  // produced no output calls at all. It does not carry to `emitted_no_conclude`,
+  // where the model spent the full round budget gathering evidence and wrote
+  // substantive prose. mt#2926's forced-findings pass therefore runs AFTER this
+  // one rather than widening it, and only on an incoherent REQUEST_CHANGES
+  // conclusion the model has already reached itself.
   //
   // The `gate_branch` discriminator on the audit log distinguishes the two
   // branches for downstream segmentation without a separate event name.
@@ -1756,6 +1972,86 @@ export async function callOpenAIWithClient(
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+
+  // mt#2926: post-loop forced FINDINGS pass. Runs unconditionally — not
+  // inside the `!hasConcludeReview` branch above — because its trigger is a
+  // property of the final accumulated state, and it must cover BOTH residual
+  // paths mt#2828's in-loop guard cannot reach: the forced-conclude pass
+  // right above (which pins tool_choice to conclude_review, so submit_finding
+  // is unreachable there) and the guard's own bound-exhausted fall-through
+  // (which emits an in-loop conclude_review and so never enters that branch).
+  // Keying on final state rather than on the gate branch is what makes one
+  // predicate cover both. See forced-findings-guard.ts.
+  const forcedFindingsEvaluation = evaluateForcedFindingsPass({ accumulatedToolCalls });
+  if (forcedFindingsEvaluation.decision === "run") {
+    try {
+      const forcedFindings = await forceFindings(
+        client,
+        baseParams,
+        messages,
+        exitMessage,
+        accumulatedToolCalls,
+        forcedFindingsEvaluation.conclusionSummary,
+        timeoutMs
+      );
+      totalPromptTokens += forcedFindings.promptTokens;
+      totalCompletionTokens += forcedFindings.completionTokens;
+      totalReasoningTokens += forcedFindings.reasoningTokens;
+      totalCachedTokens += forcedFindings.cachedTokens;
+
+      // PR #3627 R1: `fired` is derived from whether a provider call was
+      // actually ATTEMPTED, not from having reached this branch. The
+      // missing-tool-def path returns here having called nothing, and counting
+      // it as a fire would inflate exactly the numerator mt#4980 measures —
+      // and inflate the "fired and did not help" bucket specifically, since
+      // that path also emits nothing.
+      const fields = describeForcedFindingsOutcome(
+        forcedFindings.attempted
+          ? { kind: "attempted", emittedCount: forcedFindings.emittedCount }
+          : { kind: "not-attempted", reason: "tool-def-missing" }
+      );
+      log.info("reviewer.forced_findings_pass", {
+        event: "reviewer.forced_findings_pass",
+        provider: "openai",
+        fired: fields.fired,
+        fired_at_turn: totalRoundsUsed,
+        emitted_count: fields.emittedCount,
+        // Separates "did not need to fire" from "fired and did not help" —
+        // the two produce the same downstream artifact (mt#2685's synthesized
+        // finding) and must be distinguishable on a dashboard.
+        fell_back_to_recovery_synth: fields.fellBackToRecoverySynth,
+        ...(fields.skipReason ? { skip_reason: fields.skipReason } : {}),
+      });
+    } catch (err: unknown) {
+      // API error (network, rate limit, timeout) on the forced call. Log and
+      // fall through; the mt#2685 recovery pass supplies the placeholder
+      // finding downstream exactly as it does today.
+      const failedFields = describeForcedFindingsOutcome({
+        kind: "failed",
+        error: err instanceof Error ? err.message : String(err),
+      });
+      log.info("reviewer.forced_findings_pass", {
+        event: "reviewer.forced_findings_pass",
+        provider: "openai",
+        fired: failedFields.fired,
+        fired_at_turn: totalRoundsUsed,
+        emitted_count: failedFields.emittedCount,
+        fell_back_to_recovery_synth: failedFields.fellBackToRecoverySynth,
+        error: failedFields.error,
+      });
+    }
+  } else {
+    // Unconditional no-fire record, so the pass's fire RATE is computable from
+    // this one event stream without a separately-tracked denominator — the
+    // same reason reviewer.empty_findings_recovery_summary fires on every
+    // review (mt#2828).
+    log.info("reviewer.forced_findings_pass", {
+      event: "reviewer.forced_findings_pass",
+      provider: "openai",
+      fired: false,
+      skip_reason: forcedFindingsEvaluation.reason,
+    });
   }
 
   const totalTokens = totalPromptTokens + totalCompletionTokens;
