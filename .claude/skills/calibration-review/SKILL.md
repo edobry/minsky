@@ -203,14 +203,33 @@ If the `reviewDue` array is EMPTY (after excluding still-open-ask logs per step
 watermarks.
 
 **Review-due is the trigger, not `pastThreshold` (mt#2878).** `reviewDue`
-carries four reasons: `past-threshold` (the count+diversity bar),
-`time-stale`, `never-reviewed`, and `never-fired`. A log due for one of the
-three time-based reasons is genuinely due for review even though it never
+carries **six** reasons: `past-threshold` (the count+diversity bar),
+`time-stale`, `never-reviewed`, `never-fired`, `watermark-stranded` (mt#4904)
+and `all-suppressed` (mt#4049). A log due for one of the
+time-based reasons is genuinely due for review even though it never
 reached the count bar — a low-volume detector may never reach it at all. This
 step used to stop on `pastThreshold` alone, which left those logs permanently
 undischargeable: reviewed by nobody, warned about every turn. `--ack` now
 advances every `reviewDue` log, so a pass that stops here on the old condition
 re-opens exactly the gap mt#2878 closed.
+
+**This sentence said "four" until mt#4049**, and had been wrong since mt#4904
+added `watermark-stranded` — a count in prose is the kind of thing a later leg
+silently dates. If you add a leg, this line and
+`computeReviewDueLogs`'s own docblock are both part of the change.
+
+**`all-suppressed` asks a DIFFERENT question, and Step 2's rate is the wrong
+answer to it (mt#4049).** Every other reason routes a log so its fires can be
+rated. This one routes a log with **zero** fires to rate: the detector detected
+at volume and suppressed all of it, so the operator saw nothing. The question is
+**"is this gate too broad?"**, and the evidence is the SUPPRESSIONS — read what
+was withheld and judge whether it should have been. Do not compute a
+false-positive rate here; `injectedFiresSinceLastReview` is 0 by the leg's own
+definition, so any rate over it is a division by an empty population, not a
+finding. Dispositions that make sense for this leg: **tune** (narrow the
+suppression condition, if detections that should have reached the operator were
+withheld) or **keep** (the suppression is correct and the detector is working as
+intended) — a **flip** is meaningless for a log nothing is injecting.
 
 **A below-count-bar log returns `newRecords: []` BY DESIGN** — `computeLogResult`
 gates that field on `atCountThreshold`, so an empty array here means "under the
@@ -219,6 +238,12 @@ bar," never "no evidence exists." Read the raw JSONL for those logs
 rather than recording "cannot classify" from the empty array — the
 `classifiability` verdict is computed over the un-gated records and will still
 say `classifiable`. See §"Cannot classify" is a claim about the corpus.
+
+**An `all-suppressed` log is the exception: it DOES carry its records (mt#4049).**
+That gate is `atCountThreshold || allSuppressed`, because routing a log for
+review and then handing the reviewer an empty array would be a warning with no
+evidence attached. So read `newRecords` directly for this leg rather than
+reaching for the raw JSONL.
 
 ### Step 1b — Coverage-receipt check (mt#2554)
 

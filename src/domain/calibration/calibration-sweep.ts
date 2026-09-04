@@ -1087,7 +1087,21 @@ export interface CalibrationLogResult {
    * skill keys the Ask off; lowDiversity logs are NOT pastThreshold.
    */
   pastThreshold: boolean;
-  /** The un-reviewed records (since last watermark). Empty when below the count bar. */
+  /**
+   * True when the operator has seen NOTHING while the detector detected at
+   * volume: zero injected fires since the last review, with the SUPPRESSED
+   * count at or past `FIRES_THRESHOLD` (mt#4049).
+   *
+   * Mutually exclusive with `atCountThreshold` by construction — that one reads
+   * the injected count, which this requires to be zero. Deliberately not
+   * diversity-gated; see the derivation for why.
+   */
+  allSuppressed: boolean;
+  /**
+   * The un-reviewed records (since last watermark). Empty when below the count
+   * bar AND not all-suppressed — an all-suppressed log is routed for review, so
+   * withholding its records would show the reviewer nothing to judge (mt#4049).
+   */
   newRecords: CalibrationRecord[];
   /** The watermark at review time (may be zero if never reviewed). */
   watermarkCount: number;
@@ -1795,6 +1809,25 @@ export function computeLogResult(
   // collecting" state, distinct from below-count and from past-threshold).
   const lowDiversity = atCountThreshold && !hasDiversity;
 
+  // allSuppressed (mt#4049): the detector is DETECTING at volume and the
+  // operator has seen NOTHING — every detection was withheld before injection.
+  //
+  // This is the case mt#3197's own code comment raised and deliberately left
+  // for later: keying cadence off the injected count is right for a detector
+  // suppressing SOME of its fires, and inverts for one suppressing ALL of them,
+  // because the count is then pinned at 0 and no count-bearing leg can ever
+  // fire. Gated on the SUPPRESSED count reaching the same bar the injected
+  // count would have had to, so a genuinely quiet detector does not become
+  // permanently due — the volume question is unchanged, only which column
+  // answers it.
+  //
+  // Deliberately NOT diversity-gated. Diversity exists to stop ten identical
+  // fires reading as a review signal, and the question here is not "are these
+  // fires varied enough to rate" — there are no fires to rate. It is "is this
+  // gate too broad", which one repeated shape answers as well as fourteen.
+  const allSuppressed =
+    injectedFiresSinceLastReview === 0 && suppressedSinceLastReview >= FIRES_THRESHOLD;
+
   return {
     entry,
     exists,
@@ -1807,9 +1840,17 @@ export function computeLogResult(
     atCountThreshold,
     lowDiversity,
     pastThreshold,
+    allSuppressed,
     // Records are surfaced once the COUNT bar is hit (so a reviewer can see why a
     // log is low-diversity), even though the Ask only fires on pastThreshold.
-    newRecords: atCountThreshold ? newRecords : [],
+    //
+    // mt#4049: `allSuppressed` is the second gate, and it is required rather
+    // than cosmetic. An all-suppressed log has `atCountThreshold === false` by
+    // construction, so without this it would be routed for review and handed an
+    // EMPTY `newRecords` — the reviewer told to judge a log and shown nothing,
+    // which is the compounding trap the spec names. The records are exactly
+    // what answers this leg's question ("is this gate too broad?").
+    newRecords: atCountThreshold || allSuppressed ? newRecords : [],
     watermarkCount,
     watermarkStranded,
     openAskId: watermark?.openAskId,
@@ -2411,7 +2452,13 @@ export interface ReviewDueLog {
   suppressedSinceLastReview: number;
   totalFires: number;
   distinctPhrases: number;
-  reason: "past-threshold" | "time-stale" | "never-reviewed" | "never-fired" | "watermark-stranded";
+  reason:
+    | "past-threshold"
+    | "time-stale"
+    | "never-reviewed"
+    | "never-fired"
+    | "watermark-stranded"
+    | "all-suppressed";
   /**
    * The watermark this log was compared against (mt#4904, PR #3572 R1).
    * Carried so a consumer can render the `watermark-stranded` leg's actual
@@ -2459,7 +2506,7 @@ function toReviewDueLog(
 }
 
 /**
- * Determine which logs are review-due, per FIVE independent conditions.
+ * Determine which logs are review-due, per SIX independent conditions.
  *
  *   0. watermark-stranded — the watermark exceeds the log's CURRENT record
  *      count (mt#4904), so the counts every other leg reads are invalid: the
@@ -2527,6 +2574,29 @@ export function computeReviewDueLogs(
 
     if (r.pastThreshold) {
       due.push(toReviewDueLog(r, "past-threshold", wm?.openAskId));
+      continue;
+    }
+
+    // all-suppressed (mt#4049): the detector detected at volume and the
+    // operator saw none of it. Placed HERE — after past-threshold, before the
+    // watermark split — because it must reach a log whether or not one has ever
+    // been reviewed, and because all three legs below decline it by design:
+    // `never-reviewed` and `time-stale` each carry an explicit
+    // `injectedFiresSinceLastReview <= 0` guard, and `never-fired` requires
+    // `totalFires <= 0` while this log has records.
+    //
+    // Ungated on the watermark for the same reason `watermark-stranded` is: the
+    // question is not "has anything happened since the last review" but whether
+    // the detector's output is reaching anyone at all.
+    //
+    // This implements the counter-consideration mt#3197 (PR #2300 R1) recorded
+    // and declined to invent mid-review, quoted in this leg's own comment
+    // below. Its two constraints are honoured: the reason is its OWN rather
+    // than a reuse of the count/time legs, and the cadence hook gives it its
+    // own warning text — because "review these fires" is the wrong question for
+    // a log with no fires to review.
+    if (r.allSuppressed) {
+      due.push(toReviewDueLog(r, "all-suppressed", wm?.openAskId));
       continue;
     }
 

@@ -619,10 +619,19 @@ export function formatResult(results: CalibrationLogResult[], reviewDue: ReviewD
         // known to be meaningless. Sibling of the `legLine` branch in
         // `.minsky/hooks/calibration-review-cadence-detector.ts`; both render
         // the comparison instead.
+        // mt#4049: the all-suppressed leg needs its own rendering for the third
+        // time in this family's history, and for the same reason each time —
+        // the shared form quotes a count this leg's own condition invalidates.
+        // Here the misleading half is the OTHER one: `firesSinceLastReview` is
+        // real, but printing it as "N new fires" says the operator saw N, when
+        // the defining fact is that they saw zero.
         d.reason === "watermark-stranded"
           ? `  - ${d.name}: ${d.reason} (watermark ${d.watermarkCount} exceeds ` +
               `${d.totalFires} record(s) — new-fire count not meaningful)`
-          : `  - ${d.name}: ${d.reason} (${d.firesSinceLastReview} new / ${d.totalFires} total fires)`
+          : d.reason === "all-suppressed"
+            ? `  - ${d.name}: ${d.reason} (${d.suppressedSinceLastReview} suppressed, ` +
+              `0 injected — nothing reached the operator)`
+            : `  - ${d.name}: ${d.reason} (${d.firesSinceLastReview} new / ${d.totalFires} total fires)`
       );
     }
     lines.push(
@@ -652,7 +661,8 @@ export function registerCalibrationCommands(): void {
         schema: z.boolean(),
         description:
           "Advance the watermark for every review-due log — any reason: past-threshold, " +
-          "time-stale, never-reviewed, never-fired or watermark-stranded — marking them as " +
+          "time-stale, never-reviewed, never-fired, watermark-stranded or all-suppressed — " +
+          "marking them as " +
           "reviewed (mt#2878, mt#4904). Without this flag the command is read-only.",
         required: false,
         defaultValue: false,
@@ -884,9 +894,10 @@ export function registerCalibrationCommands(): void {
         //
         // mt#2878: this path used to re-derive its own, narrower selection
         // (`results.filter((r) => r.pastThreshold)`) rather than consuming the
-        // `reviewDue` set computed just above. `computeReviewDueLogs` has FIVE
+        // `reviewDue` set computed just above. `computeReviewDueLogs` has SIX
         // legs — past-threshold, time-stale, never-reviewed (mt#2896),
-        // never-fired (mt#3078) and watermark-stranded (mt#4904) — and only the
+        // never-fired (mt#3078), watermark-stranded (mt#4904) and
+        // all-suppressed (mt#4049) — and only the
         // first was ackable, so a log
         // flagged by any other leg could be reviewed but never MARKED reviewed.
         // The cadence hook then re-warned on it every turn with no operator

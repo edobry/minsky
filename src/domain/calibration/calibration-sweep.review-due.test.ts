@@ -13,6 +13,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   computeReviewDueLogs,
+  FIRES_THRESHOLD,
   STALE_DAYS_MS,
   NEVER_REVIEWED_DAYS,
   type CalibrationLogEntry,
@@ -91,6 +92,14 @@ describe("computeReviewDueLogs (mt#2896)", () => {
       // stranded, and hardcoding false here would let such a fixture assert a
       // review-due reason the real sweep would never produce for it.
       watermarkStranded: overrides.watermarkStranded ?? merged.watermarkCount > merged.totalFires,
+      // mt#4049: DERIVED, same reasoning as the two above — a fixture whose
+      // records were all suppressed at volume IS all-suppressed, so hardcoding
+      // false would let it assert an exclusion the real sweep no longer makes.
+      allSuppressed:
+        overrides.allSuppressed ??
+        ((overrides.injectedFiresSinceLastReview ??
+          merged.firesSinceLastReview - merged.suppressedSinceLastReview) === 0 &&
+          merged.suppressedSinceLastReview >= FIRES_THRESHOLD),
     };
   }
 
