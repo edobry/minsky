@@ -153,9 +153,16 @@ deferred"**:
 | `rules_embeddings`     | Needs-scoping in principle; fix deferred | **Deferred behind a named trigger** (§The trigger) |
 
 The other six rows are unchanged. mt#2417's separately-recorded gap — that
-`TaskSimilarityService.similarToTask()` and `MemoryService.similar()` do not enforce project
-scoping despite tasks and memories being covered-transitively — is **not** addressed here and
-remains owned by mt#2939.
+`TaskSimilarityService.similarToTask()` and `MemoryService.similar()` did not enforce project
+scoping despite tasks and memories being covered-transitively — is **not** addressed here, and is
+**already closed**: mt#2939 shipped that fix on 2026-07-20, roughly six weeks before this ADR was
+written. Nothing remains owed on it.
+
+> Corrected 2026-09-04 (mt#4957). This sentence originally read "remains owned by mt#2939",
+> describing shipped work as pending. The citation was copied from mt#2417's
+> `### Known gap discovered` section — _"Follow-up filed: mt#2939"_, an accurate statement about
+> FILING that says nothing about status — and its status was never looked up. mt#2417's section is
+> now annotated CLOSED so the next reader cannot repeat the inference.
 
 ## What would reopen this
 
@@ -172,5 +179,5 @@ ADR-021 (project-scoping resolution model — _Proposed_; governs HOW scope reso
 already scoped, not WHETHER a table should be) · RFC `37a937f0-3cb4-81ed-9a08-fbdeebd8845d`
 ("Minsky beyond Minsky", the governing record) · mt#2391 (Phase 1, IN-PROGRESS; entity set disjoint
 from this one) · mt#2417 (the audit this supersedes two rows of) · mt#2938 (this decision's task) ·
-mt#2939 (the similarity-endpoint scoping gap, separate) · mt#4919 / mt#4937 (the filtered-recall
+mt#2939 (the similarity-endpoint scoping gap, separate — DONE 2026-07-20) · mt#4919 / mt#4937 (the filtered-recall
 defect and its fix) · mt#4866 (init's template set) · ask#11550 (the ratification).
