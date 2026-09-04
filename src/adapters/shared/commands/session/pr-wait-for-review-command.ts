@@ -135,6 +135,13 @@ export function formatTimeoutMessage(result: SessionPrWaitForReviewTimeout): str
           `${lastObservedHeadSha ?? "the observed head"} (mt#4039, mt#4046).`
       );
     } else {
+      // The generic branch is deliberately the DEFAULT for anything that is
+      // not `divergent-prefix`, including a kind added later (PR #3641 R1). It
+      // is correct-but-general rather than wrong-and-specific: it names both
+      // causes and prescribes the remedy that holds either way. An unrecognized
+      // kind rendering this text is the safe outcome; naming the raw kind to
+      // the operator would leak an internal enum without telling them what to
+      // do about it.
       lines.push(
         `  Two causes, opposite remedies. (1) The push has not landed — confirm it and wait; ` +
           `that one resolves. (2) The head moved after you captured your sha, so yours is ` +

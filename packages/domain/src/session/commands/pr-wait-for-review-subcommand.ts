@@ -541,11 +541,18 @@ export interface SessionPrWaitForReviewTimeout {
    * its full budget). `divergent-prefix` means the caller's sha can never
    * arrive, and the wait returned EARLY rather than burning the budget — so on
    * this value `elapsedMs` is deliberately far below the configured timeout.
+   *
+   * `classification` is NON-NULLABLE by construction (PR #3641 R1): this whole
+   * object is present only when the classifier returned a kind, so a consumer
+   * reading it has a reliable discriminator rather than one it must null-check.
+   * That also makes it the machine-readable signal for "returned early" — a
+   * JSON-mode caller distinguishes an early classified return from a genuine
+   * waited-out timeout by this field, without parsing the rendered message.
    */
   expectedHeadShaUnreached?: {
     expected: string;
     lastObservedHeadSha: string | null;
-    classification: HeadShaMismatchKind | null;
+    classification: HeadShaMismatchKind;
   };
   /**
    * mt#2777 SC#1: whether the one-time final authoritative reviews-list
@@ -1152,33 +1159,44 @@ export async function sessionPrWaitForReview(
       overrides: Partial<
         Pick<SessionPrWaitForReviewTimeout, "finalCheckPerformed" | "reviewerCheckRunState">
       > = {}
-    ): SessionPrWaitForReviewTimeout => ({
-      matched: false,
-      elapsedMs: now() - start,
-      pollCount,
-      lastSeenReviews: annotateReviewRejections(
-        lastReviews,
-        since,
-        resolvedReviewer,
-        headSha,
-        remoteIsServingExpectedHead()
-          ? undefined
-          : `push-not-landed: matching suppressed while remote head ${headSha ?? "<unresolved>"} != expected ${expectedHeadSha}`
-      ),
-      sinceUsed: sinceIso,
-      ...(expectedHeadSha !== undefined && !remoteIsServingExpectedHead()
-        ? {
-            expectedHeadShaUnreached: {
-              expected: expectedHeadSha,
-              lastObservedHeadSha: headSha ?? null,
-              classification: mismatchKind(),
-            },
-          }
-        : {}),
-      finalCheckPerformed: false,
-      reviewerCheckRunState: null,
-      ...overrides,
-    });
+    ): SessionPrWaitForReviewTimeout => {
+      // mt#4995 (PR #3641 R1): compute the classification ONCE, and let it
+      // decide whether the diagnostic is present at all. `mismatchKind()`
+      // returns null in exactly the cases `remoteIsServingExpectedHead()`
+      // returns true — both delegate to `headShaMatchesExpected` — so this is
+      // the SAME gate the field already carried, re-expressed as the value it
+      // reports. Two things follow, and the second is the point: the pair can
+      // no longer drift apart, and `classification: null` becomes
+      // UNREPRESENTABLE rather than merely unreachable.
+      const kind = mismatchKind();
+      return {
+        matched: false,
+        elapsedMs: now() - start,
+        pollCount,
+        lastSeenReviews: annotateReviewRejections(
+          lastReviews,
+          since,
+          resolvedReviewer,
+          headSha,
+          remoteIsServingExpectedHead()
+            ? undefined
+            : `push-not-landed: matching suppressed while remote head ${headSha ?? "<unresolved>"} != expected ${expectedHeadSha}`
+        ),
+        sinceUsed: sinceIso,
+        ...(expectedHeadSha !== undefined && kind !== null
+          ? {
+              expectedHeadShaUnreached: {
+                expected: expectedHeadSha,
+                lastObservedHeadSha: headSha ?? null,
+                classification: kind,
+              },
+            }
+          : {}),
+        finalCheckPerformed: false,
+        reviewerCheckRunState: null,
+        ...overrides,
+      };
+    };
 
     /**
      * mt#2777 SC#1: perform ONE final authoritative check immediately before
