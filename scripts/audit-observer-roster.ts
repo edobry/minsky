@@ -36,9 +36,17 @@ const REPO_ROOT = join(import.meta.dir, "..");
 const ROSTER_PATH = join(REPO_ROOT, ".minsky/rules/hook-observers.mdc");
 const CATALOG_PATH = join(REPO_ROOT, "src/generated/interceptor-catalog.json");
 
-/** A roster entry's label, as written in the rule: `- **Label**`. */
+/**
+ * A roster entry's label, as written in the rule: `- **Label**`.
+ *
+ * The leading YAML frontmatter is stripped by matching its fences as WHOLE LINES. An
+ * earlier version split on a bare `---` and rejoined from the second piece, which also
+ * cuts at a horizontal rule in the body or at `a---b` mid-line — silently shortening the
+ * population this returns, in the direction that makes the audit report FEWER labels and
+ * so miss real drift. It also returned `""` for a file with no frontmatter at all.
+ */
 export function parseRosterLabels(source: string): string[] {
-  const body = source.split("---").slice(2).join("---");
+  const body = source.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "");
   return [...body.matchAll(/^- \*\*(.+?)\*\*/gm)].map((m) => m[1] as string);
 }
 
