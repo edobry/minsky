@@ -12,6 +12,7 @@ const TOML_COMMAND_MINSKY = 'command = "minsky"';
 import {
   CursorRegistrar,
   ClaudeDesktopRegistrar,
+  ClaudeCodeRegistrar,
   McpServersJsonRegistrar,
   VSCodeRegistrar,
   WindsurfRegistrar,
@@ -20,6 +21,7 @@ import {
   OpenHandsRegistrar,
   getRegistrar,
   registerWithClient,
+  detectJsonIndent,
 } from "./registration";
 import { createMockFs } from "../interfaces/mock-fs";
 import type { MockFs } from "../interfaces/mock-fs";
@@ -148,6 +150,81 @@ describe("ClaudeDesktopRegistrar", () => {
 
   test("mergeConfig is true (shares global config file)", () => {
     expect(registrar.mergeConfig).toBe(true);
+  });
+});
+
+describe("ClaudeCodeRegistrar", () => {
+  const registrar = new ClaudeCodeRegistrar();
+
+  describe("generateConfig for claude-code — emits the SHIM form, not the inherited stdio-spawn form (PR #3423 R2)", () => {
+    test("produces the shim invocation: mcp shim --url <daemon-url>", () => {
+      const content = registrar.generateConfig("stdio");
+      const parsed = JSON.parse(content);
+
+      expect(parsed.mcpServers["minsky-server"].command).toBe("minsky");
+      expect(parsed.mcpServers["minsky-server"].args).toEqual([
+        "mcp",
+        "shim",
+        "--url",
+        "http://127.0.0.1:48765/mcp",
+      ]);
+    });
+
+    test("never emits the legacy stdio-spawn form (no bare 'mcp start')", () => {
+      const content = registrar.generateConfig("stdio");
+      const parsed = JSON.parse(content);
+      expect(parsed.mcpServers["minsky-server"].args).not.toContain("start");
+    });
+
+    test("ignores transport/port/host -- those describe THIS project's minsky mcp start, not the daemon endpoint", () => {
+      const stdioContent = registrar.generateConfig("stdio");
+      const httpStreamContent = registrar.generateConfig("httpStream", 3000, "localhost");
+      const sseContent = registrar.generateConfig("sse", 4000, "0.0.0.0");
+
+      // All three produce byte-identical output -- the shim entry does not
+      // vary with the args that would change a stdio-spawn's own bind config.
+      expect(stdioContent).toBe(httpStreamContent);
+      expect(stdioContent).toBe(sseContent);
+    });
+
+    test("command is 'minsky', which resolves through the bin wrapper that can reach 'mcp shim' (local-http-config.ts:106-119)", () => {
+      // `mcp shim` is not a normal CLI subcommand -- only an invocation
+      // through scripts/cli-entry.ts's bin wrapper can reach it. `command:
+      // "minsky"` is that invocation; `bun dist/minsky.js` or `bun
+      // src/cli.ts` forms would NOT be (measured, not this file's job to
+      // re-verify at runtime).
+      const content = registrar.generateConfig("stdio");
+      const parsed = JSON.parse(content);
+      expect(parsed.mcpServers["minsky-server"].command).toBe("minsky");
+    });
+  });
+
+  describe("configPath for claude-code", () => {
+    test("returns a user-scope path, ignoring the passed project root", () => {
+      const configPath = registrar.configPath("/some-claude-code-project");
+      // Should be under the user's home directory, not under the project root
+      expect(configPath).not.toContain("/some-claude-code-project");
+      expect(configPath.startsWith(os.homedir())).toBe(true);
+    });
+
+    test("config path is ~/.claude.json, platform-uniform (no OS branching)", () => {
+      const configPath = registrar.configPath("/irrelevant-for-user-scope");
+      expect(configPath).toBe(path.join(os.homedir(), ".claude.json"));
+    });
+
+    test("configPath resolves to the same file for two different project roots", () => {
+      expect(registrar.configPath("/first-claude-code-project")).toBe(
+        registrar.configPath("/second-claude-code-project")
+      );
+    });
+  });
+
+  test("claude-code registrar merges rather than overwrites (shares Claude Code's own state file)", () => {
+    expect(registrar.mergeConfig).toBe(true);
+  });
+
+  test("ClaudeCodeRegistrar extends McpServersJsonRegistrar", () => {
+    expect(registrar).toBeInstanceOf(McpServersJsonRegistrar);
   });
 });
 
@@ -373,6 +450,24 @@ describe("McpServersJsonRegistrar (abstract base)", () => {
   });
 });
 
+describe("detectJsonIndent (PR #3423 R1)", () => {
+  test("returns 2 as the default when no indent can be matched", () => {
+    expect(detectJsonIndent("{}")).toBe(2);
+  });
+
+  test("detects a 2-space indented document", () => {
+    expect(detectJsonIndent('{\n  "mcpServers": {}\n}')).toBe(2);
+  });
+
+  test("detects a 4-space indented document", () => {
+    expect(detectJsonIndent('{\n    "mcpServers": {}\n}')).toBe(4);
+  });
+
+  test("detects a tab-indented document and returns the tab verbatim (not collapsed to a width)", () => {
+    expect(detectJsonIndent('{\n\t"mcpServers": {}\n}')).toBe("\t");
+  });
+});
+
 describe("getRegistrar", () => {
   test("returns CursorRegistrar for 'cursor'", () => {
     const r = getRegistrar("cursor");
@@ -384,6 +479,12 @@ describe("getRegistrar", () => {
     const r = getRegistrar("claude-desktop");
     expect(r).toBeInstanceOf(ClaudeDesktopRegistrar);
     expect(r.name).toBe("claude-desktop");
+  });
+
+  test("returns ClaudeCodeRegistrar for 'claude-code'", () => {
+    const r = getRegistrar("claude-code");
+    expect(r).toBeInstanceOf(ClaudeCodeRegistrar);
+    expect(r.name).toBe("claude-code");
   });
 
   test("returns VSCodeRegistrar for 'vscode'", () => {
@@ -416,9 +517,9 @@ describe("getRegistrar", () => {
     expect(r.name).toBe("openhands");
   });
 
-  test("throws descriptive error for unsupported client listing all 7 clients", () => {
+  test("throws descriptive error for unsupported client listing all 8 clients", () => {
     expect(() => getRegistrar("unknown")).toThrow(
-      'MCP client "unknown" is not yet supported. Supported clients: cursor, claude-desktop, vscode, windsurf, junie, codex, openhands'
+      'MCP client "unknown" is not yet supported. Supported clients: cursor, claude-desktop, claude-code, vscode, windsurf, junie, codex, openhands'
     );
   });
 });
@@ -528,6 +629,120 @@ describe("registerWithClient", () => {
       const parsed = JSON.parse(mockFs.files.get(configPath) ?? "");
       expect(parsed.mcpServers["minsky-server"].args).toContain("--http-stream");
       expect(parsed.mcpServers["minsky-server"].args).toContain("4242");
+    });
+  });
+
+  describe("claude-code config merging (mt#4676)", () => {
+    const registrar = new ClaudeCodeRegistrar();
+
+    test("creates new file if config file does not exist, in shim form", async () => {
+      await registerWithClient("/any-root", { transport: "stdio" }, "claude-code", mockFs);
+
+      const configPath = registrar.configPath("/any-root");
+      expect(mockFs.files.has(configPath)).toBe(true);
+      const parsed = JSON.parse(mockFs.files.get(configPath) ?? "");
+      expect(parsed.mcpServers["minsky-server"]).toBeDefined();
+      expect(parsed.mcpServers["minsky-server"].args).toEqual([
+        "mcp",
+        "shim",
+        "--url",
+        "http://127.0.0.1:48765/mcp",
+      ]);
+    });
+
+    test("merges minsky-server into an existing ~/.claude.json preserving the projects key", async () => {
+      // ~/.claude.json carries Claude Code's own state (per-project local-scope
+      // entries under `projects`, settings, etc.) -- registering the user-scope
+      // entry must not clobber any of it.
+      const configPath = registrar.configPath("/any-root");
+      const existingConfig = JSON.stringify({
+        mcpServers: {
+          "other-server": { command: "other", args: ["run"] },
+        },
+        projects: {
+          "/some/other/project": { mcpServers: { "local-scoped-server": { command: "local" } } },
+        },
+        someOtherKey: "preserved",
+      });
+      mockFs.files.set(configPath, existingConfig);
+      mockFs.directories.add(path.dirname(configPath));
+
+      await registerWithClient("/any-root", { transport: "stdio" }, "claude-code", mockFs);
+
+      const parsed = JSON.parse(mockFs.files.get(configPath) ?? "");
+      // Existing user-scope server preserved
+      expect(parsed.mcpServers["other-server"]).toBeDefined();
+      // Minsky server added at the top-level (user-scope) mcpServers key
+      expect(parsed.mcpServers["minsky-server"]).toBeDefined();
+      expect(parsed.mcpServers["minsky-server"].command).toBe("minsky");
+      // Local-scope (per-project) entries untouched
+      expect(parsed.projects["/some/other/project"].mcpServers["local-scoped-server"]).toEqual({
+        command: "local",
+      });
+      // Other top-level keys preserved
+      expect(parsed.someOtherKey).toBe("preserved");
+    });
+
+    test("overwrites an existing user-scope minsky-server entry when merging, with the shim form regardless of transport/port passed (PR #3423 R2)", async () => {
+      const configPath = registrar.configPath("/any-root");
+      const existingConfig = JSON.stringify({
+        mcpServers: { "minsky-server": { command: "old-command", args: ["old-args"] } },
+      });
+      mockFs.files.set(configPath, existingConfig);
+      mockFs.directories.add(path.dirname(configPath));
+
+      // transport/port are supplied (as a real caller's .minsky/config.yaml
+      // mcp section would) to prove they are ignored -- the shim entry does
+      // not vary with them.
+      await registerWithClient(
+        "/any-root",
+        { transport: "httpStream", port: 4242 },
+        "claude-code",
+        mockFs
+      );
+
+      const parsed = JSON.parse(mockFs.files.get(configPath) ?? "");
+      expect(parsed.mcpServers["minsky-server"].command).toBe("minsky");
+      expect(parsed.mcpServers["minsky-server"].args).toEqual([
+        "mcp",
+        "shim",
+        "--url",
+        "http://127.0.0.1:48765/mcp",
+      ]);
+      // The old stdio-spawn entry is gone, not merged with -- overwritten.
+      expect(parsed.mcpServers["minsky-server"].args).not.toContain("old-args");
+    });
+
+    test("configPath is identical across two different projectRoots (user scope)", async () => {
+      await registerWithClient("/project-a", { transport: "stdio" }, "claude-code", mockFs);
+      // A second registration from a different project root must resolve to
+      // the SAME file -- this is what "user scope" means.
+      await registerWithClient("/project-b", { transport: "stdio" }, "claude-code", mockFs, true);
+
+      const configPath = registrar.configPath("/project-a");
+      expect(configPath).toBe(registrar.configPath("/project-b"));
+      expect(mockFs.files.has(configPath)).toBe(true);
+    });
+
+    test("preserves a non-default (4-space) indentation from the existing ~/.claude.json (PR #3423 R1)", async () => {
+      // ~/.claude.json is a vendor-owned, operator-live state file -- forcing
+      // JSON.stringify's default 2-space indent on every write would reformat
+      // the whole file (a surprising diff) regardless of how it was written.
+      const configPath = registrar.configPath("/any-root");
+      const existingConfig =
+        '{\n    "mcpServers": {\n        "other-server": {\n            "command": "other"\n        }\n    }\n}';
+      mockFs.files.set(configPath, existingConfig);
+      mockFs.directories.add(path.dirname(configPath));
+
+      await registerWithClient("/any-root", { transport: "stdio" }, "claude-code", mockFs);
+
+      const written = mockFs.files.get(configPath) ?? "";
+      // 4-space indentation preserved -- NOT collapsed to JSON.stringify's default of 2.
+      expect(written).toContain('    "mcpServers"');
+      expect(written.startsWith('{\n  "')).toBe(false);
+      const parsed = JSON.parse(written);
+      expect(parsed.mcpServers["minsky-server"]).toBeDefined();
+      expect(parsed.mcpServers["other-server"]).toBeDefined();
     });
   });
 

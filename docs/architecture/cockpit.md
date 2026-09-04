@@ -154,7 +154,7 @@ not.
 | `/proposals`               | Proposals           | EngProd toil-miner curation gate (mt#3331): filed `engprod-proposal` tasks grouped by mining run, with evidence + Accept/Reject (task status + ledger verdict, atomically — see `src/cockpit/routes/engprod-proposals.ts`)                                                                                                            |
 | `/activity`                | Activity            | Event stream                                                                                                                                                                                                                                                                                                                          |
 | `/embeddings`              | Embeddings          | Provider health + index coverage                                                                                                                                                                                                                                                                                                      |
-| `/memories`                | Memories            | Memory subsystem — browse, search, stats, detail, health (mt#2150)                                                                                                                                                                                                                                                                    |
+| `/memories`                | Memories            | Memory subsystem — browse, search, detail, health (mt#2150), plus curation worklists and a growth panel (mt#4767). Two page VIEWS swap the table out entirely: `?mem_view=families` and `?mem_view=duplicates`. Filter state lives in `mem_f_*` URL params so a view is shareable                                                     |
 | `/settings`                | Settings            | Cockpit configuration + credentials                                                                                                                                                                                                                                                                                                   |
 | `/plant`                   | Plant Board         | Whole-system VSM plant board (mt#2375+); S2 valve interlock count is derived (mt#2602)                                                                                                                                                                                                                                                |
 | `/plant/interlock-history` | (redirect)          | **Absorbed into `/interceptors` (mt#4229)** — redirects. Its install date / commit link / `retrospective.fired` correlation now render on the interceptor detail view, joined on the catalog's `sourceFile`. Two pages listed the same corpus with different memberships; the redirect is kept for bookmarks, per ADR-020's precedent |
@@ -275,17 +275,21 @@ and must not be hardcoded into widget vocabularies.
 
 ### Widget catalog by route
 
-| Widget ID                                                                                     | Page                            | Surface                                                                                                                                                                                                                                                                                                                                       |
-| --------------------------------------------------------------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `attention`, `agents` (data), `mcp-server-status`, `reviewer-bot-status`, `embeddings-health` | `/`                             | Home triage radiator (mt#2881) — a FIXED curated composition, not a registry-driven grid: the needs-you band reads `/api/asks`, the fleet strip reads the `agents` widget, and the substrate band reads the three health widgets (anomalous ones expand to full cards). New registry widgets no longer auto-append to home.                   |
-| `basic-health`, `credentials`                                                                 | `/settings`                     | Receipts (uptime/version/widgets-loaded via `BasicHealthBody`) + credentials manager — moved off home by mt#2881 (anomaly-over-inventory)                                                                                                                                                                                                     |
-| `task-graph`, `task-list`, `workstreams`                                                      | Dedicated pages                 | Page route only; `workstreams` self-fetches with an `altitude` param (mt#2385)                                                                                                                                                                                                                                                                |
-| `memories-health`                                                                             | `/memories`                     | Page-level health indicator (sourced from `EmbeddingsHealthTracker.getInstance().getSummary()` — same data as the home-page `embeddings-health` card)                                                                                                                                                                                         |
-| `memories-stats`                                                                              | `/memories`                     | Stats panel: totals by type, recent count, top accessed, superseded count                                                                                                                                                                                                                                                                     |
-| `memories-list`                                                                               | `/memories`                     | Browseable record table with type + scope filters                                                                                                                                                                                                                                                                                             |
-| `memories-search`                                                                             | `/memories`                     | Search bar consuming `memory_search`; surfaces `degraded` flag when embeddings provider is down                                                                                                                                                                                                                                               |
-| `memories-detail`                                                                             | `/memories` (modal)             | Detail view: full content, associations, metadata, superseded-by chain, similar records                                                                                                                                                                                                                                                       |
-| `slow-topology`                                                                               | `/plant`, `/interceptors/:name` | Derived guard-hook registry + interlock history (install date, commit link, retrospective correlation); reads only the sweeper's in-process cache, never derives per-request (mt#2602). Second consumer moved from the interlock-history page to the interceptor detail view by mt#4229; the plant board's valve-inventory badge is unchanged |
+| Widget ID                                                                                     | Page                            | Surface                                                                                                                                                                                                                                                                                                                                                                         |
+| --------------------------------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `attention`, `agents` (data), `mcp-server-status`, `reviewer-bot-status`, `embeddings-health` | `/`                             | Home triage radiator (mt#2881) — a FIXED curated composition, not a registry-driven grid: the needs-you band reads `/api/asks`, the fleet strip reads the `agents` widget, and the substrate band reads the three health widgets (anomalous ones expand to full cards). New registry widgets no longer auto-append to home.                                                     |
+| `basic-health`, `credentials`                                                                 | `/settings`                     | Receipts (uptime/version/widgets-loaded via `BasicHealthBody`) + credentials manager — moved off home by mt#2881 (anomaly-over-inventory)                                                                                                                                                                                                                                       |
+| `task-graph`, `task-list`, `workstreams`                                                      | Dedicated pages                 | Page route only; `workstreams` self-fetches with an `altitude` param (mt#2385)                                                                                                                                                                                                                                                                                                  |
+| `memories-health`                                                                             | `/memories`                     | Page-level health indicator (sourced from `EmbeddingsHealthTracker.getInstance().getSummary()` — same data as the home-page `embeddings-health` card)                                                                                                                                                                                                                           |
+| `memories-curation`                                                                           | `/memories`                     | Curation worklists + growth panel (mt#4767). Five counts that are queue heads rather than statistics — untagged, never-read, cold, duplicates, superseded — each navigating the table to that population, plus 8 weeks of creations split handoff/retrospective/other. Aggregates only; takes a raw SQL handle rather than `MemoryService`, per the `memories-facets` precedent |
+| `memories-stats`                                                                              | registry only                   | The pre-mt#4767 stats panel: totals by type, recent count, top accessed, superseded count. **No longer rendered on `/memories`** — mt#4767 replaced it with `memories-curation` because none of its five numbers was actionable. Still registered and still fetchable for any other render context                                                                              |
+| `memories-list`                                                                               | `/memories`                     | Browseable record table. Server-driven sort/pagination/filters (mt#4761/mt#4762); filters are `MemoryListFilter` fields reached via `mem_f_*` URL params, including mt#4767's `untagged`/`neverAccessed`/`cold`+`coldDays`/`onlySuperseded`. Switches to SEARCH MODE when `q` is non-empty, in which case it queries `memories-search` and applies NO `mem_f_*` filter          |
+| `memories-facets`                                                                             | `/memories`                     | Tag facet rail (mt#4763): one `unnest(tags) + GROUP BY`, counts narrowing with the active filters, provenance namespaces collapsed by default                                                                                                                                                                                                                                   |
+| `memories-families`                                                                           | `/memories?mem_view=families`   | `family:*` rollup (mt#4763). A page VIEW that replaces the table — a family rollup is not a filtered slice of it                                                                                                                                                                                                                                                                |
+| `memories-duplicates`                                                                         | `/memories?mem_view=duplicates` | Content-hash duplicate groups (mt#4767), same view-swap shape as families. **Read-only by construction** — imports no part of the write path; mt#1619 owns the dedup key decision and the cleanup, and this links out to it                                                                                                                                                     |
+| `memories-search`                                                                             | `/memories`                     | Search consuming `memory_search`; surfaces `degraded` flag when embeddings provider is down. Since mt#4762 it is folded into the list's own toolbar rather than rendered as a standalone card                                                                                                                                                                                   |
+| `memories-detail`                                                                             | `/memories` (modal)             | Detail view: full content, associations, metadata, superseded-by chain, similar records                                                                                                                                                                                                                                                                                         |
+| `slow-topology`                                                                               | `/plant`, `/interceptors/:name` | Derived guard-hook registry + interlock history (install date, commit link, retrospective correlation); reads only the sweeper's in-process cache, never derives per-request (mt#2602). Second consumer moved from the interlock-history page to the interceptor detail view by mt#4229; the plant board's valve-inventory badge is unchanged                                   |
 
 ### Reviewer Bot Status widget
 
@@ -1334,11 +1338,22 @@ additionally needs `--cookie` from a signed-in browser, since a passkey ceremony
 headlessly; against a local daemon it reads the bearer token from
 `~/.local/state/minsky/cockpit-token` itself.
 
-## Driven-session host and WS channel (Rung 2A, mt#2750)
+## Driven-session host and WS channel (Rung 2A, mt#2750; transport split mt#4934)
 
-`src/cockpit/driven-session-host.ts` spawns the **genuine `claude` binary**
-as a managed child of the LOCAL cockpit daemon (never the Railway
-`isPublicDeployment` entrypoint — see the Bind/auth section above):
+`src/cockpit/driven-session-host.ts` is the SUPERVISOR: the drive record,
+`DrivenSessionRegistry`, `driverGeneration`, restart/reconnect policy
+(mt#3038), and cost-row bookkeeping (mt#2753) — running as a managed part of
+the LOCAL cockpit daemon (never the Railway `isPublicDeployment` entrypoint —
+see the Bind/auth section above). It does not itself spawn a process or parse
+a wire protocol; it delegates to a `DriverTransport`
+(`src/cockpit/driver-transport.ts`).
+
+**Decision record ([ADR-047](adr-047-driver-transport-interface.md),
+2026-09-02), split carried out by mt#4934.** The one `DriverTransport`
+implementation today is `ClaudeStreamJsonTransport`
+(`src/cockpit/claude-transport.ts` + `claude-transport-parsing.ts` +
+`claude-cwd-preflight.ts`) — the **genuine `claude` binary**, moved out of
+the supervisor verbatim, not rewritten:
 
 ```
 claude -p --input-format stream-json --output-format stream-json \
@@ -1347,11 +1362,43 @@ claude -p --input-format stream-json --output-format stream-json \
 
 cwd set to the target workspace. Stdout is parsed defensively as
 newline-delimited stream-json events (the upstream event schema is thin —
-anthropics/claude-code#24594 / #24596). A daemon-side
-`DrivenSessionRegistry` tracks each spawned session — keyed by a spawn-time
-local id (used by the WS route, addressable before the child's `init` event
-can possibly arrive) with the harness `init` session id recorded as a
-secondary index once observed.
+anthropics/claude-code#24594 / #24596) into a normalized
+`DriverTransportEvent` stream the supervisor consumes without knowing the
+wire shape behind it. The supervisor's `DrivenSessionRegistry` tracks each
+spawned session — keyed by a spawn-time local id (used by the WS route,
+addressable before the child's `init` event can possibly arrive) with the
+harness `init` session id recorded as a secondary index once observed. The
+genuine binary stays the Claude Code driver under subscription auth; an
+Agent Client Protocol client is the second implementation for non-Claude
+harnesses and API-key mode (program umbrella mt#4932, sibling task mt#4936).
+A parity test (`src/cockpit/driven-session-transport-parity.test.ts`, fixture
+under `src/cockpit/__fixtures__/`) replays a recorded stream-json session
+through the post-split supervisor and diffs its WebSocket event sequence and
+persisted-row-equivalent observer calls against a pre-split capture — the
+split's behaviour-preservation evidence.
+
+**Harness-agnostic drive record (mt#4935, ADR-047 §Consequences).**
+`driven_sessions` (`packages/domain/src/storage/schemas/driven-sessions-schema.ts`,
+migration `0117`) carries four plain-`text` columns — not Postgres `ENUM`s,
+matching this table's own documented convention, since the value set is
+expected to grow as non-Claude harnesses land: `harness_kind` (`"claude-code"`
+today), `transport_id` (`DriverTransport.id`, `"claude-stream-json"` today —
+`selectDriverTransport()` in `driven-session-host.ts` dispatches on it, via a
+small factory registry rather than the single hard-coded default mt#4934
+left), `harness_conversation_id` (the harness's own conversation id — for
+Claude Code the same value as the pre-existing `harness_session_id`
+compatibility column, which stays until the ADR-022 stage-2 rename), and
+`auth_mode` (`"subscription"` or `"api-key"`, `DriverAuthMode` in
+`driver-transport.ts`). The 0117 migration backfills every existing row —
+three columns via a constant DB-level default applied at `ADD COLUMN` time,
+`harness_conversation_id` via an explicit `UPDATE` from `harness_session_id`.
+`POST /api/driven-session` accepts all four, defaulting to today's values;
+`ClaudeStreamJsonTransport` honours `auth_mode: "api-key"` by setting
+`ANTHROPIC_API_KEY` in the spawned child's env from the configured
+`ai.providers.anthropic.apiKey` credential (never the operator's own
+subscription login), and the route refuses `"api-key"` with no credential
+configured or `"subscription"` for any harness other than `"claude-code"`
+(the seam: mt#2237/mt#2750) before spawning anything.
 
 Endpoints (`src/cockpit/routes/driven-sessions.ts`, mounted only when
 `!isPublicDeployment`):
@@ -1455,12 +1502,19 @@ branch that kills.
 `--force` remains the operator override and is now meaningful in both directions: it displaces even
 a preserving disposition. It is **not** needed to clear a silent incumbent.
 
-Each displacement emits a `cockpit.port_displaced` system event carrying the displaced pid, command,
-port, and whether `--force` was used. It is emitted after the replacement binds, because the guard
-runs before this process has any persistence provider — and it is the first daemon-lifecycle event
-type in that enum, which is why mt#4154 could not reconstruct the 2026-08-06 outage from
-`system_events`: every other type is agent-triggered, so a quiet window meant "nobody was working",
-not "nothing happened to the daemon".
+Every port-conflict OUTCOME emits a `cockpit.port_displaced` system event (mt#4800 widened this
+from displacements only), discriminated by the payload's `outcome` field: `"displaced"` carries the
+displaced pid, command, port, and whether `--force` was used, and is emitted after the replacement
+binds, because the guard runs before this process has any persistence provider; `"refused"` records
+a refusal to displace (either a preserved answering incumbent or an unattributable holder) and
+`"displacement-failed"` a kill whose re-bind then failed — both emitted BEFORE the refusing exit,
+awaited with a 5s bound, since a fire-and-forget dies with the process. The refusal rows exist
+because the 2026-08-31 incident was a preserved-incumbent refusal loop that recorded nothing while
+the stale build served for 25+ minutes. It is the first daemon-lifecycle event type in that enum,
+which is why mt#4154 could not reconstruct the 2026-08-06 outage from `system_events`: every other
+type is agent-triggered, so a quiet window meant "nobody was working", not "nothing happened to the
+daemon". Authoritative payload shapes:
+`packages/domain/src/storage/schemas/system-events-schema.ts`.
 
 ## Cross-references
 
@@ -1471,6 +1525,9 @@ not "nothing happened to the daemon".
   and WS channel" above); REQUIRES the bearer token this task introduces;
   `src/cockpit/driven-session-host.ts`, `src/cockpit/driven-session-ws.ts`,
   `src/cockpit/routes/driven-sessions.ts`
+- mt#4934 — the `DriverTransport` split (ADR-047); `src/cockpit/driver-transport.ts`
+  (interface), `src/cockpit/claude-transport.ts` + `claude-transport-parsing.ts` +
+  `claude-cwd-preflight.ts` (the Claude stream-json implementation)
 - mt#2237 — parent (Rung 2); mt#2230 — umbrella (harness-host ladder)
 - mt#2238 — Rung 3 cloud→local relay channel; owns its own distinct auth surface, out of scope here
 - Memory `Cockpit stack and design/engineering bundle` (id `0cc1304c-0de3-4e5e-8e7a-b446bc70a995`) — durable cross-cutting reference

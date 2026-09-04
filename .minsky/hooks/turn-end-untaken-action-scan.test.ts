@@ -1,6 +1,6 @@
 /* eslint-disable custom/no-real-fs-in-tests -- the dedup store (turn-end-scan-store.ts) writes real per-session JSON files; these tests exercise the real store roundtrip (write -> dedup-read) in an isolated mkdtemp dir, mirroring turn-end-retro-scan.test.ts's precedent */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,6 +9,7 @@ import {
   run,
   TAIL_WINDOW_CHARS,
   OVERRIDE_ENV_VAR,
+  EVALUATION_SKIP_ENV_VAR,
   SUPPRESSION_DEDUPED_BY_ASK_ROUTING_DEFERRAL,
   SUPPRESSION_RESERVED_CATEGORY_HALT,
   SUPPRESSION_ARMED_WATCHER_EVIDENCE,
@@ -17,6 +18,12 @@ import {
   SUPPRESSION_FILED_BY_DESIGN_HALT,
   SUPPRESSION_PRINCIPAL_INSTRUCTION_HALT,
   detectArmedWatcherEvidence,
+  detectStrandedTaskState,
+  detectPresentProgressiveAssertion,
+  PRESENT_PROGRESSIVE_FAMILY,
+  STRANDED_TASK_FAMILY,
+  TASK_ADVANCING_TOOLS,
+  TASK_ID_INPUT_KEYS,
   turnKeyForMessage,
   CONDITIONAL_WAIT_TOOL,
   ARMED_WAIT_TOOLS,
@@ -24,6 +31,7 @@ import {
 import type { TranscriptLine } from "./transcript";
 import type { StopHookInput } from "./turn-end-retro-scan";
 import { GUARD_REGISTRY, type DispatchContext, type GuardOutcome } from "./registry";
+import { evaluationLogPath } from "./dispatcher";
 import {
   STOP_INJECTED_OVERLAP_FAMILY,
   readFlagged,
@@ -47,6 +55,15 @@ const R2_FINAL_MESSAGE =
 const LEGITIMATE_WATCHER_MESSAGE =
   "GitHub is 500ing on the create-PR call. A retry watcher is armed (~7 min); " +
   "I'll re-attempt the PR when it fires — no action needed from you.";
+
+// A real attested tail that matches BOTH the reserved-category and
+// untaken-action detectors ("Say the word") — reused across the
+// reserved-category-vs-armed-watcher ordering test and the mt#4117
+// evaluation-stream test, rather than duplicated, since a hand-written
+// substitute has previously matched neither.
+const RESERVED_CATEGORY_HALT_MESSAGE =
+  "picking the replacement myself because which model becomes your default is your " +
+  "preference, not a capability gap. Say the word and a model and it's done.";
 
 const ctx: DispatchContext = { transcriptLines: [] } as unknown as DispatchContext;
 
@@ -804,6 +821,8 @@ describe("armed-watcher evidence suppression (mt#4063)", () => {
   // independence is what makes the membership pin below a real check rather
   // than a tautology.
   const WAIT_FOR_REVIEW_TOOL = "mcp__minsky__session_pr_wait-for-review";
+  const PR_WATCH_CREATE_TOOL = "mcp__minsky__pr_watch_create";
+  const PR_WATCH_RUN_TOOL = "mcp__minsky__pr_watch_run";
 
   const WINDOW_PHRASINGS = [
     "That watch is armed in the background — I'll merge when it concludes.",
@@ -851,6 +870,36 @@ describe("armed-watcher evidence suppression (mt#4063)", () => {
       expect(detectArmedWatcherEvidence(lines)).toEqual([]);
     });
 
+    // mt#3560: `pr_watch_create` is the call `/plan-task` Step 4's self-resolving
+    // branch instructs an agent to arm — "register the wait on the specific
+    // unblocking event ... `pr_watch_create` with `event: 'merged'` for a PR" —
+    // and it was absent from the set, so a turn that followed that prescription
+    // exactly was scored as having armed nothing. Both consumers fired on it:
+    // this guard's suppression and `stop-at-decision-scan`'s.
+    //
+    // `pr_watch_run` (present since mt#4063) is a DIFFERENT call — it executes a
+    // watch cycle; `pr_watch_create` is what registers one. Having only the
+    // former is why the miss reads as an oversight rather than a judgment.
+    test("pr_watch_create counts — it is the call /plan-task prescribes", () => {
+      const lines = [toolUse("t1", PR_WATCH_CREATE_TOOL, { event: "merged", session: "s1" })];
+      expect(detectArmedWatcherEvidence(lines)).toEqual([PR_WATCH_CREATE_TOOL]);
+    });
+
+    // PR #3416 review 5045481759 asked for a `run`-only turn to be covered, since
+    // the docblock's create/run distinction reads as if only `create` should count.
+    // This pins CURRENT behavior — `run` DOES count — so the state is explicit
+    // rather than accidental, and so a change to it fails visibly here.
+    //
+    // It is NOT an endorsement. `pr.watch.run` is one pass over already-registered
+    // watches (`pr-watch.ts:386`), which the set's own "only calls that actually
+    // leave something running" criterion arguably excludes. **mt#4696** owns that
+    // question and will update this assertion either way; do not read a green test
+    // as the membership having been justified.
+    test("a run-only turn counts today — behavior pinned, question open (mt#4696)", () => {
+      const lines = [toolUse("t1", PR_WATCH_RUN_TOOL, {})];
+      expect(detectArmedWatcherEvidence(lines)).toEqual([PR_WATCH_RUN_TOOL]);
+    });
+
     // PR #2972 R1: the set is hand-maintained and cannot be derived — blocking-
     // ness is a property of each tool's semantics, not of anything declared. So
     // pin its exact contents instead: a member added or removed fails here,
@@ -862,7 +911,8 @@ describe("armed-watcher evidence suppression (mt#4063)", () => {
         "ScheduleWakeup",
         "mcp__minsky__asks_wait-for-response",
         "mcp__minsky__deployment_wait-for-latest",
-        "mcp__minsky__pr_watch_run",
+        PR_WATCH_CREATE_TOOL,
+        PR_WATCH_RUN_TOOL,
         "mcp__minsky__reviewer_watch_run",
         WAIT_FOR_REVIEW_TOOL,
       ]);
@@ -948,17 +998,10 @@ describe("armed-watcher evidence suppression (mt#4063)", () => {
     // Reserved-category must win: it is the more specific reason, and it is the
     // one whose calibration record a reviewer of THIS guard would look for.
     test("reserved-category wins when a reserved halt and an armed wait both hold", () => {
-      // A real attested tail that matches BOTH detectors — reserved-category
-      // (a durable-default preference) and untaken-action ("Say the word").
-      // Reused from this file's own reserved-category fixtures rather than
-      // invented, since a hand-written one silently matched neither.
-      const reservedHaltMessage =
-        "picking the replacement myself because which model becomes your default is your " +
-        "preference, not a capability gap. Say the word and a model and it's done.";
       const outcome = run(
         {
           session_id: "both-conditions",
-          last_assistant_message: reservedHaltMessage,
+          last_assistant_message: RESERVED_CATEGORY_HALT_MESSAGE,
         } as StopHookInput,
         ctxWith(toolUse("t1", "ScheduleWakeup", { delaySeconds: 600 })),
         storeDir
@@ -1209,5 +1252,678 @@ describe("suppressions run over ELIDED text (PR #2976 R1)", () => {
       storeDir
     );
     expect(out?.calibration?.suppressionReasons).toEqual([SUPPRESSION_DESTRUCTIVE_ACTION_HALT]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4697 — the tool-call-state match arm.
+//
+// SC4 requires each attested miss the trigger claims to cover to appear as a NAMED fixture with
+// its date, and each one it does NOT cover to be listed explicitly. SC5 requires every one of
+// those fixtures to be shown FIRING with the arm reachable and SILENT with it unreachable —
+// because `[]` is what "nothing matched" and "never reached the matcher" both return, so a green
+// negative assertion is not evidence on its own.
+// ---------------------------------------------------------------------------
+
+describe("tool-call-state match arm (mt#4697)", () => {
+  const REFS_STATUS = "mcp__minsky__refs_status";
+  const SESSION_COMMIT = "mcp__minsky__session_commit";
+  const OK_RESULT = '{"success":true}';
+  let armStore: string;
+  beforeEach(() => {
+    armStore = mkdtempSync(join(tmpdir(), "untaken-arm-"));
+  });
+  afterEach(() => {
+    rmSync(armStore, { recursive: true, force: true });
+  });
+
+  function up(text: string): TranscriptLine {
+    return {
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text }] },
+    } as unknown as TranscriptLine;
+  }
+
+  /** One tool call, optionally joined to the result body the arm reads. */
+  function call(
+    id: string,
+    name: string,
+    input: Record<string, unknown>,
+    result?: string
+  ): TranscriptLine[] {
+    const lines: TranscriptLine[] = [
+      {
+        type: "assistant",
+        message: { role: "assistant", content: [{ type: "tool_use", id, name, input }] },
+      } as unknown as TranscriptLine,
+    ];
+    if (result !== undefined) {
+      lines.push({
+        type: "user",
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: id, content: result }],
+        },
+      } as unknown as TranscriptLine);
+    }
+    return lines;
+  }
+
+  function ctxOf(...lines: TranscriptLine[]): DispatchContext {
+    return { transcriptLines: [up("go"), ...lines] } as unknown as DispatchContext;
+  }
+
+  function runOn(msg: string, c: DispatchContext, session: string): GuardOutcome | null {
+    return run({ session_id: session, last_assistant_message: msg } as never, c, armStore);
+  }
+
+  function families(out: GuardOutcome | null): string[] {
+    // `calibration` is an open record on GuardOutcome, so `matches` arrives as `{}`; narrow at the
+    // read rather than widening the shared type for a test helper.
+    const raw = (out?.calibration?.matches ?? []) as Array<{ family: string }>;
+    return raw.map((m) => m.family);
+  }
+
+  function turnLinesOf(c: DispatchContext): TranscriptLine[] {
+    return (c as unknown as { transcriptLines: TranscriptLine[] }).transcriptLines;
+  }
+
+  // -- Occurrence 3, 2026-08-21T20:34:28Z (the originating miss) ------------
+  // Verbatim shape: `refs_status` returned mt#4323 DONE and mt#4324 TODO; the turn advanced
+  // mt#4323 (spec patch) and merely NAMED mt#4324 at the close. Settled against the transcript
+  // and the event ledger during this task's planning pass — mt#4324 went TODO -> PLANNING eight
+  // hours LATER, so TODO is what the turn actually saw.
+  const OCC3_REFS_RESULT = JSON.stringify({
+    success: true,
+    results: [
+      {
+        ref: "mt#4323",
+        kind: "task",
+        id: "mt#4323",
+        found: true,
+        outcome: "found",
+        status: "DONE",
+      },
+      {
+        ref: "mt#4324",
+        kind: "task",
+        id: "mt#4324",
+        found: true,
+        outcome: "found",
+        status: "TODO",
+      },
+    ],
+  });
+  const OCC3_MESSAGE =
+    "mt#4323 is merged, deployed, and verified. " +
+    "mt#4324 is the unblocked successor but sits at TODO, so it needs /plan-task first.";
+  const OCC3_CTX = (): DispatchContext =>
+    ctxOf(
+      ...call("c1", "mcp__minsky__tasks_spec_patch", { taskId: "mt#4323" }, OK_RESULT),
+      ...call("c2", REFS_STATUS, { refs: ["mt#4323", "mt#4324"] }, OCC3_REFS_RESULT)
+    );
+
+  test("occurrence 3 (2026-08-21) FIRES on the stranded task, not the advanced one", () => {
+    const matches = detectStrandedTaskState(OCC3_MESSAGE, turnLinesOf(OCC3_CTX()));
+    expect(matches).toEqual([{ family: STRANDED_TASK_FAMILY, matchedPhrase: "mt#4324 (TODO)" }]);
+  });
+
+  test("occurrence 3 reaches run() and is RECORDED — log-only, not injected (SC6)", () => {
+    const out = runOn(OCC3_MESSAGE, OCC3_CTX(), "occ3-fire");
+    // Recorded: the match is in the calibration payload, under its own field so a calibration
+    // pass can classify arm fires without separating them from the phrase side by hand.
+    expect(families(out)).toContain(STRANDED_TASK_FAMILY);
+    expect(out?.calibration?.strandedTaskArm).toEqual(["mt#4324 (TODO)"]);
+    expect(out?.calibration?.strandedArmLogOnly).toBe(true);
+    // NOT injected: this message matches nothing on the phrase side, so the arm was the only
+    // match and the turn gets no advisory. That is the log-only rung, asserted rather than
+    // assumed — measured at 994 fires vs the phrase side's 345 over 11,196 replayed turns.
+    expect(out?.calibration?.suppressionReasons).toEqual([]);
+    expect(out?.additionalContext).toBeUndefined();
+  });
+
+  test("a phrase-side match in the SAME turn still injects, and the arm rides along recorded", () => {
+    // The log-only rung silences the ARM, not the guard: a turn that also trips a commitment
+    // pattern must keep its advisory, or this change would have quietly weakened the live half.
+    const msg = `${OCC3_MESSAGE} Say the word and I'll pick it up.`;
+    const out = runOn(msg, OCC3_CTX(), "occ3-mixed");
+    expect(out?.additionalContext).toBeDefined();
+    expect(out?.additionalContext).not.toContain(STRANDED_TASK_FAMILY);
+    expect(out?.calibration?.strandedTaskArm).toEqual(["mt#4324 (TODO)"]);
+  });
+
+  test("occurrence 3 INERTNESS CONTROL — silent with the arm unreachable", () => {
+    // Same message, no turn state for the arm to read. If this also fired, the fire above would
+    // be the prose patterns and would say nothing about the arm.
+    expect(detectStrandedTaskState(OCC3_MESSAGE, [])).toEqual([]);
+    const out = runOn(OCC3_MESSAGE, ctxOf(), "occ3-inert");
+    expect(families(out)).not.toContain(STRANDED_TASK_FAMILY);
+  });
+
+  // -- Occurrence 2, 2026-08-16 --------------------------------------------
+  // The turn SET mt#4183 to PLANNING and closed by naming what would happen once PR #3039 merged,
+  // without advancing it. `tasks_status_set` counts as establishing the state, which is why it is
+  // in TASK_STATUS_READ_TOOLS and NOT in TASK_ADVANCING_TOOLS.
+  const OCC2_SET_RESULT = JSON.stringify({
+    success: true,
+    taskId: "mt#4183",
+    previousStatus: "TODO",
+    newStatus: "PLANNING",
+  });
+  const OCC2_MESSAGE = "once PR #3039 merges, re-running the gate on mt#4183 picks it up";
+  const OCC2_CTX = (): DispatchContext =>
+    ctxOf(
+      ...call(
+        "c1",
+        "mcp__minsky__tasks_status_set",
+        { taskId: "mt#4183", status: "PLANNING" },
+        OCC2_SET_RESULT
+      )
+    );
+
+  test("occurrence 2 (2026-08-16) FIRES — a status_set to PLANNING is the stranding", () => {
+    expect(detectStrandedTaskState(OCC2_MESSAGE, turnLinesOf(OCC2_CTX()))).toEqual([
+      { family: STRANDED_TASK_FAMILY, matchedPhrase: "mt#4183 (PLANNING)" },
+    ]);
+  });
+
+  test("occurrence 2 INERTNESS CONTROL — silent with the arm unreachable", () => {
+    expect(detectStrandedTaskState(OCC2_MESSAGE, [])).toEqual([]);
+    const out = runOn(OCC2_MESSAGE, ctxOf(), "occ2-inert");
+    expect(families(out)).not.toContain(STRANDED_TASK_FAMILY);
+  });
+
+  // -- Occurrence 1, 2026-08-01 — EXPLICITLY OUT OF REACH -------------------
+  test("occurrence 1 (2026-08-01) is NOT covered by this arm, by design", () => {
+    // A first-person commitment with no task or PR state in the turn at all. The phrase side owns
+    // it; SC4 requires this to be stated rather than implied.
+    const msg = "Let me pull the current state and see where that leaves the queue.";
+    expect(detectStrandedTaskState(msg, turnLinesOf(ctxOf()))).toEqual([]);
+  });
+
+  // -- Precision: each conjunct is load-bearing -----------------------------
+  test("named but NEVER READ does not fire — a status report is not a stranding", () => {
+    const msg = "Remaining: mt#4321 and mt#4322, both wanting a design pass.";
+    expect(detectStrandedTaskState(msg, turnLinesOf(ctxOf()))).toEqual([]);
+  });
+
+  test("read and named but ADVANCED does not fire", () => {
+    const result = JSON.stringify({
+      results: [{ ref: "mt#500", id: "mt#500", status: "IN-PROGRESS" }],
+    });
+    const c = ctxOf(
+      ...call("c1", REFS_STATUS, { refs: ["mt#500"] }, result),
+      ...call("c2", SESSION_COMMIT, { task: "mt#500" }, OK_RESULT)
+    );
+    expect(detectStrandedTaskState("mt#500 is coming along.", turnLinesOf(c))).toEqual([]);
+  });
+
+  test("a TERMINAL status does not fire", () => {
+    const result = JSON.stringify({ results: [{ ref: "mt#600", id: "mt#600", status: "DONE" }] });
+    const c = ctxOf(...call("c1", REFS_STATUS, { refs: ["mt#600"] }, result));
+    expect(detectStrandedTaskState("mt#600 is finished.", turnLinesOf(c))).toEqual([]);
+  });
+
+  test("read as non-terminal but NOT named at the close does not fire", () => {
+    const result = JSON.stringify({ results: [{ ref: "mt#700", id: "mt#700", status: "READY" }] });
+    const c = ctxOf(...call("c1", REFS_STATUS, { refs: ["mt#700"] }, result));
+    expect(detectStrandedTaskState("All set; nothing outstanding.", turnLinesOf(c))).toEqual([]);
+  });
+
+  test("a call with no correlated result contributes nothing", () => {
+    // `hasResult` distinguishes "returned empty" from "never returned"; the arm must not read a
+    // still-in-flight call as a status of any kind.
+    const c = ctxOf(...call("c1", REFS_STATUS, { refs: ["mt#800"] }));
+    expect(detectStrandedTaskState("mt#800 is next.", turnLinesOf(c))).toEqual([]);
+  });
+
+  test("the row bound holds — row N's id is never paired with row N+1's status", () => {
+    // mt#900 has no status field at all. Without the `[^}]` object bound the lazy span would run
+    // on and pair it with mt#901's READY.
+    const result = JSON.stringify({
+      results: [
+        { ref: "mt#900", outcome: "unavailable" },
+        { ref: "mt#901", id: "mt#901", status: "READY" },
+      ],
+    });
+    const c = ctxOf(...call("c1", REFS_STATUS, { refs: ["mt#900"] }, result));
+    const matches = detectStrandedTaskState("mt#900 and mt#901 both matter.", turnLinesOf(c));
+    expect(matches.map((m) => m.matchedPhrase)).toEqual(["mt#901 (READY)"]);
+  });
+
+  // -- PR #3420 R1: the advancing-tool key set -----------------------------
+  test("advancing-tool-key-parity — both hand-maintained sets are pinned", () => {
+    // The blocking finding's structural defense. These two lists must agree, and a mismatch is
+    // SILENT: a tool naming its id differently simply stops being credited as advancing, turning
+    // every one of its turns into a fire. Pinning both makes drift a visible diff, which is the
+    // same defense ARMED_WAIT_TOOLS documents for itself.
+    expect([...TASK_ID_INPUT_KEYS]).toEqual(["task", "taskId", "id", "parentTaskId"]);
+    expect([...TASK_ADVANCING_TOOLS].sort()).toEqual([
+      SESSION_COMMIT,
+      "mcp__minsky__session_pr_create",
+      "mcp__minsky__session_pr_merge",
+      "mcp__minsky__session_start",
+      "mcp__minsky__tasks_dispatch",
+      "mcp__minsky__tasks_spec_patch",
+      "mcp__minsky__tasks_spec_search_replace",
+    ]);
+  });
+
+  test("an advancing call carrying its id as `id` is credited", () => {
+    // Not reached by today's tool set — every member takes `task` or `taskId` — so this pins the
+    // BEHAVIOUR the widened key list buys, rather than leaving it as an untested claim.
+    const result = JSON.stringify({ results: [{ ref: "mt#510", id: "mt#510", status: "READY" }] });
+    const c = ctxOf(
+      ...call("c1", REFS_STATUS, { refs: ["mt#510"] }, result),
+      ...call("c2", SESSION_COMMIT, { id: "mt#510" }, OK_RESULT)
+    );
+    expect(detectStrandedTaskState("mt#510 is moving.", turnLinesOf(c))).toEqual([]);
+  });
+
+  test("a result far longer than any positional window still yields its status", () => {
+    // The old regex bounded the id->status span at 400 chars, which silently dropped exactly the
+    // largest results (a `tasks_get` with a spec attached). The JSON walk has no such window.
+    const result = JSON.stringify({
+      task: { id: "mt#520", spec: "x".repeat(20000), status: "PLANNING" },
+    });
+    const c = ctxOf(...call("c1", "mcp__minsky__tasks_get", { taskId: "mt#520" }, result));
+    expect(detectStrandedTaskState("mt#520 still needs planning.", turnLinesOf(c))).toEqual([
+      { family: STRANDED_TASK_FAMILY, matchedPhrase: "mt#520 (PLANNING)" },
+    ]);
+  });
+
+  test("a non-JSON result body degrades to the regex path rather than throwing", () => {
+    const c = ctxOf(
+      ...call("c1", REFS_STATUS, { refs: ["mt#530"] }, 'plain text {"id":"mt#530","status":"TODO"}')
+    );
+    expect(detectStrandedTaskState("mt#530 is next.", turnLinesOf(c))).toEqual([
+      { family: STRANDED_TASK_FAMILY, matchedPhrase: "mt#530 (TODO)" },
+    ]);
+  });
+
+  // -- SC3: the existing armed-watcher suppression covers the arm -----------
+  test("SC3 — an armed watcher suppresses an arm fire, with no duplicate check in the arm", () => {
+    const c = ctxOf(
+      ...call(
+        "c1",
+        REFS_STATUS,
+        { refs: ["mt#4324"] },
+        JSON.stringify({ results: [{ ref: "mt#4324", id: "mt#4324", status: "TODO" }] })
+      ),
+      ...call("c2", "mcp__minsky__pr_watch_run", {}, '{"ok":true}')
+    );
+    // The arm itself still matches — it does not know about watchers.
+    expect(detectStrandedTaskState("mt#4324 is next.", turnLinesOf(c))).toHaveLength(1);
+    // run() suppresses it downstream, which is what SC3 asks to be asserted rather than assumed.
+    const out = runOn("mt#4324 is next.", c, "sc3-armed");
+    expect(out?.calibration?.suppressionReasons).toEqual([SUPPRESSION_ARMED_WATCHER_EVIDENCE]);
+    expect(out?.additionalContext).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4117 — the evaluation stream: every scanned turn-ending message writes a
+// record, fired or not, distinct from the fire-only calibration log above.
+// ---------------------------------------------------------------------------
+
+describe("evaluation stream (mt#4117)", () => {
+  function withProjectDir<T>(dir: string, fn: () => T): T {
+    const prev = process.env.CLAUDE_PROJECT_DIR;
+    process.env.CLAUDE_PROJECT_DIR = dir;
+    try {
+      return fn();
+    } finally {
+      if (prev === undefined) delete process.env.CLAUDE_PROJECT_DIR;
+      else process.env.CLAUDE_PROJECT_DIR = prev;
+    }
+  }
+
+  function readEvaluationRecords(dir: string): Record<string, unknown>[] {
+    const path = evaluationLogPath("untaken-action", { projectDir: dir });
+    if (!existsSync(path)) return [];
+    return readFileSync(path, "utf-8")
+      .trim()
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+  }
+
+  function evalToolUse(id: string, name: string, input: Record<string, unknown>): TranscriptLine {
+    return {
+      type: "assistant",
+      message: { role: "assistant", content: [{ type: "tool_use", id, name, input }] },
+    } as unknown as TranscriptLine;
+  }
+
+  // A preceding user turn is required so `extractFinalTurn` can delimit the
+  // final assistant turn — mirrors the "armed-watcher evidence suppression"
+  // describe block's own `ctxWith` fixture above.
+  function evalCtxWith(...lines: TranscriptLine[]): DispatchContext {
+    const userTurn: TranscriptLine = {
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text: "go" }] },
+    } as unknown as TranscriptLine;
+    return { transcriptLines: [userTurn, ...lines] } as unknown as DispatchContext;
+  }
+
+  let projectDir: string;
+  let evalStoreDir: string;
+
+  beforeEach(() => {
+    projectDir = mkdtempSync(join(tmpdir(), "mt4117-project-"));
+    mkdirSync(join(projectDir, ".git"));
+    evalStoreDir = mkdtempSync(join(tmpdir(), "mt4117-store-"));
+    delete process.env[EVALUATION_SKIP_ENV_VAR];
+  });
+
+  afterEach(() => {
+    rmSync(evaluationLogPath("untaken-action", { projectDir }), { force: true });
+    rmSync(projectDir, { recursive: true, force: true });
+    rmSync(evalStoreDir, { recursive: true, force: true });
+    delete process.env[EVALUATION_SKIP_ENV_VAR];
+  });
+
+  test("a fire writes BOTH a calibration record (unchanged) and an evaluation record marked fired", () => {
+    const outcome = withProjectDir(projectDir, () =>
+      run(
+        { session_id: "eval-fire", last_assistant_message: R3_FINAL_MESSAGE } as StopHookInput,
+        ctx,
+        evalStoreDir
+      )
+    );
+    // Existing calibration behavior is unchanged by this task.
+    expect(outcome?.calibration).toBeDefined();
+    expect(outcome?.additionalContext ?? "").toContain(FIRED_HEADER);
+
+    const records = readEvaluationRecords(projectDir);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.["fired"]).toBe(true);
+    expect(records[0]?.["suppressed"]).toBe(false);
+    expect(records[0]?.["injected"]).toBe(true);
+  });
+
+  test("a non-fire writes an evaluation record marked non-fire, with no additionalContext", () => {
+    const nonFiringMessage =
+      "Everything here has already merged and the pipeline is green across the board.";
+    const outcome = withProjectDir(projectDir, () =>
+      run(
+        { session_id: "eval-nonfire", last_assistant_message: nonFiringMessage } as StopHookInput,
+        ctx,
+        evalStoreDir
+      )
+    );
+    expect(outcome).toBeNull();
+
+    const records = readEvaluationRecords(projectDir);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.["fired"]).toBe(false);
+    expect(records[0]?.["suppressed"]).toBe(false);
+    expect(records[0]).not.toHaveProperty("additionalContext");
+  });
+
+  test("an armed-watcher-suppressed fire is recorded as suppressed, naming the suppression", () => {
+    // Same fixture as the "run() — evidence decides, not prose" suite above:
+    // a message that WOULD fire, alongside tool-call evidence that a wait is
+    // armed. The mt#4063/mt#3768 classes are the ones most likely to hide a
+    // regression if folded into a non-fire, so this is asserted directly.
+    const armedMessage = "That watch is armed in the background — I'll merge when it concludes.";
+    const outcome = withProjectDir(projectDir, () =>
+      run(
+        { session_id: "eval-suppressed", last_assistant_message: armedMessage } as StopHookInput,
+        evalCtxWith(evalToolUse("t1", CONDITIONAL_WAIT_TOOL, { wait: true })),
+        evalStoreDir
+      )
+    );
+    expect(outcome?.calibration?.[SUPPRESSION_REASONS_KEY]).toEqual([
+      SUPPRESSION_ARMED_WATCHER_EVIDENCE,
+    ]);
+    expect(outcome?.additionalContext).toBeUndefined();
+
+    const records = readEvaluationRecords(projectDir);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.["fired"]).toBe(true);
+    expect(records[0]?.["suppressed"]).toBe(true);
+    expect(records[0]?.["suppressionReason"]).toBe(SUPPRESSION_ARMED_WATCHER_EVIDENCE);
+    expect(records[0]?.["injected"]).toBe(false);
+  });
+
+  test("a reserved-category-suppressed fire is also recorded as suppressed, naming the suppression", () => {
+    withProjectDir(projectDir, () =>
+      run(
+        {
+          session_id: "eval-reserved",
+          last_assistant_message: RESERVED_CATEGORY_HALT_MESSAGE,
+        } as StopHookInput,
+        ctx,
+        evalStoreDir
+      )
+    );
+
+    const records = readEvaluationRecords(projectDir);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.["fired"]).toBe(true);
+    expect(records[0]?.["suppressed"]).toBe(true);
+    expect(records[0]?.["suppressionReason"]).toBe(SUPPRESSION_RESERVED_CATEGORY_HALT);
+  });
+
+  test("the evaluation path resolves under the repo root, not the session workspace cwd", () => {
+    const strayCwd = mkdtempSync(join(tmpdir(), "mt4117-stray-cwd-"));
+    try {
+      withProjectDir(projectDir, () =>
+        run(
+          {
+            session_id: "eval-rooting",
+            cwd: strayCwd,
+            last_assistant_message: R3_FINAL_MESSAGE,
+          } as StopHookInput,
+          ctx,
+          evalStoreDir
+        )
+      );
+
+      expect(readEvaluationRecords(projectDir)).toHaveLength(1);
+      // The defect this guards against: nothing landed under the stray cwd.
+      const strayPath = evaluationLogPath("untaken-action", { projectDir: strayCwd });
+      expect(existsSync(strayPath)).toBe(false);
+    } finally {
+      rmSync(strayCwd, { recursive: true, force: true });
+    }
+  });
+
+  test("with the skip env var set, no evaluation record is written and fire behavior is unchanged", () => {
+    process.env[EVALUATION_SKIP_ENV_VAR] = "1";
+    const outcome = withProjectDir(projectDir, () =>
+      run(
+        { session_id: "eval-skip", last_assistant_message: R3_FINAL_MESSAGE } as StopHookInput,
+        ctx,
+        evalStoreDir
+      )
+    );
+    expect(outcome?.additionalContext ?? "").toContain(FIRED_HEADER);
+    expect(readEvaluationRecords(projectDir)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4835 — the present-progressive assertion arm. "Running X now" asserts an
+// action is ALREADY UNDERWAY, a stronger claim than "I'll X", and the detector
+// matched nothing for it.
+//
+// Every negative fixture below is VERBATIM from
+// `.minsky/untaken-action-calibration.jsonl` (438 real turn-ending tails), not
+// invented. That corpus is where the discriminator came from: 9 of the 11
+// participle-shaped occurrences in it are gerund SUBJECTS, and six of those are
+// the agent explaining why it is deliberately NOT acting.
+// ---------------------------------------------------------------------------
+
+describe("present-progressive assertion arm (mt#4835)", () => {
+  // The attested miss. The principal caught it: "you said 'Running the dry-run
+  // gate now' but then did nothing, why?"
+  const SPEC_CASE_1 =
+    "Running the dry-run gate now — it's the falsifier that decides A vs B on evidence, " +
+    "and it commits to neither.";
+
+  describe("AT1 — the attested miss now matches", () => {
+    test("the verbatim incident tail matches the arm", () => {
+      const matches = detectPresentProgressiveAssertion(SPEC_CASE_1);
+      expect(matches).toHaveLength(1);
+      expect(matches[0]?.family).toBe(PRESENT_PROGRESSIVE_FAMILY);
+    });
+
+    test("today's phrase families are still silent on it — the negative control", () => {
+      // The arm is the ONLY thing that reaches this tail. If this ever starts
+      // passing via `detectUntakenAction`, the arm has stopped being the reason
+      // the class is covered and this suite is measuring the wrong mechanism.
+      expect(detectUntakenAction(SPEC_CASE_1)).toEqual([]);
+    });
+
+    test.each([
+      ["Filing that as a gap unless you'd rather I leave it."],
+      ["Dispatching the reviewer subagent."],
+      ["Kicking off the audit pass."],
+      ["Filing the umbrella and children next."],
+    ])("sibling form matches: %s", (message) => {
+      expect(detectPresentProgressiveAssertion(message)).toHaveLength(1);
+    });
+  });
+
+  describe("AT2 — log-only: it records, it never injects", () => {
+    test("a turn matching ONLY the arm produces a calibration record and no advisory", () => {
+      const outcome = run(
+        { session_id: "pp-log-only", last_assistant_message: SPEC_CASE_1 } as StopHookInput,
+        ctx,
+        storeDir
+      );
+      expect(outcome?.calibration).toBeDefined();
+      expect(outcome?.additionalContext).toBeUndefined();
+    });
+
+    test("the record names the arm so a calibration pass can find it", () => {
+      const outcome = run(
+        { session_id: "pp-named", last_assistant_message: SPEC_CASE_1 } as StopHookInput,
+        ctx,
+        storeDir
+      );
+      // Asserted as a PREFIX, not an exact string. The stored phrase is
+      // currently truncated to "Running the dry" because the shared
+      // `ACTION_OBJECT` ends at `the\s+\w+` and `\w` does not match `-` — a
+      // PRE-EXISTING limit affecting `ill-action` and `going-to` equally, now
+      // tracked as mt#4847. Pinning the truncated literal here would make this
+      // test assert the defect and fail once mt#4847 fixes it (PR #3537 R1,
+      // finding 4).
+      const arm = outcome?.calibration?.["presentProgressiveArm"] as string[] | undefined;
+      expect(arm).toHaveLength(1);
+      expect(arm?.[0]).toStartWith("Running the");
+      expect(outcome?.calibration?.["presentProgressiveArmLogOnly"]).toBe(true);
+    });
+
+    test("an injecting family on the SAME turn still injects", () => {
+      // The log-only split must scope to the arm, not silence the whole guard.
+      const outcome = run(
+        {
+          session_id: "pp-mixed",
+          last_assistant_message: `${SPEC_CASE_1} I'll file it.`,
+        } as StopHookInput,
+        ctx,
+        storeDir
+      );
+      expect(outcome?.additionalContext ?? "").toContain(FIRED_HEADER);
+    });
+  });
+
+  describe("AT3 — the gerund-subject class does NOT fire (verbatim corpus fixtures)", () => {
+    // Six attested gerund subjects. Each is the participle serving as the
+    // SUBJECT of a following finite verb, so it asserts nothing about work in
+    // flight — and four of the six are the agent correctly declining to act.
+    // Firing here would tell the agent to do what it had just refused, which is
+    // the failure class mt#4634 and mt#4438 already track.
+    test.each([
+      ["Running it is dogfooding the principle."],
+      ["Planning it in isolation would produce a plan mt#4113 immediately duplicates."],
+      ["Planning it now would either duplicate that work or immediately block on it."],
+      ["Planning it now would fork attention while PR #3058 has a CI wait armed."],
+      ["Starting it here risks collapsing mid-action, which is the expensive failure."],
+      ["Running it turned an honest unknown into a measured negative."],
+    ])("gerund subject stays silent: %s", (message) => {
+      expect(detectPresentProgressiveAssertion(message)).toEqual([]);
+    });
+  });
+
+  describe("AT4 — the three long-separation residuals, also excluded", () => {
+    // These three separate the gerund from its finite verb by arbitrary
+    // material — markdown emphasis, a subordinate clause, an adverbial. A
+    // three-word lookahead misses all three; the shipped 60-char window reaches
+    // them. Pinned because a later narrowing of that window would silently
+    // re-admit them as false positives.
+    test.each([
+      [
+        "Shipping mt#3476 *is* the experiment — and if the predictions don't come back, it's falsified",
+      ],
+      ["Fixing the docs while leaving that in place would have reproduced the defect."],
+      ["Writing it down a fourth time was the failure pattern."],
+    ])("long-separation gerund subject stays silent: %s", (message) => {
+      expect(detectPresentProgressiveAssertion(message)).toEqual([]);
+    });
+  });
+
+  // PR #3537 R1, finding 3. Synthetic rather than corpus-drawn — the 438-record
+  // log contains no contraction instance, so the shipped measurement is
+  // unaffected by this fix. That is the honest framing: the corpus result was
+  // clean, AND it did not exercise this shape.
+  describe("R1 finding 3 — negated contractions are gerund subjects too", () => {
+    test.each([
+      ["Planning it now isn't worth the churn."],
+      ["Running it wasn't the plan."],
+      ["Shipping it wouldn't help."],
+      ["Filing that doesn't change the outcome."],
+      ["Running it hasn't helped before."],
+    ])("negated gerund subject stays silent: %s", (message) => {
+      expect(detectPresentProgressiveAssertion(message)).toEqual([]);
+    });
+
+    // The other half of that finding, deliberately NOT taken. `it's` after the
+    // phrase is an independent clause whose subject is `it`, not the
+    // participial phrase — and the arm's own primary fixture (AT1) is exactly
+    // that shape, so suppressing on `'s` would silence the incident this arm
+    // exists to catch.
+    test("a following `it's` clause does NOT suppress — it is not a gerund subject", () => {
+      expect(
+        detectPresentProgressiveAssertion("Running the gate now — it's the falsifier.")
+      ).toHaveLength(1);
+    });
+  });
+
+  describe("AT5 — no regression on the sibling families or the in-flight tunes", () => {
+    test.each([
+      ["ill-action", "I'll file it."],
+      ["going-to", "I'm going to write the PR."],
+      ["say-the-word", "Say the word and I'll merge."],
+    ])("%s still fires", (_family, message) => {
+      expect(detectUntakenAction(message).length).toBeGreaterThan(0);
+    });
+
+    test("the arm adds nothing to a `next-up` shape (mt#4560 is tuning that FP down)", () => {
+      // mt#4560's false positive is a third-person description of a FILED
+      // task's next step. The arm must not become a second way for that same
+      // message to fire, which would make mt#4560's tune harder rather than
+      // easier.
+      const nextUp = "Next up is mt#4560, which tunes the `next-up` family.";
+      expect(detectPresentProgressiveAssertion(nextUp)).toEqual([]);
+    });
+
+    test("suppression patterns are honoured — the arm is not a bypass", () => {
+      // An armed-wait sign-off is exactly the behavior `work-completion.mdc`
+      // prescribes; the arm reuses SUPPRESSION_PATTERNS so it cannot re-open a
+      // hole the phrase side already closed.
+      expect(
+        detectPresentProgressiveAssertion("Filing that now — I'll report back when it lands.")
+      ).toEqual([]);
+    });
+
+    test("a quoted commitment does not fire (elision is applied)", () => {
+      expect(detectPresentProgressiveAssertion('The detector matches "Filing that now".')).toEqual(
+        []
+      );
+    });
   });
 });

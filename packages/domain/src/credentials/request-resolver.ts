@@ -15,20 +15,14 @@
  *
  * @see packages/domain/src/credentials/request.ts — the decision logic
  */
-import { log } from "@minsky/shared/logger";
-
 import { readCredentialRequest } from "@minsky/shared/credential-request";
 
 import type { Ask, AskState } from "../ask/types";
 import type { AskRepository } from "../ask/repository";
+import { resolveSatisfiedPresenceRequests } from "../ask/presence-backed-request";
 import { listCredentials } from "./lifecycle";
 import { releaseParentTask, type ParentTaskGateDeps } from "./parent-task-gate";
-import {
-  CREDENTIAL_REQUEST_RESPONDER,
-  selectPendingCredentialRequests,
-  selectSatisfiedCredentialRequests,
-  type ProviderPresence,
-} from "./request";
+import { CREDENTIAL_REQUEST_RESPONDER, type ProviderPresence } from "./request";
 
 /** Re-exported for existing importers; defined in `./request` beside the classifier that reads it. */
 export { CREDENTIAL_REQUEST_RESPONDER } from "./request";
@@ -107,41 +101,30 @@ export interface CredentialRequestResolution {
 export async function resolveSatisfiedCredentialRequests(
   deps: CredentialRequestResolverDeps
 ): Promise<CredentialRequestResolution> {
-  const pending = selectPendingCredentialRequests(await deps.listCandidateAsks());
-  if (pending.length === 0) return { pending: 0, satisfied: [], raced: [] };
-
-  const satisfied = selectSatisfiedCredentialRequests(pending, await deps.listPresence());
-
-  const closed: string[] = [];
-  const raced: string[] = [];
-  for (const entry of satisfied) {
-    try {
-      await deps.satisfy(entry.ask, entry.detail);
-      closed.push(entry.ask.id);
-
-      // AFTER the close, and outside its try/catch reach only in the sense that
-      // a release failure must not un-close the request: the credential is
-      // stored and the ask is settled, so the task status is the last and least
-      // consequential step. `releaseParentTask` already soft-fails and logs, so
-      // this needs no second catch — but it must not run before the close, or a
-      // raced close would leave a task released against a request that is still
-      // open.
-      await deps.releaseParent?.(entry.ask);
-    } catch (err: unknown) {
-      // A concurrent decline/cancel/expire is the expected loser here, not an
-      // error to escalate: the request is settled either way and the credential
-      // is already stored. Anything else is still recorded rather than
-      // swallowed, so a genuinely broken close is visible.
-      raced.push(entry.ask.id);
-      log.warn("credential-request resolver: could not close a satisfied request", {
-        askId: entry.ask.id,
-        provider: entry.provider,
-        error: err instanceof Error ? err.message : String(err),
-      });
+  // The orchestration — pending selection, satisfaction, the raced-close
+  // accounting, and the release-AFTER-close ordering — now lives in
+  // `../ask/presence-backed-request` (mt#4693 D4), shared with the App-grant
+  // request. This function keeps its signature and its credential-specific
+  // dependency shape; only the loop moved.
+  return resolveSatisfiedPresenceRequests(
+    {
+      listCandidateAsks: () => deps.listCandidateAsks(),
+      listPresence: async () =>
+        (await deps.listPresence()).map(({ provider, configured, detail }) => ({
+          key: provider,
+          present: configured,
+          ...(detail === undefined ? {} : { detail }),
+        })),
+      satisfy: (ask, detail) => deps.satisfy(ask, detail),
+      ...(deps.releaseParent ? { releaseParent: deps.releaseParent } : {}),
+    },
+    {
+      label: "credential-request",
+      readKey: (ask) => readCredentialRequest(ask)?.provider ?? null,
+      identity: (provider) => provider,
+      defaultDetail: "credential configured",
     }
-  }
-
-  return { pending: pending.length, satisfied: closed, raced };
+  );
 }
 
 /**

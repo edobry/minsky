@@ -1,4 +1,5 @@
 import { pgTable, text, integer, timestamp, primaryKey, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { agentTranscriptsTable } from "./agent-transcripts-schema";
 
 /**
@@ -67,5 +68,26 @@ export const agentToolCallProjectionTable = pgTable(
     // agent_transcript_turns's jsonb column — see mt#3329 AT3 (EXPLAIN-checked
     // window query touches only this table and its indexes).
     index("idx_agent_tool_call_projection_timestamp").on(table.timestamp),
+
+    /**
+     * The cockpit Messages page's sender lookup (mt#4874).
+     *
+     * The index above is deliberately on `timestamp` ALONE — its own comment
+     * says it exists for a "trailing-time-window scan", not a tool lookup. So a
+     * newest-first query for ONE tool name walks it backwards and discards
+     * everything else, and the cost is a function of how recently that tool was
+     * last used rather than of how many rows match. That is not a slow-growing
+     * concern: measured against production, the newest-50 `SendMessage` query
+     * discarded 34,777 rows in 134 ms on 2026-09-01 and 36,508 rows in
+     * **2,772 ms** on 2026-09-02 — a 20x regression in one day, from nothing
+     * but a quiet period.
+     *
+     * PARTIAL because the predicate is true for almost nothing and does not
+     * grow with the table: 348 of ~409,000 rows. Ordered DESC so the newest-
+     * first read is a plain forward walk of a ~348-entry index.
+     */
+    index("idx_agent_tool_call_projection_send_message")
+      .on(table.timestamp.desc())
+      .where(sql`${table.toolName} = 'SendMessage'`),
   ]
 );

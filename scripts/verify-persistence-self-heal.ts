@@ -27,6 +27,7 @@ import { PersistenceService } from "@minsky/domain/persistence/service";
 import { UnconfiguredPersistenceProvider } from "@minsky/domain/persistence/unconfigured-provider";
 import { assessPersistenceHealth } from "@minsky/domain/persistence/health";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
+import { maskConnectionString } from "@minsky/domain/persistence/connection-string";
 
 // No credentials in the DSN: the host is unresolvable, so DNS fails before any
 // authentication is attempted, and a credential-shaped literal here would trip
@@ -108,7 +109,7 @@ async function liveDbReachable(): Promise<boolean> {
 
 async function main(): Promise<void> {
   if (!(await liveDbReachable())) {
-    console.log(`SKIP: no reachable Postgres at ${LIVE.replace(/:\/\/[^@]*@/, "://***@")}`);
+    console.log(`SKIP: no reachable Postgres at ${maskConnectionString(LIVE)}`);
     console.log("      set INTEGRATION_POSTGRES_URL to run this verification");
     process.exit(0);
   }

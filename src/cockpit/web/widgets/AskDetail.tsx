@@ -24,6 +24,8 @@ import { stripOptionLetterPrefix } from "@minsky/shared/ask-option-label";
 import { resolveChosenOption } from "../lib/ask-response";
 import { readCredentialRequest } from "@minsky/shared/credential-request";
 import { CredentialRequestForm } from "./CredentialRequestForm";
+import { readAppGrantRequest } from "@minsky/shared/app-grant-request";
+import { AppGrantRequestPanel } from "./AppGrantRequestPanel";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors of server Ask shape (no server imports on frontend)
@@ -120,6 +122,11 @@ export interface AskItem {
   shortId?: string;
   kind: AskKind;
   state: AskState;
+  /**
+   * Owning project's uuid (mt#4773) — resolved to a label client-side via
+   * `projectLabelById` for the all-projects badge; absent for unscoped asks.
+   */
+  projectId?: string | null;
   title: string;
   question: string;
   requestor: string;
@@ -175,6 +182,20 @@ export async function fetchAsks(): Promise<AsksListResponse> {
 }
 
 /**
+ * Project-scoped variant of {@link fetchAsks} (mt#4731). Deliberately NOT a
+ * parameter added to `fetchAsks` itself — see the decision recorded just
+ * below on `fetchTerminalAsks`, which applies equally here: `fetchAsks` is
+ * passed directly as a `queryFn` reference in three widgets (TriageBand,
+ * Agents, Workstreams), so an optional-params signature there would receive
+ * TanStack's `QueryFunctionContext` positionally instead. AsksPage owns its
+ * query and wraps this in an arrow function, so it can take a real parameter.
+ */
+export async function fetchAsksScoped(queryParam?: { project: string }): Promise<AsksListResponse> {
+  const qs = queryParam ? `?project=${encodeURIComponent(queryParam.project)}` : "";
+  return getAsksList(`/api/asks${qs}`);
+}
+
+/**
  * Terminal asks — closed, cancelled, or expired (mt#4092).
  *
  * A SEPARATE function rather than an optional parameter on `fetchAsks`, because
@@ -187,10 +208,19 @@ export async function fetchAsks(): Promise<AsksListResponse> {
  *
  * The endpoint expands `terminal` to every terminal state: an operator looking
  * for an ask they resolved does not know which of the three it landed in.
+ *
+ * `queryParam` (mt#4731) is safe to add here despite the warning above:
+ * `fetchTerminalAsks` is never passed as a bare `queryFn` reference anywhere
+ * (only AsksPage calls it, via its own arrow-function wrapper), so there is no
+ * `QueryFunctionContext` call site to collide with.
  */
-export async function fetchTerminalAsks(limit?: number): Promise<AsksListResponse> {
+export async function fetchTerminalAsks(
+  limit?: number,
+  queryParam?: { project: string }
+): Promise<AsksListResponse> {
   const query = new URLSearchParams({ state: "terminal" });
   if (limit !== undefined) query.set("limit", String(limit));
+  if (queryParam) query.set("project", queryParam.project);
   return getAsksList(`/api/asks?${query.toString()}`);
 }
 
@@ -534,13 +564,7 @@ export type AskDetailProps = AskDetailActionableProps | AskDetailReadOnlyProps;
  * a surface clears its error when it starts a new action, so `acting` winning
  * the branch cannot leave a stale failure on screen underneath a live spinner.
  */
-function AskActionStatus({
-  acting,
-  error,
-}: {
-  acting: AskActionInFlight | null;
-  error?: unknown;
-}) {
+function AskActionStatus({ acting, error }: { acting: AskActionInFlight | null; error?: unknown }) {
   if (acting !== null) {
     return (
       <p
@@ -586,6 +610,14 @@ export function AskDetail(props: AskDetailProps) {
    */
   const credentialRequest = readCredentialRequest(ask);
 
+  /**
+   * The second payload kind (mt#4693). Its own key, its own branch, sharing
+   * nothing with the credential form above — which is the point: that one is a
+   * masked INPUT because a credential has a value, and this one is a status
+   * card and a link because an App grant has none.
+   */
+  const appGrantRequest = readAppGrantRequest(ask);
+
   const hasOptions =
     (ask.options && ask.options.length > 0) ||
     ask.kind === "authorization.approve" ||
@@ -598,11 +630,13 @@ export function AskDetail(props: AskDetailProps) {
   // lettered choices does this ask have".
   const optionCount = credentialRequest
     ? 0
-    : ask.options
-      ? Math.min(ask.options.length, letters.length)
-      : hasOptions
-        ? 2
-        : 0;
+    : appGrantRequest
+      ? 0
+      : ask.options
+        ? Math.min(ask.options.length, letters.length)
+        : hasOptions
+          ? 2
+          : 0;
 
   return (
     <Card className="border-border">
@@ -767,13 +801,11 @@ export function AskDetail(props: AskDetailProps) {
               </div>
             )}
 
-            {!ask.options &&
-              ask.kind === "authorization.approve" &&
-              !credentialRequest && (
-                <div className="text-sm text-muted-foreground">
-                  <p>A) Approve &nbsp; B) Deny</p>
-                </div>
-              )}
+            {!ask.options && ask.kind === "authorization.approve" && !credentialRequest && (
+              <div className="text-sm text-muted-foreground">
+                <p>A) Approve &nbsp; B) Deny</p>
+              </div>
+            )}
 
             {/* A credential request renders a masked input instead of the
                 approve/deny pair: there is nothing to approve, only a value to
@@ -783,6 +815,23 @@ export function AskDetail(props: AskDetailProps) {
             {credentialRequest && actions && (
               <CredentialRequestForm
                 providerId={credentialRequest.provider}
+                declining={isResolvingOption(actions.acting, "B")}
+                blocked={actions.acting !== null}
+                onDecline={() => actions.onResolve(ask, "B")}
+              />
+            )}
+
+            {/* An App-grant request renders a status card and a link rather than
+                a form: the grant happens on github.com and there is no value to
+                supply here. Decline remains the ask's own B) resolution, so a
+                refusal stays distinguishable from an unanswered request. */}
+            {appGrantRequest && actions && (
+              <AppGrantRequestPanel
+                repo={appGrantRequest.repo}
+                slug={appGrantRequest.slug}
+                {...(appGrantRequest.settingsUrl
+                  ? { settingsUrl: appGrantRequest.settingsUrl }
+                  : {})}
                 declining={isResolvingOption(actions.acting, "B")}
                 blocked={actions.acting !== null}
                 onDecline={() => actions.onResolve(ask, "B")}

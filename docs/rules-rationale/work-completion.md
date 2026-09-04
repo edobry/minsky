@@ -97,7 +97,7 @@ restated as an AT, so an author who forgets to add a matching AT does not lose c
 
 ## Invocation path required for event/poll mechanisms
 
-Full incident detail behind the two failure shapes:
+Full incident detail behind the three failure shapes:
 
 - **Nothing calls it.** mt#1618: `pr_watch_run` shipped complete (polling logic, DB state,
   GitHub API client), but the production `pr-watch.ts` adapter wired a `stubGithubPrClient` that
@@ -108,9 +108,25 @@ Full incident detail behind the two failure shapes:
   post-merge scan fired on every merge; its transcript load threw, was swallowed by
   `catch { return null }`, and null means "nothing to do" — it never ran. Harder than the first
   shape: no missing caller to grep for, no error to find.
+- **The change REMOVES the signal a consumer depended on.** mt#3025: the originating incident was
+  a DESIGN that stopped a behavior, not a line that deleted a call — which is why the prose bullet
+  covers it and the diff-anchored surface below cannot. The inverse of the first shape and
+  invisible to it: nothing new is uninvoked, so there is no missing caller to grep for. The
+  removal is usually CORRECT; the finding is the missing account of what consumed the signal.
 
-Tracking: mt#1618, mt#3019, mt#3046; hook slice mechanized by
+Tracking: mt#1618, mt#3019, mt#3046, mt#3025/mt#4493; hook slice mechanized by
 `custom/require-hook-domain-bootstrap` (`code-style.mdc`).
+
+The third shape has a merge-time calibration surface (mt#4493,
+`.minsky/hooks/consumer-account-evidence.ts`), log-only per the mt#2263 / ADR-024 ladder — it
+never denies. It fires on a PR touching `src/`, `packages/` or `cockpit-tray/` (NOT `scripts/`: a
+one-shot script exits to set its own status code, and nothing supervises it) whose diff removes —
+or newly guards — a call from a closed token set: `process.exit(`, an emit
+(`.emit`/`.tryEmit`/`recordDisconnect`/`sendLoggingMessage`), a close
+(`.close`/`.unlisten`/`.unwatch`/`.unsubscribe`), or a state-file write (`local-mcp.json`,
+`*-state.json`). A bare `return`/`throw`, `console.*`, and `clearInterval`/`clearTimeout` are
+deliberately excluded — stopping your own timer signals nobody else. The PR discharges it with a
+`Consumer account:` section naming what consumed the signal and what replaces it.
 
 ### How to apply
 

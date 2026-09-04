@@ -539,6 +539,13 @@ export async function createTaskFromTitleAndSpec(
     force: validParams.force,
     tags: validParams.tags,
     kind: validParams.kind,
+    // mt#4808: the per-call project the adapter resolved. Undefined leaves the
+    // backend's construction-time value in place (today's behavior). This is
+    // the ONLY way a per-call project reaches the insert on the MCP path: the
+    // `if (!taskService)` block above — where `workspacePath` is resolved — is
+    // skipped entirely whenever a service is injected, which that path always
+    // does.
+    projectId: validParams.projectId,
     // Forward backend so the multi-backend service routes to the caller's requested backend
     // on this command-layer path too (not just createTaskFromParams) — mt#2572 Bug 4, R1.
     backend: validParams.backend,

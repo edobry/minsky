@@ -33,6 +33,7 @@ import type { Request, Response } from "express";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { eq } from "drizzle-orm";
 import { log } from "@minsky/shared/logger";
+import { escapeHtmlAttribute } from "../../html/escape";
 import { oauthAccessTokensTable } from "../../storage/schemas/oauth-schema";
 import { createAdapterFactory, sha256 } from "./in-process-postgres-adapter";
 import type {
@@ -433,9 +434,9 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
   <h1>OAuth flow error</h1>
   <p>The OAuth authorization server encountered an internal error.</p>
   <pre style="background: #f0f0f0; padding: 1em; border-radius: 4px; overflow-x: auto;">
-error:             ${escapeHtml(outAsObj.error ?? "unknown")}
-error_description: ${escapeHtml(outAsObj.error_description ?? "unknown")}
-exception:         ${escapeHtml(errAsError?.constructor?.name ?? "Error")}: ${escapeHtml(errAsError?.message ?? String(err))}
+error:             ${escapeHtmlAttribute(outAsObj.error ?? "unknown")}
+error_description: ${escapeHtmlAttribute(outAsObj.error_description ?? "unknown")}
+exception:         ${escapeHtmlAttribute(errAsError?.constructor?.name ?? "Error")}: ${escapeHtmlAttribute(errAsError?.message ?? String(err))}
   </pre>
   <p><small>This information is also logged server-side. mt#1757 added this diagnostic surface.</small></p>
 </body></html>`;
@@ -793,20 +794,6 @@ function deriveIssuer(req: Request, explicit: string | null | undefined): string
   if (explicit) return explicit;
   const host = req.hostname || "localhost";
   return `${req.protocol}://${host}`;
-}
-
-/**
- * Minimal HTML-escape for user-visible error pages.
- * Escapes the 5 characters that have special meaning in HTML text content.
- * mt#1757.
- */
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 /** Generates a URL-safe random ID (16 bytes = 32 hex chars). */

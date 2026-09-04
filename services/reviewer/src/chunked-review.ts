@@ -75,6 +75,64 @@ export const MAX_FILE_PATCH_CHARS = MAX_FILE_PATCH_TOKENS * CHARS_PER_TOKEN;
 // >1MB or binary): estimate the size from the additions+deletions counts.
 const AVG_DIFF_LINE_CHARS = 50;
 
+// Floor for a file whose patch GitHub WITHHELD while still reporting changed
+// lines (mt#4879). GitHub omits `patch` for files over 1MB or binary ones; a
+// binary file reports 0 additions and 0 deletions, so changed lines > 0 with no
+// patch means "text file, over 1MB". The old fallback scored such a file at
+// (additions + deletions) * 50, which for one 4.2MB line is ~50 chars — roughly
+// 100x under, and small enough that every size guard below reads clear.
+//
+// The originating incident: peezombie.me PR #2 replaced a 4,216,869-character
+// single-line JSON blob. Ten files, few newlines, `patch` withheld — so file
+// count, line count, and both token guards all read small, single-pass was
+// chosen, and the provider rejected the 1,236,120-token prompt outright.
+//
+// Note this is why mt#2243's fix did not cover it. That incident's file was a
+// 258 kB bundle: UNDER GitHub's 1MB threshold, so `patch` was present and its
+// length was read correctly. The guards were right; their input was not.
+//
+// UNITS (PR #3551 R1, non-blocking): GitHub's omission threshold is 1MB in
+// BYTES; this floor is in CHARS, because every estimator in this module is
+// chars-based (CHARS_PER_TOKEN). For UTF-8, bytes >= chars, so a withheld file
+// has AT LEAST ~250k chars (all-4-byte worst case) and typically ~1M. The
+// mismatch therefore makes this an OVER-estimate for multi-byte content, never
+// an under-estimate — and the two directions are not symmetric: over-estimating
+// routes an already-large file to chunked review, which truncates it and still
+// produces a review; under-estimating is what produced the provider 400 this
+// task exists to fix. Deliberately biased toward the recoverable error.
+export const GITHUB_OMITTED_PATCH_MIN_CHARS = 1_000_000;
+
+// Hard bound on the diff embedded in a SINGLE-PASS prompt (mt#4879 SC2).
+// Same budget a single chunk gets, since single-pass carries the same non-diff
+// overhead that PROMPT_OVERHEAD_TOKEN_RESERVE is sized for.
+export const MAX_SINGLE_PASS_DIFF_CHARS = MAX_CHUNK_DIFF_TOKENS * CHARS_PER_TOKEN;
+
+/**
+ * Bound the single-pass prompt's diff, and SAY SO in the prompt when it bites.
+ *
+ * This is a floor under the routing decision, not a replacement for it: after
+ * mt#4879's whole-diff guard, a correctly-routed oversized diff goes to chunked
+ * review and never reaches here. It exists because the routing decision has two
+ * ways to be wrong that the guard does not close — the `outputToolsActive &&`
+ * conjunct suppresses chunking entirely when tools are off, and any future
+ * mis-sizing lands in the same place. Without this, either one is a provider
+ * 400 and a review that never posts; with it, the worst case is a review over a
+ * prefix, which the model is told about.
+ *
+ * The marker is load-bearing (SC4): a truncated review that believes it saw
+ * everything is a quiet false-negative, which is worse than the loud failure.
+ */
+export function capSinglePassDiff(diff: string): string {
+  if (diff.length <= MAX_SINGLE_PASS_DIFF_CHARS) return diff;
+  const kept = diff.slice(0, MAX_SINGLE_PASS_DIFF_CHARS);
+  return (
+    `${kept}\n\n` +
+    `[diff truncated at ${MAX_SINGLE_PASS_DIFF_CHARS} of ${diff.length} chars — ` +
+    `this review saw a PREFIX of the diff, not all of it. Findings about files or ` +
+    `hunks after this point are not possible; do not report their absence (mt#4879).]`
+  );
+}
+
 export interface ChunkInfo {
   index: number;
   totalChunks: number;
@@ -91,7 +149,14 @@ function estimateTokensFromChars(charCount: number): number {
  */
 function rawFileChars(file: PrFileEntry): number {
   if (file.patch !== undefined) return file.patch.length;
-  return (file.additions + file.deletions) * AVG_DIFF_LINE_CHARS;
+  const changedLines = file.additions + file.deletions;
+  // Binary: GitHub reports no changed lines and sends no patch. It contributes
+  // no diff text, so 0 is correct and must not be floored.
+  if (changedLines === 0) return 0;
+  // Text file whose patch GitHub withheld — that only happens over 1MB, so the
+  // line-count estimate is a floor at best. Take the larger of the two rather
+  // than trusting a proxy we know is an undercount (mt#4879).
+  return Math.max(changedLines * AVG_DIFF_LINE_CHARS, GITHUB_OMITTED_PATCH_MIN_CHARS);
 }
 
 /**
@@ -122,14 +187,29 @@ function estimateChunkFileTokens(file: PrFileEntry): number {
  * larger than a single chunk would be, and the PROMPT_OVERHEAD_TOKEN_RESERVE
  * (subtracted into MAX_CHUNK_DIFF_TOKENS) covers the non-diff prompt overhead
  * that single-pass also carries.
+ *
+ * `totalDiffChars` (mt#4879) measures the PAYLOAD rather than a proxy for it:
+ * it is `promptDiff.length`, the exact string that becomes the prompt. Every
+ * other input here is derived — newline counts, and per-file `patch` fields
+ * GitHub may decline to send. Both were small for a 4.2MB one-line change while
+ * the payload was 1.24M tokens, so the guards read clear and the provider
+ * rejected the prompt. A guard that measures what is actually sent cannot be
+ * fooled by the diff's SHAPE, which is why this one is authoritative and the
+ * derived ones are kept only as earlier, cheaper exits.
  */
-export function shouldChunkReview(fileEntries: PrFileEntry[], totalDiffLines: number): boolean {
+export function shouldChunkReview(
+  fileEntries: PrFileEntry[],
+  totalDiffLines: number,
+  totalDiffChars: number
+): boolean {
   if (
     fileEntries.length > CHUNKED_REVIEW_FILE_THRESHOLD ||
     totalDiffLines > CHUNKED_REVIEW_LINE_THRESHOLD
   ) {
     return true;
   }
+  // Authoritative: the assembled diff itself, not an estimate of it.
+  if (estimateTokensFromChars(totalDiffChars) > MAX_CHUNK_DIFF_TOKENS) return true;
   const anyFileExceedsCap = fileEntries.some(
     (f) => estimateTokensFromChars(rawFileChars(f)) > MAX_FILE_PATCH_TOKENS
   );

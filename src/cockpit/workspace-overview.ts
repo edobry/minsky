@@ -34,6 +34,39 @@ export interface WorkspaceOverview {
 }
 
 /**
+ * Per-step costs of one `buildWorkspaceOverview` call (mt#4663).
+ *
+ * The two enrichments run CONCURRENTLY, so `totalMs` is roughly the max of the
+ * other two rather than their sum — the point of reporting all three is to say
+ * WHICH one sets that max. Added because mt#4663 collapsed the link→session
+ * chain from three database round trips to one, and this call then became the
+ * dominant remaining term for a conversation whose link still resolves; the
+ * planning estimate for it (~150ms) turned out to be well under the measured
+ * cost, and there was no instrumentation to say whether git subprocesses or the
+ * task-title lookup was responsible.
+ */
+export interface WorkspaceOverviewTimings {
+  /**
+   * Isolated wall-clock for `git merge-base` + `git log`, measured from that
+   * enrichment's own start — NOT an offset from function entry. Near-zero when
+   * there is no git workspace on disk (the `existsSync` short-circuit).
+   */
+  commitsMs: number;
+  /**
+   * Isolated wall-clock for the task-service title lookup, measured from its
+   * own start. Near-zero when the record carries no `taskId`.
+   */
+  taskTitleMs: number;
+  /**
+   * Wall-clock for the whole call. Because the two enrichments run
+   * CONCURRENTLY this is roughly the larger of the two above, not their sum —
+   * so the two fields are read to find WHICH one sets this floor, and adding
+   * them up is meaningless.
+   */
+  totalMs: number;
+}
+
+/**
  * Candidate base refs to compute a merge-base against, in preference order.
  * The first ref that resolves wins; none resolving falls back to plain
  * `HEAD` (pre-mt#2768 behavior — traverses full ancestor history).
@@ -94,10 +127,21 @@ async function resolveCommitRange(
  */
 export async function buildWorkspaceOverview(
   record: SessionRecord,
-  workdir: string | null
+  workdir: string | null,
+  onTiming?: (marks: WorkspaceOverviewTimings) => void
 ): Promise<WorkspaceOverview> {
   const repoWebBase = githubRepoWebBase(record.repoUrl);
+  const startedAt = performance.now();
+  let commitsMs = 0;
+  let taskTitleMs = 0;
 
+  // Each enrichment is timed from ITS OWN start, so the marks are isolated
+  // durations rather than offsets from function entry (PR #3411 R1). The
+  // earlier version measured both from `startedAt`, which reads identically in
+  // the common case and diverges exactly when it matters: a slow-starting
+  // branch would inflate the OTHER metric's reading even if that one finished
+  // promptly, which is the misattribution this instrumentation exists to avoid.
+  const commitsStartedAt = performance.now();
   const commitsPromise: Promise<SessionCommitRef[]> = (async () => {
     if (!workdir) return [];
     const { existsSync } = await import("node:fs");
@@ -124,6 +168,7 @@ export async function buildWorkspaceOverview(
     }
   })();
 
+  const taskTitleStartedAt = performance.now();
   const taskTitlePromise: Promise<string | null> = (async () => {
     if (!record.taskId) return null;
     try {
@@ -138,7 +183,21 @@ export async function buildWorkspaceOverview(
     }
   })();
 
-  const [commits, taskTitle] = await Promise.all([commitsPromise, taskTitlePromise]);
+  // mt#4663 — the two run concurrently, so `totalMs` is roughly the LARGER of
+  // these rather than their sum; reporting both is what makes the floor
+  // attributable to one of them.
+  const [commits, taskTitle] = await Promise.all([
+    commitsPromise.then((value) => {
+      commitsMs = performance.now() - commitsStartedAt;
+      return value;
+    }),
+    taskTitlePromise.then((value) => {
+      taskTitleMs = performance.now() - taskTitleStartedAt;
+      return value;
+    }),
+  ]);
+
+  onTiming?.({ commitsMs, taskTitleMs, totalMs: performance.now() - startedAt });
 
   return {
     session: buildSessionMeta(record, taskTitle),

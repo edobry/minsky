@@ -6,7 +6,14 @@
  * stateful `ProjectProvider` React integration is manual-QA'd.
  */
 import { describe, test, expect } from "bun:test";
-import { deriveQueryParam, isKnownSlug, type ProjectSummary } from "./project-context";
+import {
+  deriveQueryParam,
+  isKnownSlug,
+  shouldShowProjectIndicator,
+  projectLabelBySlug,
+  projectLabelById,
+  type ProjectSummary,
+} from "./project-context";
 
 describe("deriveQueryParam", () => {
   test("returns undefined for null (All projects)", () => {
@@ -39,5 +46,77 @@ describe("isKnownSlug", () => {
 
   test("any non-null slug is unknown against an empty project list", () => {
     expect(isKnownSlug([], "edobry/minsky")).toBe(false);
+  });
+});
+
+/**
+ * Shared two-project fixture for the mt#4729 badge-helper suites below.
+ * Typed as a tuple (not a bare array) so destructuring below is provably
+ * non-undefined without a `!` assertion.
+ */
+const TWO_PROJECTS_FIXTURE: [ProjectSummary, ProjectSummary] = [
+  { id: "1", slug: "edobry/minsky", displayName: "Minsky" },
+  { id: "2", slug: "edobry/peezombie", displayName: null },
+];
+
+describe("shouldShowProjectIndicator (mt#4729)", () => {
+  const one: ProjectSummary[] = [{ id: "1", slug: "edobry/minsky", displayName: "Minsky" }];
+
+  test("shows when 2+ projects exist and none is selected (All projects)", () => {
+    expect(shouldShowProjectIndicator(TWO_PROJECTS_FIXTURE, null)).toBe(true);
+  });
+
+  test("suppresses when only one project is known, even unselected", () => {
+    expect(shouldShowProjectIndicator(one, null)).toBe(false);
+  });
+
+  test("suppresses when zero projects are known", () => {
+    expect(shouldShowProjectIndicator([], null)).toBe(false);
+  });
+
+  test("suppresses when a single project is explicitly selected, even with 2+ known", () => {
+    expect(shouldShowProjectIndicator(TWO_PROJECTS_FIXTURE, "edobry/minsky")).toBe(false);
+  });
+});
+
+describe("projectLabelBySlug (mt#4729)", () => {
+  const projects = TWO_PROJECTS_FIXTURE;
+  const [minsky, peezombie] = projects;
+
+  test("returns displayName when the shell knows a project by that slug", () => {
+    expect(projectLabelBySlug(projects, minsky.slug)).toBe("Minsky");
+  });
+
+  test("falls back to the slug itself when displayName is null", () => {
+    expect(projectLabelBySlug(projects, peezombie.slug)).toBe(peezombie.slug);
+  });
+
+  test("returns null for a null slug", () => {
+    expect(projectLabelBySlug(projects, null)).toBeNull();
+  });
+
+  test("returns the slug itself (not null) for a slug the shell's project list doesn't include", () => {
+    expect(projectLabelBySlug(projects, "someone/else")).toBe("someone/else");
+  });
+});
+
+describe("projectLabelById (mt#4773)", () => {
+  const projects = TWO_PROJECTS_FIXTURE;
+  const [minsky, peezombie] = projects;
+
+  test("returns displayName when the shell knows a project by that id", () => {
+    expect(projectLabelById(projects, minsky.id)).toBe("Minsky");
+  });
+
+  test("falls back to the SLUG (never the uuid) when displayName is null", () => {
+    expect(projectLabelById(projects, peezombie.id)).toBe(peezombie.slug);
+  });
+
+  test("returns null for a null id", () => {
+    expect(projectLabelById(projects, null)).toBeNull();
+  });
+
+  test("returns null for an id the shell's list doesn't include — unlike the slug helper, a raw uuid has no readable fallback", () => {
+    expect(projectLabelById(projects, "not-a-known-id")).toBeNull();
   });
 });

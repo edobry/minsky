@@ -103,7 +103,16 @@ export function buildEntityIndex(opts: {
   sessionIds: string[];
   askIds: string[];
   memoryIds: string[];
-  /** PR numbers (as strings) for open/draft changesets. Gates `PR #N` linkification. */
+  /**
+   * Changeset ids for open/draft PRs. Gates `PR #N` linkification.
+   *
+   * Since mt#4724 an entry is either a BARE PR number (the default project) or
+   * a QUALIFIED `owner/repo#N` (any other project). Only the bare form can be
+   * hit by the `PR #N` tokenizer, which is the intended reading: a bare `PR #N`
+   * in prose means the default project's PR N — the same rule the server's
+   * `/api/changeset/:id` applies — and a second project's PR of the same number
+   * stays plain text rather than linking to the wrong PR.
+   */
   changesetIds?: string[];
   /**
    * Harness agentSessionIds (conversation ids — distinct id-space from `sessionIds`

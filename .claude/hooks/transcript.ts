@@ -582,6 +582,59 @@ export function findRealPromptIndices(lines: TranscriptLine[]): number[] {
   return promptIndices;
 }
 
+/**
+ * The trailing `windowTurns` turns of the transcript, INCLUDING the current one.
+ *
+ * Walks backwards counting real-user-prompt boundaries and returns everything from
+ * the cutoff onward. A "turn" is the mt#2255 segment — `tool_result` lines do not
+ * split one — so this composes with {@link isRealUserPrompt} rather than
+ * re-deriving a boundary rule.
+ *
+ * ## Why it lives here (mt#4701)
+ *
+ * This module's own header calls it "the single definition of the turn-boundary
+ * logic", and a trailing-turn window is exactly that. The implementation was written
+ * for `pre-narration-detector.ts` (mt#2671, cross-turn suppression) and stayed
+ * private there, so the second detector needing a window would otherwise have had to
+ * copy it. Hoisting rather than copying is what keeps the boundary rule single.
+ *
+ * **Pending migration:** `pre-narration-detector.ts` still carries its own private
+ * copy. It could not be touched when this landed — open PR #3412 changes that file
+ * and `parallel-work-guard` correctly denied the overlap — so the duplicate is
+ * deliberate and short-lived. Migrate it onto this export and delete the private one
+ * once #3412 merges; the two are byte-equivalent in behaviour, which is what makes
+ * the migration a deletion rather than a rewrite. Tracked in mt#4701's spec under
+ * `## Parallel-work reframe`, with a 2026-09-01 threshold for filing it separately
+ * if #3412 has not merged.
+ *
+ * @param windowTurns turns to include. **Pass `>= 1`.** A window LARGER than the
+ *                    transcript yields the whole transcript, which is the safe
+ *                    direction for a caller looking back for evidence — but `0` and
+ *                    negatives do NOT: `boundaries >= windowTurns` is satisfied by
+ *                    the first boundary found walking backwards, so they collapse to
+ *                    the single most recent turn. That is the opposite of the safe
+ *                    direction, and a suppressor built on it would silently stop
+ *                    suppressing. Behaviour is preserved verbatim from the
+ *                    `pre-narration-detector.ts` original rather than "fixed" here,
+ *                    so the pending migration above stays a deletion rather than a
+ *                    semantic change; pinned by a test.
+ */
+export function windowSlice(lines: TranscriptLine[], windowTurns: number): TranscriptLine[] {
+  let boundaries = 0;
+  let start = 0;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (line !== undefined && isRealUserPrompt(line)) {
+      boundaries++;
+      if (boundaries >= windowTurns) {
+        start = i;
+        break;
+      }
+    }
+  }
+  return lines.slice(start);
+}
+
 /** The just-completed turn plus the boundary a caller should treat as its start. */
 export interface CompletedTurn {
   /** Every line of the turn that just completed, in transcript order. */

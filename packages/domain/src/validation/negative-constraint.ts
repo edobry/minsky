@@ -23,8 +23,8 @@
  *
  * ## Two consumers, one implementation
  *
- * This module is deliberately dependency-free (no imports) so BOTH dispatch paths share exactly
- * one detector rather than drifting copies:
+ * This module keeps its dependency surface to a single LEAF import so BOTH dispatch paths share
+ * exactly one detector rather than drifting copies:
  *
  *  - **`tasks_dispatch`** (in-process) — via the `structuralCheck` option of
  *    {@link validateEvidenceArgument}, closing over the call's `instructions`.
@@ -33,6 +33,16 @@
  *    crossed `tasks_dispatch` (verified against `subagent_invocations` — its only row carries
  *    the Stop-hook `UNKNOWN_AGENT_TYPE` sentinel, meaning no dispatch row was ever written), so
  *    an in-process-only gate would not have caught its own motivating incident.
+ *
+ * **Why the one import is not a violation of that constraint (mt#4386).** The rule above was
+ * written as "dependency-free (no imports)", but its stated PURPOSE is that the two dispatch
+ * paths share one detector rather than drifting copies — and `../text/prose-elision` is the
+ * module that exists to stop exactly that drift. mt#4793 found seven detectors hand-rolling
+ * their own space-filled elision and converged them; hand-rolling an eighth here to preserve a
+ * literal zero-import count would reproduce the defect the constraint exists to prevent.
+ * `prose-elision` is a LEAF — it has no imports of its own — so the hook path's relative-path
+ * resolution gains no transitive graph, and `.claude/hooks/actionables-block.ts` already imports
+ * it by the same relative path.
  *
  * ## Scope of the claim this module makes
  *
@@ -52,7 +62,10 @@
  * @see mem#702 (`e437d993`) — the originating incident + the asymmetry
  * @see mt#2488 — the tier-1 evidence gate this extends
  * @see .minsky/rules/claim-confidence.mdc — the vocabulary a bounded negative claim uses
+ * @see mt#4386 — the ADR-024 Rung 1 quotation prefilter wired into {@link analyzeNegativeConstraints}
  */
+
+import { elideQuotedAndMarkdown } from "../text/prose-elision";
 
 /**
  * Calibration gate (mt#3162 SC5) — shared by BOTH consumers so the two paths can never disagree
@@ -271,23 +284,36 @@ export function analyzeNegativeConstraints(
   const hasLicenceToFalsify = matchesAny(LICENCE_PATTERNS, text);
   const findings: ProhibitionFinding[] = [];
 
+  // ADR-024 Rung 1 (mt#4386): elide what we are looking FOR, never what we look for evidence
+  // AGAINST. Only the PROHIBITION matcher reads `scanText` — a clause the prompt QUOTES is
+  // example text, not an instruction the prompt is issuing. Both suppressors (BASIS_PATTERNS
+  // below, LICENCE_PATTERNS above) deliberately keep reading the RAW text, because a citation
+  // marker is frequently a backticked symbol or a file path, and eliding those would delete the
+  // very evidence that makes a prohibition recoverable — manufacturing bare findings instead of
+  // suppressing false ones.
+  //
+  // Offsets are shared between the two strings: both elision halves blank same-length
+  // (`blankSameLength`), so `match.index` into `scanText` indexes `text` identically. That is
+  // what lets the basis window, the phrase and the excerpt all be sliced from the original.
+  const scanText = elideQuotedAndMarkdown(text);
+
   for (const pattern of PROHIBITION_PATTERNS) {
     // Each pattern carries the `g` flag; reset `lastIndex` so repeated calls with the same
     // module-level regex objects don't resume mid-string from a prior invocation.
     pattern.lastIndex = 0;
-    let match: RegExpExecArray | null = pattern.exec(text);
+    let match: RegExpExecArray | null = pattern.exec(scanText);
     while (match !== null) {
       // Bidirectional window — see BASIS_PATTERNS: a basis stated BEFORE the prohibition is at
       // least as common as one stated after, and is the shape the originating incident used.
       const windowStart = Math.max(0, match.index - BASIS_WINDOW_CHARS);
       const window = text.slice(windowStart, match.index + BASIS_WINDOW_CHARS);
       findings.push({
-        phrase: match[0],
+        phrase: text.slice(match.index, match.index + match[0].length),
         index: match.index,
         excerpt: text.slice(match.index, match.index + EXCERPT_CHARS),
         hasBasis: matchesAny(BASIS_PATTERNS, window),
       });
-      match = pattern.exec(text);
+      match = pattern.exec(scanText);
     }
   }
 

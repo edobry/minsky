@@ -42,6 +42,7 @@ import {
   detectPreNarrationWithSuppression,
   elideMarkdownContexts,
   extractClaimedPrNumber,
+  extractUniqueClaimedPrNumber,
   extractPrNumbersForTools,
   extractWindowToolUseNames,
   windowSlice,
@@ -54,13 +55,22 @@ import {
   parseTranscript,
 } from "../.minsky/hooks/transcript";
 import type { TranscriptLine } from "../.minsky/hooks/transcript";
+import { calibrationLogPath } from "../.minsky/hooks/dispatcher";
 
 /**
  * Default resolves beside this script. Calibration logs are NOT tracked in git,
  * so a session workspace has none — pass `--log` pointing at the main checkout's
  * copy when running from a session.
  */
-const DEFAULT_LOG = resolve(import.meta.dir, "..", ".minsky", "pre-narration-calibration.jsonl");
+/**
+ * mt#4971: resolved through the WRITER's own function rather than the pre-mt#4748
+ * repo path, which no longer exists — reading it produced a SKIP that looked like
+ * "no records" rather than "wrong location". `fallbackCwd` (not `projectDir`) keeps
+ * the resolver's `CLAUDE_PROJECT_DIR` tier ahead of this checkout.
+ */
+const DEFAULT_LOG = calibrationLogPath("pre-narration", {
+  fallbackCwd: resolve(import.meta.dir, ".."),
+});
 const PROJECTS_DIR = join(homedir(), ".claude", "projects");
 
 interface CalibrationMatch {
@@ -469,7 +479,9 @@ function main(): void {
   if (!existsSync(logPath)) {
     console.log(`SKIP: no calibration log at ${logPath}`);
     console.log(
-      "(Calibration logs are untracked; from a session pass --log <main-checkout>/.minsky/pre-narration-calibration.jsonl)"
+      "(Since mt#4748 calibration logs live under the runtime state dir, keyed by checkout," +
+        " so a session workspace resolves its OWN key and finds nothing. From a session, pass" +
+        " --log <main-checkout's state-dir path>.)"
     );
     process.exit(0);
   }
@@ -555,7 +567,13 @@ function main(): void {
       // fire and then taking the window is what the detector sees; using the
       // full pre-fire history here would re-introduce, in the measurement, the
       // exact scope mismatch R2 removed from the code.
-      const claimedPr = extractClaimedPrNumber(match.phrase);
+      // mt#4810: the same two-step the detector now uses — the matched phrase
+      // first, then the claim's own sentence. Kept in sync deliberately: the
+      // comment above is explicit that a divergence here would misreport the
+      // very fix this script exists to measure, and this is where that would
+      // have happened.
+      const claimedPr =
+        extractClaimedPrNumber(match.phrase) ?? extractUniqueClaimedPrNumber(match.context ?? "");
       const identityBacked =
         claimedPr !== null &&
         extractPrNumbersForTools(

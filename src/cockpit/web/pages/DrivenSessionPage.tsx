@@ -107,7 +107,12 @@ export function DrivenSessionPage() {
           data-testid="driven-thread-scrollport"
           className="min-h-0 flex-1 overflow-y-auto rounded border border-border bg-card p-3"
         >
-          <ConversationView drivenSessionId={id} drivenBlocks={driven.blocks} />
+          <ConversationView
+            drivenSessionId={id}
+            drivenBlocks={driven.blocks}
+            harnessKind={driven.harnessKind}
+            authMode={driven.authMode}
+          />
         </div>
       )}
 

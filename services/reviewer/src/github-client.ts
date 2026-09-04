@@ -12,6 +12,11 @@
 import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
 import type { ReviewerConfig } from "./config";
+// mt#4434. `diff-reconstruction` imports `PrFileEntry` back from this module,
+// but as `import type` only — erased at compile time, so no runtime cycle
+// forms. Keeping the type defined here preserves one source of truth for the
+// shape `fetchListFiles` produces.
+import { isDiffTooLargeError, reconstructDiff } from "./diff-reconstruction";
 import { isBotReviewerEntry, type PriorReview } from "./prior-review-summary";
 import { withTimeout } from "./with-timeout";
 import { log } from "./logger";
@@ -188,6 +193,59 @@ export async function fetchListFiles(
   }));
 }
 
+/**
+ * Fetch the whole-PR unified diff, returning `null` when GitHub refuses to
+ * serve it because it is too large (mt#4434).
+ *
+ * Only the `too_large` refusal is absorbed; every other failure re-throws, so
+ * this does not widen into a general error swallow. That distinction is the
+ * whole point — the caller's `Promise.all` SHOULD still reject on a timeout, a
+ * 404, or an auth failure, because those are not conditions a reconstructed
+ * diff can stand in for.
+ *
+ * Exported for tests.
+ */
+export async function fetchWholeDiff(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
+): Promise<string | null> {
+  try {
+    const diffResponse = await withTimeout("github.pulls.get.diff", timeoutMs, (signal) =>
+      octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
+        owner,
+        repo,
+        pull_number: prNumber,
+        mediaType: { format: "diff" },
+        request: { signal },
+      })
+    );
+    // mediaType: { format: "diff" } makes Octokit return the body as a raw
+    // string at runtime even though the typed response is PullRequest. String()
+    // safely coerces the runtime value without the as-unknown double cast.
+    return String(diffResponse.data);
+  } catch (err: unknown) {
+    if (!isDiffTooLargeError(err)) throw err;
+
+    // Error text goes in the log MESSAGE, not only attributes: Railway's log
+    // surface displays and searches message text only (mt#2463).
+    log.info(
+      `reviewer.diff_too_large: GitHub refused the whole-PR diff for ${owner}/${repo}#${prNumber}; ` +
+        "reconstructing from per-file patches",
+      {
+        event: "reviewer.diff_too_large",
+        owner,
+        repo,
+        pr: prNumber,
+        error: err instanceof Error ? err.message : String(err),
+      }
+    );
+    return null;
+  }
+}
+
 export async function fetchPullRequestContext(
   octokit: Octokit,
   owner: string,
@@ -198,29 +256,72 @@ export async function fetchPullRequestContext(
   // max(timeoutMs) rather than 3*timeoutMs.
   timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
 ): Promise<PullRequestContext> {
-  const [prResponse, diffResponse, fileEntries] = await Promise.all([
+  const [prResponse, wholeDiff, fileEntries] = await Promise.all([
     // mt#1086 PR #969 R2 BLOCKING #1: propagate AbortSignal to Octokit
     // via `request: { signal }` so abort actually cancels the request.
     withTimeout("github.pulls.get", timeoutMs, (signal) =>
       octokit.rest.pulls.get({ owner, repo, pull_number: prNumber, request: { signal } })
     ),
-    withTimeout("github.pulls.get.diff", timeoutMs, (signal) =>
-      octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
-        owner,
-        repo,
-        pull_number: prNumber,
-        mediaType: { format: "diff" },
-        request: { signal },
-      })
-    ),
+    fetchWholeDiff(octokit, owner, repo, prNumber, timeoutMs),
     fetchListFiles(octokit, owner, repo, prNumber, timeoutMs),
   ]);
 
   const pr = prResponse.data;
-  // mediaType: { format: "diff" } makes Octokit return the body as a raw
-  // string at runtime even though the typed response is PullRequest. String()
-  // safely coerces the runtime value without the as-unknown double cast.
-  const diff = String(diffResponse.data);
+
+  // mt#4434: when GitHub refuses the whole diff as too large, rebuild it from
+  // the per-file patches already fetched beside it. Before this, the refusal
+  // rejected the whole `Promise.all` — destroying the successful per-file
+  // result too — and surfaced as an opaque "internal error" with retry advice
+  // that could never succeed, because the cap is deterministic in the PR's size.
+  let diff: string;
+  if (wholeDiff !== null) {
+    diff = wholeDiff;
+  } else {
+    const reconstructed = reconstructDiff(fileEntries);
+    diff = reconstructed.diff;
+
+    if (reconstructed.filesWithPatch === 0) {
+      // Both paths are unavailable: the diff was refused AND no per-file patch
+      // came back. `fetchListFiles` returns [] both on error and above its
+      // MAX_FILES_FETCHED cap, so this is reachable for a PR larger than that
+      // bound. Failing loudly is the honest outcome — an empty diff would reach
+      // the model as a PR with no changes, which reads as "nothing to review"
+      // rather than "I was shown nothing".
+      // Message starts with "too large" deliberately: `sanitizeReason`
+      // (status-comment.ts) allowlists reason PREFIXES and collapses anything
+      // unrecognised into "an internal error occurred. Use `/review` to retry."
+      // That collapse is the diagnostic opacity mt#4434 exists to remove, so
+      // the reason has to be one the allowlist recognises.
+      // The ACTIONABLE part leads. `sanitizeReason` truncates to 200 chars
+      // head-first, so advice placed after the diagnostic detail is cut off in
+      // the rendered comment — which is how the operator loses exactly the
+      // sentence this criterion exists to give them.
+      throw new Error(
+        `too large to review — split the PR or review it locally; retrying will not help. ` +
+          `GitHub refused the whole-PR diff for ${owner}/${repo}#${prNumber} and no per-file ` +
+          `patches are available (${fileEntries.length} file entries).`
+      );
+    }
+
+    log.info(
+      `reviewer.diff_reconstructed: rebuilt ${owner}/${repo}#${prNumber} from ` +
+        `${reconstructed.filesWithPatch} per-file patches`,
+      {
+        event: "reviewer.diff_reconstructed",
+        owner,
+        repo,
+        pr: prNumber,
+        filesWithPatch: reconstructed.filesWithPatch,
+        filesWithoutPatch: reconstructed.filesWithoutPatch.length,
+        // Named, not just counted: a file whose content GitHub withheld is one
+        // the reviewer is reviewing blind, and the operator should be able to
+        // see which (mt#3018 is the sibling cap that causes it). Bounded to 20
+        // (PR #3609 R1) — the full count is on the line above, and an unbounded
+        // array here could be thousands of paths on a large PR.
+        withheld: reconstructed.filesWithoutPatch.slice(0, 20),
+      }
+    );
+  }
 
   // Head repository coords may differ from base coords for forked PRs.
   // pr.head.repo is null in rare cases (deleted fork); fall back to base.

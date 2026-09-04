@@ -1,4 +1,6 @@
 import { describe, test, expect } from "bun:test";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import {
   DaemonClient,
   DaemonRequestError,
@@ -533,5 +535,143 @@ describe("describeDaemonFailure — the summary names the condition (mt#4466)", 
 
   test("a non-Error value does not throw", () => {
     expect(describeDaemonFailure("a bare string").detail).toBe("a bare string");
+  });
+});
+
+/**
+ * mt#4828 — the two points at which an in-flight request can be severed.
+ *
+ * These use a REAL `node:http` server and a real socket rather than the
+ * `makeFakeFetch` harness the rest of this file uses, and that is the point
+ * rather than a stylistic choice: the defect lived in WHERE the throw came
+ * from. `fetch()` resolves once the response HEADERS arrive, so a daemon that
+ * dies mid-body throws from `response.text()` — a different call, outside a
+ * different `try` — and a stubbed `fetch` that simply rejects cannot express
+ * that distinction at all. A fake would have passed against the broken code.
+ */
+describe("severed in-flight request (mt#4828)", () => {
+  async function listen(
+    handler: (req: IncomingMessage, res: ServerResponse) => void
+  ): Promise<{ port: number; close: () => void; connections: () => number }> {
+    let connections = 0;
+    const server = createServer(handler);
+    server.on("connection", () => {
+      connections += 1;
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const { port } = server.address() as AddressInfo;
+    return { port, close: () => server.close(), connections: () => connections };
+  }
+
+  function clientFor(port: number, overrides: Record<string, unknown> = {}) {
+    return new DaemonClient({
+      url: `http://127.0.0.1:${port}/mcp`,
+      authToken: null,
+      retryWindowMs: 400,
+      retryIntervalMs: 50,
+      onLog: () => {},
+      ...overrides,
+    });
+  }
+
+  const CALL: JsonRpcMessage = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "tools/call",
+    params: { name: "session_commit" },
+  } as JsonRpcMessage;
+
+  test("death DURING the body read is connection-lost, and is NOT retried", async () => {
+    // Headers land, a partial body lands, then the process dies — exactly what
+    // a staleness exit does to a call that is open when it fires.
+    const server = await listen((_req, res) => {
+      res.writeHead(200, { "content-type": CONTENT_TYPE_JSON });
+      res.write('{"jsonrpc":"2.0","id":1,"resu');
+      setTimeout(() => res.socket?.destroy(), 10);
+    });
+
+    try {
+      const err = await clientFor(server.port)
+        .send(CALL)
+        .then(
+          () => null,
+          (e: unknown) => e
+        );
+
+      expect(err).toBeInstanceOf(DaemonRequestError);
+      expect((err as DaemonRequestError).kind).toBe("connection-lost");
+
+      // The retry decision is the load-bearing half. The daemon ACCEPTED this
+      // request, so replaying it could apply the side effect twice — one
+      // connection, never a second.
+      expect(server.connections()).toBe(1);
+    } finally {
+      server.close();
+    }
+  });
+
+  test("death BEFORE response headers stays unreachable, and IS retried", async () => {
+    // The contrasting case: nothing was ever served, so the daemon may never
+    // have received the call and replaying is safe. This is what makes the two
+    // kinds different findings rather than two names for one event.
+    const server = await listen((_req, res) => {
+      res.socket?.destroy();
+    });
+
+    try {
+      const err = await clientFor(server.port)
+        .send(CALL)
+        .then(
+          () => null,
+          (e: unknown) => e
+        );
+
+      expect(err).toBeInstanceOf(DaemonRequestError);
+      expect((err as DaemonRequestError).kind).toBe("unreachable");
+      expect(server.connections()).toBeGreaterThan(1);
+    } finally {
+      server.close();
+    }
+  });
+
+  test("a healthy response over the same real socket still succeeds", async () => {
+    // Guards the guard: the try/catch added around the body read must not
+    // change the normal path.
+    const server = await listen((_req, res) => {
+      res.writeHead(200, { "content-type": CONTENT_TYPE_JSON });
+      res.end(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { ok: true } }));
+    });
+
+    try {
+      const msgs = await clientFor(server.port).send(CALL);
+      expect(msgs).toEqual([{ jsonrpc: "2.0", id: 1, result: { ok: true } }]);
+    } finally {
+      server.close();
+    }
+  });
+
+  test("connection-lost renders the may-have-taken-effect warning", () => {
+    const { summary } = describeDaemonFailure(
+      new DaemonRequestError("socket closed", "connection-lost")
+    );
+    // The caller cannot act correctly without knowing the request was
+    // ACCEPTED — that is the difference between "retry it" and "check whether
+    // it already happened".
+    expect(summary).toContain("WAS accepted");
+    expect(summary).toContain("VERIFY STATE");
+    // And it is genuinely routed, not falling through to the unclassified
+    // default that every unwrapped error used to land on.
+    expect(summary).not.toBe(describeDaemonFailure(new Error("unclassified")).summary);
+  });
+
+  test("unreachable no longer asserts the daemon was never started", () => {
+    // SC3: a staleness exit that severs a call before headers is a daemon that
+    // deliberately exited and has already respawned — the old wording sent the
+    // reader to diagnose a down service.
+    const { summary } = describeDaemonFailure(
+      new DaemonRequestError("ECONNREFUSED", "unreachable")
+    );
+    expect(summary).toContain("restarted more slowly");
+    expect(summary).not.toContain("it is down or was never started");
   });
 });

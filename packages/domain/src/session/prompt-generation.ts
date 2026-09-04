@@ -316,9 +316,26 @@ The following skills are embedded inline. Apply them as if they were preloaded i
 ${sections}`;
 }
 
+/**
+ * Prose anchors the COCKPIT parses back out of a generated prompt (mt#4354).
+ *
+ * The dispatch-brief header shows the workspace session, the bound task and the
+ * read-only declaration without hover. The generator emits all three as prose,
+ * so the render path recovers them by matching these strings.
+ *
+ * Exported so that coupling is DECLARED rather than discovered: reword the
+ * template inline and the cockpit header silently drops a fact with nothing
+ * failing. `dispatch-brief.ts` duplicates them as literals (mt#3239 bars the
+ * browser bundle from importing `@minsky/domain`) and
+ * `prompt-generation.dispatch-brief-headings.test.ts` pins the pair.
+ */
+export const SESSION_LINE_PREFIX = "You are working in Minsky session";
+/** @see SESSION_LINE_PREFIX */
+export const READ_ONLY_DECLARATION = "This dispatch is declared **read-only**";
+
 function renderCommonHeader(params: GeneratePromptParams): string {
   const displayId = normalizeTaskIdForDisplay(params.taskId);
-  return `You are working in Minsky session \`${params.sessionId}\`, checked out at ${params.sessionDir}.
+  return `${SESSION_LINE_PREFIX} \`${params.sessionId}\`, checked out at ${params.sessionDir}.
 
 Use the session-scoped file tools for every file operation in this session — they take this session id plus a path RELATIVE to the session root, so a path can never silently address the main workspace: \`session_read_file\` to read, \`session_search_replace\` for a targeted edit, \`session_write_file\` to create or fully rewrite. \`session_edit_file\` is fast-apply-model-based and is NOT the default; reach for it only when a single edit spans many regions. Reserve the harness-native \`Read\`/\`Edit\`/\`Write\` for MAIN-workspace files, which you should not be touching from here.
 
@@ -442,7 +459,7 @@ function renderReadOnlyBoundSection(): string {
   return `
 ## Read-Only Dispatch Bound
 
-This dispatch is declared **read-only** (mt#2865). A structural write-gate DENIES \`session_commit\`, \`session_edit_file\`, \`session_write_file\`, \`session_search_replace\`, \`session_pr_create\`, and \`session_pr_edit\` for this session while the declaration is live — do not attempt them; the denial will not go away on retry.
+${READ_ONLY_DECLARATION} (mt#2865). A structural write-gate DENIES \`session_commit\`, \`session_edit_file\`, \`session_write_file\`, \`session_search_replace\`, \`session_pr_create\`, and \`session_pr_edit\` for this session while the declaration is live — do not attempt them; the denial will not go away on retry.
 
 Execute the instructions above, then report your findings back. Do not continue past them into implementation work, even if the surrounding session context makes further work seem natural — a prior incident (mt#2865) traced a ~70-minute, ~197-tool-call scope violation to exactly that pattern (a bounded read-only dispatch that inherited an active implementation context and kept going). If your directive turns out to genuinely require a write, stop and report that back instead of working around the gate.`;
 }

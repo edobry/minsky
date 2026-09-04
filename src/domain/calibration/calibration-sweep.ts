@@ -40,7 +40,35 @@ import { createHash } from "node:crypto";
  * operator-facing output, and the record kind (drives the parse path).
  */
 export interface CalibrationLogEntry {
-  /** Repo-relative path to the JSONL log file. */
+  /**
+   * Repo-relative path to the JSONL log file — as a NAME, not a resolvable
+   * filesystem path. **The value stays repo-relative deliberately (mt#4748
+   * R1)**: `.minsky/hooks/dispatcher.ts`'s `calibrationLogPath` — the actual
+   * write path every value here mirrors — moved from
+   * `.minsky/<name>-calibration.jsonl` (repo-rooted) to a project-keyed
+   * subdirectory of the state dir
+   * (`getMinskyStateDir()/projects/<key>/<name>-calibration.jsonl`), where
+   * `<key>` is a hash of the repo root — a value this static registry has no
+   * way to embed. Every reader translates this field at CONSUMPTION time
+   * instead: strip the `.minsky/` prefix, then re-root under
+   * `getMinskyStateDir()/projects/<key of the caller's own repo root>/`. Do
+   * NOT flip this field to an absolute path — `path.join` does not restart
+   * at an absolute second segment the way `path.resolve` does, so any
+   * consumer still doing `join(workspacePath, relPath)` would silently
+   * mis-resolve rather than error.
+   *
+   * **Three consumers, all migrated in the same change (mt#4748 R1; the
+   * initial PR wrongly named ONE and called the other two an open follow-up
+   * — corrected here after reviewer-caught omission):**
+   * `src/adapters/shared/commands/calibration.ts`'s `readContent` closure,
+   * and `.minsky/hooks/calibration-review-cadence-detector.ts`'s two
+   * (functionally identical) `readContent` closures in `run()` and
+   * `main()`. Each duplicates the state-dir/project-key translation locally
+   * rather than importing a shared helper — the established convention in
+   * this migration (see `projectStateKey` in `dispatcher.ts` /
+   * `ingest-runtime.ts` / `coverage-receipt.ts`): every module tree stays
+   * free of a dependency on the others.
+   */
   path: string;
   /** Human-readable name for display (no spaces; use kebab). */
   name: string;
@@ -563,29 +591,6 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     // the shared matched-phrase fallback branch.
     kind: "retrospective-completeness",
   },
-  {
-    path: ".minsky/stop-at-decision-calibration.jsonl",
-    name: "stop-at-decision",
-    // mt#3653 — turn-end stop-at-decision scan (family:stop-at-handoff R5):
-    // an evidence-write into a non-bound open task with no discharge call in
-    // the same turn. Record shape is its own (`targets: {taskId, status}[]`),
-    // parsed by a dedicated branch; diversity is measured over distinct
-    // target task ids.
-    kind: "stop-at-decision",
-    // mt#3078 pattern: the date the detector's full invocation path —
-    // dispatcher -> registry -> run() -> transcript parse -> detection ->
-    // calibration write — was PROVEN alive via a live synthetic
-    // positive/negative-control probe (positive wrote one record with a real
-    // CLI status read; negative — same turn plus an asks_create — wrote
-    // none). The trigger is a rare COMPOUND condition (evidence-write +
-    // non-bound + open target + no discharge + no marker), so zero real
-    // fires for a stretch is plausible without the detector being broken.
-    //
-    // Evidence artifact (cite the permanent record, not just this comment):
-    // the mt#3653 PR body's "Live verification" section carries the actual
-    // positive/negative-control transcript this date is derived from.
-    liveSinceDate: "2026-08-04",
-  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -651,7 +656,11 @@ export const NEVER_REVIEWED_DAYS_MS = NEVER_REVIEWED_DAYS * 24 * 60 * 60 * 1000;
 
 /**
  * Watermark record for a single log. Keyed by log path → watermark state.
- * Written to `.minsky/calibration-review-watermarks.json`.
+ * Written to `calibration-review-watermarks.json` under
+ * `getMinskyStateDir()/projects/<key>/` (mt#4880; it was `.minsky/` until then).
+ * The KEY is still a repo-relative log NAME — see `CalibrationLogEntry.path`
+ * above for why that form is deliberate — and it is precisely because those keys
+ * are identical across projects that the FILE has to be project-keyed.
  */
 export interface LogWatermark {
   /**
@@ -816,6 +825,26 @@ export interface WallOfTextRecord {
    * it matched.
    */
   excerpt?: string;
+  /**
+   * Words in the LARGEST block of the turn — the measurement the `over-budget`
+   * leg keys on since mt#4531 (mt#4637).
+   *
+   * **Projected here because this is the surface a reviewer classifies from.**
+   * It was in the raw JSONL from mt#4531 and absent from this parsed record, so
+   * sorting a window by `wordCount` (the FINAL block) produced apparent
+   * threshold violations that are correct fires — measured at 39% of
+   * over-budget fires over the 685-record union corpus, and it inverted three
+   * consecutive calibration passes' verdicts. A field present in the log and
+   * missing from the projection is the same defect PR #2420 R1 names one line
+   * up, in the other direction.
+   *
+   * Optional: records written before mt#4531 have no such field.
+   */
+  largestBlockWords?: number;
+  /** The lead of that largest block (mt#4637). Optional; pre-mt#4637 records lack it. */
+  largestBlockExcerpt?: string;
+  /** 0-based index of that block in the turn (mt#4637). Optional; pre-mt#4637 records lack it. */
+  largestBlockIndex?: number;
 }
 
 /**
@@ -858,6 +887,14 @@ export interface KnowledgeAcquisitionRecord {
 /**
  * Parsed stop-at-decision calibration record (mt#3653).
  *
+ * **The DETECTOR is retired (mt#4978, 2026-09-04, per ask#11629); this PARSER is
+ * deliberately kept.** Its `CALIBRATION_LOG_REGISTRY` entry is gone, so nothing
+ * declares or sweeps the stream any more and no new records are written. But the
+ * two logs are RETAINED on disk as the retirement's evidence — three windows of
+ * false-positive measurements are what justified retiring it — and a retained log
+ * nothing can parse is a worse artifact than one that can still be read. Delete
+ * this block only alongside the logs themselves.
+ *
  * NOT a matched-phrase record — a per-turn record of an evidence-write into a
  * non-bound open task with no discharge call in the same turn. `targets` is
  * the diversity axis (distinct task ids; see `extractDistinctPhrases` below).
@@ -891,6 +928,22 @@ export interface SharedCalibrationFields {
    * Producers: `knowledge-acquisition` (mt#3740). Absent everywhere else.
    */
   supersedes?: string;
+  /**
+   * Whether `ask-routing-deferral` ALSO fired on this turn's prose (mt#4702).
+   *
+   * Lifted to the top level here, beside `supersedes` and `suppressionReasons`,
+   * rather than left to the `detectorFields` passthrough. Two producers write
+   * it — `untaken-action` (mt#4407) and `operator-deferral` (mt#4702) — and the
+   * whole point of the field is COMPARING them, which a value nested one level
+   * down defeats: mem#827 is the recorded incident of a reviewer reading
+   * `detectorFields` as the record and reporting present fields as missing.
+   *
+   * Absent means NOT MEASURED, never "no overlap" — every record written before
+   * its producer adopted the field is in that position, and a projection that
+   * defaulted it to `false` would manufacture a measurement (the
+   * accessor-that-synthesizes hazard in `claim-confidence.mdc`).
+   */
+  deferralOverlap?: boolean;
   /**
    * Injection-layer suppression outcome — the convention
    * `code-mechanism-assertion` introduced in mt#3113, generalized here.
@@ -1019,10 +1072,47 @@ export interface CalibrationLogResult {
    * skill keys the Ask off; lowDiversity logs are NOT pastThreshold.
    */
   pastThreshold: boolean;
-  /** The un-reviewed records (since last watermark). Empty when below the count bar. */
+  /**
+   * True when the operator has seen NOTHING while the detector detected at
+   * volume: zero injected fires since the last review, with the SUPPRESSED
+   * count at or past `FIRES_THRESHOLD` (mt#4049).
+   *
+   * Mutually exclusive with `atCountThreshold` by construction — that one reads
+   * the injected count, which this requires to be zero. Deliberately not
+   * diversity-gated; see the derivation for why.
+   */
+  allSuppressed: boolean;
+  /**
+   * The un-reviewed records (since last watermark). Empty when below the count
+   * bar AND not all-suppressed — an all-suppressed log is routed for review, so
+   * withholding its records would show the reviewer nothing to judge (mt#4049).
+   */
   newRecords: CalibrationRecord[];
   /** The watermark at review time (may be zero if never reviewed). */
   watermarkCount: number;
+  /**
+   * True when the watermark exceeds the log's CURRENT record count (mt#4904).
+   *
+   * `firesSinceLastReview` is `Math.max(0, totalFires - watermarkCount)` and
+   * `newRecords` is `allRecords.slice(watermarkCount)`, so a watermark above
+   * the record count clamps the first to 0 and empties the second — which is
+   * byte-identical to a log that was genuinely just reviewed. Every
+   * `computeReviewDueLogs` leg then declines it: `past-threshold` and
+   * `time-stale` are gated on an injected count the clamp pins to zero, and
+   * `never-reviewed` / `never-fired` both require NO watermark. The log
+   * becomes permanently invisible to the review loop with no error anywhere.
+   *
+   * This is not hypothetical: mt#4748 moved the calibration streams to the
+   * project-keyed state dir while the watermark store kept counts recorded
+   * against the larger pre-migration logs. Measured 2026-09-02 — 13 of 46
+   * streams stranded, including `bare-entity-ref` (2130 vs 301) and
+   * `retrospective-trigger` (2338 vs 181).
+   *
+   * Reported as its own state rather than folded into the counts, because the
+   * counts CANNOT represent it: 0 is what they say both when nothing is new
+   * and when the basis for the comparison is gone.
+   */
+  watermarkStranded: boolean;
   /**
    * ID of a still-open disposition Ask filed for this log by a prior
    * /calibration-review pass (mt#2659), forwarded from the watermark's
@@ -1164,6 +1254,13 @@ const CONSUMED_MATCH_KEYS = new Set(["family", "class", "category", "phrase", "c
  * to anything narrower than the record's own keys — verified by making that
  * edit, which turns the four mt#3289 tests and mt#3576's `excerpt` tests red
  * together. Those are the tests that pin this; a per-field strip would not.
+ *
+ * The one thing it does NOT cover is a lift the CALLER performs after invoking
+ * this function: the key is unconsumed at the moment `consumed` is computed, so
+ * it rides through and then gets added on top, appearing twice (PR #3531 R3).
+ * `parseCalibrationRecord` therefore folds its cross-kind lifts in BEFORE
+ * calling this — a call-ordering obligation, not something this function can
+ * enforce, which is why it is written down in both places.
  */
 function parseDetectorFields(
   raw: Record<string, unknown>,
@@ -1192,6 +1289,11 @@ function parseDetectorFields(
  * since the first one. So every unconsumed key now rides through as
  * `detectorFields` — a detector author adding a field does not have to know
  * this file exists for the field to reach a reviewer.
+ *
+ * The CROSS-KIND lifts (`supersedes`, `deferralOverlap`) are folded into the
+ * record handed to `parseDetectorFields` rather than added after it — see the
+ * comment at the `lifted` binding, and PR #3531 R3 for the duplication that
+ * ordering prevents.
  */
 export function parseCalibrationRecord(
   line: string,
@@ -1206,13 +1308,31 @@ export function parseCalibrationRecord(
   const record = parseCalibrationRecordCore(raw, kind);
   if (record === null) return null;
   const suppressionReasons = parseSuppressionReasons(raw);
-  const detectorFields = parseDetectorFields(raw, record);
   // mt#3740: a non-string `supersedes` is dropped rather than coerced — a
   // malformed marker must not silently suppress a real record from the counts.
   const supersedes = typeof raw["supersedes"] === "string" ? raw["supersedes"] : undefined;
-  return {
+  // mt#4702: same cross-kind lift as `supersedes` above, and for the same
+  // reason — the field's whole purpose is comparing the two producers that
+  // write it, which `detectorFields` nesting defeats. A non-boolean is DROPPED
+  // rather than coerced: absent must keep meaning "not measured".
+  const deferralOverlap =
+    typeof raw["deferralOverlap"] === "boolean" ? raw["deferralOverlap"] : undefined;
+  // The cross-kind lifts are folded in BEFORE `parseDetectorFields` runs (PR
+  // #3531 R3). That function derives consumed-ness from the keys of the record
+  // it is HANDED, so a field lifted after the call is still unconsumed at the
+  // time it runs and rides through the passthrough too — landing in the parsed
+  // record twice, once at the top level and once under `detectorFields`, and
+  // counting twice in `assessClassifiability`'s evidence tally. Ordering is the
+  // whole fix: it keeps the invariant that function's docblock states true by
+  // construction, with no second key list to drift out of sync.
+  const lifted = {
     ...record,
     ...(supersedes === undefined ? {} : { supersedes }),
+    ...(deferralOverlap === undefined ? {} : { deferralOverlap }),
+  };
+  const detectorFields = parseDetectorFields(raw, lifted);
+  return {
+    ...lifted,
     ...(suppressionReasons === undefined ? {} : { suppressionReasons }),
     ...(detectorFields === undefined ? {} : { detectorFields }),
   };
@@ -1356,6 +1476,16 @@ function parseCalibrationRecordCore(
         // does not deliver, and every consumer keying on `excerpt` would find
         // it nested a level down instead.
         excerpt: typeof raw["excerpt"] === "string" ? raw["excerpt"] : undefined,
+        // mt#4637: same reasoning as `excerpt` above, applied to the fields the
+        // over-budget leg actually keys on. `largestBlockWords` reached the log
+        // in mt#4531 and never reached this projection, so a reviewer sorting by
+        // `wordCount` saw correct fires as threshold violations.
+        largestBlockWords:
+          typeof raw["largestBlockWords"] === "number" ? raw["largestBlockWords"] : undefined,
+        largestBlockExcerpt:
+          typeof raw["largestBlockExcerpt"] === "string" ? raw["largestBlockExcerpt"] : undefined,
+        largestBlockIndex:
+          typeof raw["largestBlockIndex"] === "number" ? raw["largestBlockIndex"] : undefined,
       } satisfies WallOfTextRecord;
     }
 
@@ -1597,6 +1727,13 @@ export function computeLogResult(
   const totalFires = allRecords.length;
   const firesSinceLastReview = Math.max(0, totalFires - watermarkCount);
   const newRecords = allRecords.slice(watermarkCount);
+  // mt#4904: the clamp above is lossy in one direction. A watermark ABOVE the
+  // record count means the basis for the subtraction is gone (the log was
+  // rotated, truncated, or re-rooted under it), and both the clamp and the
+  // slice render that as "nothing new" — the same output a just-reviewed log
+  // produces. Capture the condition here, where both operands are still in
+  // hand, since no downstream consumer can recover it from the results.
+  const watermarkStranded = watermarkCount > totalFires;
 
   const distinctPhrases = extractDistinctPhrases(newRecords).size;
 
@@ -1657,6 +1794,25 @@ export function computeLogResult(
   // collecting" state, distinct from below-count and from past-threshold).
   const lowDiversity = atCountThreshold && !hasDiversity;
 
+  // allSuppressed (mt#4049): the detector is DETECTING at volume and the
+  // operator has seen NOTHING — every detection was withheld before injection.
+  //
+  // This is the case mt#3197's own code comment raised and deliberately left
+  // for later: keying cadence off the injected count is right for a detector
+  // suppressing SOME of its fires, and inverts for one suppressing ALL of them,
+  // because the count is then pinned at 0 and no count-bearing leg can ever
+  // fire. Gated on the SUPPRESSED count reaching the same bar the injected
+  // count would have had to, so a genuinely quiet detector does not become
+  // permanently due — the volume question is unchanged, only which column
+  // answers it.
+  //
+  // Deliberately NOT diversity-gated. Diversity exists to stop ten identical
+  // fires reading as a review signal, and the question here is not "are these
+  // fires varied enough to rate" — there are no fires to rate. It is "is this
+  // gate too broad", which one repeated shape answers as well as fourteen.
+  const allSuppressed =
+    injectedFiresSinceLastReview === 0 && suppressedSinceLastReview >= FIRES_THRESHOLD;
+
   return {
     entry,
     exists,
@@ -1669,10 +1825,19 @@ export function computeLogResult(
     atCountThreshold,
     lowDiversity,
     pastThreshold,
+    allSuppressed,
     // Records are surfaced once the COUNT bar is hit (so a reviewer can see why a
     // log is low-diversity), even though the Ask only fires on pastThreshold.
-    newRecords: atCountThreshold ? newRecords : [],
+    //
+    // mt#4049: `allSuppressed` is the second gate, and it is required rather
+    // than cosmetic. An all-suppressed log has `atCountThreshold === false` by
+    // construction, so without this it would be routed for review and handed an
+    // EMPTY `newRecords` — the reviewer told to judge a log and shown nothing,
+    // which is the compounding trap the spec names. The records are exactly
+    // what answers this leg's question ("is this gate too broad?").
+    newRecords: atCountThreshold || allSuppressed ? newRecords : [],
     watermarkCount,
+    watermarkStranded,
     openAskId: watermark?.openAskId,
     // Calibration logs are APPEND-ONLY (records appended as events fire, never
     // reordered), so the first record IS the earliest — mt#2896 review NB1. A
@@ -1684,7 +1849,9 @@ export function computeLogResult(
     // bar. `newRecords` above is deliberately empty below threshold; the
     // verdict must not be, because a "cannot classify" disposition is most
     // likely to be written about a log that has not reached threshold yet.
-    classifiability: assessClassifiability(newRecords),
+    // `entry.name` is what keys `JUDGED_TEXT_FIELDS` (mt#4465) — without it the
+    // judged-text derivation can only see the shared capture marker.
+    classifiability: assessClassifiability(newRecords, entry.name),
   };
 }
 
@@ -1770,9 +1937,26 @@ export type JudgedTextRecoverability = "recoverable" | "partial" | "unrecoverabl
 
 export interface JudgedTextAssessment {
   recoverability: JudgedTextRecoverability;
-  /** Records carrying the mt#3607 capture marker. */
+  /**
+   * Records carrying the mt#3607 capture marker — the ADOPTION signal.
+   *
+   * Deliberately still marker-only after mt#4465: this is what reports whether
+   * a writer uses the shared capture contract, and it is the honest home for
+   * that pressure. `recoverability` no longer derives from it alone.
+   */
   capturedRecords: number;
+  /**
+   * Records whose judged text can actually be re-read (mt#4465) — the marker,
+   * OR a mapped per-detector field. This is what `recoverability` derives from.
+   */
+  recoverableRecords: number;
   recordsAssessed: number;
+  /**
+   * Set when the verdict is `unrecoverable` AND this log has no entry in
+   * `JUDGED_TEXT_FIELDS` — so a reader can tell "the text is gone" from
+   * "nobody has told the sweep where this detector puts it" (mt#4465 SC4).
+   */
+  unmappedDetector?: string;
 }
 
 export interface ClassifiabilityAssessment {
@@ -1847,45 +2031,183 @@ export interface ClassifiabilityAssessment {
  * false rationale, so it is gone. If a future per-kind branch ever does name
  * the marker, this needs a top-level read AND a test that fails without it.
  *
- * Marker-only, deliberately. A writer that captures under its own key —
- * `wall-of-text`'s `textHash`, `retrospective-trigger`'s `transcript_excerpt` —
- * reads as unrecoverable here, and that is the intended answer rather than a
- * false negative: `judged-input-capture.ts` defines the marker as the contract
- * (`hasJudgedInputCapture` is the same one-line predicate), and its own doc
- * tells readers to treat its absence as "un-auditable". Matching a bespoke-key
- * allowlist here would be a second list to drift, and would remove the only
- * incentive to adopt the shared path.
+ * Marker-only, and that is the ADOPTION signal rather than the whole answer
+ * (corrected by mt#4465).
+ *
+ * This function is unchanged and `capturedRecords` still means exactly what it
+ * meant: how many records adopted `judged-input-capture.ts`'s shared contract.
+ * What changed is that {@link assessJudgedText} no longer derives
+ * `recoverability` from it ALONE — see that function for why.
+ *
+ * The rationale this docblock used to carry ("a writer that captures under its
+ * own key reads as unrecoverable here, and that is the intended answer rather
+ * than a false negative") is corrected rather than deleted, because it argued
+ * against the behaviour that now ships and a later reader would otherwise meet
+ * it as current. It was defensible on its own terms — an allowlist is a second
+ * list to drift, and non-adoption should cost something — but it answered a
+ * DIFFERENT question from the one the field is named for. Measured 2026-08-29:
+ * `untaken-action` carried `final_message_tail` on 390 of 390 records and
+ * reported `unrecoverable`; `negative-existence-claim` carried a populated
+ * `claims[].excerpt` on 90 of 90 and reported the same. The judged text was
+ * right there.
  */
 function hasCaptureMarker(record: CalibrationRecord): boolean {
   const passthrough = (record as SharedCalibrationFields).detectorFields;
   return typeof passthrough?.[CAPTURE_SCHEMA_KEY] === "number";
 }
 
-function assessJudgedText(records: CalibrationRecord[]): JudgedTextAssessment {
-  if (records.length === 0) {
-    return { recoverability: "no-records", capturedRecords: 0, recordsAssessed: 0 };
-  }
-  const capturedRecords = records.filter(hasCaptureMarker).length;
-  // `partial` is its own answer, not a rounding of the other two. Adoption
-  // lands mid-log — `pre-narration` sat at 133 captured of 375 the day this
-  // shipped — and a reviewer facing a partial log can rate the captured half
-  // while knowing the rest is gone. Collapsing it either way would hide that.
-  const recoverability: JudgedTextRecoverability =
-    capturedRecords === 0
-      ? "unrecoverable"
-      : capturedRecords === records.length
-        ? "recoverable"
-        : "partial";
-  return { recoverability, capturedRecords, recordsAssessed: records.length };
+/**
+ * Where each detector puts its judged text, when it does not use the shared
+ * capture marker (mt#4465).
+ *
+ * Keyed on `CalibrationLogEntry.name` — the reviewer-facing identity, and the
+ * granularity that matters, since judged text is a property of the DETECTOR
+ * rather than of the parse `kind` (two logs share the `retrospective-trigger`
+ * kind and write different fields).
+ *
+ * **A field may sit at EITHER level, so both are checked (mem#888).** A key no
+ * per-kind branch names rides into `detectorFields`, and these are genuinely
+ * split: `excerpt` and `transcript_excerpt` are consumed at the top level,
+ * while `untaken-action`'s `final_message_tail` reaches the passthrough — which
+ * is the same two-level trap that made `captureSchema` itself misbehave in
+ * mt#3607 (PR #2679 R1). Checking one level would work for some of these logs
+ * and silently fail for others.
+ *
+ * Adding an entry is the cheap, honest move when a detector writes judged text
+ * under its own key. Adopting the shared marker is still better and is still
+ * what `capturedRecords` reports.
+ */
+const JUDGED_TEXT_FIELDS: ReadonlyMap<string, readonly string[]> = new Map([
+  ["untaken-action", ["final_message_tail"]],
+  ["wall-of-text", ["excerpt"]],
+  ["retrospective-trigger", ["transcript_excerpt"]],
+  // `claims[].excerpt` names the SUB-FIELD, and that precision is load-bearing
+  // rather than cosmetic. A bare `claims` was the first implementation, and it
+  // reported `recoverable` for records whose excerpts were ALL empty — because
+  // each element also carries a non-empty `pattern`, so "any string in the
+  // element" was satisfied by the matcher's own pattern rather than by the
+  // judged text. Caught by this task's own SC3 test.
+  ["negative-existence-claim", ["claims[].excerpt"]],
+]);
+
+/**
+ * Whether a plain value carries readable judged text.
+ *
+ * Stricter than {@link isVacuousEvidence}, which counts any populated
+ * collection: reporting `recoverable` over text nobody can read is the
+ * permissive direction this whole mechanism exists to prevent.
+ */
+function carriesJudgedText(value: unknown): boolean {
+  return typeof value === "string" && value.length > 0;
 }
 
-export function assessClassifiability(records: CalibrationRecord[]): ClassifiabilityAssessment {
+/**
+ * Read one field spec off a record level. Supports a single `<array>[].<key>`
+ * hop, which is how a detector that records several claims per fire (each with
+ * its own excerpt) names the excerpt rather than the wrapper.
+ */
+function fieldCarriesJudgedText(level: unknown, spec: string): boolean {
+  if (!level || typeof level !== "object") return false;
+  const fields = level as Record<string, unknown>;
+
+  const [arrayKey, elementKey] = spec.split("[].");
+  if (elementKey === undefined) return carriesJudgedText(fields[spec]);
+
+  const array = arrayKey === undefined ? undefined : fields[arrayKey];
+  if (!Array.isArray(array)) return false;
+  return array.some((element) => carriesJudgedText(readKey(element, elementKey)));
+}
+
+/** One key off an unknown value, when that value is an object. */
+function readKey(value: unknown, key: string): unknown {
+  if (!value || typeof value !== "object") return undefined;
+  return (value as Record<string, unknown>)[key];
+}
+
+/** True when the record carries readable judged text under one of `fields`, at EITHER level. */
+function hasMappedJudgedText(record: CalibrationRecord, fields: readonly string[]): boolean {
+  const passthrough = (record as SharedCalibrationFields).detectorFields;
+  return fields.some(
+    (field) => fieldCarriesJudgedText(record, field) || fieldCarriesJudgedText(passthrough, field)
+  );
+}
+
+/**
+ * Whether the judged text can be re-read — derived from the evidence a record
+ * ACTUALLY carries, not from the capture marker alone (mt#4465).
+ *
+ * `JudgedTextRecoverability`'s own doc states the question this answers: "can I
+ * re-read what the detector was looking at?" That is a FACT about the record.
+ * Deriving it from the marker alone answered a different question — "did this
+ * writer adopt the shared contract?" — and so reported `unrecoverable` over
+ * logs whose judged text was sitting in every record. `/calibration-review`
+ * turns `unrecoverable` into a HOLD, so three logs (four, with
+ * `negative-existence-claim`) were held permanently unratable by a signal that
+ * was measurably false about them; for a calibration-first detector that also
+ * blocks the only path off calibration-first.
+ *
+ * **The adoption signal is preserved, not overridden.** `capturedRecords` still
+ * counts marker-carrying records only, and still reports 0 for those logs in
+ * the same output — which is the honest place for that signal. Nothing about
+ * this weakens the bar mt#3607 set: a record carrying neither the marker nor
+ * mapped judged text still counts as unrecoverable.
+ */
+function assessJudgedText(records: CalibrationRecord[], logName?: string): JudgedTextAssessment {
+  if (records.length === 0) {
+    return {
+      recoverability: "no-records",
+      capturedRecords: 0,
+      recoverableRecords: 0,
+      recordsAssessed: 0,
+    };
+  }
+
+  const mappedFields = logName ? JUDGED_TEXT_FIELDS.get(logName) : undefined;
+  const capturedRecords = records.filter(hasCaptureMarker).length;
+  const recoverableRecords = records.filter(
+    (record) =>
+      hasCaptureMarker(record) || (mappedFields ? hasMappedJudgedText(record, mappedFields) : false)
+  ).length;
+
+  // `partial` is its own answer, not a rounding of the other two. Adoption
+  // lands mid-log — `pre-narration` sat at 133 captured of 375 the day this
+  // shipped — and a reviewer facing a partial log can rate the recoverable half
+  // while knowing the rest is gone. Collapsing it either way would hide that.
+  const recoverability: JudgedTextRecoverability =
+    recoverableRecords === 0
+      ? "unrecoverable"
+      : recoverableRecords === records.length
+        ? "recoverable"
+        : "partial";
+
+  // Name the gap rather than reporting a bare 0 (mt#4465 SC4). A log that is
+  // unrecoverable AND has no mapping is ambiguous between "the text is gone"
+  // and "nobody told this function where to look" — a NEW detector hits the
+  // second and would otherwise look identical to the first. Only reported when
+  // the verdict is actually unrecoverable: a marker-carrying log needs no
+  // mapping and is not a gap.
+  const unmappedDetector =
+    recoverability === "unrecoverable" && !mappedFields ? (logName ?? "<unnamed log>") : undefined;
+
+  return {
+    recoverability,
+    capturedRecords,
+    recoverableRecords,
+    recordsAssessed: records.length,
+    ...(unmappedDetector ? { unmappedDetector } : {}),
+  };
+}
+
+export function assessClassifiability(
+  records: CalibrationRecord[],
+  logName?: string
+): ClassifiabilityAssessment {
   if (records.length === 0) {
     return {
       verdict: "no-records",
       evidenceFields: [],
       recordsAssessed: 0,
-      judgedText: assessJudgedText(records),
+      judgedText: assessJudgedText(records, logName),
     };
   }
 
@@ -1920,7 +2242,7 @@ export function assessClassifiability(records: CalibrationRecord[]): Classifiabi
     verdict: fields.size > 0 ? "classifiable" : "not-classifiable",
     evidenceFields: [...fields].sort(),
     recordsAssessed: records.length,
-    judgedText: assessJudgedText(records),
+    judgedText: assessJudgedText(records, logName),
   };
 }
 
@@ -1942,6 +2264,11 @@ export function assessClassifiability(records: CalibrationRecord[]): Classifiabi
  * the exhaustiveness this object (and `KIND_FIXTURES`) exist to guarantee.
  */
 const KNOWN_KIND_MEMBERSHIP: Record<CalibrationLogEntry["kind"], true> = {
+  // mt#4978: the DETECTOR is retired and its `CALIBRATION_LOG_REGISTRY` entry is
+  // gone, but the `kind` stays in the union so the retained log can still be
+  // parsed — and this object is exhaustive over that union by construction, so
+  // the entry stays with it. Remove both together or neither.
+  "stop-at-decision": true,
   "causal-premise": true,
   "retrospective-trigger": true,
   "ask-routing-deferral": true,
@@ -1956,7 +2283,6 @@ const KNOWN_KIND_MEMBERSHIP: Record<CalibrationLogEntry["kind"], true> = {
   "operator-deferral": true,
   "untaken-action": true,
   "retrospective-completeness": true,
-  "stop-at-decision": true,
   "bare-entity-ref": true,
   "bare-prohibition": true,
   "execution-evidence-at-coverage": true,
@@ -2115,7 +2441,22 @@ export interface ReviewDueLog {
   suppressedSinceLastReview: number;
   totalFires: number;
   distinctPhrases: number;
-  reason: "past-threshold" | "time-stale" | "never-reviewed" | "never-fired";
+  reason:
+    | "past-threshold"
+    | "time-stale"
+    | "never-reviewed"
+    | "never-fired"
+    | "watermark-stranded"
+    | "all-suppressed";
+  /**
+   * The watermark this log was compared against (mt#4904, PR #3572 R1).
+   * Carried so a consumer can render the `watermark-stranded` leg's actual
+   * comparison — "watermark 424 exceeds 121 record(s)" — instead of the shared
+   * warning line's `injectedFiresSinceLastReview`, which the stranding clamps
+   * to 0 and which would otherwise report "0 new fire(s)" about a log being
+   * flagged for review.
+   */
+  watermarkCount: number;
   /** Forwarded from the watermark's `openAskId` (mt#2659); undefined for never-reviewed (no watermark). */
   openAskId?: string;
   /**
@@ -2147,13 +2488,35 @@ function toReviewDueLog(
     totalFires: r.totalFires,
     distinctPhrases: r.distinctPhrases,
     reason,
+    watermarkCount: r.watermarkCount,
     openAskId,
     reviewByDays,
   };
 }
 
 /**
- * Determine which logs are review-due, per FOUR independent conditions:
+ * Determine which logs are review-due, per SIX independent conditions.
+ *
+ *   0. watermark-stranded — the watermark exceeds the log's CURRENT record
+ *      count (mt#4904), so the counts every other leg reads are invalid: the
+ *      subtraction clamps to 0 and the slice is empty. Checked FIRST and
+ *      ungated, because all four below decline such a log — two on a zero
+ *      injected count, two because they require NO watermark — leaving it
+ *      permanently unreviewable with no error raised anywhere.
+ *
+ *   0b. all-suppressed — the detector detected at volume and the operator saw
+ *      NONE of it: zero injected fires with the SUPPRESSED count past
+ *      FIRES_THRESHOLD (mt#4049). Like leg 0 this is ungated on the watermark
+ *      and checked before the watermark split, because all four originals
+ *      decline it by design — leg 1's count bar reads the injected count
+ *      (pinned at 0), legs 2 and 3 carry explicit
+ *      `injectedFiresSinceLastReview <= 0` guards, and leg 4 requires zero
+ *      total fires while this log has records. Implements the
+ *      counter-consideration mt#3197 (PR #2300 R1) recorded and declined to
+ *      invent mid-review; its question is "is this gate too broad?", not
+ *      "review these fires", which is why it carries its own warning text.
+ *
+ * The original four:
  *   1. past-threshold — fires-since-review >= FIRES_THRESHOLD AND
  *      distinctPhrases >= DIVERSITY_THRESHOLD (the diversity-aware count bar).
  *   2. time-stale     — the log HAS a watermark (reviewed before), has >= 1 new
@@ -2186,8 +2549,55 @@ export function computeReviewDueLogs(
   for (const r of results) {
     const wm = watermarks[r.entry.path];
 
+    // watermark-stranded (mt#4904): FIRST, because every leg below reads counts
+    // this condition invalidates. When the watermark exceeds the log's record
+    // count, `firesSinceLastReview` is clamped to 0 and `newRecords` is empty —
+    // so `past-threshold` and `time-stale` decline on a zero injected count,
+    // and `never-reviewed` / `never-fired` are unreachable because a watermark
+    // exists. The log falls through all four and is never reviewed again.
+    //
+    // Deliberately NOT gated on an injected count, unlike its siblings: that
+    // gate asks "has the operator seen anything since the last review", and
+    // here the question is whether the last-review marker means anything at
+    // all. Gating it would reproduce exactly the silence it exists to break.
+    // Gated on `exists` (found by live verification, mt#4904). An ABSENT log
+    // has `totalFires: 0`, so any watermark at all satisfies the comparison —
+    // and a retired detector is exactly that shape: `policy-coverage` was
+    // retired by mt#4197 and its watermark still reads 1760 against a file that
+    // is gone. Flagging it would say "review these fires" about a log with no
+    // fires and no file, which is noise rather than the signal this leg exists
+    // for. A watermark orphaned by a DELETED log is a real but different
+    // condition (nothing to review, only to clean up) and is not this task's.
+    if (r.exists && r.watermarkStranded) {
+      due.push(toReviewDueLog(r, "watermark-stranded", wm?.openAskId));
+      continue;
+    }
+
     if (r.pastThreshold) {
       due.push(toReviewDueLog(r, "past-threshold", wm?.openAskId));
+      continue;
+    }
+
+    // all-suppressed (mt#4049): the detector detected at volume and the
+    // operator saw none of it. Placed HERE — after past-threshold, before the
+    // watermark split — because it must reach a log whether or not one has ever
+    // been reviewed, and because all three legs below decline it by design:
+    // `never-reviewed` and `time-stale` each carry an explicit
+    // `injectedFiresSinceLastReview <= 0` guard, and `never-fired` requires
+    // `totalFires <= 0` while this log has records.
+    //
+    // Ungated on the watermark for the same reason `watermark-stranded` is: the
+    // question is not "has anything happened since the last review" but whether
+    // the detector's output is reaching anyone at all.
+    //
+    // This implements the counter-consideration mt#3197 (PR #2300 R1) recorded
+    // and declined to invent mid-review, quoted in this leg's own comment
+    // below. Its two constraints are honoured: the reason is its OWN rather
+    // than a reuse of the count/time legs, and the cadence hook gives it its
+    // own warning text — because "review these fires" is the wrong question for
+    // a log with no fires to review.
+    if (r.allSuppressed) {
+      due.push(toReviewDueLog(r, "all-suppressed", wm?.openAskId));
       continue;
     }
 
@@ -2509,6 +2919,24 @@ export interface ReceiptReconciliation {
   midPassArrivals: { path: string; count: number }[];
   /** Paths whose receipt count sat BELOW the existing watermark, raised to it. */
   clampedPaths: string[];
+  /**
+   * Paths whose watermark was STRANDED above the log's record count and has
+   * been RESET to 0, restoring their records to the review queue (mt#4941).
+   *
+   * The counterpart to {@link clampedPaths}, and disjoint from it by
+   * construction: both describe a receipt count below the existing watermark,
+   * and `watermarkStranded` decides which one it is. A stale token is clamped
+   * UP to protect a prior pass's reviews; a stranded watermark is REPAIRED
+   * down, because the records it counts live in a file that no longer holds
+   * them and there are no prior-pass reviews left to protect.
+   *
+   * Named rather than left silent for the same reason `clampedPaths` is: a
+   * repair that reports nothing is byte-identical to an ack that had nothing
+   * to repair, and the strand this closes went a full day unnoticed precisely
+   * because `watermarkAdvanced: true` beside 13 clamped paths read as success
+   * (mt#4941 `## Measured, 2026-09-03`).
+   */
+  repairedPaths: string[];
   /** Ackable paths the receipt does not cover, so they cannot be advanced. */
   unreceiptedPaths: string[];
   /**
@@ -2564,11 +2992,30 @@ export interface ReceiptReconciliation {
  *     tree or the log was rotated. REJECTED outright: writing it would mark
  *     records reviewed that do not exist yet, and every future sweep would
  *     read them as already-seen the moment they land.
- *   - **Count BELOW the existing watermark** — a stale token from an earlier
- *     pass. CLAMPED UP to the watermark and named in `clampedPaths`: a
- *     watermark that moves backwards would re-open records a prior pass
- *     legitimately reviewed, which is the same data loss in the other
- *     direction.
+ *   - **Count BELOW the existing watermark, log NOT stranded** — a stale token
+ *     from an earlier pass. CLAMPED UP to the watermark and named in
+ *     `clampedPaths`: a watermark that moves backwards would re-open records a
+ *     prior pass legitimately reviewed, which is the same data loss in the
+ *     other direction.
+ *   - **Count BELOW the existing watermark, log STRANDED** (mt#4941) — the
+ *     watermark exceeds the log's own record count, so its basis is gone: the
+ *     records it claims were reviewed do not live in this file any more (it was
+ *     rotated, truncated, or re-rooted under it). RESET to 0 and named in
+ *     `repairedPaths`, which leaves the log's live records unreviewed so the
+ *     next sweep presents them normally — the receipt's count says what the
+ *     sweep OBSERVED, and a stranded sweep observes records it showed nobody.
+ *     Clamping here is exactly wrong —
+ *     there are no prior-pass reviews to protect, and raising the value back
+ *     preserves the strand, which leaves the log permanently review-due with
+ *     `firesSinceLastReview: 0` and nothing an in-tool action can clear.
+ *
+ *     The two cases are separated by `result.watermarkStranded`
+ *     (`watermarkCount > totalFires`, computed in `computeLogResult` from both
+ *     operands while they are still in hand) — NOT by the receipt, which looks
+ *     identical either way. Until mt#4941 only the first case existed, so every
+ *     stranded log's ack silently re-wrote the value that stranded it: measured
+ *     2026-09-03, an ack over 13 stranded logs returned `watermarkAdvanced:
+ *     true` with all 13 in `clampedPaths` and every stored count unchanged.
  *   - **Path absent from the receipt** — the read sweep never showed this log,
  *     so nothing is known about what was classified. NOT advanced, and named
  *     in `unreceiptedPaths`. Advancing on a guess is the defect.
@@ -2593,6 +3040,7 @@ export function reconcileReviewReceipt(
   const reviewedCounts: Record<string, number> = {};
   const midPassArrivals: { path: string; count: number }[] = [];
   const clampedPaths: string[] = [];
+  const repairedPaths: string[] = [];
   const unreceiptedPaths: string[] = [];
   const newlyDuePaths: string[] = [];
   const claimHeldPaths: string[] = [];
@@ -2668,13 +3116,40 @@ export function reconcileReviewReceipt(
 
     const watermarkCount = watermarks[path]?.lastReviewedCount ?? 0;
     if (receiptCount < watermarkCount) {
-      clampedPaths.push(path);
-      reviewedCounts[path] = watermarkCount;
+      // Both dispositions arrive on this ONE condition, and `watermarkStranded`
+      // is the whole difference between them (mt#4941).
+      if (result.watermarkStranded) {
+        repairedPaths.push(path);
+        // RESET, not the receipt count — and this is the load-bearing choice.
+        // A stranded log shows the reviewer nothing: `computeLogResult` sets
+        // `firesSinceLastReview = max(0, totalFires - watermarkCount)` and
+        // `newRecords = allRecords.slice(watermarkCount)`, both empty when the
+        // watermark exceeds the count. So the receipt's count records what the
+        // sweep OBSERVED, not what anyone classified, and writing it would mark
+        // every live record reviewed by nobody — precisely the defect the
+        // receipt exists to prevent (mt#3906). Zero leaves them unreviewed, so
+        // the next sweep presents them through the normal past-threshold leg.
+        //
+        // It is also the recoverable branch, which is why it is the default
+        // rather than a preference: an operator who would rather write the
+        // backlog off can ack normally once these are due again, whereas
+        // nothing can un-mark records reviewed — there is no set-watermark
+        // affordance (mt#3752 `## Recovery status`).
+        reviewedCounts[path] = 0;
+      } else {
+        clampedPaths.push(path);
+        reviewedCounts[path] = watermarkCount;
+      }
     } else {
       reviewedCounts[path] = receiptCount;
     }
 
-    const arrived = result.totalFires - (reviewedCounts[path] as number);
+    // A repaired log's whole corpus is now un-reviewed by design; calling that
+    // a mid-pass arrival would report a restored backlog as records that landed
+    // while the reviewer worked. `repairedPaths` already names it.
+    const arrived = repairedPaths.includes(path)
+      ? 0
+      : result.totalFires - (reviewedCounts[path] as number);
     if (arrived > 0) {
       midPassArrivals.push({ path, count: arrived });
     }
@@ -2684,6 +3159,7 @@ export function reconcileReviewReceipt(
     reviewedCounts,
     midPassArrivals,
     clampedPaths,
+    repairedPaths,
     unreceiptedPaths,
     newlyDuePaths,
     claimHeldPaths,
@@ -3022,7 +3498,6 @@ const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
   "operator-deferral": "operator-deferral-detector",
   "untaken-action": "turn-end-untaken-action-scan",
   "retrospective-completeness": "retrospective-completeness-detector",
-  "stop-at-decision": "stop-at-decision-scan",
 };
 
 /**

@@ -53,7 +53,7 @@ Answering that question centrally — before dispatching to any specific transpo
 
 ## Decision
 
-We introduce the **Ask subsystem** as a new domain layer at `src/domain/ask/` composed of four elements:
+We introduce the **Ask subsystem** as a new domain layer at `packages/domain/src/ask/` composed of four elements:
 
 1. An `Ask` entity (typed + persisted) with a classified `kind`
 2. A seven-kind taxonomy with per-kind routing, SLA, and sync/async posture
@@ -64,7 +64,7 @@ We introduce the **Ask subsystem** as a new domain layer at `src/domain/ask/` co
 ### The Ask entity
 
 ```typescript
-// src/domain/ask/types.ts
+// packages/domain/src/ask/types.ts
 export interface Ask {
   // Identity
   id: string; // ulid or uuid
@@ -191,7 +191,7 @@ For sync cases with an attached AG-UI client, stages 5 and 7 are carried by `RUN
 ### Router: policy-first → escalate-if-uncovered
 
 ```typescript
-// src/domain/ask/router.ts
+// packages/domain/src/ask/router.ts
 export interface AskRouter {
   route(ask: Ask): Promise<RoutedAsk>;
 }

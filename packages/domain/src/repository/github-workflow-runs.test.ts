@@ -8,12 +8,17 @@
 import { describe, expect, test, mock } from "bun:test";
 import {
   listWorkflowRuns,
+  listWorkflowRunJobs,
   viewWorkflowRunLogs,
+  viewWorkflowJobLog,
+  viewFailedJobLogs,
   rerunWorkflowRun,
+  MAX_INLINE_LOG_BYTES,
   type WorkflowRun,
 } from "./github-workflow-runs";
 import { MinskyError } from "../errors/index";
 import { deflateRawSync } from "node:zlib";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 const TEST_GH = {
   owner: "test-owner",
@@ -286,7 +291,8 @@ describe("viewWorkflowRunLogs", () => {
     const result = await viewWorkflowRunLogs(
       TEST_GH,
       26132756066,
-      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2]
+      {},
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[3]
     );
     expect(oct.calls[0]?.method).toBe("downloadWorkflowRunLogs");
     expect(oct.calls[0]?.params).toMatchObject({
@@ -318,7 +324,8 @@ describe("viewWorkflowRunLogs", () => {
     const result = await viewWorkflowRunLogs(
       TEST_GH,
       26132756066,
-      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2]
+      {},
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[3]
     );
     // The fallback path returns the base64 wrapper.
     expect(result).toContain("[base64-encoded ZIP");
@@ -330,10 +337,20 @@ describe("viewWorkflowRunLogs", () => {
   test("throws MinskyError when runId is 0 or negative", async () => {
     const oct = buildMockOctokit();
     await expect(
-      viewWorkflowRunLogs(TEST_GH, 0, oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2])
+      viewWorkflowRunLogs(
+        TEST_GH,
+        0,
+        {},
+        oct as unknown as Parameters<typeof viewWorkflowRunLogs>[3]
+      )
     ).rejects.toThrow(MinskyError);
     await expect(
-      viewWorkflowRunLogs(TEST_GH, -1, oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2])
+      viewWorkflowRunLogs(
+        TEST_GH,
+        -1,
+        {},
+        oct as unknown as Parameters<typeof viewWorkflowRunLogs>[3]
+      )
     ).rejects.toThrow(MinskyError);
   });
 
@@ -345,7 +362,8 @@ describe("viewWorkflowRunLogs", () => {
     const result = await viewWorkflowRunLogs(
       TEST_GH,
       26132756066,
-      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2]
+      {},
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[3]
     );
     expect(result).toContain("0_job.txt");
     expect(result).toContain("step 1: build");
@@ -369,7 +387,8 @@ describe("viewWorkflowRunLogs", () => {
     const result = await viewWorkflowRunLogs(
       TEST_GH,
       26132756066,
-      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2]
+      {},
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[3]
     );
     expect(result).toContain("0_monitor.txt");
     expect(result).toContain("Current runner version");
@@ -390,7 +409,8 @@ describe("viewWorkflowRunLogs", () => {
     const result = await viewWorkflowRunLogs(
       TEST_GH,
       28974111562,
-      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2]
+      {},
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[3]
     );
     // Filenames from every one of the archive's 10 entries.
     expect(result).toContain("0_monitor.txt");
@@ -411,7 +431,8 @@ describe("viewWorkflowRunLogs", () => {
     const result = await viewWorkflowRunLogs(
       TEST_GH,
       26132756066,
-      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2]
+      {},
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[3]
     );
     expect(result).toContain("monitor/1_étape.txt");
     expect(result).toContain("step output");
@@ -427,7 +448,8 @@ describe("viewWorkflowRunLogs", () => {
     const result = await viewWorkflowRunLogs(
       TEST_GH,
       26132756066,
-      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2]
+      {},
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[3]
     );
     expect(result).toContain("café.txt");
     expect(result).not.toContain("�");
@@ -441,7 +463,8 @@ describe("viewWorkflowRunLogs", () => {
     const result = await viewWorkflowRunLogs(
       TEST_GH,
       26132756066,
-      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2]
+      {},
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[3]
     );
     expect(result).toContain(DEFLATE_FALLBACK_MARKER);
   });
@@ -458,7 +481,8 @@ describe("viewWorkflowRunLogs", () => {
     const result = await viewWorkflowRunLogs(
       TEST_GH,
       26132756066,
-      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2]
+      {},
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[3]
     );
     // Aborted into the fallback — not 64MB of decoded text.
     expect(result).toContain(DEFLATE_FALLBACK_MARKER);
@@ -639,5 +663,267 @@ describe("rerunWorkflowRun (mt#2775)", () => {
         oct as unknown as Parameters<typeof rerunWorkflowRun>[3]
       )
     ).rejects.toThrow(/GitHub Authentication Failed/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4749 — bounded log fetching (jobId / failedOnly / tailLines) + the
+// server-side size cap that spools-and-truncates an oversized result.
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the spooled-file path from a `boundLogPayload` truncation marker.
+ *
+ * Reads via `Bun.file()` rather than `node:fs` (custom/no-real-fs-in-tests
+ * forbids importing `fs`/`node:fs` in test files) — this is still a REAL
+ * filesystem read, deliberately: the assertion under test is that
+ * `boundLogPayload` actually wrote the full content to disk, which an
+ * in-memory fs mock cannot verify. `tests/setup.ts` isolates `XDG_STATE_HOME`
+ * to a per-run OS temp directory, so nothing here touches real Minsky state,
+ * and that temp directory is left for the OS to reclaim rather than
+ * explicitly removed (no `rmSync` available under the same rule).
+ */
+function extractSpooledPath(text: string): string {
+  const match = text.match(/Full content spooled to: (\S+)/);
+  if (!match)
+    throw new Error(`expected a spooled-file pointer in: ${safeTruncate(text, 200, "head")}`);
+  return match[1] as string;
+}
+
+function jobLogOctokit(logsByJobId: Record<number, string>) {
+  const calls: { method: string; params: Record<string, unknown> }[] = [];
+  return {
+    rest: {
+      actions: {
+        downloadJobLogsForWorkflowRun: mock(async (params: Record<string, unknown>) => {
+          calls.push({ method: "downloadJobLogsForWorkflowRun", params });
+          const jobId = params["job_id"] as number;
+          return { data: logsByJobId[jobId] ?? "" };
+        }),
+        listJobsForWorkflowRun: mock(async (params: Record<string, unknown>) => {
+          calls.push({ method: "listJobsForWorkflowRun", params });
+          return {
+            data: {
+              jobs: [
+                { id: 1, name: "lint", status: "completed", conclusion: "success" },
+                { id: 2, name: "build", status: "completed", conclusion: "failure" },
+                { id: 3, name: "e2e", status: "completed", conclusion: "cancelled" },
+                { id: 4, name: "docs", status: "completed", conclusion: "skipped" },
+              ],
+            },
+          };
+        }),
+      },
+    },
+    calls,
+  };
+}
+
+describe("viewWorkflowJobLog (mt#4749)", () => {
+  test("downloads a SINGLE job's log via the native per-job endpoint (no ZIP)", async () => {
+    const oct = jobLogOctokit({ 42: "step 1: build\nstep 2: FAIL\n" });
+    const result = await viewWorkflowJobLog(
+      TEST_GH,
+      42,
+      {},
+      oct as unknown as Parameters<typeof viewWorkflowJobLog>[3]
+    );
+    expect(result).toContain("step 2: FAIL");
+    expect(oct.calls[0]?.method).toBe("downloadJobLogsForWorkflowRun");
+    expect(oct.calls[0]?.params).toMatchObject({
+      owner: "test-owner",
+      repo: "test-repo",
+      job_id: 42,
+    });
+  });
+
+  test("tailLines keeps only the last N lines and records how many were omitted", async () => {
+    const lines = Array.from({ length: 50 }, (_, i) => `line ${i}`);
+    const oct = jobLogOctokit({ 7: lines.join("\n") });
+    const result = await viewWorkflowJobLog(
+      TEST_GH,
+      7,
+      { tailLines: 5 },
+      oct as unknown as Parameters<typeof viewWorkflowJobLog>[3]
+    );
+    expect(result).toContain("45 earlier line(s) omitted");
+    expect(result).toContain("line 49");
+    expect(result).not.toContain("line 44");
+  });
+
+  test("throws MinskyError when jobId is 0 or negative", async () => {
+    const oct = jobLogOctokit({});
+    await expect(
+      viewWorkflowJobLog(TEST_GH, 0, {}, oct as unknown as Parameters<typeof viewWorkflowJobLog>[3])
+    ).rejects.toThrow(MinskyError);
+  });
+
+  test("AT1: a >10MB job log is returned as a bounded payload (spool + truncation marker), never inline", async () => {
+    // Diagnostic content up front (mirrors the originating incident — the
+    // failure lived in the last couple of lines), padded past 10MB so the
+    // WHOLE fetch mirrors "a run whose full bundle is >10 MB" even when
+    // scoped to a single job.
+    const diagnostic = "FAIL: expected 1 to equal 2\n";
+    const padding = "x".repeat(11 * 1024 * 1024);
+    const hugeLog = `${padding}\n${diagnostic}`;
+    const oct = jobLogOctokit({ 99: hugeLog });
+
+    const result = await viewWorkflowJobLog(
+      TEST_GH,
+      99,
+      {},
+      oct as unknown as Parameters<typeof viewWorkflowJobLog>[3]
+    );
+
+    // Bounded: nowhere near the original 11MB+ input.
+    expect(result.length).toBeLessThan(MAX_INLINE_LOG_BYTES);
+    expect(result).toContain("TRUNCATED");
+    expect(result).toContain("mt#4749");
+
+    // The full content was never dropped — it's on disk at the named path.
+    const spooledPath = extractSpooledPath(result);
+    const spooledContent = await Bun.file(spooledPath).text();
+    expect(spooledContent).toBe(hugeLog);
+  });
+
+  test("two oversized spools with the same label do not collide (PR #3478 R1)", async () => {
+    // Reviewer finding: the spooled filename was `<label>-<Date.now()>.log`
+    // with no collision-avoidance suffix, so two spools in the same
+    // millisecond (a real shape now that viewFailedJobLogs fetches jobs in
+    // parallel) would silently overwrite each other. Same job id twice, same
+    // label, back-to-back — the second write must not clobber the first.
+    const first = "a".repeat(MAX_INLINE_LOG_BYTES + 1000);
+    const second = "b".repeat(MAX_INLINE_LOG_BYTES + 1000);
+    const oct = jobLogOctokit({ 123: first });
+
+    const firstResult = await viewWorkflowJobLog(
+      TEST_GH,
+      123,
+      {},
+      oct as unknown as Parameters<typeof viewWorkflowJobLog>[3]
+    );
+    const octSecond = jobLogOctokit({ 123: second });
+    const secondResult = await viewWorkflowJobLog(
+      TEST_GH,
+      123,
+      {},
+      octSecond as unknown as Parameters<typeof viewWorkflowJobLog>[3]
+    );
+
+    const firstPath = extractSpooledPath(firstResult);
+    const secondPath = extractSpooledPath(secondResult);
+
+    expect(firstPath).not.toBe(secondPath);
+    const firstContent = await Bun.file(firstPath).text();
+    const secondContent = await Bun.file(secondPath).text();
+    expect(firstContent).toBe(first);
+    expect(secondContent).toBe(second);
+  });
+});
+
+describe("listWorkflowRunJobs (mt#4749)", () => {
+  test("maps raw job fields to RunJobSummary", async () => {
+    const oct = jobLogOctokit({});
+    const jobs = await listWorkflowRunJobs(
+      TEST_GH,
+      555,
+      oct as unknown as Parameters<typeof listWorkflowRunJobs>[2]
+    );
+    expect(jobs).toHaveLength(4);
+    expect(jobs[1]).toMatchObject({ id: 2, name: "build", conclusion: "failure" });
+    expect(oct.calls[0]?.params).toMatchObject({ run_id: 555 });
+  });
+
+  test("listWorkflowRunJobs rejects a non-positive runId", async () => {
+    const oct = jobLogOctokit({});
+    await expect(
+      listWorkflowRunJobs(TEST_GH, 0, oct as unknown as Parameters<typeof listWorkflowRunJobs>[2])
+    ).rejects.toThrow(MinskyError);
+  });
+});
+
+describe("viewFailedJobLogs (mt#4749)", () => {
+  test("fetches logs only for jobs whose conclusion is not success/skipped", async () => {
+    const oct = jobLogOctokit({
+      2: "build failed: syntax error\n",
+      3: "cancelled mid-run\n",
+    });
+    const result = await viewFailedJobLogs(
+      TEST_GH,
+      555,
+      {},
+      oct as unknown as Parameters<typeof viewFailedJobLogs>[3]
+    );
+    expect(result.jobCount).toBe(2);
+    const ids = result.jobs.map((j) => j.id).sort();
+    expect(ids).toEqual([2, 3]);
+    const buildJob = result.jobs.find((j) => j.id === 2);
+    expect(buildJob?.logs).toContain("syntax error");
+    // "lint" (success) and "docs" (skipped) must not appear.
+    expect(result.jobs.some((j) => j.id === 1 || j.id === 4)).toBe(false);
+  });
+
+  test("tailLines is applied per job", async () => {
+    const oct = jobLogOctokit({
+      2: Array.from({ length: 10 }, (_, i) => `build line ${i}`).join("\n"),
+      3: Array.from({ length: 10 }, (_, i) => `e2e line ${i}`).join("\n"),
+    });
+    const result = await viewFailedJobLogs(
+      TEST_GH,
+      555,
+      { tailLines: 2 },
+      oct as unknown as Parameters<typeof viewFailedJobLogs>[3]
+    );
+    for (const job of result.jobs) {
+      expect(job.logs).toContain("8 earlier line(s) omitted");
+    }
+  });
+});
+
+describe("viewWorkflowRunLogs size cap (mt#4749 SC2/AT2)", () => {
+  test("an oversized whole-run log is spooled and replaced with a bounded pointer", async () => {
+    const hugeContent = "log line\n".repeat(200_000); // well past MAX_INLINE_LOG_BYTES
+    const zip = buildSingleEntryZip("0_build.txt", new TextEncoder().encode(hugeContent), 0);
+    const oct = octokitReturningZip(zip);
+
+    const result = await viewWorkflowRunLogs(
+      TEST_GH,
+      26132756066,
+      {},
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[3]
+    );
+
+    expect(result.length).toBeLessThan(MAX_INLINE_LOG_BYTES);
+    expect(result).toContain("TRUNCATED");
+
+    const spooledPath = extractSpooledPath(result);
+    const spooledContent = await Bun.file(spooledPath).text();
+    expect(spooledContent).toContain(hugeContent);
+  });
+
+  test("a small whole-run log is returned inline, unmodified by the cap", async () => {
+    const oct = buildMockOctokit();
+    const result = await viewWorkflowRunLogs(
+      TEST_GH,
+      26132756066,
+      {},
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[3]
+    );
+    expect(result).not.toContain("TRUNCATED");
+    expect(result).toContain("hello");
+  });
+
+  test("tailLines bounds the whole-run form to the last N lines", async () => {
+    const content = Array.from({ length: 20 }, (_, i) => `run line ${i}`).join("\n");
+    const zip = buildSingleEntryZip("0_build.txt", new TextEncoder().encode(content), 0);
+    const oct = octokitReturningZip(zip);
+    const result = await viewWorkflowRunLogs(
+      TEST_GH,
+      26132756066,
+      { tailLines: 3 },
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[3]
+    );
+    expect(result).toContain("run line 19");
+    expect(result).not.toContain("run line 16");
   });
 });

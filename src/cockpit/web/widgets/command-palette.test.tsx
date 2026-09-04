@@ -17,6 +17,8 @@ import { TabsProvider } from "../lib/tabs";
 import { TabBar } from "../components/TabBar";
 import { CommandPalette } from "../components/CommandPalette";
 import { NewConversationProvider } from "../hooks/useNewConversation";
+import { ProjectProvider } from "../lib/project-context";
+import { stubProjectsRoute } from "../lib/test-support/projects";
 
 function LocationProbe() {
   const { pathname } = useLocation();
@@ -30,15 +32,17 @@ function renderPalette() {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={["/"]}>
-        <TabsProvider>
-          {/* The palette carries actions as of mt#3464, so it now requires
-              the same provider Layout mounts around the whole shell. */}
-          <NewConversationProvider>
-            <TabBar />
-            <LocationProbe />
-            <CommandPalette />
-          </NewConversationProvider>
-        </TabsProvider>
+        <ProjectProvider>
+          <TabsProvider>
+            {/* The palette carries actions as of mt#3464, so it now requires
+                the same provider Layout mounts around the whole shell. */}
+            <NewConversationProvider>
+              <TabBar />
+              <LocationProbe />
+              <CommandPalette />
+            </NewConversationProvider>
+          </TabsProvider>
+        </ProjectProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -154,6 +158,7 @@ describe("CommandPalette (mt#2399)", () => {
       }
       throw new Error(`Unexpected fetch in test: ${url}`);
     }) as unknown as typeof fetch;
+    stubProjectsRoute();
   });
 
   afterEach(() => {

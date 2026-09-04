@@ -1,4 +1,9 @@
+/* eslint-disable custom/no-real-fs-in-tests -- mt#4755's last two cases read the gate's REAL
+   source to assert which constant each `logCalibrationRecord` call names. A fixture would assert
+   what I put in it; the claim is about the shipped file. */
 import { describe, test, expect } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   NON_GUARD_CALIBRATION_PRODUCERS,
   RETIRED_CALIBRATION_PRODUCERS,
@@ -7,10 +12,26 @@ import {
 } from "./calibration-log-declarations";
 import { GUARD_REGISTRY } from "../../.minsky/hooks/registry";
 import { STANDALONE_GUARD_CANARIES } from "./standalone-guard-canaries";
-import { AT_COVERAGE_CALIBRATION_LOG } from "../../.minsky/hooks/require-execution-evidence-before-merge";
-import { TEST_FIRST_CALIBRATION_LOG } from "../../.minsky/hooks/test-first-evidence";
-import { RENDER_PATH_CALIBRATION_LOG } from "../../.minsky/hooks/render-path-evidence";
-import { SC_COVERAGE_CALIBRATION_LOG } from "../../.minsky/hooks/success-criteria-coverage";
+import {
+  AT_COVERAGE_CALIBRATION_LOG,
+  AT_COVERAGE_STREAM,
+} from "../../.minsky/hooks/require-execution-evidence-before-merge";
+import {
+  TEST_FIRST_CALIBRATION_LOG,
+  TEST_FIRST_STREAM,
+} from "../../.minsky/hooks/test-first-evidence";
+import {
+  RENDER_PATH_CALIBRATION_LOG,
+  RENDER_PATH_STREAM,
+} from "../../.minsky/hooks/render-path-evidence";
+import {
+  SC_COVERAGE_CALIBRATION_LOG,
+  SC_COVERAGE_STREAM,
+} from "../../.minsky/hooks/success-criteria-coverage";
+import {
+  CONSUMER_ACCOUNT_CALIBRATION_LOG,
+  CONSUMER_ACCOUNT_STREAM,
+} from "../../.minsky/hooks/consumer-account-evidence";
 import {
   CALIBRATION_LOG as GATE_WALK_CALIBRATION_LOG,
   GUARD_NAME as GATE_WALK_GUARD_NAME,
@@ -162,16 +183,19 @@ describe("gate-walk-provenance's declaration (mt#4390)", () => {
   });
 });
 
-describe("the execution-evidence merge gate's four calibration logs (mt#4064)", () => {
+describe("the execution-evidence merge gate's five calibration logs (mt#4064, mt#4688)", () => {
   // Keyed off the WRITER CONSTANTS rather than hand-copied strings, because this one guard's
-  // declaration has now been incomplete twice in the same way: mt#3519 widened `calibrationLog`
-  // to accept a list precisely because the gate writes more than one log, and enumerated two of
-  // the four. Binding to the constants means renaming a log breaks this at the rename.
+  // declaration has now been incomplete THREE times in the same way: mt#3519 widened
+  // `calibrationLog` to accept a list precisely because the gate writes more than one log, and
+  // enumerated two of four; mt#4064 took it to four of five; mt#4688 added the fifth
+  // (`-consumer-account`, omitted when mt#4493 added that surface). Binding to the constants
+  // means renaming a log breaks this at the rename.
   const GATE_LOGS: readonly (readonly [string, string])[] = [
     ["AT_COVERAGE_CALIBRATION_LOG", AT_COVERAGE_CALIBRATION_LOG],
     ["TEST_FIRST_CALIBRATION_LOG", TEST_FIRST_CALIBRATION_LOG],
     ["RENDER_PATH_CALIBRATION_LOG", RENDER_PATH_CALIBRATION_LOG],
     ["SC_COVERAGE_CALIBRATION_LOG", SC_COVERAGE_CALIBRATION_LOG],
+    ["CONSUMER_ACCOUNT_CALIBRATION_LOG", CONSUMER_ACCOUNT_CALIBRATION_LOG],
   ];
 
   const stem = (logPath: string): string =>
@@ -194,19 +218,70 @@ describe("the execution-evidence merge gate's four calibration logs (mt#4064)", 
     }
   });
 
-  test("the four log names are pinned, so a rename cannot pass silently", () => {
-    // Also the scope statement for the two tests above: they bind the four constants that exist
-    // today, so a FIFTH surface added to this gate would pass them. For a log that lands on disk
-    // the backstop is `scripts/check-calibration-sweep-coverage.ts`, which fails when an existing
-    // `.minsky/*-calibration.jsonl` is visited by no sweep — that is how mt#4064's render-path gap
-    // was surfaced. The case with no backstop is a log declared nowhere AND never yet written, as
-    // `-sc-coverage` was: absent from disk, so invisible to every glob-driven check until it fires.
+  test("the five log names are pinned, so a rename cannot pass silently", () => {
+    // Also the scope statement for the two tests above: they bind the constants that exist today,
+    // so a SIXTH surface added to this gate would pass them. That prediction was written when
+    // there were four, and it came true — mt#4493 added `-consumer-account` and these tests were
+    // green throughout (mt#4688).
+    //
+    // The backstop this comment used to lean on did NOT catch it, for a reason worth recording:
+    // `scripts/check-calibration-sweep-coverage.ts` fails when an existing
+    // `.minsky/*-calibration.jsonl` is visited by no sweep — which is how mt#4064's render-path
+    // gap surfaced — but it still globs the repo-rooted directory mt#4748 emptied, so it now
+    // reports "nothing to check" and exits 0 over 47 live streams (mt#4914). A backstop reading
+    // an empty directory reports the same thing as a clean tree.
+    //
+    // So the general check no longer lives in a pinned list or in a glob: it is the
+    // `effects`-vs-`calibrationLog` invariant below, which is scoped to declarations and cannot
+    // go dark when a directory moves.
     expect(GATE_LOGS.map(([, logPath]) => stem(logPath))).toEqual([
       "execution-evidence-at-coverage",
       "execution-evidence-test-first",
       "execution-evidence-render-path",
       "execution-evidence-sc-coverage",
+      "execution-evidence-consumer-account",
     ]);
+  });
+});
+
+describe("mt#4688 — a canary's named recorder effects must all be declared (the invariant)", () => {
+  // Three instances on ONE declaration (mt#3519 0→2, mt#4064 2→4, mt#4688 4→5) is the signal
+  // that the omission is structural rather than careless. `effects` and `calibrationLog` are two
+  // lists in the SAME object literal that must agree — the same fact written twice, adjacent, with
+  // nothing comparing them. Every instance was an author updating one and not the other.
+  //
+  // The direction is deliberately ONE-WAY: a named recorder effect obliges a declaration, not the
+  // reverse. `recorderEffect()` with no argument declares the generic `"calibration"` effect and
+  // carries no stream name (three canaries use that form today), so requiring the inverse would
+  // fire on every one of them.
+  const namedRecorderStreams = (canary: (typeof STANDALONE_GUARD_CANARIES)[number]): string[] =>
+    canary.effects
+      .filter((e) => e.verdictShape === "recorder" && e.effect !== "calibration")
+      .map((e) => e.effect);
+
+  const declaredLogs = (canary: (typeof STANDALONE_GUARD_CANARIES)[number]): string[] => {
+    if (!canary.calibrationLog) return [];
+    return Array.isArray(canary.calibrationLog)
+      ? [...canary.calibrationLog]
+      : [canary.calibrationLog];
+  };
+
+  test("every named recorder effect appears in its own canary's calibrationLog", () => {
+    for (const canary of STANDALONE_GUARD_CANARIES) {
+      const declared = new Set(declaredLogs(canary));
+      for (const stream of namedRecorderStreams(canary)) {
+        expect(declared.has(stream), `${canary.guardName} declares effect "${stream}"`).toBe(true);
+      }
+    }
+  });
+
+  test("the invariant has something to check — at least one canary names a recorder stream", () => {
+    // A vacuous pass is the failure mode for a rule shaped like "for all X, P(X)": if the
+    // `verdictShape`/`effect` filter above ever stops matching (a renamed field, a changed default
+    // effect name), the test above goes green over an empty set and reports coverage it does not
+    // have. This pins the population as non-empty so that silent-zero cannot happen.
+    const total = STANDALONE_GUARD_CANARIES.flatMap(namedRecorderStreams);
+    expect(total.length).toBeGreaterThan(0);
   });
 });
 
@@ -218,3 +293,102 @@ describe("the execution-evidence merge gate's four calibration logs (mt#4064)", 
 // pure-logic equivalent — `findUnsweptCalibrationLogs` against synthetic
 // on-disk stems — is tested in
 // `src/domain/calibration/calibration-sweep-registry-derivation.test.ts`).
+
+describe("mt#4755 — the ladder's five path constants are DERIVED from their stream names", () => {
+  // SC2's whole point: the declaration and the write cannot disagree, because both come from one
+  // string. Binding the pairs here is what makes that structural rather than a convention — a
+  // future edit that re-spells a path literal instead of the stream name fails on the first row.
+  const PAIRS: readonly (readonly [string, string, string])[] = [
+    ["AT_COVERAGE", AT_COVERAGE_STREAM, AT_COVERAGE_CALIBRATION_LOG],
+    ["SC_COVERAGE", SC_COVERAGE_STREAM, SC_COVERAGE_CALIBRATION_LOG],
+    ["TEST_FIRST", TEST_FIRST_STREAM, TEST_FIRST_CALIBRATION_LOG],
+    ["RENDER_PATH", RENDER_PATH_STREAM, RENDER_PATH_CALIBRATION_LOG],
+    ["CONSUMER_ACCOUNT", CONSUMER_ACCOUNT_STREAM, CONSUMER_ACCOUNT_CALIBRATION_LOG],
+  ];
+
+  test("AT3: each path is exactly `.minsky/${STREAM}-calibration.jsonl`", () => {
+    for (const [name, stream, logPath] of PAIRS) {
+      expect(logPath, name).toBe(`.minsky/${stream}-calibration.jsonl`);
+    }
+  });
+
+  test("SC4: every path is byte-identical to the literal it replaced", () => {
+    // Pinned as literals ON PURPOSE — a derivation compared against another derivation proves
+    // only that two expressions agree, not that the value did not MOVE. These five strings are
+    // where records have accumulated since mt#2263, so a change here silently orphans a corpus.
+    expect(PAIRS.map(([, , logPath]) => logPath)).toEqual([
+      ".minsky/execution-evidence-at-coverage-calibration.jsonl",
+      ".minsky/execution-evidence-sc-coverage-calibration.jsonl",
+      ".minsky/execution-evidence-test-first-calibration.jsonl",
+      ".minsky/execution-evidence-render-path-calibration.jsonl",
+      ".minsky/execution-evidence-consumer-account-calibration.jsonl",
+    ]);
+  });
+
+  test("the stream name is what `logCalibrationRecord` is actually called with", () => {
+    // The pairing above would still hold if the writer passed a DIFFERENT string. This reads the
+    // gate's source and requires every `logCalibrationRecord(` call to name one of the five
+    // constants — the same writer/declaration agreement mt#4811 found broken in `ask-form-lint`.
+    const source = readFileSync(
+      join(
+        import.meta.dir,
+        "..",
+        "..",
+        ".minsky",
+        "hooks",
+        "require-execution-evidence-before-merge.ts"
+      ),
+      "utf8"
+    );
+    const calls = [...source.matchAll(/logCalibrationRecord\(\s*([A-Z_]+)\s*,/g)].map((m) => m[1]);
+    expect(calls.length).toBe(5);
+    expect([...calls].sort()).toEqual(
+      [
+        "AT_COVERAGE_STREAM",
+        "CONSUMER_ACCOUNT_STREAM",
+        "RENDER_PATH_STREAM",
+        "SC_COVERAGE_STREAM",
+        "TEST_FIRST_STREAM",
+      ].sort()
+    );
+  });
+
+  test("SC1: the local repo-rooted writer is gone from the gate", () => {
+    const source = readFileSync(
+      join(
+        import.meta.dir,
+        "..",
+        "..",
+        ".minsky",
+        "hooks",
+        "require-execution-evidence-before-merge.ts"
+      ),
+      "utf8"
+    );
+    // Its DEFINITION, not its name — the docblock still explains why it was removed.
+    expect(source).not.toContain("export function appendCalibrationRecord(");
+  });
+});
+
+describe("mt#4755 PR #3541 R1 — the ladder's READER resolves where the writer writes", () => {
+  // The reviewer's blocking finding. Routing the writes to the state dir silently stranded the
+  // one script that reads them back: it joined the repo-relative constant onto the repo root,
+  // found nothing, and took its own `records.length === 0` branch — printing "No calibration
+  // records found" and exiting 0. A silent zero is indistinguishable from a detector that never
+  // fired, which is the shape mt#4811 found in `ask-form-lint` and mt#4784 tracks elsewhere.
+  const reclassifier = readFileSync(
+    join(import.meta.dir, "..", "at-coverage-reclassify.ts"),
+    "utf8"
+  );
+
+  test("it resolves through `calibrationLogPath`, the writer's own resolver", () => {
+    expect(reclassifier).toContain("calibrationLogPath(AT_COVERAGE_STREAM");
+  });
+
+  test("it does NOT reconstruct the path by joining the constant onto a repo root", () => {
+    // Asserting the ABSENCE of the old shape, not merely the presence of the new one: both can
+    // coexist, and it is the old one that produces the silent zero.
+    expect(reclassifier).not.toContain("${repoRoot}/${AT_COVERAGE_CALIBRATION_LOG}");
+    expect(reclassifier).not.toMatch(/join\(\s*repoRoot\s*,\s*AT_COVERAGE_CALIBRATION_LOG/);
+  });
+});

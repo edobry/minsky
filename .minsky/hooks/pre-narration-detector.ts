@@ -41,7 +41,7 @@
 //      `./dispatch-userpromptsubmit.ts`; `main()` / the CLI entrypoint below
 //      is unchanged.
 
-import { readInput, findRepoRoot } from "./types";
+import { readInput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
   resolveParentTranscriptLinesForPath,
@@ -52,8 +52,6 @@ import {
   isRealUserPrompt,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 // mt#3864 class 6: the local `elideMarkdownContexts` below covers fences, code
 // spans and blockquotes but NOT double-quoted prose — which is the one shape
@@ -69,6 +67,7 @@ import {
   extractMatchContext,
   MATCH_CONTEXT_MAX_CHARS,
 } from "./judged-input-capture";
+import { logCalibrationRecord } from "./dispatcher";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
@@ -121,7 +120,7 @@ export const INJECTION_ENABLED = false;
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_PRE_NARRATION";
 
 /** Calibration log path (relative to cwd), sibling to retrospective-trigger-calibration.jsonl. */
-const CALIBRATION_LOG = ".minsky/pre-narration-calibration.jsonl";
+const CALIBRATION_LOG_NAME = "pre-narration";
 
 /**
  * Trailing-window size in TURNS for cross-turn suppression (mt#2671).
@@ -198,6 +197,37 @@ export function extractClaimedPrNumber(phrase: string): number | null {
 }
 
 /**
+ * The PR number the claim's SENTENCE names, or null when it names none — or
+ * more than one, where pairing a number to the claim would be a guess (mt#4810).
+ *
+ * `extractClaimedPrNumber` above reads the matched PHRASE. For the dominant
+ * `review-approved` pattern that phrase is the bare token `APPROVED`, which
+ * carries no subject at all, so such a claim could never be identity-backed —
+ * measured at 7 of 31 with-context `review-approved` fires whose sentence names
+ * a PR the phrase does not. The record has carried that sentence as `context`
+ * since mt#3198 and nothing read it; this does, so `matches[].phrase` is
+ * untouched and mt#4074's diversity axis is unaffected.
+ *
+ * The uniqueness requirement is what keeps this sound. PR #3484's blocking
+ * finding was that a merge of PR #100 could silence a claim about PR #200; a
+ * sentence naming two numbers reproduces that ambiguity in miniature, so it
+ * yields nothing and the claim fires. For a suppressor the safe degrade
+ * direction is MORE fires (ADR-024's fail-to-Rung-1 invariant).
+ */
+export function extractUniqueClaimedPrNumber(text: string): number | null {
+  const found = new Set<number>();
+  for (const m of text.matchAll(/\bPR\s*#?(\d+)/gi)) {
+    const raw = m[1];
+    if (raw === undefined) continue;
+    const n = Number.parseInt(raw, 10);
+    if (Number.isFinite(n)) found.add(n);
+  }
+  if (found.size !== 1) return null;
+  const [only] = found;
+  return only ?? null;
+}
+
+/**
  * PR-number input keys read from the `identityScopedTools`' own inputs.
  *
  * Deliberately NOT generic (PR #3096 R4). This list held `"number"` and `"pr"`
@@ -239,7 +269,15 @@ export function extractPrNumbersForTools(
   toolNames: readonly string[]
 ): Set<number> {
   const numbers = new Set<number>();
-  for (const toolName of toolNames) {
+  // mt#4498 / PR #3484 R1: match the observed names whose BARE suffix equals a
+  // configured one, not just the configured strings. `findToolUseInputs` compares
+  // exactly, so without this the identity-evidence path stays blind to the
+  // `mcp__minsky-server__` alias even though the tool-NAME sets were fixed —
+  // which would have left PR-number correlation silently one-sided. Caught in
+  // review; the first version of this change fixed only the two name sets.
+  const wanted = new Set(toolNames.map(bareToolName));
+  const observed = extractToolUseNames(lines).filter((n) => wanted.has(bareToolName(n)));
+  for (const toolName of new Set([...toolNames, ...observed])) {
     for (const input of findToolUseInputs(lines, toolName)) {
       for (const key of PR_NUMBER_INPUT_KEYS) {
         const raw = input[key];
@@ -272,6 +310,17 @@ export const OUTCOME_CATEGORIES: OutcomeCategory[] = [
   {
     key: "review-approved",
     patterns: [
+      // mt#4498: FIRST, so the matched phrase carries the PR number when the
+      // claim names one. `extractClaimedPrNumber` reads the matched PHRASE, not
+      // the sentence, so the bare `/\bAPPROVED\b/` below yields the phrase
+      // "APPROVED" and can never be identity-backed — which would make the
+      // merge evidence added to `identityScopedTools` inert. Patterns are tried
+      // in order and the first match wins, so this must precede it.
+      //
+      // The bounded span (no `.*`) keeps "PR #200 … APPROVED" from reaching
+      // across a sentence boundary and pairing an unrelated number with a later
+      // approval token.
+      /\bPR\s+#?\d+\b[^.!?\n]{0,80}?\bAPPROVED\b/,
       /\bbot\s+approved\b/i,
       /\breviewer\s+approved\b/i,
       /\breview\s+(came\s+back|returned|landed)\b/i,
@@ -286,7 +335,30 @@ export const OUTCOME_CATEGORIES: OutcomeCategory[] = [
       "pull_request_read",
       "get_reviews",
     ],
-    expectedTool: "session_pr_wait-for-review / pull_request_read",
+    // mt#4498: a completed MERGE of a PR entails a prior approval OF THAT PR.
+    // `session_pr_merge` refuses a PR without an approving review — the whole
+    // merge-gate chain is built on that — so an agent that merged PR #N cannot
+    // have been pre-narrating the approval of PR #N.
+    //
+    // IDENTITY-SCOPED, and PR #3484 R1 is why. The first version of this put
+    // the merge tools in `requiredTools`, unscoped, arguing that a merge is an
+    // action the agent PERFORMED rather than a read. That argument is true and
+    // does not license the scope: unscoped, a merge of PR #100 would suppress a
+    // false "PR #200 APPROVED" claim in the same window. It also contradicted
+    // this file's own stated principle one list below — "for a suppressor the
+    // safe degrade direction is MORE fires, never fewer".
+    //
+    // The cost is real and accepted: of the 10 leaking `review-approved` fires
+    // that had a merge in window, 6 name no PR number and so are never
+    // identity-backed. Scoping covers 4 rather than 10. Correctness over count
+    // — the 6 remain in the residual named in the PR body.
+    identityScopedTools: [
+      "mcp__minsky__session_pr_merge",
+      "session_pr_merge",
+      "mcp__github__merge_pull_request",
+      "merge_pull_request",
+    ],
+    expectedTool: "session_pr_wait-for-review / pull_request_read (or a merge of the same PR)",
   },
   {
     key: "merged",
@@ -388,6 +460,14 @@ export interface ClaimMatch {
 export const SUPPRESSION_SAME_TURN_TOOL_CALL = "same-turn-tool-call";
 export const SUPPRESSION_WINDOW_TOOL_CALL = "window-tool-call";
 export const SUPPRESSION_IDENTITY_SCOPED_TOOL_CALL = "identity-scoped-tool-call";
+/**
+ * Identity-scoped, with the PR number read from the claim's SENTENCE rather
+ * than its matched phrase (mt#4810). A distinct reason so a calibration
+ * reviewer can measure THIS path's own delta: an unchanged headline count is
+ * equally consistent with "the fallback is inert" and "it fires and something
+ * else absorbs it", and only the per-reason split separates them (mem#1208).
+ */
+export const SUPPRESSION_IDENTITY_SCOPED_CONTEXT = "identity-scoped-context";
 
 /** A claim that matched its category's patterns but was backed by a real tool call. */
 export interface SuppressedClaimMatch extends ClaimMatch {
@@ -473,11 +553,45 @@ export function windowSlice(lines: TranscriptLine[], windowTurns: number): Trans
   return lines.slice(start);
 }
 
+/**
+ * Tool names as observed, PLUS each one's bare suffix (mt#4498).
+ *
+ * `requiredTools` is matched with exact `Set.has`, and this project runs more
+ * than one MCP server alias for the same server: a session connected as
+ * `minsky-server` emits `mcp__minsky-server__session_pr_merge`, which equals
+ * neither the `mcp__minsky__…` entry nor the bare `session_pr_merge` entry that
+ * every list already carries. The suppressor could therefore never see that
+ * session's evidence, and every result claim in it fired as pre-narration.
+ *
+ * Registering the suffix makes the bare entries — already present in all four
+ * categories — do the work, so no list needs a second copy per alias and a
+ * future alias is covered without another edit.
+ *
+ * Measured share of the residual, so this is not mistaken for the headline: 2 of
+ * 65 tool-absent leaks (3%). It is a correctness fix, not the cause.
+ *
+ * Only the LAST segment is added, so `mcp__github__pull_request_read` also
+ * registers `pull_request_read` — which the lists already treat as equivalent.
+ */
+export function bareToolName(name: string): string {
+  return name.split("__").pop() ?? name;
+}
+
+export function withBareToolAliases(names: Iterable<string>): Set<string> {
+  const out = new Set<string>();
+  for (const name of names) {
+    out.add(name);
+    const bare = bareToolName(name);
+    if (bare !== name) out.add(bare);
+  }
+  return out;
+}
+
 export function extractWindowToolUseNames(
   lines: TranscriptLine[],
   windowTurns: number
 ): Set<string> {
-  return new Set(extractToolUseNames(windowSlice(lines, windowTurns)));
+  return withBareToolAliases(extractToolUseNames(windowSlice(lines, windowTurns)));
 }
 
 /**
@@ -562,7 +676,7 @@ export function detectPreNarrationWithSuppression(
   // quotes inside a code span are already blanked and cannot confuse pairing —
   // the same ordering `elideQuotedAndCodeContexts` uses.
   const text = elideDoubleQuotedSpans(elideMarkdownContexts(rawText));
-  const toolNames = new Set(extractToolUseNames(turnLines));
+  const toolNames = withBareToolAliases(extractToolUseNames(turnLines));
 
   const matches: ClaimMatch[] = [];
   const suppressed: SuppressedClaimMatch[] = [];
@@ -598,7 +712,15 @@ export function detectPreNarrationWithSuppression(
     //
     // A claim naming no PR number is never identity-backed and deliberately
     // falls through to firing.
-    const claimedPr = extractClaimedPrNumber(matched.matchedPhrase);
+    // mt#4810: the phrase is the tightest subject when it carries one — mt#4498
+    // put the number there for the `PR #N … APPROVED` shape. When it does not,
+    // fall back to the claim's own sentence, which the record has captured as
+    // `context` since mt#3198 and which nothing was reading. Measured over the
+    // full calibration corpus, that is 22 of 31 with-context `review-approved`
+    // fires whose phrase is the bare `APPROVED` token.
+    const phrasePr = extractClaimedPrNumber(matched.matchedPhrase);
+    const contextPr = phrasePr === null ? extractUniqueClaimedPrNumber(matched.context) : null;
+    const claimedPr = phrasePr ?? contextPr;
     const identityBacked =
       claimedPr !== null && (evidencePrNumbers?.get(category.key)?.has(claimedPr) ?? false);
 
@@ -614,7 +736,9 @@ export function detectPreNarrationWithSuppression(
           ? SUPPRESSION_SAME_TURN_TOOL_CALL
           : inWindow
             ? SUPPRESSION_WINDOW_TOOL_CALL
-            : SUPPRESSION_IDENTITY_SCOPED_TOOL_CALL,
+            : contextPr !== null
+              ? SUPPRESSION_IDENTITY_SCOPED_CONTEXT
+              : SUPPRESSION_IDENTITY_SCOPED_TOOL_CALL,
       });
       continue;
     }
@@ -688,20 +812,11 @@ export function buildPreNarrationRecord(
 // ---------------------------------------------------------------------------
 
 function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): void {
-  try {
-    // mt#2710: resolve the actual repo ROOT, not the raw shell cwd — `cwd` is
-    // routinely a repo subdirectory, and a bare `resolve(cwd, ...)` would
-    // scatter this calibration log into a stray subdirectory `.minsky/`.
-    const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[pre-narration-detector] Failed to write calibration log: ${msg}\n`);
-  }
+  // mt#4752: the shared helper derives the path from the stream NAME, so the
+  // filename cannot drift from the convention the .gitignore globs encode.
+  // `cwd` is the guard's raw input cwd — a FALLBACK, never an authoritative
+  // root (see `calibrationLogPath`'s docblock for why the two ranks differ).
+  logCalibrationRecord(CALIBRATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,401 @@
+{
+  "fixtureVersion": 1,
+  "capturedFrom": "pre-refactor driven-session-host.ts (git HEAD at mt#4934 branch point)",
+  "inputDelivered": true,
+  "stdinWrites": [
+    "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Please continue with the second turn.\"}]}}\n"
+  ],
+  "finalRecord": {
+    "localId": "local-parity-fixture-1",
+    "harnessSessionId": "harness-parity-fixture-1",
+    "status": "exited",
+    "unrecoverableReason": null,
+    "exitCode": 0,
+    "exitSignal": null,
+    "crashError": null,
+    "driverGeneration": 0,
+    "costHistoryLength": 2
+  },
+  "finalArgv": [
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--include-partial-messages",
+    "--model",
+    "claude-parity-fixture-model",
+    "--dangerously-skip-permissions"
+  ],
+  "finalPid": 777777,
+  "eventLog": [
+    {
+      "seq": 0,
+      "payload": {
+        "type": "system",
+        "subtype": "init",
+        "session_id": "harness-parity-fixture-1",
+        "cwd": "/workspace",
+        "model": "claude-parity-fixture-model"
+      }
+    },
+    {
+      "seq": 1,
+      "payload": {
+        "type": "system",
+        "subtype": "init",
+        "session_id": "harness-parity-fixture-1",
+        "cwd": "/workspace",
+        "model": "claude-parity-fixture-model"
+      }
+    },
+    {
+      "seq": 2,
+      "payload": {
+        "type": "assistant",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "Hello, starting turn 1."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "seq": 3,
+      "payload": {
+        "type": "stream_event",
+        "event": {
+          "type": "content_block_delta",
+          "delta": {
+            "type": "text_delta",
+            "text": "…thinking…"
+          }
+        }
+      }
+    },
+    {
+      "seq": 4,
+      "payload": {
+        "type": "assistant",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "tool_1",
+              "name": "read_file",
+              "input": {
+                "path": "README.md"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "seq": 5,
+      "payload": {
+        "type": "user",
+        "message": {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "tool_use_id": "tool_1",
+              "content": "# Parity fixture README"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "seq": 6,
+      "payload": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 0.0123,
+        "duration_ms": 1500,
+        "duration_api_ms": 1200,
+        "num_turns": 3,
+        "usage": {
+          "input_tokens": 100,
+          "output_tokens": 50,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        },
+        "modelUsage": {
+          "claude-parity-fixture-model": {
+            "inputTokens": 100,
+            "outputTokens": 50,
+            "cacheCreationInputTokens": 0,
+            "cacheReadInputTokens": 0,
+            "costUSD": 0.0123
+          }
+        }
+      }
+    },
+    {
+      "seq": 7,
+      "payload": {
+        "type": "minsky_parse_error",
+        "raw": "{not valid json",
+        "error": "JSON Parse error: Expected '}'"
+      }
+    },
+    {
+      "seq": 8,
+      "payload": {
+        "type": "minsky_operator_input",
+        "text": "Please continue with the second turn.",
+        "timestamp": "2026-09-03T16:15:02.718Z"
+      }
+    },
+    {
+      "seq": 9,
+      "payload": {
+        "type": "assistant",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "Handling turn 2."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "seq": 10,
+      "payload": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "total_cost_usd": 0.0089,
+        "duration_ms": 900,
+        "duration_api_ms": 700,
+        "num_turns": 1,
+        "usage": {
+          "input_tokens": 60,
+          "output_tokens": 30,
+          "cache_creation_input_tokens": 10,
+          "cache_read_input_tokens": 5
+        },
+        "modelUsage": {
+          "claude-parity-fixture-model": {
+            "inputTokens": 60,
+            "outputTokens": 30,
+            "cacheCreationInputTokens": 10,
+            "cacheReadInputTokens": 5,
+            "costUSD": 0.0089
+          }
+        }
+      }
+    },
+    {
+      "seq": 11,
+      "payload": {
+        "type": "minsky_exit",
+        "code": 0,
+        "signal": null,
+        "status": "exited"
+      }
+    }
+  ],
+  "costHistory": [
+    {
+      "turnIndex": 0,
+      "subtype": "success",
+      "isError": false,
+      "totalCostUsd": 0.0123,
+      "durationMs": 1500,
+      "durationApiMs": 1200,
+      "numTurns": 3,
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 50,
+        "cacheCreationInputTokens": 0,
+        "cacheReadInputTokens": 0
+      },
+      "modelUsage": {
+        "claude-parity-fixture-model": {
+          "inputTokens": 100,
+          "outputTokens": 50,
+          "cacheCreationInputTokens": 0,
+          "cacheReadInputTokens": 0,
+          "costUsd": 0.0123
+        }
+      },
+      "observedAt": "2026-09-03T16:15:02.706Z"
+    },
+    {
+      "turnIndex": 1,
+      "subtype": "success",
+      "isError": false,
+      "totalCostUsd": 0.0089,
+      "durationMs": 900,
+      "durationApiMs": 700,
+      "numTurns": 1,
+      "usage": {
+        "inputTokens": 60,
+        "outputTokens": 30,
+        "cacheCreationInputTokens": 10,
+        "cacheReadInputTokens": 5
+      },
+      "modelUsage": {
+        "claude-parity-fixture-model": {
+          "inputTokens": 60,
+          "outputTokens": 30,
+          "cacheCreationInputTokens": 10,
+          "cacheReadInputTokens": 5,
+          "costUsd": 0.0089
+        }
+      },
+      "observedAt": "2026-09-03T16:15:02.718Z"
+    }
+  ],
+  "observerLog": [
+    {
+      "hook": "onStateChange",
+      "snapshot": {
+        "localId": "local-parity-fixture-1",
+        "harnessSessionId": null,
+        "status": "spawned",
+        "unrecoverableReason": null,
+        "exitCode": null,
+        "exitSignal": null,
+        "crashError": null,
+        "driverGeneration": 0,
+        "costHistoryLength": 0
+      }
+    },
+    {
+      "hook": "onHarnessSessionLinked",
+      "snapshot": {
+        "localId": "local-parity-fixture-1",
+        "harnessSessionId": "harness-parity-fixture-1",
+        "status": "spawned",
+        "unrecoverableReason": null,
+        "exitCode": null,
+        "exitSignal": null,
+        "crashError": null,
+        "driverGeneration": 0,
+        "costHistoryLength": 0
+      }
+    },
+    {
+      "hook": "onStateChange",
+      "snapshot": {
+        "localId": "local-parity-fixture-1",
+        "harnessSessionId": "harness-parity-fixture-1",
+        "status": "spawned",
+        "unrecoverableReason": null,
+        "exitCode": null,
+        "exitSignal": null,
+        "crashError": null,
+        "driverGeneration": 0,
+        "costHistoryLength": 0
+      }
+    },
+    {
+      "hook": "onResultSummary",
+      "snapshot": {
+        "localId": "local-parity-fixture-1",
+        "harnessSessionId": "harness-parity-fixture-1",
+        "status": "running",
+        "unrecoverableReason": null,
+        "exitCode": null,
+        "exitSignal": null,
+        "crashError": null,
+        "driverGeneration": 0,
+        "costHistoryLength": 1
+      }
+    },
+    {
+      "hook": "onResultSummary",
+      "snapshot": {
+        "localId": "local-parity-fixture-1",
+        "harnessSessionId": "harness-parity-fixture-1",
+        "status": "running",
+        "unrecoverableReason": null,
+        "exitCode": null,
+        "exitSignal": null,
+        "crashError": null,
+        "driverGeneration": 0,
+        "costHistoryLength": 2
+      }
+    },
+    {
+      "hook": "onStateChange",
+      "snapshot": {
+        "localId": "local-parity-fixture-1",
+        "harnessSessionId": "harness-parity-fixture-1",
+        "status": "exited",
+        "unrecoverableReason": null,
+        "exitCode": 0,
+        "exitSignal": null,
+        "crashError": null,
+        "driverGeneration": 0,
+        "costHistoryLength": 2
+      }
+    }
+  ],
+  "resultSummaries": [
+    {
+      "turnIndex": 0,
+      "subtype": "success",
+      "isError": false,
+      "totalCostUsd": 0.0123,
+      "durationMs": 1500,
+      "durationApiMs": 1200,
+      "numTurns": 3,
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 50,
+        "cacheCreationInputTokens": 0,
+        "cacheReadInputTokens": 0
+      },
+      "modelUsage": {
+        "claude-parity-fixture-model": {
+          "inputTokens": 100,
+          "outputTokens": 50,
+          "cacheCreationInputTokens": 0,
+          "cacheReadInputTokens": 0,
+          "costUsd": 0.0123
+        }
+      },
+      "observedAt": "2026-09-03T16:15:02.706Z"
+    },
+    {
+      "turnIndex": 1,
+      "subtype": "success",
+      "isError": false,
+      "totalCostUsd": 0.0089,
+      "durationMs": 900,
+      "durationApiMs": 700,
+      "numTurns": 1,
+      "usage": {
+        "inputTokens": 60,
+        "outputTokens": 30,
+        "cacheCreationInputTokens": 10,
+        "cacheReadInputTokens": 5
+      },
+      "modelUsage": {
+        "claude-parity-fixture-model": {
+          "inputTokens": 60,
+          "outputTokens": 30,
+          "cacheCreationInputTokens": 10,
+          "cacheReadInputTokens": 5,
+          "costUsd": 0.0089
+        }
+      },
+      "observedAt": "2026-09-03T16:15:02.718Z"
+    }
+  ]
+}

@@ -73,7 +73,12 @@ import {
   type ReviewOutput,
   type ReviewUsage,
 } from "./providers";
-import { shouldChunkReview, runChunkedReview } from "./chunked-review";
+import {
+  shouldChunkReview,
+  runChunkedReview,
+  capSinglePassDiff,
+  MAX_SINGLE_PASS_DIFF_CHARS,
+} from "./chunked-review";
 import type { PriorReview } from "./prior-review-summary";
 import { countBlockingFindings } from "./prior-review-summary";
 import {
@@ -337,6 +342,69 @@ export interface RunReviewDeps {
    * pairs without triggering real GitHub API calls.
    */
   changedFilesFetcher?: ChangedFilesFetcherFn;
+
+  /**
+   * Test seams for the three GitHub calls that run BEFORE the in-flight-marker
+   * check, so the `concurrent_inflight` skip path can be driven end-to-end
+   * without a network (mt#4895 SC1).
+   *
+   * The marker is keyed on `pr.headSha`, which does not exist until
+   * `fetchPullRequestContext` returns — so `createOctokit` and the PR fetch
+   * necessarily precede `acquireMarker`, and a test that stops short of them
+   * cannot reach the branch at all. `appIdentityFetcher` covers the first call
+   * INSIDE `runReviewBody`, which is what lets the negative control (marker
+   * available) prove it got PAST the marker gate without proceeding into the
+   * model call.
+   *
+   * Why injected rather than module-patched: ADR-036 §2 rule 2 — a seam that can
+   * be added by changing one production file with no exported-type change is
+   * required, and patching is banned at such a site. These are optional fields
+   * with real defaults, so every existing caller is unaffected.
+   *
+   * `appIdentityFetcher` additionally bypasses `getAppIdentity`'s module-level
+   * `cachedAppIdentity` memo, which would otherwise leak across test files.
+   */
+  octokitFactory?: typeof createOctokit;
+  prContextFetcher?: typeof fetchPullRequestContext;
+  appIdentityFetcher?: typeof getAppIdentity;
+
+  /**
+   * Test seams for the four collaborators the PROSE-path sanitize wiring runs
+   * through, so that wiring can be driven end-to-end without a network or a
+   * model call (mt#1263).
+   *
+   * The unit tests below this seam already cover the two halves in isolation —
+   * `sanitize.test.ts` covers `sanitizeReviewBody`, and
+   * `review-worker.test.ts`'s `decidePostSanitizeOutcome` block covers the
+   * decision helper. What neither reaches is the WIRING between them: that
+   * `annotateReviewBody` receives `sanitized.body` and not the raw
+   * `output.text`, that the errored path forces `COMMENT` and returns no
+   * `review` field, and that `reviewer.cot_leak_detected` fires only when
+   * sanitize did something. A refactor could swap `sanitized.body` for
+   * `output.text` and every existing test would still pass.
+   *
+   * Why injected rather than module-patched: ADR-036 §2 rule 2 — a seam that
+   * can be added by changing one production file with no exported-type change
+   * is required, and patching is banned at such a site. These are optional
+   * fields with real defaults, so every existing caller is unaffected. This
+   * supersedes the `mock.module` approach of the closed PR #774, which also
+   * needed an `eslint.config.js` carve-out from `custom/no-global-module-mocks`.
+   *
+   * `bodySanitizer` is what lets a test choose the `SanitizeResult` directly
+   * rather than reverse-engineering a leaked body that produces it — the
+   * original mt#1263 success criterion asked for exactly that.
+   *
+   * Deliberately NOT seamed: the `sanitizeReviewBody` call on the OUTPUT-TOOLS
+   * path (the `scratchSanitized` check that emits
+   * `reviewer.cot_leak_detected_in_scratch`). That one is log-only — it gates
+   * no submission and changes no return value — so it is a different decision
+   * from the prose-path wiring this seam exists to pin, and mt#1263 scopes
+   * itself to the prose path.
+   */
+  reviewerCaller?: typeof callReviewer;
+  bodySanitizer?: typeof sanitizeReviewBody;
+  reviewSubmitter?: typeof submitReview;
+  guardedSubmitter?: typeof submitReviewWithGuards;
 }
 
 export async function runReview(
@@ -394,9 +462,15 @@ export async function runReview(
 
   const runReviewStart = Date.now();
 
-  const octokit = await createOctokit(config);
+  const octokit = await (deps.octokitFactory ?? createOctokit)(config);
 
-  const pr = await fetchPullRequestContext(octokit, owner, repo, prNumber, config.githubTimeoutMs);
+  const pr = await (deps.prContextFetcher ?? fetchPullRequestContext)(
+    octokit,
+    owner,
+    repo,
+    prNumber,
+    config.githubTimeoutMs
+  );
   const tier = await resolveTier(prNumber, pr.body, deps.persistenceProvider ?? null);
 
   // Classify the PR scope (mt#1188): drives prompt-variant selection to
@@ -591,7 +665,7 @@ async function runReviewBody(
   // self-approval at the platform level. Comparison is case-insensitive
   // because GitHub usernames are case-insensitive at the platform level and
   // API responses can return inconsistent casing.
-  const reviewerIdentity = await getAppIdentity(config);
+  const reviewerIdentity = await (deps.appIdentityFetcher ?? getAppIdentity)(config);
   const isSelfReview = reviewerIdentity.login.toLowerCase() === prAuthorLogin.toLowerCase();
 
   // pr.review_posted emitter (mt#2725): injected seam in tests, real MCP-backed
@@ -780,9 +854,24 @@ async function runReviewBody(
     incrementalScope: incrementalDiffApplied,
   };
 
+  // mt#4879 SC2: bound the single-pass prompt's diff unconditionally. The
+  // routing guard below should mean this never bites — but it is exactly what
+  // the router failing looks like, and the failure it prevents (a provider 400,
+  // no review posted, recorded only in reviewer_webhook_events) is invisible on
+  // the PR. `userPrompt` reaches single-pass and runChunkedReview's empty-file
+  // fallback; the chunked path builds its own prompts per chunk and is unaffected.
+  if (promptDiff.length > MAX_SINGLE_PASS_DIFF_CHARS) {
+    log.warn("reviewer.single_pass_diff_truncated", {
+      owner,
+      repo,
+      pr: pr.number,
+      diffChars: promptDiff.length,
+      capChars: MAX_SINGLE_PASS_DIFF_CHARS,
+    });
+  }
   const userPrompt = buildReviewPrompt({
     ...basePromptInput,
-    diff: promptDiff,
+    diff: capSinglePassDiff(promptDiff),
   });
 
   // Construct the tool context for this PR's HEAD ref. The model can use these
@@ -862,8 +951,22 @@ async function runReviewBody(
   // a round is genuinely narrowed, the split would decide chunking on the delta
   // and then chunk the whole PR, re-inflating exactly the cost this removes.
   const totalDiffLines = promptDiff.split("\n").length;
+  // mt#4879: pass the diff's CHAR length too. `totalDiffLines` counts newlines
+  // and `promptFileEntries` carries per-file `patch` fields GitHub withholds
+  // above 1MB — so for a change that is few lines and many megabytes, every
+  // input here except this one reads small while the prompt does not.
+  //
+  // The `outputToolsActive &&` conjunct is UNJUSTIFIED for the size case and is
+  // deliberately left in place here (mt#4879 SC5). Checked: `outputToolsActive`
+  // reaches only `callReviewer` and `validateReviewOutput` inside
+  // runChunkedReview — chunk packing and finding aggregation do not consult it —
+  // so nothing structural requires tools for chunking to work. But whether the
+  // non-tools chunked path produces VALID aggregated output was not exercised,
+  // so flipping it blind would trade a known failure for an unmeasured one.
+  // Consequence, stated rather than hidden: with output tools off, an oversized
+  // diff still reaches single-pass and still 400s. Owned by mt#4879 SC5.
   const useChunkedReview =
-    outputToolsActive && shouldChunkReview(promptFileEntries, totalDiffLines);
+    outputToolsActive && shouldChunkReview(promptFileEntries, totalDiffLines, promptDiff.length);
 
   let output: ReviewOutput;
   let validation: { ok: true } | { ok: false; reason: string };
@@ -897,7 +1000,7 @@ async function runReviewBody(
         systemPrompt,
         userPrompt,
         toolsActive ? toolContext : undefined,
-        callReviewer,
+        deps.reviewerCaller ?? callReviewer,
         outputToolsActive
       );
       output = result.output;
@@ -1362,7 +1465,7 @@ async function runReviewBody(
   // ship. Observed on PR #743 (2026-04-24). Either strip the leaked prefix
   // (when a structural Findings section follows) or replace the body with a
   // structured service-error notice (when the leak is the entire body).
-  const sanitized = sanitizeReviewBody(output.text);
+  const sanitized = (deps.bodySanitizer ?? sanitizeReviewBody)(output.text);
   if (sanitized.action !== "passthrough") {
     log.info("reviewer.cot_leak_detected", {
       event: "reviewer.cot_leak_detected",
@@ -1396,7 +1499,7 @@ async function runReviewBody(
   // retries the delivery (same behavior as the pre-mt#1212 normal path).
   if (outcome.status === "error") {
     try {
-      await submitReview(
+      await (deps.reviewSubmitter ?? submitReview)(
         octokit,
         owner,
         repo,
@@ -1433,7 +1536,7 @@ async function runReviewBody(
   // covers BOTH paths (a non-retryable 4xx here — closed PR, permission edge —
   // must also stop the sweeper loop). No inline comments on the prose path, so
   // anchor pre-validation is a no-op; the breaker recording is the point.
-  const review = await submitReviewWithGuards({
+  const review = await (deps.guardedSubmitter ?? submitReviewWithGuards)({
     octokit,
     owner,
     repo,

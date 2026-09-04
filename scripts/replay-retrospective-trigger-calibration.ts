@@ -46,7 +46,8 @@
  *
  *   bun scripts/replay-retrospective-trigger-calibration.ts [options]
  *
- *     --log <path>       calibration log (default: .minsky/retrospective-trigger-calibration.jsonl)
+ *     --log <path>       calibration log (default: this checkout's state-dir path,
+ *                        `<state dir>/projects/<key>/retrospective-trigger-calibration.jsonl`)
  *     --session <id>     only records from this session id
  *     --timestamp <iso>  only the record with this exact timestamp (repeatable)
  *     --out <path>       write recovered texts as JSON (default: report only)
@@ -69,13 +70,42 @@ import {
   parseTranscript,
   type TranscriptLine,
 } from "../.minsky/hooks/transcript";
+import { calibrationLogPath } from "../.minsky/hooks/dispatcher";
 
-const DEFAULT_LOG = resolve(
-  import.meta.dir,
-  "..",
-  ".minsky",
-  "retrospective-trigger-calibration.jsonl"
-);
+/**
+ * The log this harness reads by default (mt#4971).
+ *
+ * mt#4748 moved calibration streams off the repo working tree into
+ * `<state dir>/projects/<key>/`. This constant kept resolving the pre-migration
+ * repo path, so a bare invocation printed `SKIP: calibration log not found` — and
+ * `SKIP` reads as "nothing to do here", not as a defect. `/calibration-review`
+ * Step 2 makes recovering the judged turn MANDATORY for this detector and names
+ * this script as the tool, so the default being dead broke a mandated procedure
+ * silently.
+ *
+ * Resolved through the WRITER's own function rather than a local copy of the key
+ * derivation, so a reader and a writer cannot disagree about where the log is.
+ * Importing the dispatcher costs ~14ms over what this script already imports:
+ * `GUARD_REGISTRY`'s entries are lazy `() => import(...)` thunks, so no guard
+ * module is evaluated (the precedent and the reasoning are recorded in
+ * `scripts/lib/calibration-log-declarations.ts`'s header).
+ *
+ * Passed as `fallbackCwd`, NOT `projectDir`, so the resolver's own precedence
+ * (`projectDir ?? CLAUDE_PROJECT_DIR ?? fallbackCwd ?? cwd`) still lets the harness's
+ * project root win when one is set — which is the root the WRITER used. Measured:
+ * `CLAUDE_PROJECT_DIR` is unset in an ordinary shell and in `session_exec`, and is
+ * set for hook invocations, so this tier is inert for a manual run and correct for
+ * an automated one. `projectDir` would have outranked it and silently pinned the
+ * wrong checkout in the case where it matters.
+ *
+ * The fallback is THIS checkout, preserving the pre-migration semantics: run from a
+ * session workspace with no harness root set, it resolves that workspace's project
+ * key and finds nothing — `--log` remains the override for reading another
+ * checkout's logs.
+ */
+const DEFAULT_LOG = calibrationLogPath("retrospective-trigger", {
+  fallbackCwd: resolve(import.meta.dir, ".."),
+});
 
 /** Claude Code's per-project transcript root. One directory per encoded cwd. */
 const TRANSCRIPT_ROOT = join(homedir(), ".claude", "projects");

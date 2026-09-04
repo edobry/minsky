@@ -12,7 +12,11 @@
  * the mock. Injecting keeps this a pure decision over strings.
  */
 import { describe, test, expect } from "bun:test";
-import { assertNoSuspiciousSpecCollapse, decideSpecPatchOutcome } from "./task-edit-tools";
+import {
+  assertNoSuspiciousSpecCollapse,
+  decideSpecPatchOutcome,
+  TASK_SPEC_PATCH_DESCRIPTION,
+} from "./task-edit-tools";
 import { detectSuspiciousCollapse } from "@minsky/domain/ai/edit-pattern-utils";
 
 const makeLines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i}`).join("\n");
@@ -167,5 +171,34 @@ describe("decideSpecPatchOutcome — guard ordering (PR #2618 R1)", () => {
       dryRun: false,
     });
     expect(outcome.kind).toBe("write");
+  });
+});
+
+describe("AT4 — the description tells a caller which shape to use for an append (mt#4181)", () => {
+  // The acceptance test is literally "a caller reading only the tool description can tell which
+  // mode to use for an append", so it is asserted against the description STRING rather than
+  // against prose in a spec somewhere. That is also why the description is hoisted to a constant:
+  // a contract that has to be scraped out of a source file to be checked is one nothing checks.
+
+  test("names the APPEND shape and what it looks like", () => {
+    expect(TASK_SPEC_PATCH_DESCRIPTION).toContain("APPEND");
+    expect(TASK_SPEC_PATCH_DESCRIPTION).toMatch(/lone leading .*existing code/i);
+  });
+
+  test("names all three deterministic shapes, so the anchored case is discoverable too", () => {
+    for (const shape of ["APPEND", "PREPEND", "ANCHORED"]) {
+      expect(TASK_SPEC_PATCH_DESCRIPTION).toContain(shape);
+    }
+  });
+
+  test("states that no separate append tool exists — the miss this task was filed for", () => {
+    // Agents hitting the collapse reached for `tasks_edit` wholesale replacement instead, which
+    // is the unguarded path (mt#4082). The description has to close that off explicitly.
+    expect(TASK_SPEC_PATCH_DESCRIPTION).toMatch(/no separate append tool/i);
+  });
+
+  test("still documents the collapse guard and the fallback, so the change reads as additive", () => {
+    expect(TASK_SPEC_PATCH_DESCRIPTION).toContain("COLLAPSE-GUARD (mt#3674)");
+    expect(TASK_SPEC_PATCH_DESCRIPTION).toMatch(/falls back to the fast-apply model/i);
   });
 });

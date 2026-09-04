@@ -11,6 +11,7 @@
 import { describe, test, expect } from "bun:test";
 import { createServer, type IncomingMessage, type ServerResponse } from "http";
 import {
+  classifyHolderAgainstState,
   decideIncumbentDisposition,
   resolveIncumbentDisposition,
   realIncumbentProbes,
@@ -474,5 +475,51 @@ describe("resolveIncumbentDisposition — gathers from the probe seam", () => {
       probes({ health: async () => null })
     );
     expect(d).toEqual({ kind: "displace" });
+  });
+});
+
+describe("classifyHolderAgainstState — a record naming a dead pid is void (mt#4800)", () => {
+  const HOLDER = { pid: 61109, command: "bun run src/cli.ts cockpit start" };
+  const alive = (aliveSet: number[]) => (pid: number) => aliveSet.includes(pid);
+
+  test("a live record matching the holder recognizes it", () => {
+    const c = classifyHolderAgainstState(HOLDER, 3737, { pid: 61109, port: 3737 }, alive([61109]));
+    expect(c).toEqual({ kind: "recognized-zombie", pid: 61109, command: HOLDER.command });
+  });
+
+  test("a record naming a DEAD pid classifies exactly like no record at all", () => {
+    // The 2026-08-31 shape: state names 16865 (dead), the port is held by a
+    // live process. The dead record must not block, recognize, or be cited.
+    const withDeadRecord = classifyHolderAgainstState(
+      HOLDER,
+      3737,
+      { pid: 16865, port: 3737 },
+      alive([61109])
+    );
+    const withNoRecord = classifyHolderAgainstState(HOLDER, 3737, null, alive([61109]));
+    expect(withDeadRecord).toEqual(withNoRecord);
+    expect(withDeadRecord).toEqual({
+      kind: "unrecognized",
+      pid: 61109,
+      command: HOLDER.command,
+    });
+  });
+
+  test("a dead record can never recognize a holder, even on pid equality", () => {
+    // Defensive half of the invariant: if the liveness read and the lsof read
+    // ever disagree (a holder that exited between the two probes), the record
+    // stays void rather than vouching for a pid that is gone.
+    const c = classifyHolderAgainstState(
+      { pid: 16865, command: "<unknown>" },
+      3737,
+      { pid: 16865, port: 3737 },
+      alive([])
+    );
+    expect(c.kind).toBe("unrecognized");
+  });
+
+  test("a live record for a DIFFERENT port does not recognize this holder", () => {
+    const c = classifyHolderAgainstState(HOLDER, 3737, { pid: 61109, port: 3838 }, alive([61109]));
+    expect(c.kind).toBe("unrecognized");
   });
 });

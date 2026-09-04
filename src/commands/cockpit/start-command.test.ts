@@ -18,6 +18,7 @@ import {
   type UnhandledRejectionEffects,
 } from "./start-command";
 import { PersistenceInitTimeoutError } from "../../cockpit/shared-persistence";
+import { DriverTransportFailure } from "../../cockpit/driver-transport";
 
 describe("classifyUnhandledRejection — server-side SQLSTATE (mt#4100)", () => {
   // The observed instance. One statement was cancelled; the connection and the
@@ -77,6 +78,25 @@ describe("classifyUnhandledRejection — server-side SQLSTATE (mt#4100)", () => 
   });
 });
 
+describe("classifyUnhandledRejection — DriverTransportFailure (mt#4943 SC2/SC3b)", () => {
+  test("a DriverTransportFailure always survives", () => {
+    const failure = new DriverTransportFailure("ACP session setup failed: boom", {
+      harnessKind: "codex",
+      pid: 4242,
+    });
+    expect(classifyUnhandledRejection(failure)).toBe("survive");
+  });
+
+  // A DriverTransportFailure carries no `.code` — confirm the class check
+  // fires before the code-based classification ever runs, not merely as a
+  // side effect of an absent code falling through to "exit".
+  test("still survives even though it carries no error code", () => {
+    const failure = new DriverTransportFailure("boom", { harnessKind: "codex", pid: undefined });
+    expect((failure as { code?: unknown }).code).toBeUndefined();
+    expect(classifyUnhandledRejection(failure)).toBe("survive");
+  });
+});
+
 describe("classifyUnhandledRejection — client-side codes (gh#1761 R1 regression)", () => {
   test.each(["ECIRCUITBREAKER", "EDBHANDLEREXITED", "CONNECTION_CLOSED", "CONNECTION_DESTROYED"])(
     "%s still degrades",
@@ -130,6 +150,7 @@ interface RecordedEffects {
   effects: UnhandledRejectionEffects;
   survived: unknown[];
   logged: string[];
+  driveCrashed: DriverTransportFailure[];
   degradeCount: () => number;
   retryStarts: () => number;
   retryStops: () => number;
@@ -140,6 +161,7 @@ interface RecordedEffects {
 function recordingEffects(): RecordedEffects {
   const survived: unknown[] = [];
   const logged: string[] = [];
+  const driveCrashed: DriverTransportFailure[] = [];
   let degradeCount = 0;
   let retryStarts = 0;
   let retryStops = 0;
@@ -165,9 +187,11 @@ function recordingEffects(): RecordedEffects {
       exit: () => {
         exits += 1;
       },
+      markDriveCrashed: (failure) => driveCrashed.push(failure),
     },
     survived,
     logged,
+    driveCrashed,
     degradeCount: () => degradeCount,
     retryStarts: () => retryStarts,
     retryStops: () => retryStops,
@@ -262,5 +286,30 @@ describe("createUnhandledRejectionHandler (mt#4100)", () => {
 
     expect(r.retryStarts()).toBe(1);
     expect(r.retryStops()).toBe(0);
+  });
+
+  // mt#4943 SC2/SC3b — the survive branch's drive-marking effect is scoped
+  // to DriverTransportFailure alone; a DB-condition survive must not also
+  // attempt a pid-keyed drive lookup for a failure that never named one.
+  test("a DriverTransportFailure survives AND invokes markDriveCrashed, without exiting", () => {
+    const r = recordingEffects();
+    const failure = new DriverTransportFailure("ACP session setup failed: boom", {
+      harnessKind: "codex",
+      pid: 4242,
+    });
+
+    createUnhandledRejectionHandler(r.effects)(failure);
+
+    expect(r.exits()).toBe(0);
+    expect(r.degradeCount()).toBe(0);
+    expect(r.survived).toEqual([failure]);
+    expect(r.driveCrashed).toEqual([failure]);
+  });
+
+  test("a DB-condition survive does NOT invoke markDriveCrashed", () => {
+    const r = recordingEffects();
+    createUnhandledRejectionHandler(r.effects)({ code: "57014" });
+
+    expect(r.driveCrashed).toEqual([]);
   });
 });

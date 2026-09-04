@@ -27,6 +27,7 @@ import {
   isSqlCapable,
 } from "@minsky/domain/persistence/types";
 import { runCredentialRequestResolutionTick } from "./credential-request-sweep";
+import { runAppGrantRequestResolutionTick } from "./app-grant-request-sweep";
 import { DEFAULT_SWEEP_INTERVAL_MS } from "@minsky/domain/ask/advancement";
 import {
   getCachedPersistenceProvider,
@@ -1236,6 +1237,16 @@ const STALE_ASK_CLOSE_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
  * empty status map (parent-terminal closes nothing; supersession and TTL
  * still apply); a failed pass logs and waits for the next tick.
  *
+ * ## Deliberately NOT project-scoped (mt#4727)
+ *
+ * This is a background sweeper, not a request handler — it has no `ctx.query`
+ * to read a `?project=` selection from, and its job (reconcile every
+ * suspended ask against ground truth) is process-wide by design: an ask from
+ * ANY project can go stale, and this tick must catch all of them regardless
+ * of which project a cockpit dashboard happens to be viewing at the time.
+ * Scoping it to one project would leave the rest silently unreconciled. See
+ * this task's spec `## Outcome` for the recorded decision.
+ *
  * @returns stop function (clears the interval).
  */
 export function startStaleAskCloseSweeper(intervalMs?: number): () => void {
@@ -1302,6 +1313,13 @@ export function startStaleAskCloseSweeper(intervalMs?: number): () => void {
               }
             : undefined
         );
+
+        // App-grant requests ride the same tick, for the same reasons and with
+        // the same isolation (mt#4693). It takes no task gate: an App grant
+        // blocks onboarding rather than a task, so there is no parent to
+        // release. Its own try/catch means neither resolution pass can mask the
+        // other's failures.
+        await runAppGrantRequestResolutionTick(repo);
 
         return { ok: true };
       } catch (err) {

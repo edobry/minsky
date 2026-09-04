@@ -3,11 +3,12 @@ import { spawn } from "child_process";
 // The mt#3771 guard at the bottom of this file reads this file's OWN source;
 // asserting on source text is the whole mechanism, and there is nothing to inject.
 // Same carve-out enum-drift.test.ts takes for reading shipped migration SQL.
+import { JSONRPCMessageSchema } from "@modelcontextprotocol/core";
+
 // eslint-disable-next-line custom/no-real-fs-in-tests -- reads this file's own source
 import { readFileSync } from "node:fs";
 import net from "node:net";
 import path from "path";
-import { JSONRPCMessageSchema } from "@modelcontextprotocol/sdk/types.js";
 import {
   checkBearerAuth,
   composeRequestBaseUrl,

@@ -5,13 +5,31 @@ import { createDirectoryIfNotExists, createFileIfNotExists } from "./init/file-s
 import type { FsLike } from "./interfaces/fs-like";
 import { createRealFs } from "./interfaces/real-fs";
 import { getMinskyConfigContentYaml } from "./init/config-content";
+import { mergeProjectConfigYaml, UnmergeableConfigError } from "./init/config-merge";
 import { generateRulesWithTemplateSystem } from "./init/rule-templates";
+import { RULE_FORMAT_OUTPUT_DIR } from "./rules/types";
+import { runMinskyCompile } from "./compile/compile";
+/**
+ * The per-target rule accounting {@link initializeProject} consumes (mt#4770).
+ *
+ * Declared here rather than as a `Pick<>` of the compile service's result so
+ * this seam — and the tests that stub it — do not have to know the compile
+ * service's typing (PR #3489 R1). The tie to the real pipeline is still
+ * enforced by the compiler: the default `compileForHarness` below returns
+ * `runMinskyCompile`'s result directly, so if `MinskyCompileServiceResult`
+ * ever stops carrying these two fields, that assignment fails typecheck.
+ */
+export interface HarnessCompileAccounting {
+  definitionsIncluded: string[];
+  definitionsSkipped: string[];
+}
 import {
   resolveRepositoryFromGitRemote,
   type ResolvedRepositoryConfig,
 } from "./session/repository-backend-detection";
 import { performSetup } from "./setup";
 import { provisionObservabilityHooks } from "./setup/hook-provisioning";
+import { resolveInitClient } from "./runtime/harness-detection";
 import { log } from "./utils/logger";
 
 export type { ResolvedRepositoryConfig } from "./session/repository-backend-detection";
@@ -99,10 +117,59 @@ export interface InitializeProjectOptions {
  *   .minsky/config.local.yaml with workspace.mainPath and harness field.
  *   Skipped when mcp.enabled is false.
  */
+/**
+ * Injectable collaborators for {@link initializeProject} (mt#4715).
+ *
+ * `compileForHarness` exists as a SEAM rather than a direct `runMinskyCompile`
+ * call because that function resolves and writes through the REAL filesystem,
+ * while `initializeProject` is otherwise driven by an injected {@link FsLike}.
+ * Calling it unguarded would make a unit test with a mock filesystem reach the
+ * actual repo — so the collaborator is handed in instead of reached for, per
+ * `testing-standards.mdc §Testable Design`.
+ */
+export interface InitializeProjectDeps {
+  /**
+   * Compile one target into `workspacePath`. Defaults to the real pipeline.
+   *
+   * Returns the target's per-rule accounting (mt#4770). This used to be
+   * `Promise<void>`: the result was awaited and discarded, so init could not
+   * tell whether the rules it had just scaffolded actually landed anywhere the
+   * running harness reads.
+   *
+   * **Every supplier of this seam is in-repo and enumerable** — `@minsky/domain`
+   * is `private: true` and never published, and the only sites passing it are
+   * this package's own tests (PR #3489 R1 adoption sweep). A caller that omits
+   * `deps` entirely, which is every production call site, is unaffected.
+   */
+  compileForHarness?: (target: string, workspacePath: string) => Promise<HarnessCompileAccounting>;
+  /** Which MCP client / harness is running init. Defaults to real detection. */
+  resolveClient?: () => string;
+  /**
+   * Operator-facing warning sink (mt#4770). Defaults to `log.cliWarn`.
+   *
+   * Injected for the same reason `compileForHarness` is: the messages below
+   * are the observable behavior under test, and the alternative is patching
+   * the logger module the function reaches itself — the shape
+   * `testing-standards.mdc §Testable Design` tells us to treat as design
+   * feedback rather than work around with a spy.
+   */
+  warn?: (message: string) => void;
+}
+
 export async function initializeProject(
   { repoPath, backend, ruleFormat, mcp, overwrite = false, repository }: InitializeProjectOptions,
-  fileSystem: FsLike = createRealFs()
+  fileSystem: FsLike = createRealFs(),
+  deps: InitializeProjectDeps = {}
 ): Promise<void> {
+  const resolveClient = deps.resolveClient ?? resolveInitClient;
+  const warn = deps.warn ?? ((message: string) => log.cliWarn(message));
+  const compileForHarness =
+    deps.compileForHarness ??
+    (async (target: string, workspacePath: string) => runMinskyCompile({ target, workspacePath }));
+  // Resolved ONCE and reused: the rule-scaffolding step below and performSetup
+  // must agree about which harness is running, or a project could be scaffolded
+  // for one client and registered with another.
+  const initClient = resolveClient();
   // === Phase 1: Project initialization ===
 
   // Create process/tasks directory structure
@@ -125,11 +192,23 @@ export async function initializeProject(
       throw new Error(`Backend "${backend}" is not supported.`);
   }
 
-  // Create rule file directory
-  const rulesDirPath =
-    ruleFormat === "cursor"
-      ? path.join(repoPath, ".cursor", "rules")
-      : path.join(repoPath, ".ai", "rules");
+  // Create rule file directory.
+  //
+  // mt#4714: the format→directory mapping is `RULE_FORMAT_OUTPUT_DIR` — the SAME
+  // constant `RuleTemplateService.getOutputDir` uses, so init can no longer
+  // disagree with it. This was a two-way ternary (`=== "cursor" ? .cursor/rules
+  // : .ai/rules`), which sent `ruleFormat: "minsky"` to `.ai/rules` — the
+  // `generic` location — while every other consumer resolved it to
+  // `.minsky/rules`.
+  //
+  // The resolved path is still passed to `generateRulesWithTemplateSystem` as an
+  // explicit `outputDir` rather than letting the service resolve it. That is
+  // deliberate and NOT the override the bug was about: the mapping is now shared,
+  // so the explicit value cannot diverge. Dropping the argument entirely would
+  // also require reshaping that function, which derives the service's
+  // `workspacePath` from this very path (`path.dirname` twice) — mt#4715 reworks
+  // this call path and is the right place for it.
+  const rulesDirPath = path.join(repoPath, ...RULE_FORMAT_OUTPUT_DIR[ruleFormat].split("/"));
   await createDirectoryIfNotExists(rulesDirPath, fileSystem);
 
   // Generate rules using template system (tolerate missing command registry in tests)
@@ -144,6 +223,104 @@ export async function initializeProject(
     // Skip rule generation when the command registry isn't available (unit tests)
   }
 
+  // mt#4715: scaffolding SOURCES is only half the job. `ruleFormat` picks a
+  // directory, and Claude Code reads NONE of the three it can pick — it reads
+  // `CLAUDE.md` and `.claude/rules`, which the compile pipeline produces FROM
+  // `.minsky/rules/*.mdc` sources. Those are exactly what the step above just
+  // wrote (`getRulePath` emits `<id>.mdc`, bodies carry YAML frontmatter), so
+  // this is a wiring step, not a format conversion. Without it a Claude Code
+  // project is scaffolded with files its own harness never opens.
+  //
+  // Only the two channels Claude Code actually implements are compiled
+  // (mt#3107): `claude.md` for the always-apply corpus and `claude-rules` for
+  // path-scoped `.claude/rules/<id>.md`. Cursor's other two rule types have no
+  // delivery mechanism here, so emitting more targets would write files nothing
+  // reads — the very defect this step removes.
+  //
+  // Gated on the FORMAT as well as the harness (PR #3431 R1). The compile
+  // pipeline reads `.minsky/rules` (ADR-016), which is where sources land only
+  // under `ruleFormat: "minsky"`. An explicit `--rule-format cursor` under
+  // Claude Code puts them in `.cursor/rules` instead — compiling then reads an
+  // empty directory and produces nothing, so the project would end up with
+  // neither the Cursor files it asked for nor the Claude ones it cannot use.
+  // Channel note (mt#4770). Every operator-facing message in this block uses
+  // `log.cliWarn`, never `log.warn`. `log.warn` routes through
+  // `emitDiagnostic` (`packages/shared/src/logger.ts`), which DISCARDS in HUMAN
+  // mode when stderr is a terminal — i.e. exactly the interactive `minsky init`
+  // these messages are written for. That is mt#3119's finding, and it is why
+  // the two warnings here were invisible to the operator they addressed. This
+  // is the init surface only; the compile pipeline's own `SkipLogFn` default
+  // still uses `log.warn` and stays mt#3119's to fix.
+  const sourcesAreWhereCompileReads = ruleFormat === "minsky";
+  if (initClient === "claude-code" && !sourcesAreWhereCompileReads) {
+    warn(
+      `minsky init: --rule-format "${ruleFormat}" writes rules to ` +
+        `${RULE_FORMAT_OUTPUT_DIR[ruleFormat]}, which Claude Code does not read, so no ` +
+        `CLAUDE.md was generated. Re-run with --rule-format minsky for the Claude Code layout.`
+    );
+  }
+  if (initClient === "claude-code" && sourcesAreWhereCompileReads) {
+    // mt#4770: scaffolding the sources and compiling them is STILL not the
+    // whole job — a rule can compile cleanly into NEITHER Claude Code target
+    // and leave no trace of having done so, which is how a fresh project ends
+    // up with a 90-byte CLAUDE.md, an empty .claude/rules, and no signal that
+    // anything is wrong. An empty ruleset is otherwise indistinguishable from
+    // a correctly-tiered one.
+    //
+    // Reachability is READ from the pipeline's own per-rule accounting, not
+    // re-derived here: `buildClaudeRulesContent` already records every rule
+    // failing `isEligibleForClaudeRules` in `definitionsSkipped`, and
+    // `buildClaudeMdContent` records every non-ALWAYS_APPLY rule the same way.
+    // Re-applying those two predicates at this call site would be a second
+    // source of truth that a later change to either one could silently falsify.
+    const reachable = new Set<string>();
+    const compiled = new Set<string>();
+    let accountingComplete = true;
+
+    for (const target of ["claude.md", "claude-rules"]) {
+      try {
+        const result = await compileForHarness(target, repoPath);
+        for (const id of result.definitionsIncluded ?? []) {
+          reachable.add(id);
+          compiled.add(id);
+        }
+        for (const id of result.definitionsSkipped ?? []) {
+          compiled.add(id);
+        }
+      } catch (error) {
+        // SURFACED, not swallowed (mt#4715 SC5). `init` must still succeed —
+        // a project with sources but no compiled output is recoverable by
+        // running `minsky compile` — but a silently un-scaffolded project is
+        // the defect, not the mitigation (`work-completion.mdc §Invocation
+        // path`), so the failure has to reach someone.
+        accountingComplete = false;
+        warn(
+          `minsky init: could not compile "${target}" for claude-code. The rule sources in ` +
+            `.minsky/rules were written; run \`minsky compile\` to produce CLAUDE.md and ` +
+            `.claude/rules. Cause: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+
+    // Assert unreachability ONLY when both targets actually reported (SC3). A
+    // rule absent because a target THREW is not evidence that it is
+    // ineligible — the per-target failure above already covers that case, and
+    // stacking an "unreachable" claim on top of it would state a conclusion
+    // this run cannot support.
+    if (accountingComplete) {
+      const unreachable = [...compiled].filter((id) => !reachable.has(id)).sort();
+      if (unreachable.length > 0) {
+        warn(
+          `minsky init: ${unreachable.length} scaffolded rule(s) are not reachable by Claude ` +
+            `Code — ${unreachable.join(", ")}. They were written to .minsky/rules, but land in ` +
+            `neither CLAUDE.md (which carries rules marked alwaysApply: true) nor .claude/rules ` +
+            `(which carries rules that declare globs). Nothing in Claude Code retrieves them ` +
+            `automatically; an agent has to ask for one by name with \`rules_get <name>\`.`
+        );
+      }
+    }
+  }
+
   // Create main Minsky configuration file with user's backend choice
   const minskyDir = path.join(repoPath, ".minsky");
   await createDirectoryIfNotExists(minskyDir, fileSystem);
@@ -155,17 +332,75 @@ export async function initializeProject(
       : undefined;
   // Pass repoPath so getMinskyConfigContentYaml can auto-derive the project slug
   // from the git remote (mt#2414). Falls back gracefully when no remote exists.
-  const configContent = getMinskyConfigContentYaml(backend, repository, mcpForConfig, {
+  // `mcpForConfig` is NOT passed here any more (mt#4699) — it now goes to
+  // performSetup below, which writes it to the machine-local overlay instead of
+  // the committed config.
+  const configContent = getMinskyConfigContentYaml(backend, repository, {
     repoPath,
   });
-  await createFileIfNotExists(configPath, configContent, overwrite, fileSystem);
+
+  // mt#4866 SC2: `--overwrite` MERGES rather than replaces. `init` returns early
+  // when the config exists and `--overwrite` is absent, so this is the only
+  // re-init path — and it used to delete every top-level key `init` does not
+  // emit. Measured: a `rules:` block AND an unrelated key both vanished.
+  //
+  // The merge lives here, in `init`, rather than in `getMinskyConfigContentYaml`
+  // (SC2 is explicit about this): the generator's job is to say what the vendor
+  // owns, and teaching it about `rules:` would make it own a key it does not
+  // emit. It also must NOT change `createFileIfNotExists`, whose other callers
+  // (`setup.ts`, `mcp/registration.ts`, and every rule-file write in this
+  // function) rely on plain overwrite semantics.
+  // FAILS CLOSED on a config that exists but cannot be read or parsed (PR #3623
+  // R1). Warning and overwriting anyway would reintroduce exactly the data loss
+  // SC2 exists to stop, and would do it on the path where the user is LEAST able
+  // to notice — a non-interactive `--overwrite` in CI, where `warn` goes nowhere
+  // anyone reads and the command still reports success. SC2 requires every unowned
+  // key to survive; when the file cannot be read there is no way to honour that,
+  // so refusing and naming the file is the only faithful outcome. The user can
+  // repair the file or move it aside.
+  let existingConfigYaml: string | null = null;
+  if (overwrite && (await fileSystem.exists(configPath))) {
+    try {
+      existingConfigYaml = await fileSystem.readFile(configPath, "utf8");
+    } catch (error) {
+      throw new UnmergeableConfigError(configPath, error);
+    }
+  }
+
+  // Throws UnmergeableConfigError when the file is present but unparseable.
+  const { merged: mergedConfigContent, preservedKeys } = mergeProjectConfigYaml(
+    existingConfigYaml,
+    configContent,
+    configPath
+  );
+  if (preservedKeys.length > 0) {
+    log.debug("minsky init: preserved existing top-level config keys across --overwrite", {
+      configPath,
+      preserved: preservedKeys,
+    });
+  }
+
+  await createFileIfNotExists(configPath, mergedConfigContent, overwrite, fileSystem);
 
   // === Phase 2: Developer-local setup ===
   // Skipped when MCP is explicitly disabled (e.g. in tests or non-MCP workflows).
   // performSetup() writes .minsky/config.local.yaml (with harness field) and
   // registers Minsky with the MCP client (e.g. .cursor/mcp.json).
   if (mcp?.enabled !== false) {
-    await performSetup({ repoPath, client: "cursor", overwrite }, fileSystem);
+    // mt#4676: resolve the harness from the environment (CLAUDECODE=1, etc.)
+    // before falling back to filesystem installed-ness, rather than
+    // hardcoding "cursor" regardless of what is actually running `init`.
+    // mt#4699: hand the MCP options straight to performSetup rather than
+    // routing them through the committed config.yaml it used to read them
+    // back out of. They land in `.minsky/config.local.yaml`, which is where
+    // machine-scope settings belong.
+    await performSetup(
+      // `initClient`, not a second resolveInitClient() call (mt#4715): rule
+      // scaffolding above already branched on it, and two independent
+      // resolutions could disagree.
+      { repoPath, client: initClient, overwrite, mcp: mcpForConfig },
+      fileSystem
+    );
 
     // Install the observability baseline so this project's conversations are
     // visible to cockpit attach + presence (mt#3499). Automatic, per ask#6671.
@@ -182,7 +417,11 @@ export async function initializeProject(
       await provisionObservabilityHooks({ repoPath }, fileSystem);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      log.warn(
+      // mt#4770: `warn`, not `log.warn` — the comment above says this "must
+      // never look like success", which is exactly what `log.warn` produces in
+      // HUMAN mode. Same class as the rule-reachability messages; see the
+      // channel note above.
+      warn(
         `Minsky observability hooks were NOT installed: ${reason}\n` +
           `The project is initialized, but its conversations will not appear in the cockpit ` +
           `(attach and presence will read UNKNOWN). Re-run 'minsky init' after resolving the above.`

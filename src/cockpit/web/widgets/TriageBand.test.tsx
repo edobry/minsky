@@ -18,6 +18,8 @@ import {
   MIN_N_FOR_DISTRIBUTION,
 } from "./TriageBand";
 import type { AskItem } from "./AskDetail";
+import { ProjectProvider } from "../lib/project-context";
+import { stubProjectsRoute } from "../lib/test-support/projects";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -105,6 +107,7 @@ function stubAsks(asks: AskItem[]) {
     }
     throw new Error(`Unexpected fetch in test: ${url}`);
   }) as unknown as typeof fetch;
+  stubProjectsRoute();
 }
 
 function renderBand() {
@@ -112,7 +115,9 @@ function renderBand() {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <TriageBand />
+        <ProjectProvider>
+          <TriageBand />
+        </ProjectProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );

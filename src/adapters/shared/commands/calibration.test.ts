@@ -37,9 +37,14 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { sharedCommandRegistry } from "../command-registry";
-import { registerCalibrationCommands } from "./calibration";
+import { registerCalibrationCommands, resolveCalibrationStatePath } from "./calibration";
+import {
+  calibrationReviewStorePath,
+  WATERMARK_STORE_FILENAME,
+  CLAIM_STORE_FILENAME,
+} from "@minsky/shared/calibration-review-store-paths";
 import {
   UNKNOWN_SILENT_STRETCH_SESSION_LABEL,
   type LogWatermark,
@@ -47,6 +52,26 @@ import {
 
 const COMMAND_ID = "observability.calibration-review";
 const SILENT_STRETCH_LOG = "silent-stretch-calibration.jsonl";
+const CAUSAL_PREMISE_LOG = "causal-premise-calibration.jsonl";
+
+/**
+ * mt#4748 R1: the calibration LOG content this file's fixtures write no
+ * longer lives at `join(workspace, ".minsky", logFileName)` — it lives under
+ * the state dir, project-keyed. Resolve through the exact same helper the
+ * command itself uses (`resolveCalibrationStatePath`, exported from
+ * `calibration.ts` for this reason) so a fixture write and the command's own
+ * read are GUARANTEED to agree, rather than asserting it by construction in
+ * two places.
+ */
+async function writeCalibrationLog(
+  workspace: string,
+  logFileName: string,
+  content: string
+): Promise<void> {
+  const path = await resolveCalibrationStatePath(workspace, `.minsky/${logFileName}`);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, content, "utf-8");
+}
 
 function getCommand() {
   let command = sharedCommandRegistry.getCommand(COMMAND_ID);
@@ -84,8 +109,16 @@ function makeWorkspace(): string {
   return dir;
 }
 
-afterEach(() => {
+afterEach(async () => {
   for (const dir of tempDirs.splice(0)) {
+    // mt#4748 R1: the calibration logs this file's fixtures write now live
+    // under the shared state dir, outside `dir` — clean up both known log
+    // names best-effort (a name never written for this workspace is a no-op
+    // `force: true` removal) before removing the workspace itself.
+    for (const logName of [SILENT_STRETCH_LOG, CAUSAL_PREMISE_LOG]) {
+      const path = await resolveCalibrationStatePath(dir, `.minsky/${logName}`);
+      rmSync(path, { force: true });
+    }
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -101,18 +134,18 @@ function makeSilentStretchRecord(sessionId: string): string {
 }
 
 /** 12 fires across 4 distinct conversations — the mt#2866 acceptance-test fixture. */
-function writeAcceptanceFixture(workspace: string): void {
+async function writeAcceptanceFixture(workspace: string): Promise<void> {
   const conversations = ["conv-a", "conv-b", "conv-c", "conv-d"];
   const lines = Array.from({ length: 12 }, (_, i) =>
     makeSilentStretchRecord(conversations[i % conversations.length] as string)
   );
-  writeFileSync(join(workspace, ".minsky", SILENT_STRETCH_LOG), `${lines.join("\n")}\n`, "utf-8");
+  await writeCalibrationLog(workspace, SILENT_STRETCH_LOG, `${lines.join("\n")}\n`);
 }
 
 describe("observability.calibration-review — silent-stretch (mt#2866)", () => {
   test("classifies a synthetic silent-stretch log without erroring (json mode)", async () => {
     const workspace = makeWorkspace();
-    writeAcceptanceFixture(workspace);
+    await writeAcceptanceFixture(workspace);
 
     const command = getCommand();
     const result = (await command.execute(
@@ -151,7 +184,7 @@ describe("observability.calibration-review — silent-stretch (mt#2866)", () => 
 
   test("classifies a synthetic silent-stretch log without erroring (text mode)", async () => {
     const workspace = makeWorkspace();
-    writeAcceptanceFixture(workspace);
+    await writeAcceptanceFixture(workspace);
 
     const command = getCommand();
     const result = (await command.execute(
@@ -166,7 +199,7 @@ describe("observability.calibration-review — silent-stretch (mt#2866)", () => 
 
   test("--ack advances the silent-stretch watermark without erroring", async () => {
     const workspace = makeWorkspace();
-    writeAcceptanceFixture(workspace);
+    await writeAcceptanceFixture(workspace);
 
     const command = getCommand();
     const result = (await command.execute(
@@ -204,7 +237,7 @@ describe("observability.calibration-review — silent-stretch (mt#2866)", () => 
         (_, i) => makeSilentStretchRecord(conversations[i % conversations.length] as string) // 9 more -> 10 total
       ),
     ];
-    writeFileSync(join(workspace, ".minsky", SILENT_STRETCH_LOG), `${lines.join("\n")}\n`, "utf-8");
+    await writeCalibrationLog(workspace, SILENT_STRETCH_LOG, `${lines.join("\n")}\n`);
 
     const command = getCommand();
     const result = (await command.execute(
@@ -228,8 +261,9 @@ describe("observability.calibration-review — silent-stretch (mt#2866)", () => 
 // old `results.filter((r) => r.pastThreshold)` selection cannot pick them up:
 // each test fails against the pre-fix code.
 
-const CAUSAL_PREMISE_LOG = "causal-premise-calibration.jsonl";
-const WATERMARKS_FILE = "calibration-review-watermarks.json";
+// mt#4880: the local `WATERMARKS_FILE` literal is gone — the fixture helpers below
+// name `WATERMARK_STORE_FILENAME` from the shared resolver instead, so a rename
+// cannot leave the test writing where nothing reads.
 const CAUSAL_PREMISE_PATH = ".minsky/causal-premise-calibration.jsonl";
 const SILENT_STRETCH_PATH = ".minsky/silent-stretch-calibration.jsonl";
 const ASK_ID = "11111111-2222-3333-4444-555555555555";
@@ -239,7 +273,7 @@ function daysAgoIso(days: number): string {
 }
 
 /** Records old enough to trip the 30-day never-reviewed window, and few enough to stay under the count bar. */
-function writeAgedCausalPremiseLog(workspace: string, count: number): void {
+async function writeAgedCausalPremiseLog(workspace: string, count: number): Promise<void> {
   const lines = Array.from({ length: count }, (_, i) =>
     JSON.stringify({
       timestamp: daysAgoIso(60),
@@ -248,18 +282,31 @@ function writeAgedCausalPremiseLog(workspace: string, count: number): void {
       hadSameTurnVerification: false,
     })
   );
-  writeFileSync(join(workspace, ".minsky", CAUSAL_PREMISE_LOG), `${lines.join("\n")}\n`, "utf-8");
+  await writeCalibrationLog(workspace, CAUSAL_PREMISE_LOG, `${lines.join("\n")}\n`);
+}
+
+/**
+ * mt#4880: the watermark store moved out of the workspace's `.minsky/` into the
+ * project-keyed state dir, so these fixtures resolve through the SAME function the
+ * command does. Writing the old repo-rooted path here would have made every ack
+ * test read an empty store — which is why eight of them failed against the moved
+ * writer, and why the fixture must not re-spell the location.
+ */
+function watermarksPath(workspace: string): string {
+  return calibrationReviewStorePath(WATERMARK_STORE_FILENAME, workspace);
 }
 
 function writeWatermarks(workspace: string, store: Record<string, unknown>): void {
-  writeFileSync(join(workspace, ".minsky", WATERMARKS_FILE), JSON.stringify(store), "utf-8");
+  const path = watermarksPath(workspace);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(store), "utf-8");
 }
 
 function readWatermarks(workspace: string): Record<string, LogWatermark> {
   // `as string`: src/types/node.d.ts declares readFileSync as returning
   // `string | Buffer` regardless of encoding, so no overload narrows it. Every
   // other call site in src/ casts the same way.
-  const raw = readFileSync(join(workspace, ".minsky", WATERMARKS_FILE), {
+  const raw = readFileSync(watermarksPath(workspace), {
     encoding: "utf-8",
   }) as string;
   return JSON.parse(raw) as Record<string, LogWatermark>;
@@ -278,7 +325,7 @@ type AckResult = {
 describe("observability.calibration-review — --ack covers all review-due legs (mt#2878)", () => {
   test("advances a never-reviewed log that has no watermark, and binds its askId", async () => {
     const workspace = makeWorkspace();
-    writeAgedCausalPremiseLog(workspace, 3);
+    await writeAgedCausalPremiseLog(workspace, 3);
 
     const command = getCommand();
 
@@ -318,7 +365,7 @@ describe("observability.calibration-review — --ack covers all review-due legs 
     const workspace = makeWorkspace();
     // 3 fires total, 1 already reviewed -> 2 new, well under FIRES_THRESHOLD.
     const lines = Array.from({ length: 3 }, (_, i) => makeSilentStretchRecord(`conv-${i}`));
-    writeFileSync(join(workspace, ".minsky", SILENT_STRETCH_LOG), `${lines.join("\n")}\n`, "utf-8");
+    await writeCalibrationLog(workspace, SILENT_STRETCH_LOG, `${lines.join("\n")}\n`);
     writeWatermarks(workspace, {
       [SILENT_STRETCH_PATH]: { lastReviewedCount: 1, lastReviewedAt: daysAgoIso(20) },
     });
@@ -362,7 +409,7 @@ describe("observability.calibration-review — --ack covers all review-due legs 
     // made the old assertion pass).
     const workspace = makeWorkspace();
     const lines = Array.from({ length: 3 }, (_, i) => makeSilentStretchRecord(`conv-${i}`));
-    writeFileSync(join(workspace, ".minsky", SILENT_STRETCH_LOG), `${lines.join("\n")}\n`, "utf-8");
+    await writeCalibrationLog(workspace, SILENT_STRETCH_LOG, `${lines.join("\n")}\n`);
     const originalWatermark = {
       lastReviewedCount: 1,
       lastReviewedAt: daysAgoIso(20),
@@ -388,7 +435,7 @@ describe("observability.calibration-review — --ack covers all review-due legs 
   test("supplying askId reaffirms an open-ask log on a newly-covered leg", async () => {
     const workspace = makeWorkspace();
     const lines = Array.from({ length: 3 }, (_, i) => makeSilentStretchRecord(`conv-${i}`));
-    writeFileSync(join(workspace, ".minsky", SILENT_STRETCH_LOG), `${lines.join("\n")}\n`, "utf-8");
+    await writeCalibrationLog(workspace, SILENT_STRETCH_LOG, `${lines.join("\n")}\n`);
     writeWatermarks(workspace, {
       [SILENT_STRETCH_PATH]: {
         lastReviewedCount: 1,
@@ -434,13 +481,9 @@ describe("observability.calibration-review — concurrent-write reconciliation (
     // calls start together and each spends its sweep between its read and its
     // write. The assertion holds under either completion order.
     const workspace = makeWorkspace();
-    writeAgedCausalPremiseLog(workspace, 3);
+    await writeAgedCausalPremiseLog(workspace, 3);
     const silentStretch = Array.from({ length: 3 }, (_, i) => makeSilentStretchRecord(`conv-${i}`));
-    writeFileSync(
-      join(workspace, ".minsky", SILENT_STRETCH_LOG),
-      `${silentStretch.join("\n")}\n`,
-      "utf-8"
-    );
+    await writeCalibrationLog(workspace, SILENT_STRETCH_LOG, `${silentStretch.join("\n")}\n`);
     writeWatermarks(workspace, {
       // Carries the open ask -> pass A skips it, pass B clears it.
       [CAUSAL_PREMISE_PATH]: {
@@ -472,7 +515,7 @@ describe("observability.calibration-review — concurrent-write reconciliation (
 
   test("an uncontended ack reports no dropped writes and still advances", async () => {
     const workspace = makeWorkspace();
-    writeAgedCausalPremiseLog(workspace, 3);
+    await writeAgedCausalPremiseLog(workspace, 3);
 
     const acked = (await getCommand().execute(
       { ack: true, json: true, reviewToken: await readReviewToken(workspace) },
@@ -489,7 +532,7 @@ describe("observability.calibration-review — concurrent-write reconciliation (
     // was classified, and the only count available to it is the one that
     // caused the defect. Failing closed costs one read-only call.
     const workspace = makeWorkspace();
-    writeAgedCausalPremiseLog(workspace, 3);
+    await writeAgedCausalPremiseLog(workspace, 3);
 
     const refused = (await getCommand().execute(
       { ack: true, json: true },
@@ -499,16 +542,16 @@ describe("observability.calibration-review — concurrent-write reconciliation (
     expect(refused.success).toBe(false);
     expect(refused.error).toContain("reviewToken");
     // No watermark file was created — the refusal happens before any write.
-    expect(existsSync(join(workspace, ".minsky", WATERMARKS_FILE))).toBe(false);
+    expect(existsSync(watermarksPath(workspace))).toBe(false);
   });
 
   test("ack with a token claiming more records than the log holds is REFUSED (mt#3906)", async () => {
     const workspace = makeWorkspace();
-    writeAgedCausalPremiseLog(workspace, 3);
+    await writeAgedCausalPremiseLog(workspace, 3);
     // A receipt taken while the log held 3 records, replayed against a log
     // that now holds 1 — the shape a rotated log or a foreign tree produces.
     const token = await readReviewToken(workspace);
-    writeAgedCausalPremiseLog(workspace, 1);
+    await writeAgedCausalPremiseLog(workspace, 1);
 
     const refused = (await getCommand().execute(
       { ack: true, json: true, reviewToken: token },
@@ -517,7 +560,7 @@ describe("observability.calibration-review — concurrent-write reconciliation (
 
     expect(refused.success).toBe(false);
     expect(refused.error).toContain("the log holds");
-    expect(existsSync(join(workspace, ".minsky", WATERMARKS_FILE))).toBe(false);
+    expect(existsSync(watermarksPath(workspace))).toBe(false);
   });
 
   test("an uncontended clear reports no dropped writes and leaves the counts alone", async () => {
@@ -526,7 +569,7 @@ describe("observability.calibration-review — concurrent-write reconciliation (
     // CORRECT before this change — the first diagnosis of the incident wrongly
     // blamed it — and the reconciliation must not disturb it.
     const workspace = makeWorkspace();
-    writeAgedCausalPremiseLog(workspace, 3);
+    await writeAgedCausalPremiseLog(workspace, 3);
     const original = { lastReviewedCount: 1, lastReviewedAt: daysAgoIso(20), openAskId: ASK_ID };
     writeWatermarks(workspace, { [CAUSAL_PREMISE_PATH]: original });
 
@@ -545,7 +588,8 @@ describe("observability.calibration-review — concurrent-write reconciliation (
 });
 
 describe("observability.calibration-review — server-injected caller identity (mt#4408)", () => {
-  const CLAIMS_FILE = ".minsky/calibration-review-claims.json";
+  // mt#4880: was `.minsky/calibration-review-claims.json`; `readClaims` below now
+  // resolves through the shared store resolver, so no local literal is needed.
   const INJECTED = "com.anthropic.claude-code:conv:injected-aaaa";
   const OTHER_PASS = "com.anthropic.claude-code:conv:other-bbbb";
 
@@ -574,7 +618,8 @@ describe("observability.calibration-review — server-injected caller identity (
   }
 
   function readClaims(workspace: string): Record<string, { actorId: string }> {
-    const path = join(workspace, CLAIMS_FILE);
+    // mt#4880: through the shared resolver, like the watermark fixture above.
+    const path = calibrationReviewStorePath(CLAIM_STORE_FILENAME, workspace);
     if (!existsSync(path)) return {};
     // `as string` for the same reason `readWatermarks` above casts: this repo's
     // src/types/node.d.ts declares readFileSync as `string | Buffer` regardless
@@ -585,7 +630,7 @@ describe("observability.calibration-review — server-injected caller identity (
 
   test("callerActorId resolves identity, so the pass claims its review-due logs", async () => {
     const workspace = makeWorkspace();
-    writeAcceptanceFixture(workspace);
+    await writeAcceptanceFixture(workspace);
 
     const result = await withoutHarnessIdentity(
       async () =>
@@ -608,7 +653,7 @@ describe("observability.calibration-review — server-injected caller identity (
 
   test("NEGATIVE CONTROL — without callerActorId the pass is unidentifiable and claims nothing", async () => {
     const workspace = makeWorkspace();
-    writeAcceptanceFixture(workspace);
+    await writeAcceptanceFixture(workspace);
 
     const result = await withoutHarnessIdentity(
       async () =>
@@ -623,7 +668,7 @@ describe("observability.calibration-review — server-injected caller identity (
 
   test("a second pass is warned about the first pass's claim", async () => {
     const workspace = makeWorkspace();
-    writeAcceptanceFixture(workspace);
+    await writeAcceptanceFixture(workspace);
 
     await withoutHarnessIdentity(async () => {
       await getCommand().execute(
@@ -643,7 +688,7 @@ describe("observability.calibration-review — server-injected caller identity (
 
   test("an unidentifiable second pass still SEES the first pass's claim (SC2)", async () => {
     const workspace = makeWorkspace();
-    writeAcceptanceFixture(workspace);
+    await writeAcceptanceFixture(workspace);
 
     await withoutHarnessIdentity(async () => {
       await getCommand().execute(
@@ -667,7 +712,7 @@ describe("observability.calibration-review — server-injected caller identity (
 describe("observability.calibration-review — a fully-lost ack names the loss (mt#4408)", () => {
   test("a path this token presented as due, advanced by another pass, is reported", async () => {
     const workspace = makeWorkspace();
-    writeAcceptanceFixture(workspace);
+    await writeAcceptanceFixture(workspace);
 
     // Pass A mints a token over the review-due set.
     const tokenA = await readReviewToken(workspace);
@@ -700,7 +745,7 @@ describe("observability.calibration-review — a fully-lost ack names the loss (
 
   test("an uncontended ack reports no lost paths", async () => {
     const workspace = makeWorkspace();
-    writeAcceptanceFixture(workspace);
+    await writeAcceptanceFixture(workspace);
     const token = await readReviewToken(workspace);
     const acked = (await getCommand().execute(
       { ack: true, json: true, reviewToken: token },
@@ -733,7 +778,7 @@ describe("observability.calibration-review — lost-ack reporting edges (mt#4408
 
   test("AT4 — the text output states the loss in words, not only in JSON", async () => {
     const workspace = makeWorkspace();
-    writeAcceptanceFixture(workspace);
+    await writeAcceptanceFixture(workspace);
 
     const tokenA = await readReviewToken(workspace);
     const tokenB = await readReviewToken(workspace);
@@ -755,3 +800,88 @@ describe("observability.calibration-review — lost-ack reporting edges (mt#4408
     expect(rendered).toContain("do NOT re-ack");
   });
 });
+
+describe("observability.calibration-review — a clamp is not an advance (mt#4941 AT3)", () => {
+  /**
+   * Quiet every review-due log EXCEPT `keepDuePath`, so an assertion about the
+   * process-global `watermarkAdvanced` is about the log under test.
+   *
+   * This is mt#3818's hazard handled rather than hoped past: the flag is
+   * process-global, and an unrelated registry entry's `never-fired` leg goes
+   * due purely by wall-clock (`liveSinceDate + reviewByDays`), which would make
+   * a `false` assertion here start failing on a date nobody changed. Setting a
+   * watermark at the log's own count makes `firesSinceLastReview` zero and puts
+   * `never-reviewed` / `never-fired` out of reach, without depending on which
+   * entries happen to be registered.
+   */
+  async function quietAllBut(workspace: string, keepDuePath: string): Promise<void> {
+    const sweep = (await getCommand().execute(
+      { ack: false, json: true },
+      { workspacePath: workspace }
+    )) as {
+      reviewDue: Array<{ path: string }>;
+      results: Array<{ path: string; totalFires: number }>;
+    };
+    const store: Record<string, LogWatermark> = {};
+    const now = new Date().toISOString();
+    for (const due of sweep.reviewDue) {
+      if (due.path === keepDuePath) continue;
+      const total = sweep.results.find((r) => r.path === due.path)?.totalFires ?? 0;
+      store[due.path] = { lastReviewedCount: total, lastReviewedAt: now };
+    }
+    writeWatermarks(workspace, store);
+  }
+
+  test("an ack whose every target is clamped reports watermarkAdvanced: false", async () => {
+    const workspace = makeWorkspace();
+    const silentStretchPath = `.minsky/${SILENT_STRETCH_LOG}`;
+
+    // 12 fires, no watermark -> due, and the token binds count 12.
+    await writeAcceptanceFixture(workspace);
+    await quietAllBut(workspace, silentStretchPath);
+    const staleToken = await readReviewToken(workspace);
+
+    // The log then grows and ANOTHER pass reviews further into it: watermark 40
+    // against 60 records. Not stranded (40 < 60), so the clamp is the correct
+    // disposition — this is the protection mt#4941 must not lose.
+    const lines = Array.from({ length: 60 }, (_, i) => makeSilentStretchRecord(`conv-${i % 4}`));
+    await writeCalibrationLog(workspace, SILENT_STRETCH_LOG, `${lines.join("\n")}\n`);
+    const quieted = readWatermarks(workspace);
+    writeWatermarks(workspace, {
+      ...quieted,
+      [silentStretchPath]: { lastReviewedCount: 40, lastReviewedAt: daysAgoIso(20) },
+    });
+
+    // Precondition: due again, and due on a leg that is NOT the stranded one.
+    const before = (await getCommand().execute(
+      { ack: false, json: true },
+      { workspacePath: workspace }
+    )) as { reviewDue: Array<{ path: string; reason: string }> };
+    expect(before.reviewDue.map((d) => d.path)).toEqual([silentStretchPath]);
+    expect(before.reviewDue[0]?.reason).not.toBe("watermark-stranded");
+
+    const acked = (await getCommand().execute(
+      { ack: true, json: true, reviewToken: staleToken },
+      { workspacePath: workspace }
+    )) as AckResult & { clampedPaths: string[]; repairedPaths: string[] };
+
+    expect(acked.clampedPaths).toEqual([silentStretchPath]);
+    expect(acked.repairedPaths).toEqual([]);
+    // The write LANDED — it just wrote the value that was already there. That
+    // is precisely why counting write attempts could not answer this.
+    expect(readWatermarks(workspace)[silentStretchPath]?.lastReviewedCount).toBe(40);
+    expect(acked.driftedPaths).toEqual([]);
+    expect(acked.watermarkAdvanced).toBe(false);
+  });
+});
+
+// mt#4748 R1: the write(via logCalibrationRecord)/read(via this command)
+// parity test lives in `.minsky/hooks/calibration-write-read-parity.test.ts`,
+// not here — importing `.minsky/hooks/dispatcher.ts` from this file pulls
+// its whole transitive closure into the ROOT tsconfig's compilation unit,
+// which does not share `tsconfig.hooks.json`'s `"types": ["bun", "node"]`
+// override and turned up 27 pre-existing `string | Buffer` errors across
+// unrelated hook files the moment the import was added (measured). The
+// hooks tree already imports `src/domain/**` cleanly in the other direction
+// (`calibration-review-cadence-detector.ts` does exactly this), so the test
+// lives there instead, importing this command in the safe direction.

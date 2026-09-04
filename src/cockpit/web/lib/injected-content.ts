@@ -72,6 +72,7 @@
 import {
   BASH_MODE_TAGS,
   COMMAND_WRAPPER_TAGS,
+  FORK_BOILERPLATE_TAGS,
   LOCAL_COMMAND_TAGS,
   TASK_NOTIFICATION_TAGS,
   tagBlockSource,
@@ -92,6 +93,7 @@ export type InjectedContentKind =
   | "bash-output"
   | "bash-error"
   | "task-notification"
+  | "fork-boilerplate"
   | "session-notice";
 
 /** Defensive bound on how many wrapper blocks one turn-start run may consume.
@@ -213,6 +215,13 @@ export const INJECTED_KIND_NOUN: Record<InjectedContentKind, string> = {
   "bash-output": "command output",
   "bash-error": "command error",
   "task-notification": "task notification",
+  // mt#4072. "harness caveat", the SAME noun `local-command-caveat` carries,
+  // because it is the same thing: boilerplate the HARNESS addressed to the
+  // model. Deliberately not a new word — the precedent already names this
+  // class, and the naming criterion asked for the precedent rather than
+  // vocabulary. Contrast `session-notice` below, which is separate precisely
+  // because that text is MINSKY's own rather than the harness's.
+  "fork-boilerplate": "harness caveat",
   // NOT "harness notice" (mt#3396): this text is MINSKY's own
   // (`INTERRUPTION_NOTICE_TEXT`), not the harness's. Naming it "harness" would
   // layer a second misattribution on top of the one this task removes — the
@@ -465,6 +474,14 @@ const TURN_START_TAG_PRESENTATION: Record<string, TurnStartTagPresentation> = {
     decodeEntities: true,
     parts: parseTaskNotification,
   },
+  // mt#4072 — the worker-fork preamble. A plain block with a static label: it
+  // has no structured envelope to take apart (unlike `task-notification`) and
+  // no operator-typed content to surface (unlike `bash-input`), so the header
+  // is the whole presentation and the 947 characters behind it stay collapsed.
+  "fork-boilerplate": {
+    kind: "fork-boilerplate",
+    label: INJECTED_KIND_NOUN["fork-boilerplate"],
+  },
 };
 
 function skillNameFromPath(path: string): string {
@@ -504,6 +521,11 @@ const TURN_START_TAG_MATCHERS: ReadonlyArray<{ tag: string; re: RegExp }> = [
   ...LOCAL_COMMAND_TAGS,
   ...BASH_MODE_TAGS,
   ...TASK_NOTIFICATION_TAGS,
+  // mt#4072. Turn-START is the right list for this one: measured 15 of 15, the
+  // block opens the turn and the parent's directive follows it, so matching
+  // here consumes exactly the boilerplate and leaves the directive to the prose
+  // path. A whole-turn matcher would have eaten the directive with it.
+  ...FORK_BOILERPLATE_TAGS,
 ].map((tag) => ({ tag, re: new RegExp(`^\\s*${tagBlockSource(tag, true)}`, "i") }));
 
 /** One wrapper block matched at the head of `text`, whichever tag it is. */

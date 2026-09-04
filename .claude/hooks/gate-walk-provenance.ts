@@ -91,12 +91,11 @@
 // @see .minsky/hooks/enumeration-scope-check.ts — the sibling at `pr` (scope, not existence)
 // @see scripts/replay-gate-walk-provenance.ts — the SC8 measurement
 
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import { findRepoRoot, readInput } from "./types";
 import type { ToolHookInput } from "./types";
 import { makeRecordAndExit } from "./merge-gate-fire-log";
 import type { MergeGateFireLogContext, RecordAndExit } from "./merge-gate-fire-log";
+import { logCalibrationRecord } from "./dispatcher";
 import { resolveMergeGateTaskId } from "./merge-gate-task-resolution";
 import { describeProviderResolutionFailure, ensureHookDomainBootstrap } from "./domain-bootstrap";
 // Type-only, so it is erased at runtime and the module's domain imports stay
@@ -114,7 +113,20 @@ export const GUARD_NAME = "gate-walk-provenance";
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_GATE_WALK_PROVENANCE";
 
 /** Calibration log (mt#2263 ladder) — repo-root relative. */
-export const CALIBRATION_LOG = ".minsky/gate-walk-provenance-calibration.jsonl";
+const CALIBRATION_LOG_NAME = "gate-walk-provenance";
+
+/**
+ * The resolved log path, DERIVED from the stream name (mt#4752).
+ *
+ * Still exported because two consumers read it as a declaration —
+ * `gate-walk-provenance.test.ts` and `scripts/lib/calibration-log-declarations.test.ts`,
+ * the census that keeps the declared set honest. What changed is that it is no
+ * longer hand-spelled: the suffix now comes from the same construction
+ * `calibrationLogPath` uses, so the declaration and the actual write cannot
+ * disagree. A hand-written literal is what let a sibling's filename go singular
+ * and escape `.gitignore` for weeks (mt#2492).
+ */
+export const CALIBRATION_LOG = `.minsky/${CALIBRATION_LOG_NAME}-calibration.jsonl`;
 
 /**
  * Deadline for the whole three-query read.
@@ -481,21 +493,30 @@ export function buildCalibrationRecord(args: {
  */
 export function appendCalibrationRecord(
   record: Record<string, unknown>,
-  repoRootDir: string,
-  logRelPath: string = CALIBRATION_LOG
+  repoRootDir: string
 ): void {
-  try {
-    const logPath = resolve(repoRootDir, logRelPath);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    process.stderr.write(
-      `[${GUARD_NAME}] Failed to write ${logRelPath}: ${
-        err instanceof Error ? err.message : String(err)
-      }\n`
-    );
-  }
+  // mt#4752: the shared helper derives the filename from the stream NAME, so it
+  // cannot drift from the convention the .gitignore globs encode.
+  //
+  // mt#4885: `repoRootDir` goes in the `fallbackCwd` tier, NOT `projectDir`.
+  // This comment previously claimed it "IS authoritative — it is resolved by the
+  // caller, not a raw shell cwd". That was false: the only caller resolves it as
+  // `findRepoRoot(input.cwd)`, so it IS a raw shell cwd, merely one that has been
+  // walked up to a repo root. `calibrationLogPath`'s own docblock names this exact
+  // mistake — "Passing that cwd as `projectDir` would preserve the bug through the
+  // migration — the whole point is that it lands in the lower tier" — because in a
+  // session workspace `findRepoRoot` returns the CLONE, which is a legitimate repo
+  // root and the wrong project. Demoting it lets `CLAUDE_PROJECT_DIR` outrank it.
+  //
+  // This fixes the TIER only. When `CLAUDE_PROJECT_DIR` is unset the ladder still
+  // falls through to this value and still keys to the clone — that is a separate
+  // defect (which root a session workspace SHOULD resolve to), tracked as mt#4954
+  // and deliberately not changed here.
+  //
+  // The former third parameter (`logRelPath`, defaulted to the path literal) is
+  // gone: both call sites used the default, and a path-taking parameter is the
+  // degree of freedom that let a sibling's filename be misspelled (mt#2492).
+  logCalibrationRecord(CALIBRATION_LOG_NAME, record, { fallbackCwd: repoRootDir });
 }
 
 // ---------------------------------------------------------------------------

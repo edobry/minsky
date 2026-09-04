@@ -170,67 +170,32 @@ export interface PhraseMatch {
 
 /**
  * Replace markdown contexts that carry textual references (not coordination
- * instructions) with same-length whitespace. Preserves character positions so
- * `indexOf` results in the returned text remain valid offsets into the original
- * body — excerpts can still be sliced from the original to show real context.
+ * instructions) with same-length whitespace.
  *
- * CommonMark coverage (PR #1028 R1 BLOCKING #1 / #2 fix):
- *   1. Fenced code blocks — backtick OR tilde fences (3+ markers); opening
- *      line may be indented up to 3 spaces and carry an info string; closing
- *      fence matches the opening marker exactly (same kind, same count) with
- *      tolerance for trailing whitespace and CR before LF.
- *   2. Inline code spans — variable-length backtick runs per CommonMark
- *      (`foo`, ``foo``, ```foo``` …). Closing run must match the opening run
- *      length and not be followed by another backtick.
- *   3. Blockquote lines — up to 3 leading spaces, one-or-more `>` markers
- *      (covers nesting), CRLF-tolerant.
+ * **MOVED to `packages/domain/src/text/prose-elision.ts` by mt#4454** and re-exported
+ * here, so this hook's existing importers are unchanged. It moved because DOMAIN
+ * modules needed it — `packages/domain/src/memory/staleness.ts` is the first — and a
+ * domain module importing from the hooks tree inverts the layering (hooks adapt the
+ * domain, not the reverse). Re-exporting rather than copying keeps exactly one
+ * implementation; see that module's docblock for the full CommonMark coverage notes,
+ * the lazy-continuation limitation, and why same-length blanking is load-bearing.
  *
- * The replacement preserves newlines so line-anchored passes after pass 1
- * still align correctly.
+ * Imported-then-re-exported rather than a bare `export … from`: this module CALLS it too
+ * (`scanForTriggerPhrases`), and a pass-through re-export would not bind the local name.
  *
- * Known limitation (NON-BLOCKING per PR #1028 R1): CommonMark "lazy
- * continuation" — a blockquote paragraph wrapped onto subsequent lines
- * without a leading `>` marker. The wrapped lines look like prose and will
- * be scanned. This is rare in PR bodies and the false-positive risk is low;
- * documented here so a future regression can be diagnosed quickly.
- *
- * Catches the mt#1701 PR #1021 false-positive class: docs PRs that legitimately
- * reference trigger phrases as field names in code spans, rather than as
- * coordination instructions in bare prose.
+ * **The deep relative path is deliberate (mt#4898).** PR #3498's review flagged it as
+ * non-blocking tidiness; it was checked and declined. The `.claude/hooks/SPEC.md`
+ * dependency-free invariant it rested on was retired by ADR-028's amendment ("Hook modules may
+ * import `packages/domain`"), and `docs/architecture/hook-module-inventory.md` measures 35 hook
+ * modules already importing domain. `prose-elision` is a LEAF, so this resolution pulls in no
+ * transitive graph — the same reasoning `packages/domain/src/validation/negative-constraint.ts`
+ * records for its own import of it — and three sibling hooks (`elision.ts`,
+ * `claim-provenance-scan.ts`, `actionables-block.ts`) reach it by this exact path. Converting
+ * one of four call sites would split the convention, not tidy it.
  */
-export function elideMarkdownNonProse(body: string): string {
-  const blankSameLength = (match: string): string => match.replace(/[^\n]/g, " ");
+import { elideMarkdownNonProse } from "../../packages/domain/src/text/prose-elision";
 
-  // Pass 1: fenced code blocks.
-  //   ^ {0,3}        — up to 3 leading spaces (CommonMark indent rule)
-  //   (`{3,}|~{3,})  — capture group 1: 3+ backticks OR 3+ tildes
-  //   [^\r\n]*       — optional info string on the opening line
-  //   \r?\n          — opening newline (CRLF or LF)
-  //   [\s\S]*?       — content (non-greedy, includes newlines)
-  //   ^ {0,3}\1      — closing fence: 0-3 spaces + same marker run
-  //   [ \t]*\r?$     — optional trailing whitespace, CR before LF tolerance
-  let cleaned = body.replace(
-    /^ {0,3}(`{3,}|~{3,})[^\r\n]*\r?\n[\s\S]*?^ {0,3}\1[ \t]*\r?$/gm,
-    blankSameLength
-  );
-
-  // Pass 2: inline code spans with variable-length backtick delimiters.
-  //   (`+)              — capture run of N backticks
-  //   ([^\n]+?)         — content (non-greedy, no newlines)
-  //   \1                — closing run of same N backticks
-  //   (?!`)             — not followed by another backtick (so we don't eat
-  //                       into a longer run that should have been the opener)
-  cleaned = cleaned.replace(/(`+)([^\n]+?)\1(?!`)/g, blankSameLength);
-
-  // Pass 3: blockquote lines.
-  //   ^ {0,3}    — up to 3 leading spaces
-  //   >+         — one or more `>` (covers nested quotes like `>>`)
-  //   [^\n]*     — line content
-  //   \r?$       — CRLF-tolerant line end
-  cleaned = cleaned.replace(/^ {0,3}>+[^\n]*\r?$/gm, blankSameLength);
-
-  return cleaned;
-}
+export { elideMarkdownNonProse };
 
 /**
  * Split a body into CommonMark-style paragraphs separated by blank lines.

@@ -10,6 +10,8 @@ import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DigestPage } from "./DigestPage";
+import { ProjectProvider } from "../lib/project-context";
+import { stubProjectsRoute } from "../lib/test-support/projects";
 
 const originalFetch = globalThis.fetch;
 
@@ -19,6 +21,7 @@ function stubActivity(events: unknown[], status = 200): void {
       status,
       headers: { "Content-Type": "application/json" },
     })) as unknown as typeof fetch;
+  stubProjectsRoute();
 }
 
 function renderPage() {
@@ -28,7 +31,9 @@ function renderPage() {
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <DigestPage />
+        <ProjectProvider>
+          <DigestPage />
+        </ProjectProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -81,7 +86,12 @@ describe("DigestPage", () => {
     });
 
     // Headline rolls up workstreams / merges / exceptions.
-    expect(screen.getByTestId("digest-headline").textContent).toContain("2 workstreams active");
+    // "with activity today", not "active" (mt#4775) — /workstreams uses "active"
+    // for a different predicate (parents with open work), so the two surfaces
+    // now name their senses apart rather than sharing one word.
+    expect(screen.getByTestId("digest-headline").textContent).toContain(
+      "2 workstreams with activity today"
+    );
     // Pluralization fixed at PR #2037 R1: singular merge count reads "1 PR merged".
     expect(screen.getByTestId("digest-headline").textContent).toContain("1 PR merged");
     expect(screen.getByTestId("digest-headline").textContent).toContain("1 exception");

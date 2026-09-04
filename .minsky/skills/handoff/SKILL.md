@@ -14,8 +14,10 @@ user-invocable: true
 Produces a standardized end-of-conversation summary capturing motivation, shipped work, queued work, process artifacts, and recommended next sessions. Distinct from `/retrospective` (failure analysis) and `/incident-memo` (multi-incident synthesis): handoff is the multi-success state-capture for resumption.
 
 The structured payload (work queue: task ids + statuses + next actions + operational notes) is
-persisted as a durable memory record (mt#2827); chat only ever shows a pointer to that record
-plus a plain-markdown human summary — the chat prose is advisory, never the source of truth.
+persisted as a **succession-origin work package** — a claimable `kind: "work-package"` task
+whose spec is the briefing (ADR-046, mt#2911; this replaced the mt#2827 memory record). Chat
+only ever shows a pointer to that record plus a plain-markdown human summary — the chat prose
+is advisory, never the source of truth.
 
 ## Arguments
 
@@ -28,7 +30,12 @@ Optional: a hint about what to focus on (e.g., "for next agent," "summarize the 
   - Conversation has shipped **3+ PRs** in this session
   - Conversation has run **2+ retrospectives**
   - Conversation has hit **2+ MCP disconnects** (operational friction signal)
-  - Compaction warning fires or context-density indicators surface
+  - Compaction warning fires or context-density indicators surface — but NOT on a reading marked
+    `ESTIMATED`, which means the gauge could not identify the model's context window and is
+    measuring against an assumed one that may be several times too small (mt#4968). Such a
+    reading is not evidence of anything; re-read it against Claude Code's own status line
+    (`context_window.used_percentage`) before treating it as a trigger, and never relay the
+    figure to the principal as fact.
   - User signals end-of-session intent ("stopping here," "let's pick this up later," "I need to step away")
 - **Skip** if the conversation is short and single-purpose (one PR shipped, one task done) — a normal end-of-turn summary suffices, not a full handoff.
 
@@ -180,43 +187,55 @@ State explicitly: **resume in same conversation OR new session.** Apply this rul
 
 When in doubt, recommend new session. Cost of fresh-context restart is low; cost of context-collapse mid-action is high.
 
-### 8. Write the durable payload
+### 8. Write the durable payload: a succession work package
 
-Before rendering anything to chat, call `mcp__minsky__memory_create` (type `"project"`) to
-persist the full structured handoff payload — this is the durable, machine-checkable artifact;
-chat prose is advisory only, per the Plan decision recorded in mt#2827.
+Before rendering anything to chat, call `mcp__minsky__tasks_create` with
+`kind: "work-package"` to persist the full structured handoff payload as a claimable task —
+this is the durable, machine-checkable artifact (ADR-046, mt#2911; it replaced the mt#2827
+memory record); chat prose is advisory only.
 
-- `name`: a short slug, e.g. `handoff_<cluster-slug>_<date>`
-- `description`: one-line summary of the cluster
-- `content`: the full payload from steps 1-7 above (motivation, shipped work, process
-  artifacts, queued work with task ids + statuses + next actions, open threads, recommended
-  next sessions, resume recommendation) as plain markdown — same no-tables discipline as chat
-  output (see step 9). **Every queued item in the payload carries its task id**, without
-  exception: the continuation guidance below tells the receiving agent to re-validate the whole
-  queue with one `refs_status` call, and that call has nothing to pass for a prose item. An
-  un-ref'd bullet is silently dropped from the re-validation — it does not error, it simply is
-  not checked, so the successor inherits it as if it had been verified. Any non-ref state claim
-  in the payload carries its as-of timestamp per step 5, for the same reason.
-- `scope`: `"project"` — a handoff is project-grain state. Do NOT pass `projectId` explicitly:
-  `memory_create` resolves the current project from the working directory (the same
-  ADR-021 resolution the read side uses), and a hand-supplied id risks mis-scoping the
-  entry to the wrong project. Only pass it when deliberately writing a handoff for a
-  DIFFERENT project than the cwd resolves to.
-- `tags`: include `handoff`, the cluster/workstream tag if one exists (e.g.
-  `gap-analysis-2026-07`), plus every task ID touched (e.g. `mt#2827`)
+- `title`: `Handoff: <short cluster description>`
+- `spec` — the **briefing**, built from steps 1-7 as plain markdown (same no-tables
+  discipline as chat output, step 9), with the succession-origin sections the create seam
+  validates:
+  - The line `Origin: succession` near the top.
+  - `## Situation` — the original motivation (step 1), what shipped and what process
+    artifacts landed (steps 2-3), and where things stand now.
+  - `## Decisions` — contestable judgment made on the principal's behalf, each with its
+    rationale: the reasoning that must survive the fold.
+  - `## Provenance` — which conversation wrote this, when, and from what evidence; any
+    non-ref state claim carries its as-of timestamp plus the command that settles it
+    (step 5's discipline).
+  - `## Members` — the queued work from step 4 as an ordered list, each entry a task ref
+    (`mt#N`) with a one-line rationale. **Every queued item carries its task id**, without
+    exception — the receiving agent re-validates the whole queue with one `refs_status`
+    call, and that call has nothing to pass for a prose item. An un-ref'd bullet is silently
+    dropped from the re-validation, so the successor inherits it as if it had been verified.
+  - Open threads, suggested next sessions, and the resume recommendation follow as ordinary
+    sections.
+- The create REFUSES an unresolvable cited ref (any `mt#N` / `ask#N` / `mem#N` / `ws#N` that
+  does not exist — mem#676 R5's phantom-citation class, now structural) and a missing
+  required section. Fix the briefing and re-create; do not route around the refusal.
+- A member already queued by another open package comes back as an ANNOTATION naming the
+  sibling — record it in the briefing's open threads ("coordinate, don't race"), it is not a
+  refusal.
 
-Capture the returned memory `id` (uuid) — the chat pointer in step 9 links to it.
+Then call `mcp__minsky__tasks_status_set` to move the package `TODO → READY` — a handoff
+package is open for claiming the moment it is written. (READY → IN-PROGRESS is reserved for
+the claim path; the successor runs `tasks claim`, not a status set.)
+
+Capture the returned `mt#N` id — the chat pointer in step 9 cites it.
 
 ### 9. Render chat output: pointer + summary, no tables
 
 Chat output is a **pointer plus a compact human summary** — never the full payload restated,
 and never a substitute for the durable record written in step 8. Render:
 
-1. A `minsky://memory/<uuid>` deeplink to the memory entry from step 8, per
-   `cockpit-deeplinks.mdc` (label: a short readable description, not the raw uuid). Also
-   state the id's first 8 hex characters in plain text next to the link (e.g.
-   "memory `bd38be2c`") — if the link degrades or the paste mangles the URL, the prefix
-   alone recovers the entry via `memory_get`'s prefix resolution.
+1. A `minsky://task/mt%23<n>` deeplink to the work package from step 8, per
+   `cockpit-deeplinks.mdc` (label: the bare `mt#<n>` ref, or a short readable description).
+   Also state the id in plain text beside the link (e.g. "work package mt#4800") — if the
+   link degrades or the paste mangles the URL, the bare id alone recovers the briefing via
+   `tasks_spec_get`.
 2. A **plain-markdown** summary per `## Output format` below — headings and `-` bullet lists
    only. **Never render a pipe (`|`) table or Unicode box-drawing characters anywhere in
    handoff chat output** — see "Why no tables" in `## Output format`.
@@ -227,7 +246,7 @@ Lead with the durable-artifact pointer from step 8, then the plain-markdown summ
 exact structure:
 
 ```markdown
-Handoff recorded: [<short cluster description>](minsky://memory/<uuid>)
+Handoff package [mt#<n>](minsky://task/mt%23<n>) recorded: <short cluster description>
 
 ## Handoff — <short cluster description> (<date range>)
 
@@ -277,7 +296,7 @@ Statuses as of YYYY-MM-DD HH:MMZ:
 For shorter conversations (1-2 PRs, no retrospectives), compress to:
 
 ```markdown
-Handoff recorded: [<short cluster description>](minsky://memory/<uuid>)
+Handoff package [mt#<n>](minsky://task/mt%23<n>) recorded: <short cluster description>
 
 **Shipped:** mt#X (PR #N), ...
 **Queued:** mt#Y (READY) ...
@@ -294,7 +313,7 @@ cells split mid-word with no visible marker that anything was lost. A `-` bullet
 to ordinary line-wrapping instead, which is visually recoverable and doesn't silently truncate
 content. **Never render a `|`-delimited table or Unicode box-drawing characters (the "Box
 Drawing" Unicode block, U+2500-U+257F — the glyphs used to draw table borders and box outlines)
-anywhere in handoff chat output** — this is why steps 8-9 above make the memory entry, not the
+anywhere in handoff chat output** — this is why steps 8-9 above make the work package, not the
 chat table, the authoritative record.
 
 ## Continuation guidance (for the receiving conversation)
@@ -303,14 +322,18 @@ A fresh conversation (or future-you) picking up a handoff should not trust the p
 prose as the source of truth — it is advisory only, per the Plan decision recorded in mt#2827.
 Instead:
 
-1. **Dereference the pointer.** Call `mcp__minsky__memory_get` with the id from the
-   `minsky://memory/<uuid>` link (or the id-prefix cited in pasted prose, per `## Citing
-uuid-keyed records` below) to fetch the full structured payload written in step 8 — not the
-   chat summary.
+1. **Dereference the pointer.** Call `mcp__minsky__tasks_spec_get` with the `mt#N` id from
+   the `minsky://task/...` link (or the bare id cited in pasted prose) to fetch the full
+   briefing written in step 8 — not the chat summary. To take ownership of the queue before
+   working it, claim the package (`tasks claim mt#N` / `tasks_claim`) — the claim records
+   your identity atomically with READY → IN-PROGRESS, and a losing concurrent claim is
+   refused naming the holder. (A handoff written before ADR-046 points at
+   `minsky://memory/<uuid>` instead — dereference those with `memory_get`; the rest of this
+   guidance applies unchanged.)
 2. **Re-derive statuses live — don't trust the pasted table or the memory snapshot's status
    field.** Both may be stale (superseded by work that happened after the handoff was written)
    or, for pasted prose, corrupted by paste/terminal-wrap. Call `mcp__minsky__refs_status` with
-   the full list of refs from the memory payload — task ids, PR numbers, and asks / memories /
+   the full list of refs from the briefing — task ids, PR numbers, and asks / memories /
    workspaces by either their `ask#N` / `mem#N` / `ws#N` short id or their uuid. One call
    re-validates the whole queue against live state (task status, PR merge state, ask response
    state) in a single round trip — or `mcp__minsky__tasks_status_get` per task id if only task
@@ -337,12 +360,13 @@ uuid-keyed records` below) to fetch the full structured payload written in step 
      a status call. Read the ask's body, the PR's diff, the spec section. A status call returning
      exactly what the handoff predicted is not corroboration here: it is silent on the question.
 
-4. **Proceed from the live-verified queue**, not from the memory payload's status snapshot or
-   any pasted-prose summary.
+4. **Proceed from the live-verified queue**, not from the briefing's status snapshot or
+   any pasted-prose summary. (The briefing's member rows carry `status_at_write` — a
+   staleness baseline for exactly this comparison, never an authority.)
 
 This makes a corrupted or partial paste recoverable by construction: the pointer alone —
-`memory_get` followed by `refs_status` — reconstructs the full, currently-accurate work queue,
-independent of whatever text actually survived into the chat.
+`tasks_spec_get` followed by `refs_status` — reconstructs the full, currently-accurate work
+queue, independent of whatever text actually survived into the chat.
 
 ## Anti-patterns
 

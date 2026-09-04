@@ -19,8 +19,7 @@
  * Usage:
  *   bun scripts/verify-mcp-hidden-params.ts
  */
-
-import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
+import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/server";
 
 /** Tools that declare a `mcpHidden` parameter, and the param each hides. */
 const EXPECTATIONS = [

@@ -254,6 +254,17 @@ Before writing any code:
   (mt#3631) and the `no-jest-patterns` lint rule's `jestSpyOn` message (mt#3565/mt#3632). If
   you proceed with a patch anyway, record in the PR body which collaborator and why extraction
   wasn't the right call for this case.
+- **Clock checkpoint (mt#4740), when you write `Date.now()` or `new Date()` in code a test will
+  exercise.** Give the function an optional trailing clock parameter with a real default —
+  `nowMs: number = Date.now()` (or `now: Date = new Date()`) — and thread it from every public
+  entry point above it, or comment why you deliberately do not. Then anchor the test's
+  date-relative fixtures to the SAME value it injects, never to the real clock. Full convention,
+  worked examples, and why this is not the DI fallback ADR-026 rule 3 bans:
+  `testing-standards.mdc §Testable Design → The clock is injected, never read at the point of use`.
+  **This is stated here because that rule is scoped to `**/*.test.ts` and does not attach while you
+  are editing production code** — which is where the seam and the entry-point threading live, and
+  where three of this class's detonations were actually authored. Discipline-tier: nothing lints it;
+  mt#4726 is the detection backstop.
 - Add tests for new functionality
 - Commit regularly with `mcp__minsky__session_commit`:
   - Use meaningful messages referencing the task ID
@@ -616,9 +627,13 @@ If the named condition, once checked against its definition, does not actually h
 **So when you reach here with zero reviews, the ladder is finished. Do this, in order, and then STOP:**
 
 1. **Confirm it is genuinely zero** — a direct `get_reviews` read on the current HEAD, not an inference from a wait timing out.
-2. **Retrigger once** (`reviewer_retrigger`), and if the bot's own status comment names a retry (e.g. `Use /review to retry`), post that too — it is a different delivery path than the direct endpoint.
-3. **Diagnose the reviewer, not the merge.** Read its `/health` body and `inflightCount`; a saturated service is queue-shaped and needs waiting, a failed one is not. Record the occurrence on **mt#1697**, and check **mt#1897** — the `openai.chat.completions.create.toolloop` 120s timeout is a known recurring cause with confirmed log evidence.
-4. **Leave the PR unmerged and say so.** This is the correct terminal state, and it is precedent, not improvisation: on 2026-08-18 five PRs hit this in one day (#3095, #3098, #3100, #3103, #3108) and every one was left unmerged. Report the PR, the diagnosis, and that it is waiting on the reviewer — do not spend further turns re-waiting.
+2. **Read the check-run conclusion BEFORE retriggering (mt#4271).** Zero reviews is not one state, and `reviewerCheckRunState` — already in every `session_pr_wait-for-review` payload — tells you which:
+   - **`skipped`** — the reviewer DECLINED to run. The output names the reason; today the only one is `concurrent_inflight`, another caller holding the in-flight marker. **This is not silence, and step 3 is a waste of a round: a retrigger is REFUSED while the marker is held.** The remedy is a NEW HEAD — `session_update` pushes one, and the lock keys on the review target (mem#1093). Skip to step 5 if a new head is not appropriate.
+   - **`failure`** — the reviewer RAN and did not complete (mt#4881 publishes this for a thrown review). Also not silence; the summary names the cause.
+   - **`absent`** — the only reading consistent with silence, and still not conclusive on its own. Confirm with the delivery record before proceeding: `mcp__minsky__observability_reviewer-events(owner: "<owner>", repo: "<repo>", pr: <n>)` (mt#4118), whose `verdict.isSilence` is the authoritative discriminator and whose `bounds` name the cases an empty result cannot rule out.
+3. **Retrigger once** (`reviewer_retrigger`), and if the bot's own status comment names a retry (e.g. `Use /review to retry`), post that too — it is a different delivery path than the direct endpoint.
+4. **Diagnose the reviewer, not the merge.** Read its `/health` body and `inflightCount`; a saturated service is queue-shaped and needs waiting, a failed one is not. Record the occurrence on **mt#1697**, and check **mt#1897** — the `openai.chat.completions.create.toolloop` 120s timeout is a known recurring cause with confirmed log evidence.
+5. **Leave the PR unmerged and say so.** This is the correct terminal state, and it is precedent, not improvisation: on 2026-08-18 five PRs hit this in one day (#3095, #3098, #3100, #3103, #3108) and every one was left unmerged. Report the PR, the diagnosis, and that it is waiting on the reviewer — do not spend further turns re-waiting.
 
 **Subagent carve-out.** Subagents STOP at §8 (Create PR). Convergence-driving is the **main agent's** responsibility. `.claude/hooks/block-subagent-bypass-merge.ts` structurally enforces this for the `gh api PUT /merge` sub-case by detecting non-empty `agent_id` on the tool input and denying the call. Subagents must report the PR URL + bot-review status back to the parent and exit; the main agent then drives convergence per this step.
 

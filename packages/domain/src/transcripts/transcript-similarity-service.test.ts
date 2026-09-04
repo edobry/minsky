@@ -61,6 +61,41 @@ type FakeSelectResult = Record<string, unknown>;
  */
 let capturedWhereConditions: unknown[] = [];
 
+/**
+ * Raw statements the service issued via `execute()` (mt#4919) — today just the
+ * `SET LOCAL hnsw.iterative_scan` that `withIterativeScan` emits. Rendered to a
+ * string so a test can assert on the SQL text rather than on drizzle's internal
+ * chunk representation.
+ */
+let capturedStatements: string[] = [];
+
+/** The three fragments the mt#4919 assertions look for in the emitted SQL. */
+const SET_LOCAL = "SET LOCAL";
+const ITERATIVE_SCAN = "hnsw.iterative_scan";
+const STRICT_ORDER = "strict_order";
+
+/**
+ * Flatten a drizzle SQL template into something assertable.
+ *
+ * PR #3588 R1 flagged the dependence on drizzle's internal `queryChunks` shape
+ * as brittle across upgrades. It is, and the failure direction is the safe one:
+ * if that shape changes, this returns `String(statement)` — `"[object Object]"`
+ * — which contains none of the substrings the tests assert, so they go RED
+ * rather than silently passing. A brittle assertion that fails loudly on an
+ * upgrade is the intended trade here; the alternative is asserting nothing
+ * about the SQL text at all.
+ */
+function renderSql(statement: unknown): string {
+  const chunks = (statement as { queryChunks?: unknown[] })?.queryChunks;
+  if (!Array.isArray(chunks)) return String(statement);
+  return chunks
+    .map((chunk) => {
+      const value = (chunk as { value?: unknown })?.value;
+      return Array.isArray(value) ? value.join("") : "";
+    })
+    .join("");
+}
+
 const SKIP_KEYS = new Set(["table"]);
 
 function whereTreeFiltersOn(trees: unknown[], columnName: string): boolean {
@@ -82,6 +117,12 @@ function whereTreeFiltersOn(trees: unknown[], columnName: string): boolean {
 function makeFakeDb(rows: FakeSelectResult[], countRows: FakeSelectResult[] = []) {
   let callCount = 0;
   capturedWhereConditions = [];
+  capturedStatements = [];
+
+  const executeFn = (statement: unknown) => {
+    capturedStatements.push(renderSql(statement));
+    return Promise.resolve([]);
+  };
 
   const limitFn = (n: number) => {
     // The first call is the main query; subsequent calls are getMessageCounts.
@@ -113,7 +154,16 @@ function makeFakeDb(rows: FakeSelectResult[], countRows: FakeSelectResult[] = []
 
   const selectFn = (_fields: unknown) => ({ from: fromFn });
 
-  return { select: selectFn };
+  const scope = { select: selectFn, execute: executeFn };
+
+  // mt#4919: the vector-ordered queries now run inside a transaction that
+  // issues `SET LOCAL hnsw.iterative_scan`. The fake runs the callback against
+  // the same scope so query behaviour is unchanged, and records the statements
+  // so a test can assert the setting was actually issued.
+  const transactionFn = async <T>(run: (tx: typeof scope) => Promise<T> | PromiseLike<T>) =>
+    run(scope);
+
+  return { ...scope, transaction: transactionFn };
 }
 
 // ── Turn result rows ─────────────────────────────────────────────────────────
@@ -135,6 +185,20 @@ function makeTurnRow(overrides: Partial<FakeSelectResult> = {}): FakeSelectResul
     relatedPrNumbers: ["#42"],
     ...overrides,
   };
+}
+
+/**
+ * The first result's snippet, failing loudly rather than comparing against
+ * `undefined` — `snippet` is optional on the shared result type, so an
+ * `expect(undefined).toContain(...)` would otherwise report a confusing
+ * mismatch instead of "the field was never populated".
+ */
+function results0(results: TranscriptTurnResult[]): string {
+  const snippet = results[0]?.snippet;
+  if (snippet === undefined) {
+    throw new Error("expected the first result to carry a snippet, got undefined");
+  }
+  return snippet;
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -169,6 +233,69 @@ describe("TranscriptSimilarityService", () => {
       expect(first.sessionMetadata).toBeDefined();
       expect(first.sessionMetadata.agentSessionId).toBe("session-a");
       expect(first.sessionMetadata.model).toBe("claude-3-5-sonnet");
+    });
+
+    describe("snippet (mt#4917)", () => {
+      test("every semantic hit carries a snippet — it carried none at all before", async () => {
+        const db = makeFakeDb([makeTurnRow({ userText: "the pooler question" })], []);
+        const svc = new TranscriptSimilarityService(db as unknown as DrizzlePgDb, embeddingService);
+
+        const results = await svc.search("test query", { limit: 5 });
+
+        expect(results[0]?.snippet).toBe("the pooler question");
+      });
+
+      test("prefers the user side, matching the full-text surface's convention", async () => {
+        const db = makeFakeDb(
+          [makeTurnRow({ userText: "asked this", assistantText: "answered that" })],
+          []
+        );
+        const svc = new TranscriptSimilarityService(db as unknown as DrizzlePgDb, embeddingService);
+
+        expect((await svc.search("q", {}))[0]?.snippet).toBe("asked this");
+      });
+
+      test("falls through to the assistant side when the user side is null or empty", async () => {
+        for (const userText of [null, ""]) {
+          const db = makeFakeDb([makeTurnRow({ userText, assistantText: "answered that" })], []);
+          const svc = new TranscriptSimilarityService(
+            db as unknown as DrizzlePgDb,
+            embeddingService
+          );
+          expect((await svc.search("q", {}))[0]?.snippet).toBe("answered that");
+        }
+      });
+
+      test("is bounded — a huge turn does not become a huge snippet", async () => {
+        // The reason the field exists: a transcript turn runs to hundreds of
+        // kilobytes, and the whole point is that a hit can be read without it.
+        const db = makeFakeDb([makeTurnRow({ userText: "word ".repeat(50_000) })], []);
+        const svc = new TranscriptSimilarityService(db as unknown as DrizzlePgDb, embeddingService);
+
+        const snippet = results0(await svc.search("q", {}));
+        // 400 chars of text plus the single ellipsis truncateSnippet appends.
+        expect(snippet.length).toBeLessThanOrEqual(401);
+        expect(snippet.endsWith("…")).toBe(true);
+      });
+
+      test("strips harness markup rather than quoting it back", async () => {
+        const db = makeFakeDb(
+          [makeTurnRow({ userText: "<system-reminder>ignore me</system-reminder>real prose" })],
+          []
+        );
+        const svc = new TranscriptSimilarityService(db as unknown as DrizzlePgDb, embeddingService);
+
+        const snippet = results0(await svc.search("q", {}));
+        expect(snippet).not.toContain("system-reminder");
+        expect(snippet).toContain("real prose");
+      });
+
+      test("a turn with no text at all yields an empty snippet, not undefined", async () => {
+        const db = makeFakeDb([makeTurnRow({ userText: null, assistantText: null })], []);
+        const svc = new TranscriptSimilarityService(db as unknown as DrizzlePgDb, embeddingService);
+
+        expect((await svc.search("q", {}))[0]?.snippet).toBe("");
+      });
     });
 
     test("resumeHint (mt#2523, mt#3440): each result carries a directory-pinned resume hint", async () => {
@@ -421,5 +548,123 @@ describe("TranscriptSimilarityService — originKind (mt#4289)", () => {
     );
     await svc2.search("anything", { role: "user", originKind: "human" });
     expect(whereTreeFiltersOn(capturedWhereConditions, "user_origin")).toBe(true);
+  });
+});
+
+/**
+ * mt#4919 — the iterative-scan setting.
+ *
+ * **What these tests prove, and what they do NOT.** The defect is a property of
+ * the LIVE pgvector index — a filter applied after a bounded HNSW scan — so no
+ * fake can reproduce it, and none of these assert that recall is actually
+ * fixed. They assert the narrower thing a unit test CAN own: that the service
+ * issues the setting, on the right statements, with the right value. The recall
+ * claim itself is verified against prod and recorded in the PR body and in
+ * mt#4919's spec; treat that as the evidence, not this file.
+ */
+describe("TranscriptSimilarityService — iterative scan (mt#4919)", () => {
+  test("search() issues SET LOCAL hnsw.iterative_scan around the vector query", async () => {
+    const svc = new TranscriptSimilarityService(
+      makeFakeDb([makeTurnRow()]) as never,
+      new FakeEmbeddingService() as never
+    );
+
+    await svc.search("anything", { limit: 20, role: "user" });
+
+    expect(capturedStatements).toHaveLength(1);
+    expect(capturedStatements[0]).toContain(ITERATIVE_SCAN);
+  });
+
+  test("it is SET LOCAL, not a bare SET — the setting must not outlive the transaction", async () => {
+    // A bare SET persists on a POOLED connection and would silently change
+    // every later query issued by any other caller that happens to get it.
+    const svc = new TranscriptSimilarityService(
+      makeFakeDb([makeTurnRow()]) as never,
+      new FakeEmbeddingService() as never
+    );
+
+    await svc.search("anything", {});
+
+    expect(capturedStatements[0]).toContain(SET_LOCAL);
+  });
+
+  test("it is strict_order — relaxed_order would give up exact distance ordering", async () => {
+    // Both values fix the recall problem (measured); strict_order is chosen so a
+    // ranked surface keeps its ranking. Pinned so a later edit has to be
+    // deliberate rather than incidental.
+    const svc = new TranscriptSimilarityService(
+      makeFakeDb([makeTurnRow()]) as never,
+      new FakeEmbeddingService() as never
+    );
+
+    await svc.search("anything", {});
+
+    expect(capturedStatements[0]).toContain(STRICT_ORDER);
+    expect(capturedStatements[0]).not.toContain("relaxed_order");
+  });
+
+  test("findSimilarTurn() issues it too — it filters, so it has the same exposure", async () => {
+    // PR #3588 R1: only search() was covered. findSimilarTurn wraps the same
+    // way and needs its own assertion, so removing one wrapper cannot pass.
+    //
+    // Its own fake rather than makeFakeDb: this method issues THREE selects
+    // (seed embedding, then neighbours, then message counts) where search()
+    // issues two, and the shared fake's call-ordering is built for the latter.
+    const statements: string[] = [];
+    let selectCount = 0;
+    const scope: Record<string, unknown> = {
+      execute: (statement: unknown) => {
+        statements.push(renderSql(statement));
+        return Promise.resolve([]);
+      },
+      transaction: <T>(run: (tx: unknown) => Promise<T> | PromiseLike<T>) => run(scope),
+      select: (_fields?: unknown) => {
+        selectCount++;
+        const resolve = (n?: number) => {
+          // 1: the seed turn's embedding. 2: the neighbours. 3+: message counts.
+          if (selectCount === 1) return Promise.resolve([{ embedding: [0.1, 0.2, 0.3] }]);
+          if (selectCount === 2) return Promise.resolve([makeTurnRow()].slice(0, n));
+          return Promise.resolve([]);
+        };
+        // Every builder step returns the same tail, so any chain order the
+        // service uses resolves — `.from().innerJoin().where().orderBy().limit()`
+        // for the neighbour query, `.from().where().limit()` for the seed.
+        const tail: Record<string, unknown> = {
+          orderBy: () => tail,
+          where: () => tail,
+          innerJoin: () => tail,
+          groupBy: () => Promise.resolve([]),
+          limit: resolve,
+        };
+        return { from: () => tail };
+      },
+    };
+
+    const svc = new TranscriptSimilarityService(
+      scope as never,
+      new FakeEmbeddingService() as never
+    );
+
+    await svc.findSimilarTurn("session-a:0", { limit: 20, originKind: "human" });
+
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toContain(SET_LOCAL);
+    expect(statements[0]).toContain(ITERATIVE_SCAN);
+    expect(statements[0]).toContain(STRICT_ORDER);
+  });
+
+  test("the setting is issued even with no filters — the scan saturates regardless", async () => {
+    // Measured: unfiltered, limits [5,10,15,20,30,50] returned
+    // [5,10,15,20,30,41]. The ANN candidate budget caps a large-limit query
+    // whether or not a filter is present, so this is not conditional on opts.
+    const svc = new TranscriptSimilarityService(
+      makeFakeDb([makeTurnRow()]) as never,
+      new FakeEmbeddingService() as never
+    );
+
+    await svc.search("anything", { limit: 50 });
+
+    expect(capturedStatements).toHaveLength(1);
+    expect(capturedStatements[0]).toContain(ITERATIVE_SCAN);
   });
 });

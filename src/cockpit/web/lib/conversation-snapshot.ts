@@ -171,6 +171,15 @@ export function mergeSnapshotPages(
     ...newest,
     blocks,
     toolNamesByUseId,
+    // The pinned head block is PAGING state, not content (mt#4909) — it stands
+    // in for a turn 0 the reader has not fetched — so it travels with
+    // `nextBefore` from the oldest page, for the reason spelled out below.
+    // Overriding the `...newest` spread is the load-bearing half: once the
+    // oldest page reaches index 0 the server stops sending it, and the pin
+    // disappears because the real turn is now in `blocks`. That is what keeps
+    // the brief from rendering twice, with no client-side de-duplication and
+    // nothing to keep in sync.
+    headBlock: pages[pages.length - 1]?.headBlock,
     // The OLDEST page's bounds describe the merged whole — taking the newest
     // page's would claim history is unfetched that the reader is already
     // looking at. `nextBefore` and `hasMore` travel together and BOTH come from

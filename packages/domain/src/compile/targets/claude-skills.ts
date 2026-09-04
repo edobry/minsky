@@ -18,6 +18,7 @@ import { skillDefinitionSchema } from "../../definitions/schemas";
 import type { SkillDefinition } from "../../definitions/types";
 import { log } from "../../utils/logger";
 import { COMPILE_GENERATED_BANNER } from "../../rules/compile/banner-constants";
+import { createSkipRecorder } from "./skip-recorder";
 import {
   SKILL_SOURCE_FILENAMES,
   descriptionCharsFromSkillMd,
@@ -312,6 +313,8 @@ async function collectSkillListingEntries(
 
     const result = descriptionCharsFromSkillMd(raw);
     if ("error" in result) {
+      // NOT a definition skip — this is a listing-budget read diagnostic, and the skill is
+      // still compiled. Deliberately stays on `onSkip` and out of `skipReasons` (mt#3119).
       onSkip(
         `[compile:claude-skills] skill-listing budget: cannot read description for "${dirName}": ${result.error}`
       );
@@ -374,6 +377,9 @@ function makeClaudeSkillsTarget(
       const filesWritten: string[] = [];
       const definitionsIncluded: string[] = [];
       const definitionsSkipped: string[] = [];
+      // mt#3119: tee every skip message into the result. `onSkip` still fires exactly as
+      // before; this only stops the reason from being the sink's problem alone.
+      const { record: recordSkip, reasons: skipReasons } = createSkipRecorder(onSkip);
       const contentsByPath = new Map<string, string>();
       const dryRunParts: string[] = [];
 
@@ -384,7 +390,7 @@ function makeClaudeSkillsTarget(
         // skill.ts / SKILL.md. Skip + warn rather than silently picking one
         // (mt#2279). The skill produces no output until the ambiguity is fixed.
         if (source.kind === "both") {
-          onSkip(
+          recordSkip(
             `[compile:claude-skills] skipping "${dirName}": both ${SKILL_TS_SOURCE} and ${SKILL_MD_SOURCE} present under .minsky/skills/${dirName}/ — ambiguous canonical source; keep exactly one`
           );
           definitionsSkipped.push(dirName);
@@ -401,7 +407,7 @@ function makeClaudeSkillsTarget(
             // Do NOT swallow silently (mt#2182): a broken import path here is the
             // failure mode that left all 7 skills uncompiled with no warning.
             const reason = error instanceof Error ? error.message : String(error);
-            onSkip(
+            recordSkip(
               `[compile:claude-skills] skipping "${dirName}": failed to import ${source.path}: ${reason}`
             );
             definitionsSkipped.push(dirName);
@@ -415,7 +421,7 @@ function makeClaudeSkillsTarget(
             raw = await fs.readFile(source.path, "utf-8");
           } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
-            onSkip(
+            recordSkip(
               `[compile:claude-skills] skipping "${dirName}": failed to read ${source.path}: ${reason}`
             );
             definitionsSkipped.push(dirName);
@@ -425,7 +431,7 @@ function makeClaudeSkillsTarget(
         }
 
         if ("error" in extracted) {
-          onSkip(`[compile:claude-skills] skipping "${dirName}": ${extracted.error}`);
+          recordSkip(`[compile:claude-skills] skipping "${dirName}": ${extracted.error}`);
           definitionsSkipped.push(dirName);
           continue;
         }
@@ -474,6 +480,7 @@ function makeClaudeSkillsTarget(
         filesWritten,
         definitionsIncluded,
         definitionsSkipped,
+        skipReasons,
         content: options.dryRun ? dryRunParts.join("\n\n") : undefined,
         contentsByPath: options.dryRun ? contentsByPath : undefined,
       };

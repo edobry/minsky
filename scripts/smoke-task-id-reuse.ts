@@ -29,6 +29,7 @@
 
 import "reflect-metadata";
 import { eq } from "drizzle-orm";
+import { maskConnectionString } from "@minsky/domain/persistence/connection-string";
 
 const dbUrl = process.env["DATABASE_URL"] || process.env["MINSKY_POSTGRES_URL"];
 
@@ -70,7 +71,7 @@ function printSummary(): never {
 }
 
 console.log("smoke-task-id-reuse: starting");
-console.log(`  Database: ${connectionString.replace(/:[^:@]+@/, ":<REDACTED>@")}`);
+console.log(`  Database: ${maskConnectionString(connectionString)}`);
 console.log("");
 
 // Bootstrap persistence

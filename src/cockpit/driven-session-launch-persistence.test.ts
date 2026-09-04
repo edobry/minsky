@@ -63,6 +63,10 @@ const MISSING_CWD = join(TEST_WORKSPACE_ROOT, "deleted-workspace");
 const BASE_ROW: DrivenSessionRow = {
   localId: "local-1",
   harnessSessionId: "harness-1",
+  harnessKind: "claude-code",
+  transportId: "claude-stream-json",
+  harnessConversationId: "harness-1",
+  authMode: "subscription",
   cwd: TEST_WORKSPACE_ROOT,
   permissionMode: "bypassPermissions",
   taskId: "mt#3038",
@@ -103,6 +107,11 @@ describe("createDrivenSessionPersistObserver", () => {
     expect(call.cwd).toBe(TEST_WORKSPACE_ROOT);
     expect(call.status).toBe("spawned");
     expect(call.pidCmdline).toContain("claude");
+    // mt#4935 — the harness-agnostic fields persist off the live record,
+    // never a silently re-derived default.
+    expect(call.harnessKind).toBe("claude-code");
+    expect(call.transportId).toBe("claude-stream-json");
+    expect(call.authMode).toBe("subscription");
   });
 
   // mt#3040 preservation (interaction fix) — the model isn't a separate
@@ -869,13 +878,15 @@ describe("deleted workspace cwd (mt#3397)", () => {
  *
  * The behaviour under test is mostly a REFUSAL policy, and its failure mode is
  * silent (a wrong admit forks a transcript with no error), so the refusal cases
- * are covered at least as heavily as the success case. `locateConversation` and
- * `readPresence` are injected throughout — no test touches `~/.claude` or a real
- * database, and none spawns the real `claude` binary.
+ * are covered at least as heavily as the success case. `locateConversation`,
+ * `readPresence`, and (mt#4869) `classifyHolder` are injected throughout — no
+ * test touches `~/.claude` or a real database, and none spawns the real
+ * `claude` binary or a real `ps`.
  */
 describe("orchestrateDrivenSessionAttach (mt#3095)", () => {
   const CONVERSATION = "conv-abc-123";
   const LOCATED = { jsonlPath: "/tmp/fake/conv-abc-123.jsonl", cwd: "/tmp/fake-cwd" };
+  const NOT_HELD = { liveness: "not_running" as const, holder: null, basis: "test: not held" };
 
   // Annotated so the seam signatures are contextually typed from the real
   // interface rather than inferred from these literals — an un-annotated fake
@@ -885,6 +896,7 @@ describe("orchestrateDrivenSessionAttach (mt#3095)", () => {
     getDb: async () => FAKE_DB,
     locateConversation: async () => LOCATED,
     readPresence: async () => "IDLE",
+    classifyHolder: async () => NOT_HELD,
     withResumeLock: async (_db, _conversationId, fn) => ({ acquired: true, result: await fn() }),
     registry: new DrivenSessionRegistry(),
     spawnFn: () => new FakeClaudeProcess(),
@@ -1046,6 +1058,70 @@ describe("orchestrateDrivenSessionAttach (mt#3095)", () => {
       },
     });
     expect(keys).toEqual([CONVERSATION]);
+  });
+
+  // ── mt#4869: the roster gate ──────────────────────────────────────────────
+
+  test("a live roster holder refuses with live-elsewhere, holder carried, even though presence admits", async () => {
+    const holder = {
+      surface: "terminal" as const,
+      name: "roster-probe",
+      pid: 4242,
+      idleForMs: 9000,
+    };
+    const outcome = await orchestrateDrivenSessionAttach(CONVERSATION, {
+      ...admitDeps(),
+      readPresence: async () => "IDLE" as const, // would otherwise admit
+      classifyHolder: async () => ({ liveness: "running" as const, holder, basis: "test" }),
+    });
+    expect(outcome.outcome).toBe("refused");
+    if (outcome.outcome !== "refused") throw new Error("unreachable");
+    expect(outcome.reason).toBe("live-elsewhere");
+    expect(outcome.holder).toEqual(holder);
+  });
+
+  test("an unreadable roster refuses with roster-unknown", async () => {
+    const outcome = await orchestrateDrivenSessionAttach(CONVERSATION, {
+      ...admitDeps(),
+      classifyHolder: async () => ({
+        liveness: "unknown" as const,
+        holder: null,
+        basis: "test: roster unreadable",
+      }),
+    });
+    expect(outcome.outcome).toBe("refused");
+    if (outcome.outcome !== "refused") throw new Error("unreachable");
+    expect(outcome.reason).toBe("roster-unknown");
+    expect(outcome.message).toMatch(/roster/i);
+  });
+
+  test("the roster is consulted even with no database, ahead of the no-telemetry refusal", async () => {
+    let rosterReads = 0;
+    const holder = { surface: "claude-desktop" as const, name: null, pid: 99, idleForMs: null };
+    const outcome = await orchestrateDrivenSessionAttach(CONVERSATION, {
+      ...admitDeps(),
+      getDb: async () => null,
+      classifyHolder: async () => {
+        rosterReads += 1;
+        return { liveness: "running" as const, holder, basis: "test" };
+      },
+    });
+    expect(rosterReads).toBe(1);
+    expect(outcome.outcome).toBe("refused");
+    if (outcome.outcome !== "refused") throw new Error("unreachable");
+    // The roster's live-elsewhere refusal wins over the no-DB no-telemetry one —
+    // both are refusals, but the roster identified an actual holder.
+    expect(outcome.reason).toBe("live-elsewhere");
+    expect(outcome.holder).toEqual(holder);
+  });
+
+  test("a not_running roster falls through to the presence-based decision unchanged", async () => {
+    const outcome = await orchestrateDrivenSessionAttach(CONVERSATION, {
+      ...admitDeps(),
+      readPresence: async () => "IDLE" as const,
+      classifyHolder: async () => NOT_HELD,
+    });
+    expect(outcome.outcome).toBe("attached");
   });
 });
 

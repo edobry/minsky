@@ -9,8 +9,15 @@
  * We use renderHook from a test harness that doesn't need a full DOM.
  */
 
-import { describe, test, expect } from "bun:test";
-import { prefixKey, applyUpdates, computePageCount, paginateSlice } from "./useListControls";
+import { describe, test, expect, beforeAll, beforeEach, afterAll, afterEach } from "bun:test";
+import {
+  prefixKey,
+  applyUpdates,
+  computePageCount,
+  paginateSlice,
+  readListControlsState,
+  buildSearchStringState,
+} from "./useListControls";
 
 // ---------------------------------------------------------------------------
 // Tests exercise the hook's exported pure helpers directly (prefixKey,
@@ -202,6 +209,30 @@ describe("useListControls logic", () => {
 
     test("prefixKey with prefix returns prefixed key", () => {
       expect(prefixKey("ag", "page")).toBe("ag_page");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // buildSearchStringState (mt#4762 PR #3492 review) — clearing every param
+  // must serialize to "", never a bare "?", or the hook's internal
+  // `searchString` state disagrees with the real `window.location.search`
+  // (which `writeSearchParams` already normalizes the same way).
+  // ---------------------------------------------------------------------------
+
+  describe("buildSearchStringState", () => {
+    test("an empty param set serializes to the empty string, not a bare '?'", () => {
+      expect(buildSearchStringState(new URLSearchParams(""))).toBe("");
+    });
+
+    test("clearing every param from a populated set also yields the empty string", () => {
+      const params = new URLSearchParams("mem_sort=accessCount&mem_dir=desc");
+      params.delete("mem_sort");
+      params.delete("mem_dir");
+      expect(buildSearchStringState(params)).toBe("");
+    });
+
+    test("a non-empty param set is prefixed with '?'", () => {
+      expect(buildSearchStringState(new URLSearchParams("sort=value"))).toBe("?sort=value");
     });
   });
 
@@ -425,6 +456,102 @@ describe("useListControls logic", () => {
     test("agent with null taskId excluded when taskId filter is set", () => {
       const result = agents.filter((a) => agFilter(a, { liveness: "idle", taskId: "mt#" }));
       expect(result).toHaveLength(0); // s3 is idle but has null taskId
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // readListControlsState (mt#4762) — the non-reactive URL-state reader a
+  // server-driven caller uses to build its query BEFORE the full hook call.
+  // Runs under `bun run test:components` (happy-dom via tests/dom-setup.ts),
+  // which is why this file can touch `window.location`/`window.history` here
+  // even though the rest of the suite deliberately avoids renderHook.
+  //
+  // happy-dom's default document is `about:blank`, and `history.replaceState`
+  // silently no-ops there (no throw — `window.location.search` just never
+  // changes), so `happyDOM.setURL` gives the document a real origin first.
+  // ---------------------------------------------------------------------------
+
+  describe("readListControlsState", () => {
+    type MemSortKey = "created" | "accessCount";
+    interface MemFilters extends Record<string, string> {
+      type: string;
+    }
+    const memDefaults: MemFilters = { type: "" };
+
+    // happy-dom's window/location/history are process-wide globals shared
+    // across every test FILE in one `bun test` run — restore whatever
+    // origin was in place before this block ran so a later file that
+    // assumes the untouched (likely `about:blank`) default isn't handed
+    // this block's leftover URL/query state instead.
+    let originalHref = "about:blank";
+
+    beforeAll(() => {
+      originalHref = window.location.href;
+    });
+
+    beforeEach(() => {
+      (window as unknown as { happyDOM: { setURL: (url: string) => void } }).happyDOM.setURL(
+        "http://localhost/memories"
+      );
+    });
+
+    afterEach(() => {
+      window.history.replaceState(null, "", "/memories");
+    });
+
+    afterAll(() => {
+      (window as unknown as { happyDOM: { setURL: (url: string) => void } }).happyDOM.setURL(
+        originalHref
+      );
+    });
+
+    test("returns defaults when the URL carries no params", () => {
+      window.history.replaceState(null, "", "/memories");
+      const state = readListControlsState<MemSortKey, MemFilters>({
+        defaultPageSize: 50,
+        defaultSortKey: "created",
+        defaultSortDir: "desc",
+        defaultFilters: memDefaults,
+        prefix: "mem",
+      });
+      expect(state).toEqual({
+        page: 1,
+        pageSize: 50,
+        sortKey: "created",
+        sortDir: "desc",
+        filters: { type: "" },
+      });
+    });
+
+    test("reads sort/dir/page/filter overrides from the current URL", () => {
+      window.history.replaceState(
+        null,
+        "",
+        "/memories?mem_sort=accessCount&mem_dir=asc&mem_page=3&mem_f_type=feedback"
+      );
+      const state = readListControlsState<MemSortKey, MemFilters>({
+        defaultPageSize: 50,
+        defaultSortKey: "created",
+        defaultSortDir: "desc",
+        defaultFilters: memDefaults,
+        prefix: "mem",
+      });
+      expect(state.sortKey).toBe("accessCount");
+      expect(state.sortDir).toBe("asc");
+      expect(state.page).toBe(3);
+      expect(state.filters.type).toBe("feedback");
+    });
+
+    test("agrees with an unprefixed default-only read (no cross-prefix leakage)", () => {
+      window.history.replaceState(null, "", "/memories?tl_sort=title");
+      const state = readListControlsState<MemSortKey, MemFilters>({
+        defaultPageSize: 50,
+        defaultSortKey: "created",
+        defaultFilters: memDefaults,
+        prefix: "mem",
+      });
+      // A different widget's prefixed param on the same page must not leak in.
+      expect(state.sortKey).toBe("created");
     });
   });
 });

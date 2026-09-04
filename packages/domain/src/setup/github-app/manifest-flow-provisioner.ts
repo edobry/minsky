@@ -27,6 +27,8 @@ import type { AppProvisioner } from "./provisioner";
 import { BrowserCancelledError } from "./provisioner";
 import type { AppManifestSpec, AppCredentials } from "./types";
 import { pemToPkcs8ArrayBuffer } from "./pem-utils";
+import { escapeHtmlAttribute } from "../../html/escape";
+import { trustedGitHubUrl } from "../../github/trusted-url";
 
 /** Default timeout: 5 minutes */
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -97,19 +99,21 @@ export class ManifestFlowProvisioner implements AppProvisioner {
       default_events: events,
     };
 
-    const manifestJson = JSON.stringify(manifest);
-    const manifestHtmlSafe = manifestJson
-      .replace(/&/g, "&amp;")
-      .replace(/"/g, "&quot;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
+    // Every value interpolated into HTML this process SERVES is escaped, not
+    // just the ones currently reachable from a third party (mt#4815). `name`
+    // and `repo` are operator-supplied rather than API-sourced, which is an
+    // argument about today's callers, not about the template — and a per-value
+    // exemption is exactly the reasoning that goes stale when a caller changes.
+    const manifestHtmlSafe = escapeHtmlAttribute(JSON.stringify(manifest));
+    const nameHtml = escapeHtmlAttribute(name);
+    const repoHtml = escapeHtmlAttribute(repo);
 
     const html = `<!DOCTYPE html>
 <html>
-<head><title>Create ${name} GitHub App</title></head>
+<head><title>Create ${nameHtml} GitHub App</title></head>
 <body style="font-family:system-ui;max-width:600px;margin:40px auto;padding:0 20px">
-<h1>Create ${name} GitHub App</h1>
-<p>Target repo: <code>${repo}</code></p>
+<h1>Create ${nameHtml} GitHub App</h1>
+<p>Target repo: <code>${repoHtml}</code></p>
 <p>Click to create the App. GitHub will confirm, then redirect back automatically.</p>
 <form action="https://github.com/settings/apps/new" method="post">
 <input type="hidden" name="manifest" value="${manifestHtmlSafe}">
@@ -225,13 +229,23 @@ export class ManifestFlowProvisioner implements AppProvisioner {
                   // Non-fatal — fall through to the /check-install path below
                 }
 
+                // Origin-check the URL GitHub handed us before it reaches the
+                // operator or the operator's config file (mt#4815). Unlike the
+                // guided wizard there is no existing default to fall back to,
+                // and `AppCredentials.htmlUrl` is a required string that
+                // `local-config-credential-store` persists — so "omit it" is
+                // not available here. Reconstruct the same canonical App URL
+                // the guided wizard builds instead.
+                const appHtmlUrl =
+                  trustedGitHubUrl(app.html_url) ?? `https://github.com/apps/${app.slug}`;
+
                 const creds: AppCredentials = {
                   appId: app.id,
                   slug: app.slug,
                   clientId: app.client_id,
                   clientSecret: app.client_secret,
                   pem: app.pem,
-                  htmlUrl: app.html_url,
+                  htmlUrl: appHtmlUrl,
                   installationId,
                 };
 
@@ -240,8 +254,8 @@ export class ManifestFlowProvisioner implements AppProvisioner {
                   settle(creds, this.port);
                   const okHtml = `<!DOCTYPE html><html><body style="font-family:system-ui;max-width:600px;margin:40px auto;padding:0 20px">
 <h1>Done!</h1>
-<p><b>App ID:</b> ${app.id}</p>
-<p><b>Installation ID:</b> ${installationId}</p>
+<p><b>App ID:</b> ${escapeHtmlAttribute(app.id)}</p>
+<p><b>Installation ID:</b> ${escapeHtmlAttribute(installationId)}</p>
 <p>You can close this tab. Everything has been saved.</p>
 </body></html>`;
                   return new Response(okHtml, {
@@ -252,14 +266,17 @@ export class ManifestFlowProvisioner implements AppProvisioner {
                 // App created but not yet installed. Stash creds, present the
                 // install link + /check-install round-trip, keep server alive.
                 pendingApp = creds;
-                const installUrl = `${app.html_url}/installations/new`;
+                // Built from the origin-checked URL, then escaped at the
+                // interpolation below: the check cannot see a `"` that would
+                // close the href, and escaping cannot see an off-origin host.
+                const installUrl = `${appHtmlUrl}/installations/new`;
                 const checkUrl = `http://localhost:${this.port}/check-install`;
                 const partialHtml = `<!DOCTYPE html><html><body style="font-family:system-ui;max-width:600px;margin:40px auto;padding:0 20px">
 <h1>App Created!</h1>
-<p><b>App ID:</b> ${app.id}</p>
-<p>Now install it on <code>${repo}</code>:</p>
-<a href="${installUrl}" style="display:inline-block;padding:12px 24px;font-size:16px;background:#238636;color:#fff;text-decoration:none;border-radius:6px">Install App</a>
-<p style="margin-top:20px;color:#666">After installing, return to this tab and visit <a href="${checkUrl}">${checkUrl}</a> to finish setup.</p>
+<p><b>App ID:</b> ${escapeHtmlAttribute(app.id)}</p>
+<p>Now install it on <code>${repoHtml}</code>:</p>
+<a href="${escapeHtmlAttribute(installUrl)}" style="display:inline-block;padding:12px 24px;font-size:16px;background:#238636;color:#fff;text-decoration:none;border-radius:6px">Install App</a>
+<p style="margin-top:20px;color:#666">After installing, return to this tab and visit <a href="${escapeHtmlAttribute(checkUrl)}">${escapeHtmlAttribute(checkUrl)}</a> to finish setup.</p>
 </body></html>`;
                 return new Response(partialHtml, {
                   headers: { "Content-Type": "text/html" },
@@ -288,8 +305,8 @@ export class ManifestFlowProvisioner implements AppProvisioner {
                 settle(completed, this.port);
                 const doneHtml = `<!DOCTYPE html><html><body style="font-family:system-ui;max-width:600px;margin:40px auto;padding:0 20px">
 <h1>All Done!</h1>
-<p><b>App ID:</b> ${pendingApp.appId}</p>
-<p><b>Installation ID:</b> ${installationId}</p>
+<p><b>App ID:</b> ${escapeHtmlAttribute(pendingApp.appId)}</p>
+<p><b>Installation ID:</b> ${escapeHtmlAttribute(installationId)}</p>
 <p>You can close this tab.</p></body></html>`;
                 return new Response(doneHtml, {
                   headers: { "Content-Type": "text/html" },

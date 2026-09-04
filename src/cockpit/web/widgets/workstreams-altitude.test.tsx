@@ -18,6 +18,8 @@ import {
   parseAltitude,
   type WorkstreamAltitude,
 } from "../lib/use-workstreams-data";
+import { ProjectProvider } from "../lib/project-context";
+import { stubProjectsRoute } from "../lib/test-support/projects";
 
 // ---------------------------------------------------------------------------
 // Fixtures — one workstream; the rollup slice strips children, the actionable
@@ -95,6 +97,7 @@ describe("Workstreams altitude parameterization (mt#2385)", () => {
         headers: { "Content-Type": "application/json" },
       });
     }) as unknown as typeof fetch;
+    stubProjectsRoute();
   });
 
   afterEach(() => {
@@ -106,8 +109,10 @@ describe("Workstreams altitude parameterization (mt#2385)", () => {
     render(
       <MemoryRouter>
         <QueryClientProvider client={queryClient}>
-          <WorkstreamsInstance altitude="rollup" />
-          <WorkstreamsInstance altitude="actionable" />
+          <ProjectProvider>
+            <WorkstreamsInstance altitude="rollup" />
+            <WorkstreamsInstance altitude="actionable" />
+          </ProjectProvider>
         </QueryClientProvider>
       </MemoryRouter>
     );
@@ -128,9 +133,14 @@ describe("Workstreams altitude parameterization (mt#2385)", () => {
     expect(requestedUrls.some((u) => u.includes("altitude=rollup"))).toBe(true);
     expect(requestedUrls.some((u) => u.includes("altitude=actionable"))).toBe(true);
 
-    // Distinct cache entries under distinct keys — no collision
-    const rollupCached = queryClient.getQueryData(workstreamsQueryKey("rollup"));
-    const actionableCached = queryClient.getQueryData(workstreamsQueryKey("actionable"));
+    // Distinct cache entries under distinct keys — no collision. The `null`
+    // here (not `undefined`) is load-bearing, not an assumption: `useProject`
+    // types `selectedSlug` as `string | null` (project-context.tsx), and its
+    // `useState<string | null>(loadPersistedSlug)` initializer always returns
+    // a `string | null` — never `undefined` — including in this jsdom test
+    // environment's empty localStorage.
+    const rollupCached = queryClient.getQueryData(workstreamsQueryKey("rollup", null));
+    const actionableCached = queryClient.getQueryData(workstreamsQueryKey("actionable", null));
     expect(rollupCached).toBeDefined();
     expect(actionableCached).toBeDefined();
     expect(rollupCached).not.toEqual(actionableCached);
@@ -145,11 +155,14 @@ describe("Workstreams altitude parameterization (mt#2385)", () => {
         { status: 200, headers: { "Content-Type": "application/json" } }
       );
     }) as unknown as typeof fetch;
+    stubProjectsRoute();
 
     render(
       <MemoryRouter>
         <QueryClientProvider client={queryClient}>
-          <WorkstreamsInstance altitude="full" />
+          <ProjectProvider>
+            <WorkstreamsInstance altitude="full" />
+          </ProjectProvider>
         </QueryClientProvider>
       </MemoryRouter>
     );
@@ -173,5 +186,64 @@ describe("Workstreams altitude parameterization (mt#2385)", () => {
     expect(parseAltitude("ceo")).toBe("full");
     expect(parseAltitude(null)).toBe("full");
     expect(parseAltitude(undefined)).toBe("full");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Count-line and empty-state wording (mt#4775)
+// ---------------------------------------------------------------------------
+//
+// Render-level evidence for the label half of mt#4775. /digest and /workstreams
+// both said "active" for different predicates — structural (a parent with >=1
+// non-terminal child, filtered server-side) vs event-derived (emitted events
+// today). Both were correct, so the fix names the senses apart; these assert the
+// rendered strings rather than the source, because a shared WORD is only a
+// defect where a reader sees it.
+
+describe("Workstreams count wording (mt#4775)", () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ asks: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })) as unknown as typeof fetch;
+    stubProjectsRoute();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    cleanup();
+  });
+
+  function renderWorkstreams(workstreams: unknown[]) {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, refetchInterval: false } },
+    });
+    return render(
+      <MemoryRouter>
+        <QueryClientProvider client={client}>
+          <ProjectProvider>
+            <Workstreams data={{ state: "ok", payload: { workstreams } } as never} />
+          </ProjectProvider>
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+  }
+
+  test("the count line names the predicate instead of saying bare 'active'", async () => {
+    const { container } = renderWorkstreams(ROLLUP_PAYLOAD.payload.workstreams);
+    await waitFor(() => {
+      expect(container.textContent).toContain("1 with open work");
+    });
+  });
+
+  test("the empty state no longer claims 'No active workstreams'", async () => {
+    const { container } = renderWorkstreams([]);
+    await waitFor(() => {
+      expect(container.textContent).toContain("No workstreams with open work");
+    });
+    expect(container.textContent).not.toContain("No active workstreams");
   });
 });

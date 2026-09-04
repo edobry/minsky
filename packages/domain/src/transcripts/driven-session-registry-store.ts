@@ -55,6 +55,21 @@ import {
 export interface UpsertDrivenSessionInput {
   localId: string;
   harnessSessionId?: string | null;
+  /** Which harness drives this session (mt#4935). Defaults to `"claude-code"`,
+   * matching the schema column's own default — every caller predating this
+   * task keeps writing the same value it always implicitly meant. */
+  harnessKind?: string;
+  /** Which `DriverTransport` spawned/spawns it (mt#4935), by `DriverTransport.id`.
+   * Defaults to `"claude-stream-json"` (the schema column's own default). */
+  transportId?: string;
+  /** The harness's own conversation id (mt#4935) — for Claude Code, the same
+   * value as `harnessSessionId`. Nullable for the same reason that field is:
+   * unknown until the child's `init` event links it. */
+  harnessConversationId?: string | null;
+  /** Credential/identity posture this drive runs under (mt#4935) —
+   * `"subscription"` or `"api-key"`. Defaults to `"subscription"` (the
+   * schema column's own default). */
+  authMode?: string;
   cwd: string;
   permissionMode: string;
   taskId?: string | null;
@@ -90,6 +105,10 @@ export async function upsertDrivenSessionRecord(
     const values = {
       localId: input.localId,
       harnessSessionId: input.harnessSessionId ?? null,
+      harnessKind: input.harnessKind ?? "claude-code",
+      transportId: input.transportId ?? "claude-stream-json",
+      harnessConversationId: input.harnessConversationId ?? null,
+      authMode: input.authMode ?? "subscription",
       cwd: input.cwd,
       permissionMode: input.permissionMode,
       taskId: input.taskId ?? null,
@@ -275,6 +294,10 @@ export async function resolveReplacedConversationId(
 interface RawDrivenSessionRow {
   local_id: string;
   harness_session_id: string | null;
+  harness_kind: string;
+  transport_id: string;
+  harness_conversation_id: string | null;
+  auth_mode: string;
   cwd: string;
   permission_mode: string;
   task_id: string | null;
@@ -294,6 +317,10 @@ export function mapRawDrivenSessionRow(raw: RawDrivenSessionRow): DrivenSessionR
   return {
     localId: raw.local_id,
     harnessSessionId: raw.harness_session_id,
+    harnessKind: raw.harness_kind,
+    transportId: raw.transport_id,
+    harnessConversationId: raw.harness_conversation_id,
+    authMode: raw.auth_mode,
     cwd: raw.cwd,
     permissionMode: raw.permission_mode,
     taskId: raw.task_id,

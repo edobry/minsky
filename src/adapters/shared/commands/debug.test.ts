@@ -726,3 +726,94 @@ describe("debug.systemInfo guardHealth surface (mt#2812)", () => {
     expect("guardHealth" in result).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// debug.systemInfo runtime surface tests (mt#4718)
+//
+// The field these cover used to be `nodejs.version` = `process.version`. Under
+// Bun that is a SHIM of the Node version Bun claims compatibility with, so the
+// tool confidently reported a Node build that was not running and need not have
+// been installed at all. The assertions below deliberately compare against the
+// runtime EXECUTING them rather than hardcoding "bun": hardcoding would restate
+// the bug in the test — asserting a runtime name we assumed instead of the one
+// actually running.
+// ---------------------------------------------------------------------------
+
+describe("debug.systemInfo runtime surface (mt#4718)", () => {
+  beforeEach(() => {
+    try {
+      registerDebugCommands();
+    } catch {
+      // Already registered by an earlier suite in this file. The registry is
+      // process-global and what these tests need is that the command IS
+      // registered, not that this suite is the one that registered it.
+    }
+  });
+
+  test("reports the runtime actually executing, not process.version", async () => {
+    const result = await callSystemInfo();
+    const runtime = result.runtime as Record<string, unknown>;
+    expect(runtime).toBeDefined();
+
+    const bunVersion = (process.versions as Partial<Record<string, string>>).bun;
+    if (bunVersion) {
+      expect(runtime.name).toBe("bun");
+      expect(runtime.version).toBe(bunVersion);
+      // The regression itself: the reported version must NOT be Bun's Node shim.
+      expect(runtime.version).not.toBe(process.version);
+    } else {
+      expect(runtime.name).toBe("node");
+      expect(runtime.version).toBe(process.versions.node);
+    }
+  });
+
+  test("nodeCompat preserves the Node compatibility claim", async () => {
+    const result = await callSystemInfo();
+    const runtime = result.runtime as Record<string, unknown>;
+    expect(runtime.nodeCompat).toBe(process.version);
+  });
+
+  test("the legacy `nodejs` key is gone", async () => {
+    const result = await callSystemInfo();
+    expect("nodejs" in result).toBe(false);
+    expect("runtime" in result).toBe(true);
+  });
+
+  test("platform, arch and uptime survive the move onto `runtime`", async () => {
+    const result = await callSystemInfo();
+    const runtime = result.runtime as Record<string, unknown>;
+    expect(runtime.platform).toBe(process.platform);
+    expect(runtime.arch).toBe(process.arch);
+    expect(typeof runtime.uptime).toBe("number");
+    expect(runtime.uptime as number).toBeGreaterThanOrEqual(0);
+  });
+
+  test('degrades to "unknown" instead of throwing when version fields are absent', async () => {
+    const versionsDescriptor = Object.getOwnPropertyDescriptor(process, "versions");
+    const versionDescriptor = Object.getOwnPropertyDescriptor(process, "version");
+    try {
+      Object.defineProperty(process, "versions", {
+        value: {},
+        configurable: true,
+        writable: true,
+        enumerable: true,
+      });
+      Object.defineProperty(process, "version", {
+        value: undefined,
+        configurable: true,
+        writable: true,
+        enumerable: true,
+      });
+
+      const result = await callSystemInfo();
+      const runtime = result.runtime as Record<string, unknown>;
+      expect(runtime.version).toBe("unknown");
+      expect(runtime.nodeCompat).toBe("unknown");
+      // Detection still resolves to a name rather than throwing or emitting undefined.
+      expect(runtime.name).toBe("node");
+    } finally {
+      if (versionsDescriptor) Object.defineProperty(process, "versions", versionsDescriptor);
+      if (versionDescriptor) Object.defineProperty(process, "version", versionDescriptor);
+    }
+  });
+});

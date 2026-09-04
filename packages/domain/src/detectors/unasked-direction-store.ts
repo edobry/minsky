@@ -4,11 +4,11 @@
  * Persists analyzer findings and operator-promoted signature seeds to local
  * JSON files. v0.1 storage layout:
  *
- *   .minsky/state/unasked-directions/<sessionId>.json
+ *   <state dir>/unasked-directions/<sessionId>.json
  *     One record per session: the analyzer's full output, status (pending /
  *     reviewed), and any operator-applied verdicts.
  *
- *   .minsky/state/unasked-direction-signatures/<sessionId>.json
+ *   <state dir>/unasked-direction-signatures/<sessionId>.json
  *     Signature seeds — entries appended when the operator marks a finding
  *     as a real direction. Surface 2 (mt#TBD, future) consumes this corpus.
  *
@@ -29,16 +29,51 @@ import type {
 } from "./unasked-direction-analyzer";
 import { DETECTOR_ID, DETECTOR_VERSION } from "./unasked-direction-analyzer";
 import { log } from "@minsky/shared/logger";
+import { getMinskyStateDir } from "@minsky/shared/paths";
 
 // ---------------------------------------------------------------------------
 // Paths
 // ---------------------------------------------------------------------------
 
-/** Root directory under repo for findings (per-session JSON). */
-export const FINDINGS_DIR = ".minsky/state/unasked-directions";
+/** Findings subdirectory, relative to the store root (per-session JSON). */
+export const FINDINGS_DIR = "unasked-directions";
 
-/** Root directory under repo for signature seeds (per-session JSON). */
-export const SIGNATURES_DIR = ".minsky/state/unasked-direction-signatures";
+/** Signature-seed subdirectory, relative to the store root (per-session JSON). */
+export const SIGNATURES_DIR = "unasked-direction-signatures";
+
+/**
+ * The root both stores live under — `<state dir>/`, NOT the repo working tree.
+ *
+ * mt#4778: these two directories were `<projectRoot>/.minsky/state/...`, where
+ * `projectRoot` came from `findRepoRoot(input.cwd)`. A post-merge run invoked
+ * from a session workspace therefore wrote into that CLONE, while
+ * `unasked-direction_list` — the only reader — resolved a single root. Measured
+ * before the fix: **13 findings across 5 session clones** the triage tool could
+ * not see, and each one dies with its workspace on `session_delete`.
+ *
+ * FLAT, not project-keyed, and that is deliberate. mt#4748 project-keys the
+ * `calibration` and `evaluation` families only (`resolveStreamPath` in
+ * `guard-events/ingest-runtime.ts`); every other state-dir stream — `fire-log`,
+ * `guard-health-log`, and now this one — stays flat, which mt#4816 confirmed
+ * when it placed `subagent-model-mismatch` the same way. Session ids are
+ * globally unique, so a flat directory cannot collide across projects.
+ *
+ * **Resolution deviates from SC1 as written, deliberately.** SC1 asks for
+ * `MINSKY_STATE_DIR` → `XDG_STATE_HOME/minsky` → `~/.local/state/minsky`. This
+ * uses the shared `getMinskyStateDir()` instead, which omits the first tier —
+ * `packages/shared/src/paths.ts` documents why in its own docblock: adding
+ * `MINSKY_STATE_DIR` as a higher-precedence tier there "looks like unification
+ * and is not", because seven test files isolate themselves by overriding
+ * `XDG_STATE_HOME` around a temp dir and a global `MINSKY_STATE_DIR` would
+ * silently outrank every one of them (measured: 24 tests across 7 files fail).
+ * Hand-rolling that precedence HERE would recreate exactly the divergence that
+ * docblock exists to prevent, and would make this the eleventh hand-rolled
+ * resolver. `tests/setup.ts` sets both variables anyway (mt#3965), so isolation
+ * is unaffected. Recorded in the spec's `## Implementation findings`.
+ */
+export function resolveUnaskedDirectionRoot(): string {
+  return getMinskyStateDir();
+}
 
 /**
  * Resolve the per-session findings file path.

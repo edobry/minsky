@@ -3,6 +3,16 @@
 // Exercises the pure logic (computeReviewDueLogs, shouldReWarn,
 // formatCadenceWarning) with in-memory fixtures — no filesystem I/O per
 // `custom/no-real-fs-in-tests`.
+//
+// ONE exception, at the bottom of the file (mt#4748 R1): a real-fs
+// write/read-parity block, scoped with its own eslint-disable. Every test
+// above proves the PURE logic; none of them proves `run()`'s actual
+// `readContent` closure agrees with the actual production writer
+// (`logCalibrationRecord`) about WHERE a log lives — which is exactly the
+// property that broke silently (this file's two `readContent` closures kept
+// reading the pre-mt#4748 location after the writer moved) while every test
+// in this file's ~1000-line suite, none of which touches real fs, stayed
+// green.
 
 import { describe, expect, test } from "bun:test";
 import type {
@@ -13,6 +23,7 @@ import type {
 import {
   assessClassifiability,
   computeReviewDueLogs,
+  FIRES_THRESHOLD,
   STALE_DAYS_MS,
 } from "../../src/domain/calibration/calibration-sweep";
 import {
@@ -21,6 +32,7 @@ import {
   formatPendingAskLines,
   parseAskStateCache,
   resolveAskStates,
+  run,
   selectPendingAskLogs,
   shouldReWarn,
   ASK_STATE_STALENESS_MS,
@@ -31,6 +43,10 @@ import {
   type AskLookup,
 } from "./calibration-review-cadence-detector";
 import { GUARD_REGISTRY } from "./registry";
+import { logCalibrationRecord } from "./dispatcher";
+import { resolveCalibrationStatePath as cadenceResolveStatePath } from "./calibration-review-cadence-detector";
+import { stubContext } from "./test-support/dispatcher-harness";
+import type { ClaudeHookInput } from "./types";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -93,6 +109,20 @@ function makeResult(
     injectedFiresSinceLastReview:
       overrides.injectedFiresSinceLastReview ??
       merged.firesSinceLastReview - merged.suppressedSinceLastReview,
+    // mt#4904: DERIVED from the same comparison production uses, not defaulted
+    // to false. A fixture that sets a watermark above its record count IS
+    // stranded, and hardcoding false here would let such a fixture assert a
+    // review-due reason the real sweep would never produce for it.
+    watermarkStranded: overrides.watermarkStranded ?? merged.watermarkCount > merged.totalFires,
+    // mt#4049: DERIVED, for the same reason the two above are — a fixture whose
+    // records were all suppressed at volume IS all-suppressed, and hardcoding
+    // false would let it assert an exclusion the real sweep no longer produces.
+    // Derived from the same two columns production reads, in the same order.
+    allSuppressed:
+      overrides.allSuppressed ??
+      ((overrides.injectedFiresSinceLastReview ??
+        merged.firesSinceLastReview - merged.suppressedSinceLastReview) === 0 &&
+        merged.suppressedSinceLastReview >= FIRES_THRESHOLD),
   };
 }
 
@@ -190,6 +220,7 @@ describe("shouldReWarn", () => {
     totalFires: 43,
     distinctPhrases: 31,
     reason: "past-threshold",
+    watermarkCount: 0,
   };
 
   test("warns when never warned before", () => {
@@ -243,6 +274,7 @@ describe("shouldReWarn — policy-coverage kind (mt#2659)", () => {
     totalFires: 1457,
     distinctPhrases: 5,
     reason: "past-threshold",
+    watermarkCount: 0,
   };
 
   test("warns when never warned before", () => {
@@ -286,6 +318,13 @@ describe("suppression-aware review-due legs (mt#3197, PR #2300 R1)", () => {
   /** Comfortably older than both the stale window and the never-reviewed window. */
   const LONG_AGO = new Date(NOW - (STALE_DAYS_MS + 30 * 24 * 60 * 60 * 1000)).toISOString();
 
+  // mt#4049 amended this test's ASSERTION, not its subject. It pinned
+  // "time-stale declines an all-suppressed log", and that is still true and
+  // still what matters for mt#3197 — but such a log is no longer excluded
+  // ENTIRELY, so `toHaveLength(0)` would now assert the routing gap mt#4049
+  // closed rather than the count-inflation mt#3197 prevented. The reason check
+  // is the stronger form of the original claim: the injected count did not
+  // re-inflate, so the count-bearing leg still declines.
   test("time-stale does not fire when every new record was suppressed", () => {
     const entry = makeEntry(ASK_ROUTING_DEFERRAL);
     const results = [makeResult(entry, { ...ALL_SUPPRESSED, totalFires: 40 })];
@@ -293,7 +332,8 @@ describe("suppression-aware review-due legs (mt#3197, PR #2300 R1)", () => {
       [entry.path]: { lastReviewedCount: 28, lastReviewedAt: LONG_AGO },
     };
     const due = computeReviewDueLogs(results, watermarks, NOW);
-    expect(due).toHaveLength(0);
+    expect(due.map((d) => d.reason)).not.toContain("time-stale");
+    expect(due[0]?.injectedFiresSinceLastReview).toBe(0);
   });
 
   test("time-stale still fires when at least one new record was injected", () => {
@@ -324,7 +364,181 @@ describe("suppression-aware review-due legs (mt#3197, PR #2300 R1)", () => {
       }),
     ];
     const due = computeReviewDueLogs(results, {}, NOW);
+    // Amended by mt#4049 for the same reason as the time-stale sibling above:
+    // the count-bearing leg still declines, which is mt#3197's property; the
+    // log is now routed by its own leg instead of vanishing.
+    expect(due.map((d) => d.reason)).not.toContain("never-reviewed");
+    expect(due[0]?.injectedFiresSinceLastReview).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4049 — the all-suppressed leg
+// ---------------------------------------------------------------------------
+
+/**
+ * The time-stale leg's rendering, asserted by three tests that each check a
+ * DIFFERENT leg does not inherit it — `watermark-stranded` (mt#4904) and
+ * `all-suppressed` (mt#4049) both silently wore this wording at some point,
+ * which is why the assertion is worth sharing rather than repeating.
+ */
+const TIME_STALE_WORDING = "unreviewed for >=";
+
+describe("all-suppressed review-due leg (mt#4049)", () => {
+  const LONG_AGO = new Date(NOW - (STALE_DAYS_MS + 30 * 24 * 60 * 60 * 1000)).toISOString();
+
+  // AT1: N records, ALL suppressed, N above the count bar -> due, new reason.
+  test("routes an all-suppressed log above the count bar", () => {
+    const entry = makeEntry(ASK_ROUTING_DEFERRAL);
+    const results = [
+      makeResult(entry, {
+        firesSinceLastReview: 12,
+        suppressedSinceLastReview: 12,
+        totalFires: 12,
+      }),
+    ];
+
+    const due = computeReviewDueLogs(results, {}, NOW);
+
+    expect(due).toHaveLength(1);
+    expect(due[0]?.reason).toBe("all-suppressed");
+    expect(due[0]?.suppressedSinceLastReview).toBe(12);
+    expect(due[0]?.injectedFiresSinceLastReview).toBe(0);
+  });
+
+  test("routes it whether or not it has ever been reviewed", () => {
+    // The watermarked case: `never-reviewed` cannot reach a log with a
+    // watermark, so without the leg's ungated placement this one would fall
+    // through to `time-stale` and be declined there.
+    const entry = makeEntry(ASK_ROUTING_DEFERRAL);
+    const results = [
+      makeResult(entry, {
+        firesSinceLastReview: 12,
+        suppressedSinceLastReview: 12,
+        totalFires: 40,
+      }),
+    ];
+    const watermarks = {
+      [entry.path]: { lastReviewedCount: 28, lastReviewedAt: LONG_AGO },
+    };
+
+    const due = computeReviewDueLogs(results, watermarks, NOW);
+
+    expect(due).toHaveLength(1);
+    expect(due[0]?.reason).toBe("all-suppressed");
+  });
+
+  // AT2 (negative control on mt#3197): the fix must not be bought by counting
+  // suppressed records toward the threshold again. Same volume, one injected.
+  test("does NOT fire when the log is only PARTIALLY suppressed", () => {
+    const entry = makeEntry(ASK_ROUTING_DEFERRAL);
+    const results = [
+      makeResult(entry, {
+        firesSinceLastReview: 12,
+        suppressedSinceLastReview: 11,
+        totalFires: 12,
+      }),
+    ];
+
+    const due = computeReviewDueLogs(results, {}, NOW);
+
+    // One injected fire, below the count bar of 10 — the mt#3197 case, which
+    // must stay exactly as quiet as it was.
+    expect(due.map((d) => d.reason)).not.toContain("all-suppressed");
     expect(due).toHaveLength(0);
+  });
+
+  // AT3 (negative control on volume): an all-suppressed log BELOW the count bar
+  // must not fire either, or every quiet detector becomes permanently due.
+  test("does NOT fire on an all-suppressed log below the count bar", () => {
+    const entry = makeEntry(ASK_ROUTING_DEFERRAL);
+    const results = [
+      makeResult(entry, {
+        firesSinceLastReview: FIRES_THRESHOLD - 1,
+        suppressedSinceLastReview: FIRES_THRESHOLD - 1,
+        totalFires: FIRES_THRESHOLD - 1,
+      }),
+    ];
+
+    const due = computeReviewDueLogs(results, {}, NOW);
+
+    expect(due).toHaveLength(0);
+  });
+
+  test("fires exactly AT the count bar, not one above it", () => {
+    // Pins the boundary so a later `>` / `>=` slip is caught: the suppressed
+    // count uses the same bar the injected count would have had to clear.
+    const entry = makeEntry(ASK_ROUTING_DEFERRAL);
+    const atBar = [
+      makeResult(entry, {
+        firesSinceLastReview: FIRES_THRESHOLD,
+        suppressedSinceLastReview: FIRES_THRESHOLD,
+        totalFires: FIRES_THRESHOLD,
+      }),
+    ];
+
+    expect(computeReviewDueLogs(atBar, {}, NOW)[0]?.reason).toBe("all-suppressed");
+  });
+
+  test("is not diversity-gated — one repeated shape still routes", () => {
+    // Deliberate: the question is "is this gate too broad", which a single
+    // repeated shape answers. A diversity gate here would reproduce mt#3789's
+    // permanently-unreachable conjunct on a second axis.
+    const entry = makeEntry(ASK_ROUTING_DEFERRAL);
+    const results = [
+      makeResult(entry, {
+        firesSinceLastReview: 12,
+        suppressedSinceLastReview: 12,
+        totalFires: 12,
+        distinctPhrases: 1,
+      }),
+    ];
+
+    expect(computeReviewDueLogs(results, {}, NOW)[0]?.reason).toBe("all-suppressed");
+  });
+
+  test("watermark-stranded still wins — it is checked first and invalidates these counts", () => {
+    const entry = makeEntry(ASK_ROUTING_DEFERRAL);
+    const results = [
+      makeResult(entry, {
+        firesSinceLastReview: 12,
+        suppressedSinceLastReview: 12,
+        totalFires: 12,
+        watermarkCount: 99,
+      }),
+    ];
+
+    expect(computeReviewDueLogs(results, {}, NOW)[0]?.reason).toBe("watermark-stranded");
+  });
+});
+
+describe("formatCadenceWarning — the all-suppressed line (mt#4049)", () => {
+  test("asks whether the gate is too broad, and never reports '0 new fire(s)'", () => {
+    const due: ReviewDueLog[] = [
+      {
+        name: "knowledge-acquisition",
+        path: ".minsky/knowledge-acquisition-calibration.jsonl",
+        kind: "knowledge-acquisition",
+        firesSinceLastReview: 15,
+        injectedFiresSinceLastReview: 0,
+        suppressedSinceLastReview: 13,
+        totalFires: 15,
+        distinctPhrases: 13,
+        reason: "all-suppressed",
+        watermarkCount: 0,
+      },
+    ];
+
+    const warning = formatCadenceWarning(due);
+
+    expect(warning).toContain("suppressed 13 of 15 detection(s)");
+    expect(warning).toContain("Is this gate too broad?");
+    // The failure mt#3197's deferral note predicted, and the reason this leg
+    // needed its own text rather than another label on the shared ternary.
+    expect(warning).not.toContain("0 new fire(s)");
+    // And it must not inherit the time-stale wording, as watermark-stranded
+    // silently did before mt#4904 caught it.
+    expect(warning).not.toContain(TIME_STALE_WORDING);
   });
 });
 
@@ -342,6 +556,7 @@ describe("formatCadenceWarning", () => {
         totalFires: 43,
         distinctPhrases: 31,
         reason: "past-threshold",
+        watermarkCount: 0,
       },
       {
         name: RETROSPECTIVE_TRIGGER,
@@ -353,19 +568,55 @@ describe("formatCadenceWarning", () => {
         totalFires: 20,
         distinctPhrases: 3,
         reason: "time-stale",
+        watermarkCount: 0,
       },
     ];
     const msg = formatCadenceWarning(due);
     expect(msg).toContain(ASK_ROUTING_DEFERRAL);
     expect(msg).toContain("43 new fire(s)");
     expect(msg).toContain(RETROSPECTIVE_TRIGGER);
-    expect(msg).toContain("unreviewed for >=");
+    expect(msg).toContain(TIME_STALE_WORDING);
     expect(msg).toContain("/calibration-review");
     // The override env var is deliberately NOT named here (mt#3479): advisory
     // text is read by the agent, and the override is the operator's escape
     // hatch, catalogued in `CLAUDE.md §Hook Files`. Asserted as an absence so a
     // re-added advertisement fails here as well as in guard-feedback-shape.
     expect(msg).not.toContain("MINSKY_SKIP_CALIBRATION_CADENCE");
+  });
+
+  test("names the watermark-stranded reason, and never the time-stale text (mt#4904)", () => {
+    // PR #3572 R1. The leg had fallen into the reason ternary's final `else`,
+    // so it rendered as "unreviewed for >= N days" — the time-stale wording,
+    // about a log that is not stale but incomparable. The shared line's count
+    // is equally wrong here: it quotes the injected count, which the stranding
+    // clamps to 0, so the warning read "0 new fire(s)" on a log it was
+    // simultaneously reporting as needing review.
+    const due: ReviewDueLog[] = [
+      {
+        name: "untaken-action",
+        path: ".minsky/untaken-action-calibration.jsonl",
+        kind: "untaken-action",
+        firesSinceLastReview: 0,
+        injectedFiresSinceLastReview: 0,
+        suppressedSinceLastReview: 0,
+        totalFires: 121,
+        distinctPhrases: 0,
+        reason: "watermark-stranded",
+        watermarkCount: 424,
+      },
+    ];
+    const msg = formatCadenceWarning(due);
+    expect(msg).toContain("untaken-action");
+    // Both operands, so the reader can see the comparison that failed.
+    expect(msg).toContain("424");
+    expect(msg).toContain("121");
+    // The mislabel this test exists for.
+    expect(msg).not.toContain(TIME_STALE_WORDING);
+    // The fabricated zero — the clamp's output, presented as a measurement.
+    expect(msg).not.toContain("0 new fire(s)");
+    // The shared action line is asserted by the past-threshold/time-stale test
+    // above; not repeated here, both because it is not this test's subject and
+    // because a third literal trips custom/no-magic-string-duplication.
   });
 
   test("names the never-reviewed reason (mt#2896)", () => {
@@ -380,6 +631,7 @@ describe("formatCadenceWarning", () => {
         totalFires: 1,
         distinctPhrases: 1,
         reason: "never-reviewed",
+        watermarkCount: 0,
         reviewByDays: 7,
       },
     ];
@@ -416,6 +668,7 @@ describe("formatCadenceWarning", () => {
         totalFires: 9999,
         distinctPhrases: 999,
         reason: "never-fired",
+        watermarkCount: 0,
         reviewByDays: 30,
       };
     }
@@ -544,6 +797,7 @@ describe("selectPendingAskLogs", () => {
     totalFires: 1477,
     distinctPhrases: 5,
     reason: "past-threshold",
+    watermarkCount: 0,
     openAskId: TEST_ASK_ID,
   };
   const noAskDue: ReviewDueLog = {
@@ -603,6 +857,7 @@ describe("formatPendingAskLines", () => {
     totalFires: 1477,
     distinctPhrases: 5,
     reason: "past-threshold",
+    watermarkCount: 0,
     openAskId: askId,
   });
 
@@ -1037,3 +1292,66 @@ describe("per-turn path cannot perform a live database read (mt#3744)", () => {
     expect(entry?.event).toBe("UserPromptSubmit");
   });
 });
+
+// ---------------------------------------------------------------------------
+// mt#4748 R1 — end-to-end write/read parity (real fs; see file header)
+// ---------------------------------------------------------------------------
+/* eslint-disable custom/no-real-fs-in-tests -- this block specifically proves
+   that a record written through the REAL production write path
+   (`logCalibrationRecord`, `.minsky/hooks/dispatcher.ts`) is found by this
+   detector's REAL read path (`run()`'s `readContent` closure). A mock or an
+   injected reader would assert the mock, which is exactly the gap that let
+   one of this file's two `readContent` closures go unmigrated while every
+   OTHER test here — none of which touches real fs — stayed green. A
+   throwaway mkdtempSync directory (removed in `finally`) keeps this isolated
+   from any real `.minsky/` or state dir. */
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+describe("mt#4748 R1 — write/read parity (dispatcher write, cadence-detector read)", () => {
+  test("a never-reviewed causal-premise record written via logCalibrationRecord is surfaced as review-due by run()", async () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "mt4748-parity-cadence-"));
+    const statePath = cadenceResolveStatePath(repoRoot, ".minsky/causal-premise-calibration.jsonl");
+    try {
+      mkdirSync(join(repoRoot, ".git"));
+
+      // 60 days old + no watermark -> "never-reviewed" leg fires regardless
+      // of the FIRES_THRESHOLD/DIVERSITY_THRESHOLD count bar (see
+      // `computeReviewDueLogs`'s never-reviewed-aging branch) — one record
+      // is enough, which keeps this test about the READ PATH, not about
+      // reproducing the sweep's threshold arithmetic.
+      const oldTimestamp = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+      logCalibrationRecord(
+        "causal-premise",
+        {
+          timestamp: oldTimestamp,
+          session_id: "mt4748-parity",
+          matchedPhrases: ["because"],
+          hadSameTurnVerification: false,
+        },
+        { projectDir: repoRoot }
+      );
+
+      const input: ClaudeHookInput = {
+        session_id: "mt4748-parity-session",
+        cwd: repoRoot,
+        hook_event_name: "UserPromptSubmit",
+      };
+      const outcome = await run(input, stubContext() as unknown as Parameters<typeof run>[1]);
+
+      // Not a can't-fail probe: a wrong read path makes `readContent` return
+      // null for this log, `totalFires` stays 0, the never-reviewed branch's
+      // `r.totalFires <= 0` guard takes the `never-fired` path instead (which
+      // needs a `liveSinceDate` this synthetic entry has none of), and `due`
+      // never includes "causal-premise" — `outcome` would be `null`. This
+      // assertion is the one the reviewer-caught omission would have failed.
+      expect(outcome).not.toBeNull();
+      expect(outcome?.additionalContext ?? "").toContain("causal-premise");
+    } finally {
+      rmSync(statePath, { force: true });
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+});
+/* eslint-enable custom/no-real-fs-in-tests */

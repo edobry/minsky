@@ -16,7 +16,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   writeFindings,
   writeFailedRun,
@@ -27,6 +27,7 @@ import {
   readSignatureSeeds,
   findingsPathFor,
   signaturesPathFor,
+  resolveUnaskedDirectionRoot,
   __TEST_ONLY,
   type FindingsRecord,
 } from "./unasked-direction-store";
@@ -78,14 +79,15 @@ afterEach(async () => {
 // ---------------------------------------------------------------------------
 
 describe("path helpers", () => {
-  it("findingsPathFor lands under .minsky/state/unasked-directions/", () => {
-    expect(findingsPathFor("/repo", "abc")).toBe("/repo/.minsky/state/unasked-directions/abc.json");
+  it("findingsPathFor lands under <root>/unasked-directions/", () => {
+    // mt#4778: was `<root>/.minsky/state/unasked-directions/`. The `.minsky/state`
+    // prefix was a repo-working-tree artifact; under the state dir the store sits
+    // directly at the root, alongside `fire-log.jsonl` and the other flat streams.
+    expect(findingsPathFor("/repo", "abc")).toBe("/repo/unasked-directions/abc.json");
   });
 
-  it("signaturesPathFor lands under .minsky/state/unasked-direction-signatures/", () => {
-    expect(signaturesPathFor("/repo", "abc")).toBe(
-      "/repo/.minsky/state/unasked-direction-signatures/abc.json"
-    );
+  it("signaturesPathFor lands under <root>/unasked-direction-signatures/", () => {
+    expect(signaturesPathFor("/repo", "abc")).toBe("/repo/unasked-direction-signatures/abc.json");
   });
 
   it("sanitizeSessionId strips path-traversal and unsafe chars", () => {
@@ -131,9 +133,10 @@ describe("writeFindings / readFindings", () => {
 
   it("returns null when the file is corrupt JSON", async () => {
     const path = findingsPathFor(tempRoot, "broken");
-    await mkdir(join(tempRoot, ".minsky", "state", "unasked-directions"), {
-      recursive: true,
-    });
+    // mt#4778: derive the directory from the path function rather than spelling
+    // the layout again. A literal here is the same split-brain this task fixes —
+    // the test would keep asserting against a layout the code no longer uses.
+    await mkdir(dirname(path), { recursive: true });
     await writeFile(path, "{ not json", "utf-8");
     const r = await readFindings(tempRoot, "broken");
     expect(r).toBeNull();
@@ -223,7 +226,8 @@ describe("listFindingsSessions", () => {
 
   it("ignores non-.json entries", async () => {
     await writeFindings(tempRoot, "alpha", makeOutput(), {});
-    const dir = join(tempRoot, ".minsky", "state", "unasked-directions");
+    // mt#4778: derived, not spelled — see the note on the corrupt-JSON test.
+    const dir = dirname(findingsPathFor(tempRoot, "alpha"));
     await writeFile(join(dir, "README.md"), "not a session", "utf-8");
     const r = await listFindingsSessions(tempRoot);
     expect(r).toEqual(["alpha"]);
@@ -312,12 +316,63 @@ describe("appendSignatureSeed / readSignatureSeeds", () => {
 
   it("readSignatureSeeds returns [] on corrupt JSON", async () => {
     const path = signaturesPathFor(tempRoot, "broken");
-    await mkdir(join(tempRoot, ".minsky", "state", "unasked-direction-signatures"), {
-      recursive: true,
-    });
+    // mt#4778: derived, not spelled — see the note on the corrupt-JSON test.
+    await mkdir(dirname(path), { recursive: true });
     await writeFile(path, "not json", "utf-8");
     const seeds = await readSignatureSeeds(tempRoot, "broken");
     expect(seeds).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4778 — the store root is the STATE DIR, and both stores share it
+// ---------------------------------------------------------------------------
+//
+// Every test above passes an explicit `tempRoot`, which is right for exercising
+// the read/write logic and is precisely why the rooting defect survived: no test
+// ever asked what root PRODUCTION resolves. These three do.
+//
+// The defect: the writer used `findRepoRoot(input.cwd)` and the reader defaulted
+// to `process.cwd()`, so a post-merge run from a session workspace wrote into
+// that clone while the reader looked elsewhere. 13 findings were stranded across
+// 5 clones, invisible to the only tool that triages them.
+
+describe("resolveUnaskedDirectionRoot (mt#4778)", () => {
+  const previousXdg = process.env["XDG_STATE_HOME"];
+
+  afterEach(() => {
+    if (previousXdg === undefined) delete process.env["XDG_STATE_HOME"];
+    else process.env["XDG_STATE_HOME"] = previousXdg;
+  });
+
+  it("resolves under the state dir, not the repo working tree", () => {
+    process.env["XDG_STATE_HOME"] = "/fake/state";
+    expect(resolveUnaskedDirectionRoot()).toBe("/fake/state/minsky");
+  });
+
+  it("both stores sit directly under that root — no .minsky/state/ prefix", () => {
+    process.env["XDG_STATE_HOME"] = "/fake/state";
+    const root = resolveUnaskedDirectionRoot();
+    // The ABSENCE half: a repo-rooted layout would reintroduce the split this
+    // task closed, so assert the retired shape is gone as well as the new one.
+    expect(findingsPathFor(root, "s")).toBe("/fake/state/minsky/unasked-directions/s.json");
+    expect(findingsPathFor(root, "s")).not.toContain(".minsky/state");
+    expect(signaturesPathFor(root, "s")).toBe(
+      "/fake/state/minsky/unasked-direction-signatures/s.json"
+    );
+    expect(signaturesPathFor(root, "s")).not.toContain(".minsky/state");
+  });
+
+  it("is independent of cwd — the property that keeps writer and reader agreed", () => {
+    process.env["XDG_STATE_HOME"] = "/fake/state";
+    const fromHere = resolveUnaskedDirectionRoot();
+    const previousCwd = process.cwd();
+    try {
+      process.chdir("/tmp");
+      expect(resolveUnaskedDirectionRoot()).toBe(fromHere);
+    } finally {
+      process.chdir(previousCwd);
+    }
   });
 });
 

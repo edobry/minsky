@@ -99,11 +99,23 @@ const EVALUATION_LOG_NAME = "context-fill-gauge";
  * before a hard reset, observed 12 times (mt#2531 §Findings). `claude-sonnet-5`
  * was never observed above 222,427 here — too small a sample to pin a ceiling,
  * so it is deliberately absent and takes the conservative fallback.
+ *
+ * `claude-fable-5-1` added on the same basis, re-measured 2026-09-04 over the
+ * transcripts present on disk that day (mt#4968): max observed fill **980,707**
+ * across 1,284 records — the same ~1M ceiling, and 4.9x the fallback it was
+ * silently taking. That is a DIRECT measurement of this id, not an inheritance
+ * from `claude-fable-5`. The same pass measured `claude-opus-4-7` at 227,887
+ * over 169 records and `claude-sonnet-5` at 157,325 over 55; both stay absent,
+ * for the sample-size reason above. (Those two figures come from a smaller
+ * corpus than mt#2531's 553 transcripts — reaped conversations are gone from
+ * disk — so they do not revise the 222,427 above; they are a second reading,
+ * not a correction.)
  */
 export const KNOWN_MODEL_WINDOWS: Readonly<Record<string, number>> = Object.freeze({
   "claude-opus-5": 1_000_000,
   "claude-opus-4-8": 1_000_000,
   "claude-fable-5": 1_000_000,
+  "claude-fable-5-1": 1_000_000,
 });
 
 /**
@@ -166,6 +178,8 @@ export interface FillMeasurement {
   fillTokens: number;
   windowTokens: number;
   windowSource: "known-model" | "fallback-default";
+  /** The table key the window resolved THROUGH — the family id when a release suffix was stripped. */
+  windowMatchedKey?: string;
   fillRatioPct: number;
   model?: string;
   assistantTurnCount: number;
@@ -231,14 +245,66 @@ export function computeFill(reading: UsageReading): number {
   return reading.inputTokens + reading.cacheCreationTokens + reading.cacheReadTokens;
 }
 
+/**
+ * Exact id first; then strip trailing numeric segments and retry (mt#4968).
+ *
+ * The table is keyed on a FAMILY id, and a shipped model id often carries a
+ * release suffix on top of one — `claude-fable-5-1`, or a dated
+ * `claude-opus-5-20260101`. Exact-match alone therefore fails a model whose
+ * family IS in the table, and it fails SILENTLY: the fallback produces a
+ * number, not an error, so the reading looks ordinary. That is the whole
+ * defect this function was changed to fix. `claude-fable-5-1` ran a real
+ * conversation to 308,060 tokens and the gauge reported 154% of a 200K window
+ * it had never been anywhere near; the agent relayed the figure to the
+ * principal as fact and recommended a checkpoint on it.
+ *
+ * Why stripping is safe: every value this can return comes from a key that is
+ * ALREADY in the table, so it cannot invent a window for a family nobody
+ * measured. `claude-sonnet-5`'s deliberate absence survives intact —
+ * `claude-sonnet-5-1` strips to `claude-sonnet-5`, which is still not a key,
+ * so it still takes the fallback. An unknown family (`claude-zeta-9`) strips
+ * to `claude-zeta`, also absent, also the fallback.
+ *
+ * Iterative rather than single-step so a dotted release that also carries a
+ * date (`claude-opus-5-1-20260101`) reaches its family in two hops. The loop
+ * is bounded by the number of `-`-separated segments in the id.
+ *
+ * A resolution reached by stripping is still reported as `known-model`: the
+ * WINDOW is measured, and that is what `windowSource` is about. What the agent
+ * must not trust is the `fallback-default` case, which is a guess.
+ */
 export function resolveWindow(model: string | undefined): {
   tokens: number;
   source: "known-model" | "fallback-default";
+  matchedKey?: string;
 } {
-  const known = model ? KNOWN_MODEL_WINDOWS[model] : undefined;
-  return known !== undefined
-    ? { tokens: known, source: "known-model" }
-    : { tokens: FALLBACK_WINDOW_TOKENS, source: "fallback-default" };
+  for (let id = model; id !== undefined; id = stripTrailingNumericSegment(id)) {
+    const known = KNOWN_MODEL_WINDOWS[id];
+    // `matchedKey` is what the id resolved THROUGH — equal to the model on an
+    // exact hit, and the shorter family id when the retry stripped a suffix.
+    // Without it the calibration stream cannot tell those two apart after the
+    // fact: both record `known-model` against the full id, so a later reader
+    // measuring how often the retry actually fires has nothing to count
+    // (PR #3622 R1, non-blocking).
+    if (known !== undefined) return { tokens: known, source: "known-model", matchedKey: id };
+  }
+  return { tokens: FALLBACK_WINDOW_TOKENS, source: "fallback-default" };
+}
+
+/**
+ * `"claude-fable-5-1"` -> `"claude-fable-5"`; `"claude-fable"` -> undefined.
+ *
+ * Returns undefined when the id has no trailing all-digits segment to remove,
+ * which is what terminates `resolveWindow`'s loop. Only a fully numeric final
+ * segment is stripped, so a family name is never eaten: `claude-fable` keeps
+ * its `fable`.
+ */
+function stripTrailingNumericSegment(id: string): string | undefined {
+  const lastDash = id.lastIndexOf("-");
+  if (lastDash <= 0) return undefined;
+  const tail = id.slice(lastDash + 1);
+  if (tail.length === 0 || !/^\d+$/.test(tail)) return undefined;
+  return id.slice(0, lastDash);
 }
 
 /** Assistant records in the transcript — the cheapest available turn-count proxy. */
@@ -260,6 +326,7 @@ export function measureFill(lines: readonly TranscriptLine[]): FillMeasurement |
     fillTokens,
     windowTokens: window.tokens,
     windowSource: window.source,
+    ...(window.matchedKey !== undefined ? { windowMatchedKey: window.matchedKey } : {}),
     fillRatioPct: Math.round(fillRatioPct * 10) / 10,
     model: reading.model,
     assistantTurnCount: countAssistantTurns(lines),
@@ -289,11 +356,65 @@ export function measureFill(lines: readonly TranscriptLine[]): FillMeasurement |
  * (`.minsky/skills/handoff/SKILL.md`), so using it verbatim means that skill
  * needs no edit to recognize this signal if the agent chooses to act on it.
  */
+/**
+ * The model id is the ONE unbounded input to the rendered line (mt#4968).
+ *
+ * Every other interpolation is a number. Before this cap, the registry's
+ * `attentionCost` could only be "a ceiling against a realistic id" — the
+ * guard's own doc said so and named capping the id as the remedy. Capping it
+ * turns the declared ceiling into a bound `renderWorstCase` can actually prove.
+ *
+ * 40 chars clears every id observed locally with room to spare (the longest is
+ * `claude-haiku-4-5-20251001`, 25) and is long enough that a truncated id is
+ * still identifiable, which is the whole reason it is in the line.
+ */
+export const MAX_RENDERED_MODEL_ID_CHARS = 40;
+
+function capModelId(model: string): string {
+  return model.length <= MAX_RENDERED_MODEL_ID_CHARS
+    ? model
+    : `${model.slice(0, MAX_RENDERED_MODEL_ID_CHARS - 1)}…`;
+}
+
+/**
+ * The two reasons a window can be assumed are DIFFERENT, and saying so matters.
+ *
+ * A named model that is absent from the table is a gap in the table. A record
+ * carrying no `model` field at all is a gap in the TRANSCRIPT — nothing was
+ * looked up, so "unknown is not in the window table" states something that was
+ * never checked and points a reader at the wrong fix (PR #3622 R1,
+ * non-blocking). `findLastUsage` leaves `model` undefined whenever the record's
+ * `message.model` is absent or not a string, so this branch is reachable.
+ */
+function describeWhyAssumed(model: string | undefined): string {
+  return model === undefined
+    ? "the transcript records no model id for this turn"
+    : `${capModelId(model)} is not in the window table`;
+}
+
 export function buildGaugeLine(measurement: FillMeasurement): string {
-  const window =
+  // mt#4968: the caveat marks the PERCENTAGE, not just the denominator.
+  //
+  // It used to ride on the window — `... of 200,000 assumed (model X not in the
+  // window table) tokens ...` — several clauses downstream of the number an
+  // agent actually reads and relays. That placement failed in exactly the way
+  // placement failures do: the reading was correct, the caveat was present, and
+  // the agent still reported "context is at ~91%" to the principal as a fact
+  // and recommended a checkpoint on it. Nothing was hidden; the number simply
+  // arrived first and unqualified. So the marker now sits ON the figure, where
+  // it cannot be read past.
+  //
+  // The known-model branch is deliberately unchanged — a measured reading needs
+  // no hedge, and hedging it would train the marker to be ignored.
+  const reading =
     measurement.windowSource === "fallback-default"
-      ? `${measurement.windowTokens.toLocaleString()} assumed (model ${measurement.model ?? "unknown"} not in the window table)`
-      : measurement.windowTokens.toLocaleString();
+      ? `${measurement.fillRatioPct}% ESTIMATED — ${describeWhyAssumed(measurement.model)}, so ` +
+        `this is ${measurement.fillTokens.toLocaleString()} tokens over an assumed ` +
+        `${measurement.windowTokens.toLocaleString()}; the real window may be several times ` +
+        `larger (${measurement.assistantTurnCount} assistant turns)`
+      : `${measurement.fillRatioPct}% (${measurement.fillTokens.toLocaleString()} of ` +
+        `${measurement.windowTokens.toLocaleString()} tokens, ` +
+        `${measurement.assistantTurnCount} assistant turns)`;
 
   // ONE line, literally — no embedded newline (PR #3144 R3). The spec says
   // "exactly one line", and a three-line render with a blank separator did not
@@ -303,12 +424,34 @@ export function buildGaugeLine(measurement: FillMeasurement): string {
   // same line. `context-fill-gauge.test.ts` pins both halves — single-line, and
   // no imperative.
   return (
-    `[context-fill-gauge] Context-density indicator: ${measurement.fillRatioPct}% ` +
-    `(${measurement.fillTokens.toLocaleString()} of ${window} tokens, ` +
-    `${measurement.assistantTurnCount} assistant turns) — a reading, not an instruction; ` +
-    "no action is required and nothing is wrong. `/handoff` is available if you want to " +
-    "checkpoint, and whether to use it is yours to judge."
+    `[context-fill-gauge] Context-density indicator: ${reading} — a reading, not an ` +
+    "instruction; no action is required and nothing is wrong. `/handoff` is available if you " +
+    "want to checkpoint, and whether to use it is yours to judge."
   );
+}
+
+/**
+ * Worst-case rendering for the registry's `attentionCost` probe (mt#4002).
+ *
+ * The fallback branch is the longer of the two by construction — it carries the
+ * whole ESTIMATED clause the known-model branch does not — so only it is
+ * measured. Every axis is pinned at its maximum: the id at
+ * `MAX_RENDERED_MODEL_ID_CHARS`, and the numbers at the widest values the guard
+ * can actually REACH. Fill is bounded by the harness's own ~1M compaction
+ * ceiling rather than by anything here, and against the 200K fallback window
+ * that is a four-digit percentage — which is the state this guard was fixed
+ * FOR, so it is a reachable worst case and not a hypothetical one.
+ */
+export function renderWorstCase(): string {
+  return buildGaugeLine({
+    fillTokens: 1_000_000,
+    windowTokens: FALLBACK_WINDOW_TOKENS,
+    windowSource: "fallback-default",
+    fillRatioPct: 500.0,
+    model: "x".repeat(MAX_RENDERED_MODEL_ID_CHARS + 20),
+    assistantTurnCount: 9999,
+    tier: "critical",
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -394,6 +537,9 @@ export function run(
       fillTokens: measurement.fillTokens,
       windowTokens: measurement.windowTokens,
       windowSource: measurement.windowSource,
+      ...(measurement.windowMatchedKey !== undefined
+        ? { windowMatchedKey: measurement.windowMatchedKey }
+        : {}),
       fillRatioPct: measurement.fillRatioPct,
       assistantTurnCount: measurement.assistantTurnCount,
       ...(measurement.model !== undefined ? { model: measurement.model } : {}),
@@ -412,6 +558,9 @@ export function run(
       fillTokens: measurement.fillTokens,
       windowTokens: measurement.windowTokens,
       windowSource: measurement.windowSource,
+      ...(measurement.windowMatchedKey !== undefined
+        ? { windowMatchedKey: measurement.windowMatchedKey }
+        : {}),
       fillRatioPct: measurement.fillRatioPct,
       assistantTurnCount: measurement.assistantTurnCount,
       ...(measurement.model !== undefined ? { model: measurement.model } : {}),

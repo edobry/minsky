@@ -148,6 +148,140 @@ describe("extractTrackingTaskRefs", () => {
   });
 });
 
+/**
+ * ADR-024 Rung 1 — quotation-aware prefilter (mt#4454).
+ *
+ * The two positive fixtures are the VERBATIM sentences from the live records that produced the
+ * false positives, not paraphrases. That matters: the defect is about how real prose is
+ * punctuated, and a synthetic rewrite would silently normalise away the very characters under
+ * test (mem#1020 — an inert fixture proves nothing about the corpus it stands in for).
+ */
+describe("extractTrackingTaskRefs — quotation prefilter (mt#4454)", () => {
+  /** mem#484 `## Originating incident`, verbatim. A clause it quotes from ANOTHER memory. */
+  const MEM_484_SENTENCE =
+    "2026-05-23, mt#2056 closeout. Bridge memory `70ba7f79` had a budget criterion: " +
+    '"retire when mt#2056 ships AND a fresh agent observably follows the restored §9." ' +
+    "Condition 2 had no mechanism — no actor was assigned to observe or execute the retirement.";
+
+  /** mem#1340's discrimination-control table, verbatim. The detector's own documented fixture. */
+  const MEM_1340_CONTROL = [
+    "- `Retire when mt#1541 ships.` → HIT",
+    "- `Retire when the detector extension to mt#1541 ships.` → MISS",
+  ].join("\n");
+
+  /** mem#315's DESCRIPTION clause, verbatim. A genuine self-declared budget that must survive. */
+  const MEM_315_DESCRIPTION =
+    'When encoding a "temporary" / "escape hatch" / "workaround" / "interim" / "until X ships" ' +
+    "mechanism, cite both a tracking task and an escalation threshold (count, window, or both). " +
+    "Without a budget, temporary becomes permanent — memory describes but doesn't act. " +
+    "Bridge until mt#1034 attention-allocation noticer ships.";
+
+  test("AT1: a clause quoted in PROSE QUOTES does not fire (mem#484, verbatim)", () => {
+    expect(extractTrackingTaskRefs({ content: MEM_484_SENTENCE }).refs).toEqual([]);
+  });
+
+  test("AT3b: a clause inside an inline CODE SPAN does not fire (mem#1340, verbatim)", () => {
+    expect(extractTrackingTaskRefs({ content: MEM_1340_CONTROL }).refs).toEqual([]);
+  });
+
+  test("AT2: mem#315's genuine self-declared clause STILL fires (false-negative guard)", () => {
+    // The pair is the point. A fix that only silences mem#484 is indistinguishable from one
+    // that silences the detector, and only this assertion separates them.
+    expect(extractTrackingTaskRefs({ description: MEM_315_DESCRIPTION, content: "" }).refs).toEqual(
+      ["mt#1034"]
+    );
+  });
+
+  test("AT3: a clause inside a fenced code block does not fire", () => {
+    const content = [
+      "Here is the shape we match:",
+      "```",
+      "Retire when mt#2222 ships.",
+      "```",
+    ].join("\n");
+    expect(extractTrackingTaskRefs({ content }).refs).toEqual([]);
+  });
+
+  test("AT4: a clause inside a `>` blockquote line does not fire", () => {
+    const content = "The prior memory said:\n\n> Budget: retire when mt#3333 ships.\n";
+    expect(extractTrackingTaskRefs({ content }).refs).toEqual([]);
+  });
+
+  test("AT5: both straight and curly double quotes elide", () => {
+    expect(
+      extractTrackingTaskRefs({ content: 'It said "retire when mt#4444 ships" and moved on.' }).refs
+    ).toEqual([]);
+    expect(
+      extractTrackingTaskRefs({ content: "It said “retire when mt#5555 ships” and moved on." }).refs
+    ).toEqual([]);
+  });
+
+  test("AT6: an ordinary UNQUOTED clause still fires (regression guard)", () => {
+    expect(extractTrackingTaskRefs({ content: "Budget: retire when mt#6666 ships." }).refs).toEqual(
+      ["mt#6666"]
+    );
+  });
+
+  test("AT6b: over-elision guard — a genuine clause carrying inline code still fires", () => {
+    // The discriminating shape for criterion 3. NOTE the code span is NOT the task id: a
+    // backticked id (`` retire when `mt#X` ships ``) extracts nothing even before this change,
+    // because the backtick breaks the pattern's `\s+` — so that shape cannot tell over-elision
+    // apart from a pre-existing miss, and asserting on it would be a test of nothing.
+    expect(
+      extractTrackingTaskRefs({
+        content: "Tracking task: mt#7777 — see `packages/domain/src/memory/staleness.ts`.",
+      }).refs
+    ).toEqual(["mt#7777"]);
+  });
+
+  test("the ANCHOR may sit inside a code span and still vouch for its clause", () => {
+    // The anchor is read from the RAW text at the match offset, not the elided text. A
+    // decorated anchor is ordinary in this corpus, and blanking it would drop a genuine
+    // clause for a reason unrelated to quotation.
+    expect(
+      extractTrackingTaskRefs({ content: "`Budget:` this holds until mt#8888 lands." }).refs
+    ).toEqual(["mt#8888"]);
+  });
+
+  test("mt#4898: composition ORDER is load-bearing — markdown must elide before prose quotes", () => {
+    // The DETECTOR-level guard for the ordering `elideQuotedAndMarkdown` composes. The code span
+    // carries an UNBALANCED `"`; under the reversed composition the prose-quote pass runs first,
+    // pairs that `"` with the OPENING `"` of `"done"`, and blanks everything between them —
+    // taking this record's genuine tracking clause with it, so `refs` comes back empty.
+    //
+    // This lives here, and not only in `prose-elision.test.ts`, because three further call sites
+    // depend on the same ordering through the composed helper — `measurement-decay.ts:209`,
+    // `task-state-assertion.ts:138`, and `validation/negative-constraint.ts:298` (mt#4386) — and
+    // a consumer that inlined the two halves in the wrong order would otherwise pass its own
+    // suite. mt#4898 measured that gap: reversing the composition left all 115 detector tests
+    // green.
+    expect(
+      extractTrackingTaskRefs({
+        content: '`const q = "` Tracking task: mt#4321 and he said "done"',
+      }).refs
+    ).toEqual(["mt#4321"]);
+  });
+
+  test("elision preserves offsets, so same-line anchor containment still holds", () => {
+    // The mem#96 containment guard, re-asserted THROUGH the elider: a stray anchor one bullet
+    // up must not license a conditional below it. Same-length blanking is what keeps
+    // `hasRetirementAnchor`'s line bounds pointing at the right line.
+    const content = [
+      "- This entry is a `bridge` for something else entirely.",
+      "- Subtask E: push transport, scheduled for when mt#1001 lands",
+    ].join("\n");
+    expect(extractTrackingTaskRefs({ content }).refs).toEqual([]);
+  });
+
+  test("a quoted clause and a real one in the same record yields only the real one", () => {
+    const content = [
+      'The older note said "retire when mt#1111 ships", which was never acted on.',
+      "Budget: retire when mt#2222 ships.",
+    ].join("\n");
+    expect(extractTrackingTaskRefs({ content }).refs).toEqual(["mt#2222"]);
+  });
+});
+
 describe("computeStaleness", () => {
   test("no clause produces no staleness field at all", () => {
     expect(detect({ content: "Just an ordinary memory." }, {})).toBeUndefined();

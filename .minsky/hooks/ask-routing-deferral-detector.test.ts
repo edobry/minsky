@@ -36,6 +36,11 @@ import {
   SETTLED_DECISION_PATTERNS,
   isRung2NominationEnabled,
   RUNG2_NOMINATION_ENV_VAR,
+  detectActionablesDecisions,
+  type ActionablesEvaluationWriter,
+  ACTIONABLES_DECISION_THRESHOLD,
+  ACTIONABLES_NOMINATION_ENV_VAR,
+  isActionablesNominationEnabled,
   type DeferralMatch,
   type SettledDecisionNominator,
 } from "./ask-routing-deferral-detector";
@@ -56,6 +61,14 @@ const DEFERRAL_MENU = "deferral-menu" as const;
  * that could drift apart.
  */
 const UNSETTLED_TURN = "**Next.** Say the word and I'll plan any of the three.";
+
+/**
+ * mt#3801's shipped halting offer, and the case mt#4702's predicate had to
+ * reconcile rather than overturn. Shared because both tasks' tests assert on
+ * it, and a drift between the two copies would hide exactly the conflict the
+ * reconciliation exists to resolve.
+ */
+const HALTING_OFFER = "I'll stop here unless you want more";
 
 /** The degraded reason `resolveNominationDeps` produces when nothing is configured. */
 const PROVIDER_UNCONFIGURED = "provider-unconfigured";
@@ -936,7 +949,7 @@ describe("mt#4311 — a bare first-person clause needs a leg that offers on its 
   test("mt#3801's own cases are untouched", () => {
     // A bare clause plus an EXPLICIT-OFFER leg is still an offer — this is the
     // shape mt#3801 shipped the trigger for, and narrowing must not reach it.
-    expect(findOfferShape("I'll stop here unless you want more")).not.toBeNull();
+    expect(findOfferShape(HALTING_OFFER)).not.toBeNull();
     expect(findOfferShape("Next step is X unless you'd rather I do Y")).not.toBeNull();
   });
 
@@ -1762,5 +1775,318 @@ describe("mt#4404 — run() wires Rung 2, not just the helper", () => {
     expect(cal.rung2DegradedReason).toBe(PROVIDER_UNCONFIGURED);
     expect(cal.suppressionReasons).not.toContain(SUPPRESSION_SETTLED_DECISION_RUNG2);
     expect(outcome?.additionalContext).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ACTIONABLES-DECISION family (mt#4807)
+// ---------------------------------------------------------------------------
+//
+// These are the WIRING tests, and the split is deliberate. Whether a given
+// bullet scores above the threshold is a property of the embedding provider,
+// so asserting it here would either need a network call in the suite or a stub
+// whose scores I chose — and a stub that returns the numbers I picked proves
+// nothing about the mechanism. The score band is measured instead by
+// `scripts/measure-actionables-threshold.ts` against 20 labeled fixtures, and
+// its output is the execution evidence in this task's PR.
+//
+// What IS asserted here is everything a stub can honestly decide: that the
+// family reaches the right units, skips the ones it must skip, records what it
+// found, degrades safely, and — the load-bearing one — can never inject.
+
+describe("mt#4807 — actionables-decision family", () => {
+  const ORIGINATING = `Everything is recorded on mt#4678.
+
+---
+
+### Actionables
+
+- **One yes needed before PR 1:** a hashed JSON payload at a stable URL is a de facto dataset release of your editorial layer, but it should be a deliberate yes.
+- **PR 1 needs a peezombie-rooted window**, same session_start blocker as before.`;
+
+  /** Scores by substring, so each test states exactly which units it expects scored. */
+  const stubNominator =
+    (hit: string, score = 0.9) =>
+    async (context: string) =>
+      context.includes(hit) ? ({ kind: "settled", score } as const) : ({ kind: "none" } as const);
+
+  test("finds the decision-shaped unit and reports the block's shape", async () => {
+    const d = await detectActionablesDecisions(ORIGINATING, stubNominator("deliberate yes"));
+    expect(d?.markerForm).toBe("heading");
+    expect(d?.unitCount).toBe(2);
+    expect(d?.matches).toHaveLength(1);
+    expect(d?.matches[0]?.unit).toContain("One yes needed before PR 1");
+    expect(d?.matches[0]?.score).toBe(0.9);
+  });
+
+  test("NEGATIVE CONTROL: a turn with no actionables block returns null", async () => {
+    const d = await detectActionablesDecisions(
+      "Merged and deployed. Nothing outstanding.",
+      stubNominator("anything")
+    );
+    expect(d).toBeNull();
+  });
+
+  test("gated off: no nominator means no work and no block lookup", async () => {
+    expect(await detectActionablesDecisions(ORIGINATING, undefined)).toBeNull();
+  });
+
+  test("SC6: a unit already citing a filed ask is skipped, not scored", async () => {
+    const text = `Done.
+
+---
+
+### Actionables
+
+- The naming call is yours; see [ask#9672](minsky://ask/cd95752e-28b0-45d4-b207-aa19ca47b124).`;
+    // The stub would score this unit if it were reached, so a zero match count
+    // proves the skip rather than merely a low score.
+    const d = await detectActionablesDecisions(text, stubNominator("naming call"));
+    expect(d?.unitsCitingAsk).toBe(1);
+    expect(d?.matches).toEqual([]);
+  });
+
+  test("units past the per-turn cap are reported, not silently dropped", async () => {
+    const bullets = Array.from({ length: 11 }, (_, i) => `- item number ${i} in this block`);
+    const text = `Done.\n\n---\n\n### Actionables\n\n${bullets.join("\n")}`;
+    const d = await detectActionablesDecisions(text, stubNominator("item number"));
+    expect(d?.unitCount).toBe(11);
+    expect(d?.unitsTruncated).toBe(3);
+    expect(d?.matches).toHaveLength(8);
+  });
+
+  test("SC8: the family is gated OFF by default, at the measured threshold", async () => {
+    // The two properties SC8 asks for, asserted rather than described. If a
+    // future change flips the default on, this fails rather than quietly
+    // putting an embedding round-trip on every prompt.
+    delete process.env[ACTIONABLES_NOMINATION_ENV_VAR];
+    expect(isActionablesNominationEnabled()).toBe(false);
+    process.env[ACTIONABLES_NOMINATION_ENV_VAR] = "1";
+    expect(isActionablesNominationEnabled()).toBe(true);
+    delete process.env[ACTIONABLES_NOMINATION_ENV_VAR];
+    // Pinned so moving it is a deliberate, reviewed edit — the constant's
+    // docblock carries the band it was measured against.
+    expect(ACTIONABLES_DECISION_THRESHOLD).toBe(0.45);
+  });
+
+  test("a degraded nominator records the reason and stops", async () => {
+    const DEGRADED_REASON = "provider-unconfigured";
+    let calls = 0;
+    const degrading = async () => {
+      calls += 1;
+      return { kind: "degraded", reason: DEGRADED_REASON } as const;
+    };
+    const d = await detectActionablesDecisions(ORIGINATING, degrading);
+    expect(d?.degradedReason).toBe(DEGRADED_REASON);
+    expect(d?.matches).toEqual([]);
+    // The nominator latches, so continuing would re-pay a round-trip per unit
+    // for the same answer.
+    expect(calls).toBe(1);
+  });
+
+  test("scoring is clause-level: a decision buried in a long bullet is reachable", async () => {
+    // The mechanism's reason for existing. `splitUnitClauses` is what the
+    // nominator receives, so a stub keyed on a clause that is NOT a sentence of
+    // its own only matches if the split happened.
+    const d = await detectActionablesDecisions(
+      ORIGINATING,
+      stubNominator("One yes needed before PR 1")
+    );
+    expect(d?.matches).toHaveLength(1);
+  });
+});
+
+describe("mt#4807 — the actionables family is LOG-ONLY by wiring", () => {
+  test("an actionables-only turn records calibration and injects NOTHING", async () => {
+    // The load-bearing test. INJECTION_ENABLED is true for this file, so if the
+    // family ever reached `matches` this turn would inject — and because
+    // `buildReminder` filters by class, it would inject a header with no
+    // findings under it.
+    const text = `Done.
+
+---
+
+### Actionables
+
+- The remaining choice is yours and nothing moves until it is made.`;
+    const lines = [makeRunUserLine(), makeRunAssistantLine(text), makeRunUserLine()];
+    const outcome = await run(
+      RUN_HOOK_INPUT,
+      makeCtx(lines),
+      undefined,
+      undefined,
+      async () => ({ kind: "settled", score: 0.9 }) as const
+    );
+    expect(outcome?.additionalContext).toBeUndefined();
+    const calibration = outcome?.calibration as Record<string, unknown> | undefined;
+    expect(calibration?.matches).toEqual([]);
+    expect((calibration?.actionables as { matches: unknown[] })?.matches).toHaveLength(1);
+  });
+
+  test("a turn with neither pattern matches nor actionables matches returns null", async () => {
+    const lines = [
+      makeRunUserLine(),
+      makeRunAssistantLine("Merged. Nothing outstanding."),
+      makeRunUserLine(),
+    ];
+    const outcome = await run(
+      RUN_HOOK_INPUT,
+      makeCtx(lines),
+      undefined,
+      undefined,
+      async () => ({ kind: "settled", score: 0.9 }) as const
+    );
+    expect(outcome).toBeNull();
+  });
+});
+
+describe("mt#4807 — the evaluation stream carries the denominator (PR #3519 R1)", () => {
+  const BLOCK = `Done.
+
+---
+
+### Actionables
+
+- Merge PR #3508 once the bot approves.
+- Filed mt#4799 and mt#4801 for the two follow-ups.`;
+
+  function capturingWriter(): {
+    records: Record<string, unknown>[];
+    writer: ActionablesEvaluationWriter;
+  } {
+    const records: Record<string, unknown>[] = [];
+    return { records, writer: (r) => void records.push(r) };
+  }
+
+  test("a located block with NO matches is still recorded — that is the point", async () => {
+    // The reviewer's finding: without this, a sweep sees numerators and no
+    // denominator, and cannot tell "few decisions in blocks" from "few blocks".
+    const { records, writer } = capturingWriter();
+    const lines = [makeRunUserLine(), makeRunAssistantLine(BLOCK), makeRunUserLine()];
+    const outcome = await run(
+      RUN_HOOK_INPUT,
+      makeCtx(lines),
+      undefined,
+      undefined,
+      async () => ({ kind: "none" }) as const,
+      writer
+    );
+    // Nothing fired, so the guard itself stays silent...
+    expect(outcome).toBeNull();
+    // ...and the evaluation stream still carries the block.
+    expect(records).toHaveLength(1);
+    expect(records[0]?.family).toBe("actionables-decision");
+    expect(records[0]?.markerForm).toBe("heading");
+    expect(records[0]?.unitCount).toBe(2);
+    expect(records[0]?.matchCount).toBe(0);
+    expect(records[0]?.threshold).toBe(ACTIONABLES_DECISION_THRESHOLD);
+  });
+
+  test("NEGATIVE CONTROL: no block means no evaluation record", async () => {
+    const { records, writer } = capturingWriter();
+    const lines = [
+      makeRunUserLine(),
+      makeRunAssistantLine("Merged. Nothing outstanding."),
+      makeRunUserLine(),
+    ];
+    await run(
+      RUN_HOOK_INPUT,
+      makeCtx(lines),
+      undefined,
+      undefined,
+      async () => ({ kind: "none" }) as const,
+      writer
+    );
+    expect(records).toEqual([]);
+  });
+
+  test("NEGATIVE CONTROL: the family gated OFF writes nothing", async () => {
+    // No nominator means detectActionablesDecisions returns null before it ever
+    // looks for a block, so a disabled detector costs nothing and logs nothing.
+    const { records, writer } = capturingWriter();
+    const lines = [makeRunUserLine(), makeRunAssistantLine(BLOCK), makeRunUserLine()];
+    await run(RUN_HOOK_INPUT, makeCtx(lines), undefined, undefined, undefined, writer);
+    expect(records).toEqual([]);
+  });
+
+  test("a throwing writer does not break the guard it measures", async () => {
+    const lines = [makeRunUserLine(), makeRunAssistantLine(BLOCK), makeRunUserLine()];
+    const outcome = await run(
+      RUN_HOOK_INPUT,
+      makeCtx(lines),
+      undefined,
+      undefined,
+      async () => ({ kind: "none" }) as const,
+      () => {
+        throw new Error("disk full");
+      }
+    );
+    expect(outcome).toBeNull();
+  });
+});
+
+describe("mt#4702 — an escape hatch on a stated commitment is an override, not a deferral", () => {
+  /**
+   * AT2, first half. The dominant false-positive shape measured across three
+   * calibration windows: the agent states what it is doing and appends a veto.
+   * Silence costs the principal nothing — the work proceeds either way.
+   */
+  test("AT2: a commitment governing an `unless` is not an offer", () => {
+    expect(findOfferShape("I'll do X unless you'd rather Y")).toBeNull();
+  });
+
+  /** AT2, second half — a bare interrogative offer still fires. */
+  test("AT2: a bare interrogative menu is still an offer", () => {
+    expect(findOfferShape("Want me to do X or Y?")).not.toBeNull();
+  });
+
+  test("the verbatim false fires from the measured windows are suppressed", () => {
+    // Every one of these was classified FALSE by a calibration pass, and the
+    // first two were still firing on 2026-08-31 after two Rung-2 climbs.
+    for (const line of [
+      "I'll take that next unless you'd rather I clear mt#4716 or mt#4640 first.",
+      "Defaults I'll assume unless you say otherwise: a 4-week alias window.",
+      "I'll start mt#4662 unless you'd rather I take mt#4640",
+      "I'll pick it up next unless you want something else first.",
+    ]) {
+      expect(findOfferShape(line)).toBeNull();
+    }
+  });
+
+  test("NEGATIVE CONTROL: the real positives still fire", () => {
+    // SC4 — "a tune that silences them is a regression, not a fix." These are
+    // genuine handovers: a menu of agent-doable options with no default taken.
+    expect(
+      findOfferShape("Want me to pick up mt#4621, or correct the stale note in its spec first?")
+    ).not.toBeNull();
+    expect(
+      findOfferShape("Everything else is clear if you want me to pick something up.")
+    ).not.toBeNull();
+  });
+
+  test("NEGATIVE CONTROL: a commitment AFTER the leg does not govern it", () => {
+    // "Say the word, or I'll start on mt#4637" — offers first, commits second.
+    // A real offer, and position is what keeps it firing.
+    expect(findOfferShape("Want me to take it, or I'll start on mt#4637?")).not.toBeNull();
+  });
+
+  test("NEGATIVE CONTROL: a sentence break ends the governing relation", () => {
+    // Two sentences on one line: a commitment and then a genuine offer.
+    expect(findOfferShape("I'll hold off. Want me to take X or Y?")).not.toBeNull();
+  });
+
+  test("NEGATIVE CONTROL: a negated commitment is a precondition, not an override", () => {
+    expect(findOfferShape("I will not touch it unless you'd rather I go ahead")).not.toBeNull();
+  });
+
+  test("mt#3801's halting case is reconciled, not overturned", () => {
+    // The conflict this predicate had to resolve: both are
+    // `I'll <verb> unless you <alternative>`, and only the DIRECTION of the
+    // committed action separates them. Silence stops the work here, so the
+    // decision genuinely is handed over.
+    expect(findOfferShape(HALTING_OFFER)).not.toBeNull();
+    expect(findOfferShape("I'll wait unless you'd rather I proceed")).not.toBeNull();
+    // ...while the continuing form is the override.
+    expect(findOfferShape("I'll proceed unless you'd rather I wait")).toBeNull();
   });
 });

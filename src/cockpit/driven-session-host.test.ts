@@ -21,6 +21,7 @@ import {
   sendDrivenSessionInput,
   DRIVEN_OPERATOR_INPUT_EVENT_TYPE,
   stopDrivenSession,
+  markDrivenSessionCrashedByPid,
   buildDrivenSessionArgs,
   buildResumeSessionArgs,
   resumeDrivenSession,
@@ -75,6 +76,23 @@ class FakeClaudeProcess extends EventEmitter implements ProcessLike {
   /** Simulate the child process exiting. */
   exit(code: number | null, signal: NodeJS.Signals | null = null): void {
     this.emit("exit", code, signal);
+  }
+}
+
+/** A minimal fake process double with a CALLER-CHOSEN pid (mt#4943 SC3c) —
+ * `FakeClaudeProcess.pid` is a fixed literal, so distinguishing multiple
+ * records by pid needs a separate double. */
+class FakePidProcess extends EventEmitter implements ProcessLike {
+  readonly stdout = new PassThrough();
+  readonly stderr = new PassThrough();
+  readonly stdin = new PassThrough();
+
+  constructor(readonly pid: number) {
+    super();
+  }
+
+  kill(): boolean {
+    return true;
   }
 }
 
@@ -1386,6 +1404,314 @@ describe("probeSpawnCwdAsync (mt#3397, PR #2452 R1)", () => {
     writeFileSync(filePath, "x");
     expect(await probeSpawnCwdAsync(filePath)).toBe("missing");
     expect(await probeSpawnCwdAsync(filePath)).toBe(probeSpawnCwd(filePath));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Harness-agnostic drive-record fields (mt#4935)
+// ---------------------------------------------------------------------------
+
+const DEFAULT_TRANSPORT_ID = "claude-stream-json";
+const PERSISTED_HARNESS_SESSION_ID = "harness-persisted";
+const UNKNOWN_TRANSPORT_ID = "not-a-real-transport";
+
+describe("harness-agnostic drive-record fields (mt#4935)", () => {
+  test("startDrivenSession defaults harnessKind/transportId/harnessConversationId/authMode", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: SCRATCH_CWD, spawnFn, mcpConfig: null });
+
+    expect(record.harnessKind).toBe("claude-code");
+    expect(record.transportId).toBe(DEFAULT_TRANSPORT_ID);
+    expect(record.harnessConversationId).toBeNull();
+    expect(record.authMode).toBe("subscription");
+  });
+
+  test("startDrivenSession carries explicit harnessKind/transportId/harnessConversationId/authMode onto the record", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({
+      cwd: SCRATCH_CWD,
+      spawnFn,
+      mcpConfig: null,
+      harnessKind: "codex",
+      transportId: DEFAULT_TRANSPORT_ID,
+      harnessConversationId: "known-conversation-id",
+      authMode: "api-key",
+      // Since PR #3595 R1 finding 4, "api-key" with no credential THROWS —
+      // inject one so this test exercises the record-construction path, not
+      // the credential-refusal path (that's ClaudeStreamJsonTransport's own
+      // claude-transport.test.ts).
+      getAnthropicApiKey: () => "sk-ant-test-key",
+    });
+
+    expect(record.harnessKind).toBe("codex");
+    expect(record.harnessConversationId).toBe("known-conversation-id");
+    expect(record.authMode).toBe("api-key");
+  });
+
+  // PR #3595 R1 finding 1 — no silent fallback: an unrecognized transportId
+  // is a REFUSAL, not a spawn under a transport nobody asked for.
+  test("startDrivenSession: an unrecognized transportId is refused — nothing spawns, and the persisted transportId names the unknown id, not a silently-substituted default", () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({
+      cwd: SCRATCH_CWD,
+      spawnFn,
+      mcpConfig: null,
+      transportId: UNKNOWN_TRANSPORT_ID,
+    });
+
+    expect(calls.length).toBe(0);
+    expect(record.status).toBe("unrecoverable");
+    expect(record.unrecoverableReason).toContain(UNKNOWN_TRANSPORT_ID);
+    expect(record.transportId).toBe(UNKNOWN_TRANSPORT_ID);
+  });
+
+  test("resumeDrivenSession: an unrecognized transportId is refused — nothing spawns", () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const { record } = resumeDrivenSession({
+      previous: {
+        localId: "local-bad-transport",
+        cwd: TEST_CWD,
+        permissionMode: BYPASS_PERMISSIONS_MODE,
+        harnessSessionId: RESUME_HARNESS_SESSION_ID,
+        taskId: null,
+        minskySessionId: null,
+        startedAt: new Date().toISOString(),
+        driverGeneration: 0,
+        transportId: UNKNOWN_TRANSPORT_ID,
+      },
+      spawnFn,
+      mcpConfig: null,
+      skipInterruptionNotice: true,
+    });
+
+    expect(calls.length).toBe(0);
+    expect(record.status).toBe("unrecoverable");
+    expect(record.unrecoverableReason).toContain(UNKNOWN_TRANSPORT_ID);
+    expect(record.transportId).toBe(UNKNOWN_TRANSPORT_ID);
+  });
+
+  test("the persisted transportId is read off the ATTACHED transport instance, not the request, on a successful spawn", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({
+      cwd: SCRATCH_CWD,
+      spawnFn,
+      mcpConfig: null,
+      transportId: DEFAULT_TRANSPORT_ID,
+    });
+
+    expect(record.transportId).toBe(record.transport.id);
+    expect(record.transportId).toBe(DEFAULT_TRANSPORT_ID);
+  });
+
+  test("a spawn failure (e.g. missing cwd) still reads transportId off the constructed instance", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({
+      cwd: MISSING_CWD,
+      spawnFn,
+      mcpConfig: null,
+    });
+
+    expect(record.status).toBe("unrecoverable");
+    expect(record.transportId).toBe(record.transport.id);
+    expect(record.transportId).toBe(DEFAULT_TRANSPORT_ID);
+  });
+
+  test("the child's init event links harnessConversationId the same way it links harnessSessionId", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: TEST_CWD, spawnFn });
+    const proc = record.proc as unknown as FakeClaudeProcess;
+
+    expect(record.harnessConversationId).toBeNull();
+    proc.emitLine({ type: "system", subtype: "init", session_id: "harness-abc" });
+
+    expect(record.harnessSessionId).toBe("harness-abc");
+    expect(record.harnessConversationId).toBe("harness-abc");
+  });
+
+  test("resumeDrivenSession carries harnessKind/transportId/authMode forward from `previous`", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = resumeDrivenSession({
+      previous: {
+        localId: "local-resume-1",
+        cwd: TEST_CWD,
+        permissionMode: BYPASS_PERMISSIONS_MODE,
+        harnessSessionId: RESUME_HARNESS_SESSION_ID,
+        taskId: null,
+        minskySessionId: null,
+        startedAt: new Date().toISOString(),
+        driverGeneration: 0,
+        harnessKind: "claude-code",
+        transportId: DEFAULT_TRANSPORT_ID,
+        authMode: "api-key",
+      },
+      spawnFn,
+      mcpConfig: null,
+      skipInterruptionNotice: true,
+      // Since PR #3595 R1 finding 4, "api-key" with no credential THROWS —
+      // inject one (see the sibling note on startDrivenSession's test above).
+      getAnthropicApiKey: () => "sk-ant-test-key",
+    });
+
+    expect(record.harnessKind).toBe("claude-code");
+    expect(record.authMode).toBe("api-key");
+    // A resume already knows the harness's own conversation id — no init
+    // event will ever fire to link it.
+    expect(record.harnessConversationId).toBe(RESUME_HARNESS_SESSION_ID);
+  });
+
+  test("resumeDrivenSession defaults harnessKind/transportId/authMode when `previous` omits them", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = resumeDrivenSession({
+      previous: {
+        localId: "local-resume-2",
+        cwd: TEST_CWD,
+        permissionMode: BYPASS_PERMISSIONS_MODE,
+        harnessSessionId: RESUME_HARNESS_SESSION_ID,
+        taskId: null,
+        minskySessionId: null,
+        startedAt: new Date().toISOString(),
+        driverGeneration: 0,
+      },
+      spawnFn,
+      mcpConfig: null,
+      skipInterruptionNotice: true,
+    });
+
+    expect(record.harnessKind).toBe("claude-code");
+    expect(record.transportId).toBe(DEFAULT_TRANSPORT_ID);
+    expect(record.authMode).toBe("subscription");
+  });
+
+  test("buildReconnectingDrivenSessionRecord defaults harnessConversationId to harnessSessionId", () => {
+    const record = buildReconnectingDrivenSessionRecord({
+      localId: "local-reconnect-1",
+      harnessSessionId: PERSISTED_HARNESS_SESSION_ID,
+      cwd: TEST_CWD,
+      permissionMode: BYPASS_PERMISSIONS_MODE,
+      taskId: null,
+      minskySessionId: null,
+      status: "reconnecting",
+      unrecoverableReason: null,
+      driverGeneration: 0,
+      startedAt: new Date().toISOString(),
+    });
+
+    expect(record.harnessKind).toBe("claude-code");
+    expect(record.transportId).toBe(DEFAULT_TRANSPORT_ID);
+    expect(record.harnessConversationId).toBe(PERSISTED_HARNESS_SESSION_ID);
+    expect(record.authMode).toBe("subscription");
+  });
+
+  test("buildReconnectingDrivenSessionRecord carries an explicit harnessConversationId rather than defaulting it", () => {
+    const record = buildReconnectingDrivenSessionRecord({
+      localId: "local-reconnect-2",
+      harnessSessionId: PERSISTED_HARNESS_SESSION_ID,
+      harnessConversationId: "explicit-conversation-id",
+      authMode: "api-key",
+      cwd: TEST_CWD,
+      permissionMode: BYPASS_PERMISSIONS_MODE,
+      taskId: null,
+      minskySessionId: null,
+      status: "unrecoverable",
+      unrecoverableReason: "deleted cwd",
+      driverGeneration: 0,
+      startedAt: new Date().toISOString(),
+    });
+
+    expect(record.harnessConversationId).toBe("explicit-conversation-id");
+    expect(record.authMode).toBe("api-key");
+  });
+});
+
+const CRASH_REASON_FIXTURE = "ACP session setup failed: boom";
+
+describe("markDrivenSessionCrashedByPid — daemon-attributed crash by pid (mt#4943 SC2c/SC3c)", () => {
+  test("marks the matching non-terminal record crashed with the given reason", () => {
+    const registry = new DrivenSessionRegistry();
+    const { record } = startDrivenSession({
+      cwd: TEST_CWD,
+      spawnFn: () => new FakePidProcess(50001),
+      registry,
+      mcpConfig: null,
+    });
+    expect(record.status).not.toBe("crashed");
+
+    const result = markDrivenSessionCrashedByPid(50001, CRASH_REASON_FIXTURE, { registry });
+
+    expect(result?.localId).toBe(record.localId);
+    expect(record.status).toBe("crashed");
+    expect(record.crashError).toBe(CRASH_REASON_FIXTURE);
+    expect(
+      record.eventLog.some(
+        (e) => e.payload["type"] === "minsky_error" && e.payload["message"] === CRASH_REASON_FIXTURE
+      )
+    ).toBe(true);
+  });
+
+  test("a second running record with a different pid is left untouched", () => {
+    const registry = new DrivenSessionRegistry();
+    const { record: target } = startDrivenSession({
+      cwd: TEST_CWD,
+      spawnFn: () => new FakePidProcess(50002),
+      registry,
+      mcpConfig: null,
+    });
+    const { record: other } = startDrivenSession({
+      cwd: TEST_CWD,
+      spawnFn: () => new FakePidProcess(50003),
+      registry,
+      mcpConfig: null,
+    });
+
+    markDrivenSessionCrashedByPid(50002, "boom", { registry });
+
+    expect(target.status).toBe("crashed");
+    expect(other.status).toBe("spawned");
+    expect(other.crashError).toBeNull();
+  });
+
+  test("an already-terminal record is left untouched", () => {
+    const registry = new DrivenSessionRegistry();
+    const { record } = startDrivenSession({
+      cwd: TEST_CWD,
+      spawnFn: () => new FakePidProcess(50004),
+      registry,
+      mcpConfig: null,
+    });
+    (record.proc as unknown as FakePidProcess).emit("exit", 0, null);
+    expect(record.status).toBe("exited");
+
+    const result = markDrivenSessionCrashedByPid(50004, "should not apply", { registry });
+
+    expect(result?.localId).toBe(record.localId);
+    expect(record.status).toBe("exited");
+    expect(record.crashError).toBeNull();
+  });
+
+  test("no matching pid is a no-op and returns undefined", () => {
+    const registry = new DrivenSessionRegistry();
+    startDrivenSession({
+      cwd: TEST_CWD,
+      spawnFn: () => new FakePidProcess(50005),
+      registry,
+      mcpConfig: null,
+    });
+
+    const result = markDrivenSessionCrashedByPid(999999, "boom", { registry });
+    expect(result).toBeUndefined();
+  });
+
+  test("an undefined pid is a no-op and returns undefined", () => {
+    const registry = new DrivenSessionRegistry();
+    startDrivenSession({
+      cwd: TEST_CWD,
+      spawnFn: () => new FakePidProcess(50006),
+      registry,
+      mcpConfig: null,
+    });
+
+    const result = markDrivenSessionCrashedByPid(undefined, "boom", { registry });
+    expect(result).toBeUndefined();
   });
 });
 

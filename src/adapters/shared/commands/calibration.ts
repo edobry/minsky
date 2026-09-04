@@ -15,8 +15,10 @@
  *   - The pure sweep logic lives in `src/domain/calibration/calibration-sweep.ts`
  *     (unit-testable, no filesystem I/O).
  *
- * Watermark persistence: `.minsky/calibration-review-watermarks.json` (keyed
- * by log path → { lastReviewedCount, lastReviewedAt }).
+ * Watermark persistence: `calibration-review-watermarks.json` under
+ * `getMinskyStateDir()/projects/<key>/` (mt#4880 — it was repo-rooted at
+ * `.minsky/` until then), keyed by log path → { lastReviewedCount,
+ * lastReviewedAt }. The KEY stays repo-relative on purpose; only the file moved.
  *
  * @see mt#2483 — tracking task
  * @see src/domain/calibration/calibration-sweep.ts — pure logic
@@ -30,6 +32,7 @@ import {
 } from "../command-registry";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import { resolveCallerActorId } from "@minsky/domain/agent-identity/index";
+import { getMinskyStateDir } from "@minsky/shared/paths";
 import { buildSweptEntries } from "../../../domain/calibration/swept-entries";
 import {
   blockingClaims,
@@ -57,19 +60,25 @@ import {
   type ReviewDueLog,
   type WatermarkStore,
 } from "../../../domain/calibration/calibration-sweep";
+import {
+  calibrationReviewStorePath,
+  WATERMARK_STORE_FILENAME,
+  WATERMARK_LOCK_FILENAME,
+  CLAIM_STORE_FILENAME,
+} from "@minsky/shared/calibration-review-store-paths";
 
 // ---------------------------------------------------------------------------
-// Watermark store path (repo-relative)
+// Watermark store path — state-dir, project-keyed (mt#4880)
 // ---------------------------------------------------------------------------
-
-const WATERMARK_STORE_PATH = ".minsky/calibration-review-watermarks.json";
-
-/**
- * Lock guarding the watermark store's read-merge-write critical section
- * (mt#3899). A directory, because `mkdir` is atomic and exclusive on every
- * platform we run on — no dependency, no partial-create state.
- */
-const WATERMARK_LOCK_PATH = ".minsky/calibration-review-watermarks.lock";
+//
+// Was `.minsky/calibration-review-watermarks.json`, joined onto `workspacePath`
+// at each of the five call sites below. mt#4880 moved the whole family into
+// `getMinskyStateDir()/projects/<key>/` through one shared resolver, so the two
+// writers and the cockpit reader cannot drift apart — reader/writer path
+// disagreement IS the mt#4811 failure.
+//
+// The LOCK moves with the store it guards: a lock left in the repo tree while
+// the store lives elsewhere serializes nothing that matters.
 /** A holder older than this is treated as dead; the section is ~2 file ops. */
 const WATERMARK_LOCK_STALE_MS = 10_000;
 /** Give up waiting and proceed unlocked rather than lose the pass's work. */
@@ -155,7 +164,12 @@ function buildRecordContextLines(rec: CalibrationRecord): string[] {
 function resolveWorkspacePath(ctx?: CommandExecutionContext): string {
   // Prefer the workspace resolved by the execution context (correct for MCP /
   // session-scoped invocations where the server cwd is not the user's workspace);
-  // fall back to cwd for plain CLI use. The calibration logs are repo-relative.
+  // fall back to cwd for plain CLI use. Used as the repo-root INPUT for BOTH the
+  // calibration/evaluation log resolution (mt#4748 R1) and the watermark/claim
+  // stores (mt#4880) — the sentence here used to say the stores "stay
+  // repo-relative, mt#4748 does not move them", which mt#4880 made false.
+  // Both now go through the same `findGitRepoRoot` derivation, which is what
+  // keeps a store beside the logs it indexes.
   return ctx?.workspacePath ?? process.cwd();
 }
 
@@ -168,6 +182,111 @@ async function readFileOrNull(filePath: string): Promise<string | null> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// mt#4748 R1 — calibration/evaluation log READ path (state-dir, project-keyed)
+// ---------------------------------------------------------------------------
+//
+// `.minsky/hooks/dispatcher.ts`'s `calibrationLogPath`/`evaluationLogPath`
+// moved these logs off the repo working tree onto
+// `getMinskyStateDir()/projects/<key>/` (`<key>` a hash of the repo root).
+// `CALIBRATION_LOG_REGISTRY` (`calibration-sweep.ts`) still declares
+// repo-relative `path` values (that field's own docblock records why, and
+// the follow-up this leaves), so this is the READ-side translation: the
+// same math the write side does, applied here at consumption time instead
+// of at the registry's declaration site.
+//
+// Repo-root resolution is duplicated (a `.git`-ascent walk), not imported
+// from `.minsky/hooks/types.ts`'s `findRepoRoot` — this file is production
+// `src/` code and does not depend on the `.minsky/hooks/` dev-tooling tree
+// (the reverse direction — hooks importing `packages/domain` — is
+// established since mt#4373; this direction is not, and pulling in
+// `types.ts`'s ~1300 lines of unrelated hook-dispatch machinery for one
+// function is not worth the coupling). This MUST resolve identically to the
+// write side for the SAME repo, or this reader silently looks in the wrong
+// project's subdirectory — the defect this whole migration exists to fix.
+// `workspacePath` is already the intended repo root for every existing
+// caller of this file (the OLD `join(workspacePath, relPath)` join already
+// assumed that, with no ascent, and never handled a subdirectory correctly
+// either — this preserves that exact assumption rather than introducing a
+// new one), so the `.git` walk is a fidelity match for the common case, not
+// a behavior change for this file.
+async function findGitRepoRoot(startDir: string): Promise<string> {
+  const { existsSync, statSync, readFileSync } = await import("node:fs");
+  const { join, dirname, resolve, isAbsolute } = await import("node:path");
+
+  const isGitRepoRootCandidate = (dir: string): boolean => {
+    const dotGit = join(dir, ".git");
+    if (!existsSync(dotGit)) return false;
+    try {
+      if (statSync(dotGit).isDirectory()) return true;
+      // `.git` is a file — accept only a parseable `gitdir:` indirection
+      // (worktree layout) whose target exists and is a directory. Mirrors
+      // `.minsky/hooks/types.ts`'s `resolveGitDir`/`isRepoRootCandidate`.
+      const content = String(readFileSync(dotGit, "utf-8"));
+      const match = content.match(/^gitdir:\s*(.+?)\s*$/m);
+      if (!match?.[1]) return false;
+      const target = match[1].trim();
+      const resolved = isAbsolute(target) ? target : resolve(dir, target);
+      return existsSync(resolved) && statSync(resolved).isDirectory();
+    } catch {
+      return false;
+    }
+  };
+
+  let dir = resolve(startDir);
+  for (;;) {
+    if (isGitRepoRootCandidate(dir)) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return resolve(startDir);
+    dir = parent;
+  }
+}
+
+/** Duplicated from `dispatcher.ts` / `ingest-runtime.ts` — see the module note above. */
+async function projectStateKey(repoRoot: string): Promise<string> {
+  const { createHash } = await import("node:crypto");
+  return createHash("sha256").update(repoRoot).digest("hex").slice(0, 16);
+}
+
+/**
+ * Resolve a `CALIBRATION_LOG_REGISTRY` / derived-entry `path` (still
+ * repo-relative — e.g. `.minsky/<name>-calibration.jsonl` or
+ * `.minsky/<name>-evaluations.jsonl`) at its ACTUAL post-mt#4748 location.
+ */
+export async function resolveCalibrationStatePath(
+  workspacePath: string,
+  relPath: string
+): Promise<string> {
+  const { join } = await import("node:path");
+  const repoRoot = await findGitRepoRoot(workspacePath);
+  const key = await projectStateKey(repoRoot);
+  const bareName = relPath.replace(/^\.minsky\//, "");
+  return join(getMinskyStateDir(), "projects", key, bareName);
+}
+
+/**
+ * Resolve one calibration-review STATE store, from the same repo root the LOGS use.
+ *
+ * PR #3581 R1 (BLOCKING) — and the reviewer was right in a way worth recording. Every
+ * store call site below used to pass `workspacePath` RAW while
+ * `resolveCalibrationStatePath` above passes `await findGitRepoRoot(workspacePath)`.
+ * Under the OLD repo-rooted `join(workspacePath, relPath)` that divergence degraded
+ * gracefully — a subdirectory just produced a nearby wrong path, and the module note
+ * above reasons explicitly from that ("never handled a subdirectory correctly either").
+ *
+ * A project key does NOT degrade gracefully: it is a hash, so ANY difference in the
+ * string — a subdirectory, a trailing slash, an unresolved symlink — yields a
+ * COMPLETELY different `projects/<key>/` directory rather than a nearby one. The store
+ * would land somewhere other than the calibration logs it indexes, which is the
+ * separated-store failure this whole task exists to end.
+ *
+ * So the stores now derive their root exactly as the logs do. Same function, same
+ * input, one call away from each other.
+ */
+async function calibrationReviewStore(workspacePath: string, filename: string): Promise<string> {
+  return calibrationReviewStorePath(filename, await findGitRepoRoot(workspacePath));
+}
+
 async function writeFileMkdir(filePath: string, content: string): Promise<void> {
   const { writeFile, mkdir } = await import("node:fs/promises");
   const { dirname } = await import("node:path");
@@ -176,8 +295,7 @@ async function writeFileMkdir(filePath: string, content: string): Promise<void> 
 }
 
 async function loadWatermarks(workspacePath: string): Promise<WatermarkStore> {
-  const { join } = await import("node:path");
-  const storePath = join(workspacePath, WATERMARK_STORE_PATH);
+  const storePath = await calibrationReviewStore(workspacePath, WATERMARK_STORE_FILENAME);
   const content = await readFileOrNull(storePath);
   if (!content) return {};
   try {
@@ -188,8 +306,7 @@ async function loadWatermarks(workspacePath: string): Promise<WatermarkStore> {
 }
 
 async function saveWatermarks(workspacePath: string, store: WatermarkStore): Promise<void> {
-  const { join } = await import("node:path");
-  const storePath = join(workspacePath, WATERMARK_STORE_PATH);
+  const storePath = await calibrationReviewStore(workspacePath, WATERMARK_STORE_FILENAME);
   await writeFileMkdir(storePath, `${JSON.stringify(store, null, 2)}\n`);
 }
 
@@ -198,11 +315,10 @@ async function saveWatermarks(workspacePath: string, store: WatermarkStore): Pro
  * by the SAME lock — the two are written in one critical section, so a pass can
  * never take a claim it then fails to record, or release one whose ack was lost.
  */
-const CLAIM_STORE_PATH = ".minsky/calibration-review-claims.json";
-
 async function loadClaims(workspacePath: string): Promise<CalibrationClaimStore> {
-  const { join } = await import("node:path");
-  const content = await readFileOrNull(join(workspacePath, CLAIM_STORE_PATH));
+  const content = await readFileOrNull(
+    await calibrationReviewStore(workspacePath, CLAIM_STORE_FILENAME)
+  );
   if (!content) return {};
   try {
     return JSON.parse(content) as CalibrationClaimStore;
@@ -214,9 +330,8 @@ async function loadClaims(workspacePath: string): Promise<CalibrationClaimStore>
 }
 
 async function saveClaims(workspacePath: string, store: CalibrationClaimStore): Promise<void> {
-  const { join } = await import("node:path");
   await writeFileMkdir(
-    join(workspacePath, CLAIM_STORE_PATH),
+    await calibrationReviewStore(workspacePath, CLAIM_STORE_FILENAME),
     `${JSON.stringify(store, null, 2)}\n`
   );
 }
@@ -257,9 +372,8 @@ const resolveActorId = resolveCallerActorId;
  * brief by construction.
  */
 async function withWatermarkLock<T>(workspacePath: string, critical: () => Promise<T>): Promise<T> {
-  const { join } = await import("node:path");
   const { mkdir, rm, stat } = await import("node:fs/promises");
-  const lockPath = join(workspacePath, WATERMARK_LOCK_PATH);
+  const lockPath = await calibrationReviewStore(workspacePath, WATERMARK_LOCK_FILENAME);
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
   const deadline = Date.now() + WATERMARK_LOCK_MAX_WAIT_MS;
@@ -321,7 +435,20 @@ export function formatResult(results: CalibrationLogResult[], reviewDue: ReviewD
     lines.push(`  Exists:                 ${r.exists}`);
     lines.push(`  Total fires (all-time): ${r.totalFires}`);
     lines.push(`  Watermark count:        ${r.watermarkCount}`);
-    lines.push(`  Fires since review:     ${r.firesSinceLastReview}`);
+    lines.push(
+      // mt#4904 (PR #3572 R2): annotated in place rather than left bare. The
+      // TEXT surface had the same gap R1 fixed in the JSON one — a stranded log
+      // the review-due leg declines (an ABSENT log, e.g. the retired
+      // `policy-coverage` at watermark 1760) printed "Fires since review: 0"
+      // with nothing marking it, which is indistinguishable from a log that was
+      // genuinely just reviewed. The number is the clamp's output, not a
+      // measurement, and this says so where it is read.
+      r.watermarkStranded
+        ? `  Fires since review:     ${r.firesSinceLastReview}  ` +
+            `(NOT MEANINGFUL — watermark ${r.watermarkCount} exceeds ${r.totalFires} record(s); ` +
+            `the log was rotated, truncated or re-rooted under it)`
+        : `  Fires since review:     ${r.firesSinceLastReview}`
+    );
     // mt#3197: the positional count above includes detections that were
     // suppressed before reaching the operator. mt#3863 widens the split with
     // evaluation-only records — a record carrying no match at all, from a
@@ -385,17 +512,43 @@ export function formatResult(results: CalibrationLogResult[], reviewDue: ReviewD
     if (judged.recoverability === "recoverable") {
       lines.push(`  Judged text:            recoverable — all ${judged.recordsAssessed} record(s)`);
     } else if (judged.recoverability === "partial") {
+      // mt#4465: bound the rate to the RECOVERABLE records, not the
+      // marker-carrying ones. Those were the same number while recoverability
+      // derived from the marker alone; they are not any more, and this line is
+      // the one a reviewer acts on.
       lines.push(
-        `  Judged text:            PARTIAL — ${judged.capturedRecords} of ${judged.recordsAssessed} record(s); bound any rate to the captured ones`
+        `  Judged text:            PARTIAL — ${judged.recoverableRecords} of ${judged.recordsAssessed} record(s); bound any rate to the recoverable ones`
       );
     } else if (judged.recoverability === "unrecoverable") {
+      // "carry no capture" was the pre-mt#4465 wording and it states the very
+      // conflation this shipped to remove: capture-marker absence is NOT
+      // unrecoverability. Say what was actually checked — no marker AND no
+      // mapped judged-text field — so the line a reviewer acts on stops
+      // implying the marker is the only thing that counts. (PR #3432 R1)
       lines.push(
-        `  Judged text:            GONE — ${judged.recordsAssessed} record(s) carry no capture; you can rate what matched, not whether it was right in context`
+        `  Judged text:            GONE — ${judged.recordsAssessed} record(s) carry neither a capture marker nor readable judged text; you can rate what matched, not whether it was right in context`
       );
+      // mt#4465 SC4: distinguish "the text is gone" from "the sweep has no
+      // mapping for this detector". Both render GONE above, and only the second
+      // is fixable by adding a line to `JUDGED_TEXT_FIELDS` — so a NEW detector
+      // that writes judged text under its own key says so here instead of
+      // looking identical to a log whose text really is unrecoverable.
+      if (judged.unmappedDetector) {
+        lines.push(
+          `                          ...and no judged-text field is mapped for "${judged.unmappedDetector}" — this GONE may be the map, not the data`
+        );
+      }
     } else {
       lines.push(`  Judged text:            n/a — no un-reviewed records to assess`);
     }
-    if (r.atCountThreshold && r.newRecords.length > 0) {
+    // mt#4049 (PR #3630 R1): mirrors the producer's gate in `computeLogResult`
+    // (`atCountThreshold || allSuppressed`). Guarding on `atCountThreshold`
+    // alone would print NO records for an all-suppressed log — which has
+    // `atCountThreshold === false` by construction — so the sweep would surface
+    // the records and this renderer would silently drop them, leaving the
+    // reviewer with a routed log and nothing to judge. Reviewer-caught: the
+    // producer-side gate was widened and this consumer was not.
+    if ((r.atCountThreshold || r.allSuppressed) && r.newRecords.length > 0) {
       lines.push(`  New records (${r.newRecords.length}):`);
       for (const rec of r.newRecords.slice(0, 5)) {
         if ("matchedPhrases" in rec) {
@@ -466,7 +619,26 @@ export function formatResult(results: CalibrationLogResult[], reviewDue: ReviewD
     lines.push(`${reviewDue.length} log(s) review-due:`);
     for (const d of reviewDue) {
       lines.push(
-        `  - ${d.name}: ${d.reason} (${d.firesSinceLastReview} new / ${d.totalFires} total fires)`
+        // mt#4904 (PR #3572 R2): the stranded leg gets its own rendering for
+        // the same reason the cadence hook's does — `firesSinceLastReview` is
+        // the value the clamp FABRICATED, so the shared form reads
+        // "(0 new / 121 total fires)" about the one log whose new-fire count is
+        // known to be meaningless. Sibling of the `legLine` branch in
+        // `.minsky/hooks/calibration-review-cadence-detector.ts`; both render
+        // the comparison instead.
+        // mt#4049: the all-suppressed leg needs its own rendering for the third
+        // time in this family's history, and for the same reason each time —
+        // the shared form quotes a count this leg's own condition invalidates.
+        // Here the misleading half is the OTHER one: `firesSinceLastReview` is
+        // real, but printing it as "N new fires" says the operator saw N, when
+        // the defining fact is that they saw zero.
+        d.reason === "watermark-stranded"
+          ? `  - ${d.name}: ${d.reason} (watermark ${d.watermarkCount} exceeds ` +
+              `${d.totalFires} record(s) — new-fire count not meaningful)`
+          : d.reason === "all-suppressed"
+            ? `  - ${d.name}: ${d.reason} (${d.suppressedSinceLastReview} suppressed, ` +
+              `0 injected — nothing reached the operator)`
+            : `  - ${d.name}: ${d.reason} (${d.firesSinceLastReview} new / ${d.totalFires} total fires)`
       );
     }
     lines.push(
@@ -496,8 +668,9 @@ export function registerCalibrationCommands(): void {
         schema: z.boolean(),
         description:
           "Advance the watermark for every review-due log — any reason: past-threshold, " +
-          "time-stale, never-reviewed or never-fired — marking them as reviewed (mt#2878). " +
-          "Without this flag the command is read-only.",
+          "time-stale, never-reviewed, never-fired, watermark-stranded or all-suppressed — " +
+          "marking them as " +
+          "reviewed (mt#2878, mt#4904). Without this flag the command is read-only.",
         required: false,
         defaultValue: false,
       },
@@ -516,7 +689,9 @@ export function registerCalibrationCommands(): void {
           "log has grown to by ack time — records that arrive mid-pass stay unreviewed and " +
           "are reported as `midPassArrivals` rather than silently marked seen. A token that " +
           "is malformed, or that claims more records than the log holds, is REJECTED (no " +
-          "watermark moves); one whose count sits below an existing watermark is raised to it.",
+          "watermark moves); one whose count sits below an existing watermark is raised to it " +
+          "— UNLESS that watermark is stranded above the log's own record count, in which case " +
+          "it is reset to 0 and the log's records go back in the review queue (mt#4941).",
         required: false,
       },
       askId: {
@@ -571,11 +746,15 @@ export function registerCalibrationCommands(): void {
     async execute(params, ctx) {
       try {
         const workspacePath = resolveWorkspacePath(ctx);
-        const { join } = await import("node:path");
 
-        // Build the reader function (resolves repo-relative paths)
+        // mt#4748 R1: the log CONTENT lives under the state dir now, not
+        // `<workspacePath>/<relPath>` — see the module note above
+        // `resolveCalibrationStatePath`. The watermark/claim stores below used to
+        // be "unaffected and still resolve against `workspacePath` directly";
+        // mt#4880 moved them too, through `calibrationReviewStore`, which derives
+        // the root with the SAME `findGitRepoRoot` call this path uses.
         const readContent = async (relPath: string): Promise<string | null> => {
-          return readFileOrNull(join(workspacePath, relPath));
+          return readFileOrNull(await resolveCalibrationStatePath(workspacePath, relPath));
         };
 
         let watermarks = await loadWatermarks(workspacePath);
@@ -722,9 +901,11 @@ export function registerCalibrationCommands(): void {
         //
         // mt#2878: this path used to re-derive its own, narrower selection
         // (`results.filter((r) => r.pastThreshold)`) rather than consuming the
-        // `reviewDue` set computed just above. `computeReviewDueLogs` has FOUR
-        // legs — past-threshold, time-stale, never-reviewed (mt#2896) and
-        // never-fired (mt#3078) — and only the first was ackable, so a log
+        // `reviewDue` set computed just above. `computeReviewDueLogs` has SIX
+        // legs — past-threshold, time-stale, never-reviewed (mt#2896),
+        // never-fired (mt#3078), watermark-stranded (mt#4904) and
+        // all-suppressed (mt#4049) — and only the
+        // first was ackable, so a log
         // flagged by any other leg could be reviewed but never MARKED reviewed.
         // The cadence hook then re-warned on it every turn with no operator
         // action able to stop it: `pre-narration` sat time-stale-and-unackable
@@ -773,6 +954,7 @@ export function registerCalibrationCommands(): void {
         let skippedOpenAskPaths: string[] = [];
         let midPassArrivals: { path: string; count: number }[] = [];
         let clampedPaths: string[] = [];
+        let repairedPaths: string[] = [];
         let unreceiptedPaths: string[] = [];
         let newlyDuePaths: string[] = [];
         let claimHeldPaths: string[] = [];
@@ -815,6 +997,7 @@ export function registerCalibrationCommands(): void {
           }
           midPassArrivals = reconciliation.midPassArrivals;
           clampedPaths = reconciliation.clampedPaths;
+          repairedPaths = reconciliation.repairedPaths;
           unreceiptedPaths = reconciliation.unreceiptedPaths;
           newlyDuePaths = reconciliation.newlyDuePaths;
           claimHeldPaths = reconciliation.claimHeldPaths;
@@ -840,9 +1023,40 @@ export function registerCalibrationCommands(): void {
               params.askId
             );
             const { drifted } = await persistWatermarks(watermarks, updated, advancedPaths);
+            const driftedSet = new Set(drifted);
             // An ack whose every target drifted advanced nothing. Reporting it
             // as advanced is what makes the race silent (mt#3899).
-            watermarkAdvanced = drifted.length < advancedPaths.size;
+            //
+            // mt#4941: nor does an ack whose every target was CLAMPED. A clamp
+            // writes the watermark's existing value straight back, so the write
+            // LANDS and nothing moves — which is how 13 permanently-stranded
+            // logs got `watermarkAdvanced: true` from every ack while their
+            // counts sat unchanged. Counting write ATTEMPTS cannot see that;
+            // asking whether the persisted entry differs from the baseline
+            // answers the question the field's name actually asks, and covers
+            // the clamped case, the stranded repair, and a receipt that merely
+            // re-states the current count — without enumerating any of them.
+            //
+            // CREATING an entry counts as movement even at count 0, and that
+            // case is not academic: a `never-fired` log has no records to
+            // count, so its ack changes no number and still takes it out of
+            // the review-due set for good. Comparing counts alone reported
+            // that ack as advancing nothing (caught by mt#4408's AT3).
+            // `lastReviewedAt` is deliberately NOT compared — it changes on
+            // every ack, so including it would make this true unconditionally.
+            // A REPAIR is not an advance either, and in the opposite direction:
+            // it resets a stranded watermark to 0, which moves the number a long
+            // way while recording no review at all. `repairedPaths` reports it,
+            // so a repair-only pass reads honestly as `watermarkAdvanced: false`
+            // beside a populated `repairedPaths` — nothing reviewed, N strands
+            // cleared.
+            const repairedSet = new Set(reconciliation.repairedPaths);
+            watermarkAdvanced = [...advancedPaths].some((p) => {
+              if (driftedSet.has(p) || repairedSet.has(p)) return false;
+              const before = watermarks[p];
+              if (before === undefined) return updated[p] !== undefined;
+              return updated[p]?.lastReviewedCount !== before.lastReviewedCount;
+            });
           }
         }
 
@@ -856,6 +1070,14 @@ export function registerCalibrationCommands(): void {
               exists: r.exists,
               totalFires: r.totalFires,
               watermarkCount: r.watermarkCount,
+              // mt#4904 (PR #3572 R1): projected for EVERY result, not only
+              // review-due ones. A stranded log that the review-due leg
+              // declines — an absent log, e.g. the retired `policy-coverage`
+              // with a watermark of 1760 — is otherwise reported as
+              // `firesSinceLastReview: 0` with nothing distinguishing it from a
+              // just-reviewed log, which is the silent clamping this task
+              // exists to end. The `reviewDue` entry alone cannot carry it.
+              watermarkStranded: r.watermarkStranded,
               firesSinceLastReview: r.firesSinceLastReview,
               suppressedSinceLastReview: r.suppressedSinceLastReview,
               injectedFiresSinceLastReview: r.injectedFiresSinceLastReview,
@@ -905,6 +1127,9 @@ export function registerCalibrationCommands(): void {
             // the tail rather than infer it from a later sweep.
             midPassArrivals,
             clampedPaths,
+            // mt#4941: the stranded counterpart of `clampedPaths` — watermarks
+            // brought back DOWN to a count their log can actually support.
+            repairedPaths,
             unreceiptedPaths,
             // mt#4391: logs that became review-due AFTER this pass's token was
             // issued. Not advanced, because nobody classified them — the
@@ -920,11 +1145,32 @@ export function registerCalibrationCommands(): void {
         }
 
         const text = formatResult(results, reviewDue);
-        const suffix = watermarkAdvanced
-          ? "\nWatermarks advanced for review-due logs."
-          : params.ack && skippedOpenAskPaths.length === 0
-            ? "\nNo review-due logs to advance."
-            : "";
+        // PR #3614 R1 (non-blocking, mt#4941): this line used to be derivable
+        // from `watermarkAdvanced` alone, because that flag was true whenever
+        // any write was attempted. It is now false for two passes that did real
+        // work — a repair-only ack and a clamp-only ack — so deriving it that
+        // way prints "No review-due logs to advance." directly above a report of
+        // 13 repairs. That is the same misreport this task exists to end, one
+        // layer up: the operator reads the summary line, not the sixth suffix.
+        //
+        // Both no-advance cases are named, not just the repair one — a
+        // clamp-only ack was already reaching the misleading line before this
+        // change, and the class is "the watermark did not move, for a reason
+        // worth stating" rather than the one instance the reviewer saw.
+        let suffix = "";
+        if (watermarkAdvanced) {
+          suffix = "\nWatermarks advanced for review-due logs.";
+        } else if (repairedPaths.length > 0) {
+          suffix =
+            `\nNo watermark advanced — this pass classified nothing — but ` +
+            `${repairedPaths.length} stranded watermark(s) were repaired (see below).`;
+        } else if (clampedPaths.length > 0) {
+          suffix =
+            `\nNo watermark advanced: all ${clampedPaths.length} target(s) were clamped to the ` +
+            `count already recorded (see below).`;
+        } else if (params.ack && skippedOpenAskPaths.length === 0) {
+          suffix = "\nNo review-due logs to advance.";
+        }
         const clearedSuffix = clearedAskId ? "\nCleared resolved ask from watermark(s)." : "";
         const skippedSuffix =
           skippedOpenAskPaths.length > 0
@@ -970,6 +1216,14 @@ export function registerCalibrationCommands(): void {
           clampedPaths.length > 0
             ? `\nRaised ${clampedPaths.length} count(s) to the existing watermark — the token ` +
               `predates a later review: ${clampedPaths.join(", ")}`
+            : "";
+        const repairedSuffix =
+          repairedPaths.length > 0
+            ? `\nRepaired ${repairedPaths.length} stranded watermark(s) — each sat ABOVE its log's ` +
+              `record count, so its basis was gone. Reset to 0 rather than to the count this ` +
+              `sweep observed: a stranded sweep shows the reviewer nothing, so those records ` +
+              `have never been classified and are now back in the queue. Expect these logs in ` +
+              `the next sweep with a real backlog: ${repairedPaths.join(", ")}`
             : "";
         const unreceiptedSuffix =
           unreceiptedPaths.length > 0
@@ -1023,6 +1277,7 @@ export function registerCalibrationCommands(): void {
             claimedSuffix +
             midPassSuffix +
             clampedSuffix +
+            repairedSuffix +
             unreceiptedSuffix +
             newlyDueSuffix +
             claimHeldSuffix +
@@ -1036,6 +1291,7 @@ export function registerCalibrationCommands(): void {
           reviewToken,
           midPassArrivals,
           clampedPaths,
+          repairedPaths,
           unreceiptedPaths,
           newlyDuePaths,
           claimHeldPaths,

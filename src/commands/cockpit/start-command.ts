@@ -53,6 +53,9 @@ import {
   getSharedProvider,
   PersistenceInitTimeoutError,
 } from "../../cockpit/shared-persistence";
+import { DriverTransportFailure } from "../../cockpit/driver-transport";
+import { markDrivenSessionCrashedByPid } from "../../cockpit/driven-session-host";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import {
   isDbConditionSqlStateClass,
   sqlStateClass,
@@ -131,6 +134,9 @@ async function recordPortDisplacement(
       eventType: "cockpit.port_displaced",
       payload: {
         port,
+        // Which way the conflict ended — the refusal rows below share this
+        // event type, so consumers separate them on `outcome` (mt#4800).
+        outcome: "displaced",
         displacedPid: displaced.pid,
         displacedCommand: displaced.command,
         // `forced` records WHY the kill was allowed: false is the mt#4205 path
@@ -143,6 +149,42 @@ async function recordPortDisplacement(
     });
   } catch (err) {
     log.warn("cockpit.port_displaced: could not record the displacement", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
+ * Bound on how long an exiting refusal waits for its visibility event. The
+ * provider may still be cold on this path (nothing else has initialized
+ * persistence when the bind fails), so the race covers init + emit together.
+ */
+const CONFLICT_EMIT_TIMEOUT_MS = 5_000;
+
+/**
+ * Record a port-conflict outcome that ends in `process.exit(1)` — a refusal to
+ * displace, or a displacement whose re-bind never succeeded. AWAITED (bounded)
+ * by every caller, unlike `recordPortDisplacement` above: fire-and-forget dies
+ * with the process, and an unrecorded refusal is exactly how the 2026-08-31
+ * stale-build incident stayed invisible for 25+ minutes — no event, no badge,
+ * just a daemon quietly serving old code (mt#4800 SC2).
+ */
+async function recordPortConflictExit(
+  port: number,
+  payload: Record<string, unknown>
+): Promise<void> {
+  try {
+    await Promise.race([
+      (async () =>
+        emitSystemEventFromProvider(await getSharedProvider(), {
+          eventType: "cockpit.port_displaced",
+          payload: { port, ...payload },
+          actor: "cockpit-start",
+        }))(),
+      new Promise<void>((resolve) => setTimeout(resolve, CONFLICT_EMIT_TIMEOUT_MS)),
+    ]);
+  } catch (err) {
+    log.warn("cockpit.port_displaced: could not record the conflict refusal", {
       error: err instanceof Error ? err.message : String(err),
     });
   }
@@ -242,7 +284,16 @@ function readErrorCode(reason: unknown): string | undefined {
  * Decides whether an unhandled rejection should degrade the DB, be survived
  * silently, or terminate the daemon.
  *
- * Two code spaces reach this, and they are matched separately:
+ * A `DriverTransportFailure` (mt#4943 SC2) always survives — it is a typed,
+ * transport-attributed failure of ONE drive (an ACP session/child-process
+ * failure that escaped the transport's own defenses), never a defect in
+ * daemon state, so it should no more kill the daemon than a survivable DB
+ * condition would. This is a narrow, scoped exception to "everything else
+ * exits" below: the classifier still exits on any UNattributed rejection,
+ * and this class is checked FIRST only because it needs no code-based
+ * matching, not because it takes priority over the DB classification.
+ *
+ * Two code spaces reach the DB classification, and they are matched separately:
  *
  *   - **Client-side** — postgres-js's own codes (`CLIENT_SIDE_DEGRADATION_CODES`)
  *     plus `PersistenceInitTimeoutError`. All connection-level → `"degrade"`.
@@ -262,6 +313,7 @@ function readErrorCode(reason: unknown): string | undefined {
  * @internal Exported for unit testing only.
  */
 export function classifyUnhandledRejection(reason: unknown): UnhandledRejectionDisposition {
+  if (reason instanceof DriverTransportFailure) return "survive";
   if (reason instanceof PersistenceInitTimeoutError) return "degrade";
 
   const code = readErrorCode(reason);
@@ -306,6 +358,13 @@ export interface UnhandledRejectionEffects {
   startRetryBackoff: () => () => void;
   cleanup: () => void;
   exit: () => void;
+  /**
+   * Attributes a `DriverTransportFailure` to its drive record (mt#4943 SC2)
+   * — called from the survive branch ONLY for that class, alongside (never
+   * instead of) `logSurvived`, so the survived-exception tally on
+   * `/api/health` still counts it.
+   */
+  markDriveCrashed: (failure: DriverTransportFailure) => void;
 }
 
 /**
@@ -323,6 +382,9 @@ export function createUnhandledRejectionHandler(
     switch (classifyUnhandledRejection(reason)) {
       case "survive":
         effects.logSurvived(reason);
+        if (reason instanceof DriverTransportFailure) {
+          effects.markDriveCrashed(reason);
+        }
         return;
       case "degrade": {
         const message = reason instanceof Error ? reason.message : String(reason);
@@ -490,6 +552,16 @@ export function createStartCommand(): Command {
                   `and ${disposition.reason}.`
               );
               console.error(`Run with --force to terminate it and start a new instance.`);
+              // The refusal the 2026-08-31 incident hit — the tray's restart
+              // respawn landed here against the stale daemon its stop had
+              // failed to kill, and nothing recorded it (mt#4800 SC2).
+              await recordPortConflictExit(port, {
+                outcome: "refused",
+                refusal: "preserved-incumbent",
+                holderPid: classification.pid,
+                holderCommand: classification.command,
+                reason: disposition.reason,
+              });
               process.exit(1);
             }
             console.log(
@@ -522,6 +594,12 @@ export function createStartCommand(): Command {
             console.error(
               `Kill PID ${classification.pid} manually, or pass --port to use a different port.`
             );
+            await recordPortConflictExit(port, {
+              outcome: "refused",
+              refusal: "unrecognized-holder",
+              holderPid: classification.pid,
+              holderCommand: classification.command,
+            });
             process.exit(1);
         }
       }
@@ -536,6 +614,17 @@ export function createStartCommand(): Command {
           `Port ${port} is still in use after recovery attempt. ` +
             `Pass --port to use a different port.`
         );
+        if (displaced !== null) {
+          // Strictly worse than a refusal: the incumbent was killed and NOT
+          // replaced (the killZombie teardown race). Record it as its own
+          // outcome so the row is never mistaken for a successful recovery.
+          await recordPortConflictExit(port, {
+            outcome: "displacement-failed",
+            displacedPid: displaced.pid,
+            displacedCommand: displaced.command,
+            forced: displaced.forced,
+          });
+        }
         process.exit(1);
       }
 
@@ -923,6 +1012,11 @@ export function createStartCommand(): Command {
           startRetryBackoff: () => startDbRetryBackoff(),
           cleanup: cleanupSync,
           exit: () => process.exit(1),
+          // mt#4943 SC2 — the pid is the only identifying information a
+          // DriverTransportFailure carries; markDrivenSessionCrashedByPid is
+          // a no-op if no record's pid matches or it is already terminal.
+          markDriveCrashed: (failure) =>
+            markDrivenSessionCrashedByPid(failure.pid, getLoggableErrorSummary(failure)),
         })
       );
 

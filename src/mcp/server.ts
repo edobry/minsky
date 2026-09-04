@@ -1,22 +1,28 @@
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import {
-  ListToolsRequestSchema,
-  CallToolRequestSchema,
-  ListResourcesRequestSchema,
-  ReadResourceRequestSchema,
-  ListPromptsRequestSchema,
-  GetPromptRequestSchema,
-  isInitializeRequest,
-  McpError,
-  type ServerNotification,
-} from "@modelcontextprotocol/sdk/types.js";
+import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
+import { Server, isInitializeRequest, ProtocolError } from "@modelcontextprotocol/server";
+import type { ServerNotification } from "@modelcontextprotocol/server";
 import { log } from "@minsky/shared/logger";
 import type { ProjectContext } from "../types/project";
 import { createProjectContextFromCwd } from "../types/project";
-import { getErrorMessage, getErrorMessageWithCause } from "@minsky/domain/errors/index";
+import {
+  getErrorMessage,
+  getErrorMessageWithCause,
+  getLoggableErrorSummary,
+} from "@minsky/domain/errors/index";
 import { StalenessDetector } from "./staleness-detector";
+// mt#4938 PR #3615 R2 (CI): a VALUE import here (`createProdStateTouchRefresherForProvider`)
+// made this a static edge, so loading `server.ts` — deliberately kept SDK-light for cold-start
+// (see the dynamic `await import("../../mcp/server")` in `start-command.ts` and its own
+// comment on why) — pulled in this module's own import of `../cockpit/sweepers.ts` (~2900
+// lines, many unrelated sweep implementations) eagerly, before `server.start()`. That shifted
+// boot timing enough to break `tests/mcp/logger-broken-pipe-exit.test.ts`'s EPIPE-on-closed-
+// stdout assertion (CI: `build` and `test-forced-tz`, ~45.6s, `exited` false) — the extra
+// synchronous parse/eval work in the child process changed whether the guard's stdout write
+// race still landed inside the test's bound. `getProdStateTouchRefresher()` below now loads
+// this module the same way `start-command.ts` already does: a dynamic `import()`, kept off
+// the static graph. Only the TYPE is imported here (erased at build time, no runtime edge).
+import type { ProdStateTouchRefresher } from "./prod-state-boot-refresh";
 import { createDiagnosticCapture, type DiagnosticCapture } from "./diagnostic-capture";
 import { toClaudeDesktopName, shouldEmitDesktopAliases } from "./tool-name";
 import type { Request, Response } from "express";
@@ -48,6 +54,7 @@ import type { ClientCapabilityRegistry } from "@minsky/domain/client-capabilitie
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 import { emitBraintrustEvent } from "@minsky/domain/observability/braintrust";
 import { enrichToolResponse } from "./middleware/memory-enrichment";
+import { boundToolResponseText, type ResponseSizeGuardDeps } from "./response-size-guard";
 import {
   enrichWakeResponse,
   type SessionResolver as WakeSessionResolver,
@@ -188,8 +195,9 @@ export interface MinskyMCPServerOptions {
 /**
  * mt#3121: the canonical (dotted) protocol name of the dispatch-recover tool.
  * The request handler injects the resolved caller agentId into ONLY this tool's
- * args (matched exactly against this name and its `toClaudeDesktopName` underscore
- * alias) so its contested-check can exclude the caller's own task-grain claims.
+ * args, matched exactly against the RESOLVED `tool.name` (mt#4827) — the name this
+ * tool was REGISTERED under, which for a registry-sourced tool is this dotted
+ * constant. So its contested-check can exclude the caller's own task-grain claims.
  */
 const DISPATCH_RECOVER_TOOL_NAME = "tasks.dispatch-recover";
 
@@ -225,6 +233,22 @@ const ASKS_CREATE_TOOL_NAME = "asks.create";
 const CLAIMS_RELEASE_TOOL_NAME = "tasks.claims.release";
 
 /**
+ * Work-package claim/release (ADR-046, mt#2911). Same delivery need as
+ * `tasks.claims.release`: the recorded claimant/releaser identity must come
+ * from the resolved MCP caller, because the long-lived server process carries
+ * no harness env vars for `resolveCallerActorId` to fall back to.
+ */
+const WORK_PACKAGE_CLAIM_TOOL_NAME = "tasks.claim";
+const WORK_PACKAGE_RELEASE_TOOL_NAME = "tasks.release";
+
+/**
+ * `tasks.create` records the caller as `by_conversation` on a work-package's
+ * opening transfer entry (ADR-046) — succession provenance, which only the
+ * resolved MCP identity can supply on this path. Ignored for every other kind.
+ */
+const TASKS_CREATE_TOOL_NAME = "tasks.create";
+
+/**
  * Tools the server injects the resolved caller `agentId` into as
  * `callerActorId` (mt#3121, extended mt#4408).
  *
@@ -233,19 +257,42 @@ const CLAIMS_RELEASE_TOOL_NAME = "tasks.claims.release";
  * merely CONTAINS one of these cannot receive the param. Built once at module
  * load rather than per request.
  *
- * Why a set rather than a second `if`: the injection is now four tools wide and
- * the matching rule (exact, both aliases, server overwrites any caller-supplied
- * value) is the part that must not drift between them. One membership test
- * cannot disagree with itself.
+ * Why a set rather than a second `if`: the injection is now seven tools wide and
+ * the matching rule (exact match on the resolved name, server overwrites any
+ * caller-supplied value) is the part that must not drift between them. One
+ * membership test cannot disagree with itself.
+ *
+ * REGISTERED NAMES ONLY (mt#4827). This Set used to flat-map each name through
+ * `toClaudeDesktopName` so it held both spellings, because the call site tested
+ * `request.params.name` — the raw wire name. The call site now tests the RESOLVED
+ * `tool.name`, so the alias entries are dead weight, and their absence is what keeps
+ * `src/mcp/` on ONE idiom instead of three.
+ *
+ * **The exact invariant, stated precisely (PR #3532 R1).** `addTool` maps BOTH the
+ * canonical name and its underscored alias to the SAME `ToolDefinition` object, whose
+ * `.name` is the name it was registered under. So `tool.name` is guaranteed to be the
+ * REGISTERED name and never the wire alias — that is what makes a dotted-only Set
+ * match an alias-calling client, and it is structural, not a convention.
+ *
+ * What is NOT guaranteed is that a registered name is DOTTED: `addTool("plain_name")`
+ * is legal and registers exactly once (see the mt#1779 suite). Every entry in this Set
+ * comes from the shared command registry, whose ids are dotted — that is a property of
+ * the SOURCE, not of the dispatch path, so do not read this Set as proof that all
+ * `tool.name` values contain a dot.
+ *
+ * Do not reintroduce the flat-map: a Set holding both spellings hides whether its call
+ * site resolved the name, which is exactly how the two enrichment allowlists sat broken
+ * and silent.
  */
-const CALLER_ACTOR_ID_TOOL_NAMES: ReadonlySet<string> = new Set(
-  [
-    DISPATCH_RECOVER_TOOL_NAME,
-    CALIBRATION_REVIEW_TOOL_NAME,
-    ASKS_CREATE_TOOL_NAME,
-    CLAIMS_RELEASE_TOOL_NAME,
-  ].flatMap((name) => [name, toClaudeDesktopName(name)])
-);
+const CALLER_ACTOR_ID_TOOL_NAMES: ReadonlySet<string> = new Set([
+  DISPATCH_RECOVER_TOOL_NAME,
+  CALIBRATION_REVIEW_TOOL_NAME,
+  ASKS_CREATE_TOOL_NAME,
+  CLAIMS_RELEASE_TOOL_NAME,
+  WORK_PACKAGE_CLAIM_TOOL_NAME,
+  WORK_PACKAGE_RELEASE_TOOL_NAME,
+  TASKS_CREATE_TOOL_NAME,
+]);
 
 const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([
   "debug.echo",
@@ -405,7 +452,7 @@ interface PromptDefinition {
  */
 export class MinskyMCPServer {
   private server: Server;
-  private transport: StdioServerTransport | StreamableHTTPServerTransport;
+  private transport: StdioServerTransport | NodeStreamableHTTPServerTransport;
   private options: MinskyMCPServerOptions & {
     name: string;
     version: string;
@@ -418,6 +465,34 @@ export class MinskyMCPServer {
   private stalenessDetector: StalenessDetector;
   private diag: DiagnosticCapture;
   private container: AppContainerInterface | undefined;
+  /**
+   * mt#4938 SC1: the tool-path prod-state refresh trigger. Lazily built (and cached) by
+   * {@link getProdStateTouchRefresher} once the container exposes a persistence provider — see
+   * that method's doc comment for why this MUST be a single long-lived instance rather than
+   * rebuilt per call.
+   */
+  private prodStateTouchRefresher: ProdStateTouchRefresher | undefined;
+  /**
+   * In-flight dynamic `import("./prod-state-boot-refresh")` (mt#4938 PR #3615 R2), memoized so
+   * concurrent tool calls before the module resolves share ONE import rather than each kicking
+   * off their own. See the import comment above `ProdStateTouchRefresher` for why this is
+   * dynamic rather than a static top-level import.
+   */
+  private prodStateBootRefreshModule:
+    | Promise<typeof import("./prod-state-boot-refresh")>
+    | undefined;
+  /**
+   * The RESOLVED module value, set once by the promise above's own continuation (mt#4938 PR
+   * #3615 R3). Reading this — rather than trying to synchronously unwrap
+   * `prodStateBootRefreshModule` — is what lets `getProdStateTouchRefresher()` stay
+   * synchronous: a `Promise` cannot be read without `await`, but a plain field can be checked
+   * on every call for free. Only ever set to a resolved module; never caches "not ready yet"
+   * or "failed" as a value here (both stay `undefined`, indistinguishable from "not attempted
+   * yet" — a later call always re-attempts).
+   */
+  private prodStateBootRefreshModuleResolved:
+    | typeof import("./prod-state-boot-refresh")
+    | undefined;
   /**
    * Memory service for the mt#1588 spike enrichment middleware. Optional —
    * when absent, enrichment middleware is a no-op (the dispatcher behaves
@@ -514,7 +589,7 @@ export class MinskyMCPServer {
   // (client POSTed initialize but never closed) don't accumulate indefinitely.
   private httpSessions: Map<
     string,
-    { server: Server; transport: StreamableHTTPServerTransport; lastActiveAt: number }
+    { server: Server; transport: NodeStreamableHTTPServerTransport; lastActiveAt: number }
   > = new Map();
 
   // Maximum concurrent HTTP sessions. When set, new initialize requests are
@@ -593,6 +668,13 @@ export class MinskyMCPServer {
   // instrumentation can be asserted without a global module mock
   // (custom/no-global-module-mocks).
   private emitDispatchEvent: typeof emitBraintrustEvent = emitBraintrustEvent;
+
+  // mt#4749: injectable filesystem seam for boundToolResponseText's spool
+  // path. Defaults to the real state dir / fs (see ResponseSizeGuardDeps);
+  // overridable in tests (instance-field DI, same pattern as
+  // emitDispatchEvent above) so the size cap is exercised without touching a
+  // real tmpdir (custom/no-real-fs-in-tests).
+  private responseSizeGuardDeps: ResponseSizeGuardDeps = {};
 
   // Staleness signal tracking
   private hasTriggeredStaleSignal = false;
@@ -793,6 +875,29 @@ export class MinskyMCPServer {
   }
 
   /**
+   * Connect a fully-configured SDK `Server` to a caller-supplied transport, and
+   * return it (mt#4827).
+   *
+   * Public for the same reason {@link checkDriftGate} is: so a unit test can
+   * exercise the REAL request handlers without standing up stdio or HTTP. The
+   * difference is what it replaces — tests that need the dispatch path have been
+   * reaching into the SDK's PRIVATE `_requestHandlers` map (~20 sites across five
+   * files). That works, but it couples our suite to an SDK internal, which is
+   * exactly the brittleness PR #3532 R1 flagged as BLOCKING. Paired with the SDK's
+   * own `InMemoryTransport.createLinkedPair()`, this seam lets a test drive the
+   * server through the SUPPORTED client/transport surface instead.
+   *
+   * Pre-existing `_requestHandlers` sites are deliberately NOT migrated here —
+   * that is a test-only refactor across four files and does not belong in a
+   * bugfix diff. Tracked at mt#4844; new tests should use this seam.
+   */
+  public async connectTransport(transport: Parameters<Server["connect"]>[0]): Promise<Server> {
+    const sdkServer = this.createConfiguredServer(randomUUID());
+    await sdkServer.connect(transport);
+    return sdkServer;
+  }
+
+  /**
    * Construct a new Server with all request handlers and diagnostic capture
    * wired up. Each HTTP session gets its own instance; stdio uses the singleton
    * created in the constructor. Tools/resources/prompts are owned by
@@ -928,7 +1033,11 @@ export class MinskyMCPServer {
       return;
     }
 
-    let session: { server: Server; transport: StreamableHTTPServerTransport; lastActiveAt: number };
+    let session: {
+      server: Server;
+      transport: NodeStreamableHTTPServerTransport;
+      lastActiveAt: number;
+    };
 
     // Reuse existing session if we have a session ID
     if (sessionId && this.httpSessions.has(sessionId)) {
@@ -1038,7 +1147,7 @@ export class MinskyMCPServer {
       // disconnects from other sessions once any session made a tool call.
       const sessionKey = randomUUID();
       const server = this.createConfiguredServer(sessionKey);
-      const transport = new StreamableHTTPServerTransport({
+      const transport = new NodeStreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
       });
 
@@ -1074,7 +1183,7 @@ export class MinskyMCPServer {
       this.disconnectTracker.recordReconnect();
       const entry: {
         server: Server;
-        transport: StreamableHTTPServerTransport;
+        transport: NodeStreamableHTTPServerTransport;
         lastActiveAt: number;
       } = { server, transport, lastActiveAt: Date.now() };
 
@@ -1239,8 +1348,8 @@ export class MinskyMCPServer {
    */
   private setupRequestHandlers(server: Server, sessionKey: string): void {
     // List tools
-    server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
-      this.diag.captureRequest("tools/list", request, extra);
+    server.setRequestHandler("tools/list", async (request, ctx) => {
+      this.diag.captureRequest("tools/list", request, ctx);
       // mt#1779: dedupe by ToolDefinition identity (dual-registration in
       // `addTool` puts the same tool object under both dotted and underscored
       // keys). Whether to emit the underscored alias is feature-detected from
@@ -1252,10 +1361,23 @@ export class MinskyMCPServer {
       const clientInfo = server.getClientVersion() as { name?: string } | undefined;
       const emitDesktop = shouldEmitDesktopAliases(clientInfo);
       const seen = new Set<ToolDefinition>();
+      // mt#4854: SDK v2 types `Tool.inputSchema` as `{ type: "object"; properties?; required? }`
+      // (with a catchall) where v1 accepted a bare `object`, so the emitted shape now has to
+      // say so. `ToolDefinition.inputSchema` stays `object` — its callers pass a JSON Schema
+      // built elsewhere — hence the cast at the emit site rather than a contract change.
+      //
+      // The `{ type: "object" }` fallback replaces v1's `{}`, and that is NOT a wire change:
+      // the only production `addTool` caller is `command-mapper.ts:508`, which always supplies
+      // `inputSchema` — either a converted Zod JSON Schema or the
+      // `{ type: "object", properties: {}, additionalProperties: true }` default initialized at
+      // `command-mapper.ts:375`. The fallback is unreachable on that path. It is corrected
+      // rather than cast away because a bare `{}` was never spec-valid — the Tool schema has
+      // always required `type: "object"`, and v1's looser typing simply never said so.
+      type EmittedInputSchema = { type: "object" } & Record<string, unknown>;
       const tools: Array<{
         name: string;
         description: string;
-        inputSchema: object;
+        inputSchema: EmittedInputSchema;
       }> = [];
       for (const tool of this.tools.values()) {
         if (seen.has(tool)) continue;
@@ -1263,15 +1385,15 @@ export class MinskyMCPServer {
         tools.push({
           name: emitDesktop ? toClaudeDesktopName(tool.name) : tool.name,
           description: tool.description,
-          inputSchema: tool.inputSchema || {},
+          inputSchema: (tool.inputSchema as EmittedInputSchema | undefined) ?? { type: "object" },
         });
       }
       return { tools };
     });
 
     // Call tool
-    server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-      this.diag.captureRequest("tools/call", request, extra);
+    server.setRequestHandler("tools/call", async (request, ctx) => {
+      this.diag.captureRequest("tools/call", request, ctx);
       // Only true `drain()` (SIGTERM/SIGINT graceful shutdown) sets `draining`
       // — staleness-exit sets `pendingStaleExit` instead, deliberately NOT
       // that flag, so a tool call arriving during the EARLY staleness drain
@@ -1307,7 +1429,7 @@ export class MinskyMCPServer {
       });
 
       // Resolve agentId once per tool call — used for last-touched-by semantics
-      const callerIdentity = this.resolveCallerIdentity(server, extra as RequestExtras | undefined);
+      const callerIdentity = this.resolveCallerIdentity(server, ctx as RequestExtras | undefined);
       const agentId = callerIdentity.agentId;
 
       // mt#1884: per-tool dispatch latency instrumentation (flat Braintrust event).
@@ -1390,7 +1512,7 @@ export class MinskyMCPServer {
           // transport when the caller opted in via _meta.progressToken.
           const progressToken = (request.params as { _meta?: { progressToken?: string | number } })
             ._meta?.progressToken;
-          const progress = buildProgressReporter(progressToken, extra.sendNotification);
+          const progress = buildProgressReporter(progressToken, ctx.mcpReq.notify);
 
           // Inject the resolved caller agentId as `callerActorId` for the tools that
           // need caller identity (mt#3121, extended mt#4408). Two consumers, two reasons:
@@ -1399,10 +1521,11 @@ export class MinskyMCPServer {
           //   - observability.calibration-review takes its concurrency claim AS the caller.
           //     Without this, `resolveActorId` falls back to harness env vars the long-lived
           //     MCP server process does not have, and every MCP-invoked pass runs unclaimed.
-          // Membership is EXACT (canonical name + Claude-Desktop alias, both registered),
-          // never a substring. The server overwrites any caller-supplied value, so it
-          // cannot be spoofed here.
-          if (CALLER_ACTOR_ID_TOOL_NAMES.has(request.params.name)) {
+          // Membership is EXACT, never a substring, and is tested against the RESOLVED
+          // `tool.name` (mt#4827) — the REGISTERED name, never the wire alias — so the
+          // Set carries one spelling per tool and an alias-calling client still matches.
+          // The server overwrites any caller-supplied value, so it cannot be spoofed.
+          if (CALLER_ACTOR_ID_TOOL_NAMES.has(tool.name)) {
             const injectedArgs = (request.params.arguments ?? {}) as Record<string, unknown>;
             injectedArgs.callerActorId = agentId;
             request.params.arguments = injectedArgs;
@@ -1475,12 +1598,33 @@ export class MinskyMCPServer {
             responseText = String(result);
           }
 
+          // mt#4749: bound the response text BEFORE it is embedded in the
+          // `content` block below. This is the single point both the
+          // stdio-direct (`mcp start`) transport and the ADR-038 shared-daemon
+          // transport funnel through, so it catches an oversized tool result
+          // regardless of which transport carries it onward — including the
+          // direct-stdio path `src/mcp/shim/response-bound.ts`'s cap never
+          // sees. See `response-size-guard.ts` for the full rationale.
+          responseText = boundToolResponseText(
+            responseText,
+            request.params.name,
+            this.responseSizeGuardDeps
+          );
+
           // Check for staleness after building the response — trigger fires
           // notification + clean exit after the current response is returned.
           const staleWarning = this.stalenessDetector.getStaleWarning();
           if (staleWarning !== null && !this.hasTriggeredStaleSignal) {
             this.triggerStaleSignal(server);
           }
+
+          // mt#4938 SC1: request-driven prod-state cache refresh trigger — the second
+          // writer's tool-path leg, sitting beside the staleness check above. Debounced
+          // (60s) and single-flight internally, so this call is cheap on every tool
+          // dispatch: no file read unless the debounce window has elapsed, and no DB
+          // round trip unless that read finds the cache stale. Never awaited — a broken
+          // or slow refresh must never delay the tool response it rides along on.
+          this.getProdStateTouchRefresher()?.touch();
 
           // mt#1588 spike: memory enrichment middleware. For allowlisted tools,
           // append a second `{type:"text"}` content block carrying top-K
@@ -1496,8 +1640,13 @@ export class MinskyMCPServer {
           // log after the request had already returned — the wrapper-below-inner-timeout
           // corollary in `decision-defaults.mdc §Thresholds`, which this task cites about
           // postgres-js and then nearly repeated here. Caught in PR #3301 review.
+          // mt#4827: pass the RESOLVED `tool.name` (canonical, dotted), not
+          // `request.params.name` (the raw wire name). `ENRICHMENT_ALLOWLIST` holds
+          // dotted names, and `tools/list` advertises the UNDERSCORED alias by default
+          // (`shouldEmitDesktopAliases`), so a wire-name test can never match. Same
+          // idiom as `DI_FREE_TOOL_NAMES` above.
           const enrichmentBlock = await enrichToolResponse(
-            request.params.name,
+            tool.name,
             request.params.arguments || {},
             this.memoryService
           );
@@ -1514,8 +1663,14 @@ export class MinskyMCPServer {
           // rather than only on the five that carry a session argument. Layer 1 is
           // withheld deliberately — it is a process hash, so every conversation on
           // this server would resolve the same value and drain each other's wakes.
+          // mt#4827: `tool.name`, not `request.params.name` — see the note on the
+          // memory-enrichment call above. This one was not merely latent: the
+          // session-keyed leg has never fired in production, because every recorded
+          // client calls via the underscored alias while the allowlist holds only
+          // dotted names. `pr.watch` wakes are addressed by `parentSessionId` alone
+          // (`wake-on-respond.ts` §addressing key), so this leg is their ONLY route.
           const wakeBlock = await enrichWakeResponse(
-            request.params.name,
+            tool.name,
             request.params.arguments || {},
             this.wakeService,
             this.wakeSessionResolver,
@@ -1563,7 +1718,7 @@ export class MinskyMCPServer {
           // ES2022 `cause` option so downstream handlers can still inspect machine-
           // readable fields (driver code, sub-error chain) even though the
           // user-facing message is the flattened wireMessage string.
-          if (error instanceof McpError) {
+          if (error instanceof ProtocolError) {
             throw error;
           }
           throw new Error(`Tool execution failed: ${wireMessage}`, { cause: error });
@@ -1605,8 +1760,8 @@ export class MinskyMCPServer {
     });
 
     // List resources
-    server.setRequestHandler(ListResourcesRequestSchema, async (request, extra) => {
-      this.diag.captureRequest("resources/list", request, extra);
+    server.setRequestHandler("resources/list", async (request, ctx) => {
+      this.diag.captureRequest("resources/list", request, ctx);
       return {
         resources: Array.from(this.resources.values()).map((resource) => ({
           uri: resource.uri,
@@ -1617,8 +1772,8 @@ export class MinskyMCPServer {
     });
 
     // Read resource
-    server.setRequestHandler(ReadResourceRequestSchema, async (request, extra) => {
-      this.diag.captureRequest("resources/read", request, extra);
+    server.setRequestHandler("resources/read", async (request, ctx) => {
+      this.diag.captureRequest("resources/read", request, ctx);
       const resource = this.resources.get(request.params.uri);
       if (!resource) {
         throw new Error(`Resource '${request.params.uri}' not found`);
@@ -1645,8 +1800,8 @@ export class MinskyMCPServer {
     });
 
     // List prompts
-    server.setRequestHandler(ListPromptsRequestSchema, async (request, extra) => {
-      this.diag.captureRequest("prompts/list", request, extra);
+    server.setRequestHandler("prompts/list", async (request, ctx) => {
+      this.diag.captureRequest("prompts/list", request, ctx);
       return {
         prompts: Array.from(this.prompts.values()).map((prompt) => ({
           name: prompt.name,
@@ -1656,8 +1811,8 @@ export class MinskyMCPServer {
     });
 
     // Get prompt
-    server.setRequestHandler(GetPromptRequestSchema, async (request, extra) => {
-      this.diag.captureRequest("prompts/get", request, extra);
+    server.setRequestHandler("prompts/get", async (request, ctx) => {
+      this.diag.captureRequest("prompts/get", request, ctx);
       const prompt = this.prompts.get(request.params.name);
       if (!prompt) {
         throw new Error(`Prompt '${request.params.name}' not found`);
@@ -2034,6 +2189,83 @@ export class MinskyMCPServer {
     }
 
     return resolvePresenceConversationId(actorId, harnessValue ?? legacyValue);
+  }
+
+  /**
+   * mt#4938 SC1: lazily build (and cache) the tool-path prod-state refresh trigger once the
+   * container exposes a persistence provider.
+   *
+   * Unlike {@link getPresenceClaimRepo} below — rebuilt per call, resilient to a mid-life
+   * container swap — this one MUST memoize: {@link ProdStateTouchRefresher} holds
+   * `lastDecisionAtMs` and an in-flight-refresh guard as closure state, so a fresh instance
+   * per tool call would silently reset the debounce and single-flight guards on every call,
+   * defeating both.
+   *
+   * Guarded with `container.has("persistence")` rather than a bare `.get()` — a boot that
+   * races persistence initialization and throws `Service "persistence" is not available` is
+   * exactly the SC2 defect this task fixes on the boot-time call site
+   * (`start-command.ts`); repeating that race here, on the per-tool-call path, would
+   * reintroduce it under a different name.
+   *
+   * Loads `./prod-state-boot-refresh` via a DYNAMIC import (mt#4938 PR #3615 R2) — see the
+   * comment on the `ProdStateTouchRefresher` type import at the top of this file for why a
+   * static one is a regression. This method itself stays SYNCHRONOUS (the hot dispatch path
+   * cannot await it): a call before the import resolves, or before persistence is available,
+   * returns `null` and is silently a no-op — the same accepted gap this module's doc comment
+   * already names ("a daemon that receives no tool calls... the next tool call refreshes it").
+   *
+   * mt#4938 PR #3615 R3 BLOCKING fix: the import is kicked off UNCONDITIONALLY on the first
+   * call — NOT gated behind `container.has("persistence")` — and only the import PROMISE is
+   * memoized (`prodStateBootRefreshModule`); the "is persistence available" question is
+   * re-asked, fresh, on every single call via `container.has("persistence")`, and a
+   * provider-less or failed construction attempt is never cached as a terminal outcome. R2's
+   * version gated starting the import behind an already-true `has()` check, and only attempted
+   * construction from inside the import's OWN `.then` — a single one-shot callback that ran
+   * once, at whatever moment the import happened to resolve. If persistence became available
+   * only AFTER that callback had already run (and found it unavailable), no later `touch()`
+   * ever got another chance to build the refresher: the memoized promise made
+   * `!this.prodStateBootRefreshModule` false forever, so no second `.then` was ever attached.
+   * Kicking the import off eagerly and re-checking `has()` on every call removes that single
+   * decision point entirely — there is no longer a moment whose outcome gets cached.
+   */
+  private getProdStateTouchRefresher(): ProdStateTouchRefresher | null {
+    if (this.prodStateTouchRefresher) return this.prodStateTouchRefresher;
+
+    if (!this.prodStateBootRefreshModule) {
+      this.prodStateBootRefreshModule = import("./prod-state-boot-refresh");
+      this.prodStateBootRefreshModule.then(
+        (mod) => {
+          this.prodStateBootRefreshModuleResolved = mod;
+        },
+        (err) => {
+          log.debug("mcp: prod-state-boot-refresh module load failed", {
+            error: getLoggableErrorSummary(err),
+          });
+          // Allow a LATER call to retry the import rather than being permanently stuck on
+          // one failed attempt.
+          this.prodStateBootRefreshModule = undefined;
+        }
+      );
+    }
+
+    const mod = this.prodStateBootRefreshModuleResolved;
+    if (!mod) return null; // import kicked off but not resolved yet — try again next call
+
+    if (!this.container?.has("persistence")) {
+      log.debug("mcp: prod-state tool-path refresher skipped — persistence not yet available");
+      return null; // NOT cached — the next call re-checks has(), it does not remember this
+    }
+
+    try {
+      const persistence = this.container.get("persistence");
+      this.prodStateTouchRefresher = mod.createProdStateTouchRefresherForProvider(persistence);
+      return this.prodStateTouchRefresher;
+    } catch (err) {
+      log.debug("mcp: prod-state tool-path refresher unavailable", {
+        error: getLoggableErrorSummary(err),
+      });
+      return null;
+    }
   }
 
   /**

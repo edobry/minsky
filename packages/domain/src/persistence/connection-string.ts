@@ -5,7 +5,15 @@
  * strings before they are logged, returned in errors, or shown to the user.
  * Centralized so the masking regex cannot drift between call sites (the
  * previous per-site `:\/\/[^:]+:[^@]+@` copies failed to mask an empty
- * username, e.g. `postgresql://:pass@host` — PR #1666 review).
+ * username, e.g. `postgresql://:pass@host` — PR #1666 review). // gitleaks:allow
+ *
+ * The `gitleaks:allow` above is load-bearing, not noise (mt#4963). That widened
+ * the `database-url-credentials` rule to match an empty userinfo half — the same
+ * defect this docblock describes, in the DETECTION layer — so this line's own
+ * example became a true positive by the rule's definition. Without the marker,
+ * every commit that stages this file is blocked by the `secret-scanning`
+ * pre-commit step. The file's path is not covered by the global allowlist, which
+ * exempts only `docs/`, `README.md`, `process/tasks/` and `*.test.ts`.
  */
 
 /**

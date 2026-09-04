@@ -57,9 +57,11 @@
 // @see mt#2358 — this hook
 // @see .minsky/hooks/require-session-for-main-workspace-edits.ts — the Edit/Write half
 
-import { readFileSync, readdirSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "fs";
 import { homedir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
+import { getMinskyStateDir } from "@minsky/shared/paths";
+import { projectStateKey } from "./dispatcher";
 
 import { readInput, writeOutput, deriveHookRepoRoot } from "./types";
 import type { ToolHookInput } from "./types";
@@ -92,7 +94,12 @@ export function deriveSessionRoot(
 }
 
 /** Where the last-observed modified-tracked set is kept, relative to the repo root. */
-export const BASELINE_RELATIVE_PATH = ".minsky/main-workspace-mutation-baseline.json";
+/**
+ * Bare filename of the baseline (mt#4811). No longer repo-relative: it is
+ * joined onto the project-keyed state dir by `baselinePath` below, so the name
+ * is all that is fixed here.
+ */
+const BASELINE_BARE_NAME = "main-workspace-mutation-baseline.json";
 
 /**
  * Parse `git status --porcelain=v1` into the set of TRACKED paths that are
@@ -260,10 +267,30 @@ export function defaultListDirs(root: string): string[] {
     .map((e) => e.name);
 }
 
+/**
+ * Absolute path to this repo's baseline, under the machine-local state dir
+ * (mt#4811).
+ *
+ * Until this change the baseline was written under the REPO ROOT, so every
+ * Minsky-managed project the agent touched received a
+ * `.minsky/main-workspace-mutation-baseline.json` in its working tree — the
+ * exact class mt#4748 re-rooted, missed because that sweep enumerated
+ * calibration/evaluation STREAMS and this is a plain state file with no
+ * registry entry.
+ *
+ * `projectStateKey` is imported rather than recomputed: the key already has
+ * three derivations in this codebase and mt#4780 declined to add a fourth in
+ * prose for the same reason. Reader and writer both call this, so they cannot
+ * drift.
+ */
+function baselinePath(repoRoot: string): string {
+  return join(getMinskyStateDir(), "projects", projectStateKey(repoRoot), BASELINE_BARE_NAME);
+}
+
 /** Read the persisted baseline, or null when there is none / it is unreadable. */
 function readBaseline(repoRoot: string): string[] | null {
   try {
-    const raw = readFileSync(join(repoRoot, BASELINE_RELATIVE_PATH), "utf-8");
+    const raw = readFileSync(baselinePath(repoRoot), "utf-8");
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return null;
     return parsed.filter((v): v is string => typeof v === "string");
@@ -278,7 +305,9 @@ function readBaseline(repoRoot: string): string[] | null {
 
 function writeBaseline(repoRoot: string, baseline: readonly string[]): void {
   try {
-    writeFileSync(join(repoRoot, BASELINE_RELATIVE_PATH), JSON.stringify(baseline, null, 0));
+    const target = baselinePath(repoRoot);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, JSON.stringify(baseline, null, 0));
   } catch {
     // intentional-swallow: failing to persist costs a repeated advisory next
     // call, which is strictly better than failing the tool call.

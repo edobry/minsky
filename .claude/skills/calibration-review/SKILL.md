@@ -15,8 +15,29 @@ user-invocable: true
 Closes the calibration → action loop for the detector hooks that ship in
 **log-only calibration mode** (e.g. `causal-premise-detector.ts` with
 `INJECTION_ENABLED=false`, mt#2216; `retrospective-trigger-scanner.ts`,
-mt#2057). Those hooks write matches to `.minsky/*-calibration.jsonl` but nothing
+mt#2057). Those hooks write matches to a per-project calibration log but nothing
 triggers a review — this skill is the review.
+
+**Where the logs live, and why you cannot hardcode it (mt#4748).** The hooks write to
+a project-keyed subdirectory of the state dir, NOT to the repo. `<key>` is a hash of
+the repo root, so every recipe below globs it rather than naming it:
+
+```
+ls ~/.local/state/minsky/projects/*/<name>-calibration.jsonl
+```
+
+**Confirm that glob resolves to exactly ONE path before running any counting recipe
+below.** TWO paths means two projects on this machine, and the recipes would silently
+sum both logs. ZERO paths means this project has no calibration state yet — no hook has
+fired here, or the state dir was cleared — and every count below then reads `0`, which
+is indistinguishable from "the detector never fired." Neither case announces itself,
+which is the same shape of defect as the one in the next paragraph.
+
+**A `.minsky/<name>-calibration.jsonl` still present in the repo is FROZEN HISTORY, not
+the current corpus.** Those files exist and stop at the mt#4748 migration, so reading
+one returns real-looking records that end silently at the cutover — no error, no empty
+file, just a truncated corpus that an FP rate computed over it will not reveal. Read the
+state-dir path; treat the repo copy as an archive.
 
 The mechanical part (enumerate logs, count fires, watermark, diversity
 threshold) is the `calibration.review` command. **This skill does the
@@ -182,22 +203,47 @@ If the `reviewDue` array is EMPTY (after excluding still-open-ask logs per step
 watermarks.
 
 **Review-due is the trigger, not `pastThreshold` (mt#2878).** `reviewDue`
-carries four reasons: `past-threshold` (the count+diversity bar),
-`time-stale`, `never-reviewed`, and `never-fired`. A log due for one of the
-three time-based reasons is genuinely due for review even though it never
+carries **six** reasons: `past-threshold` (the count+diversity bar),
+`time-stale`, `never-reviewed`, `never-fired`, `watermark-stranded` (mt#4904)
+and `all-suppressed` (mt#4049). A log due for one of the
+time-based reasons is genuinely due for review even though it never
 reached the count bar — a low-volume detector may never reach it at all. This
 step used to stop on `pastThreshold` alone, which left those logs permanently
 undischargeable: reviewed by nobody, warned about every turn. `--ack` now
 advances every `reviewDue` log, so a pass that stops here on the old condition
 re-opens exactly the gap mt#2878 closed.
 
+**This sentence said "four" until mt#4049**, and had been wrong since mt#4904
+added `watermark-stranded` — a count in prose is the kind of thing a later leg
+silently dates. If you add a leg, this line and
+`computeReviewDueLogs`'s own docblock are both part of the change.
+
+**`all-suppressed` asks a DIFFERENT question, and Step 2's rate is the wrong
+answer to it (mt#4049).** Every other reason routes a log so its fires can be
+rated. This one routes a log with **zero** fires to rate: the detector detected
+at volume and suppressed all of it, so the operator saw nothing. The question is
+**"is this gate too broad?"**, and the evidence is the SUPPRESSIONS — read what
+was withheld and judge whether it should have been. Do not compute a
+false-positive rate here; `injectedFiresSinceLastReview` is 0 by the leg's own
+definition, so any rate over it is a division by an empty population, not a
+finding. Dispositions that make sense for this leg: **tune** (narrow the
+suppression condition, if detections that should have reached the operator were
+withheld) or **keep** (the suppression is correct and the detector is working as
+intended) — a **flip** is meaningless for a log nothing is injecting.
+
 **A below-count-bar log returns `newRecords: []` BY DESIGN** — `computeLogResult`
 gates that field on `atCountThreshold`, so an empty array here means "under the
 bar," never "no evidence exists." Read the raw JSONL for those logs
-(`jq -c '.' .minsky/<name>-calibration.jsonl | tail -n <firesSinceLastReview>`)
+(`jq -c '.' ~/.local/state/minsky/projects/*/<name>-calibration.jsonl | tail -n <firesSinceLastReview>`)
 rather than recording "cannot classify" from the empty array — the
 `classifiability` verdict is computed over the un-gated records and will still
 say `classifiable`. See §"Cannot classify" is a claim about the corpus.
+
+**An `all-suppressed` log is the exception: it DOES carry its records (mt#4049).**
+That gate is `atCountThreshold || allSuppressed`, because routing a log for
+review and then handing the reviewer an empty array would be a warning with no
+evidence attached. So read `newRecords` directly for this leg rather than
+reaching for the raw JSONL.
 
 ### Step 1b — Coverage-receipt check (mt#2554)
 
@@ -222,9 +268,19 @@ Two lines below the per-detector report name logs that no coverage verdict appli
 (mt#3519). They are different problems and must not be conflated:
 
 - **`Unmapped: <names>`** — no guard DECLARES these logs, so the check has no invocation
-  evidence and can only ever flag them. A DEFECT: add the missing `calibrationLog`
-  declaration (or the `recordFireLogEntry` wiring, if the guard records no invocations at
-  all) rather than reading the eventual flag as a dead detector.
+  evidence for them. A DEFECT: add the missing `calibrationLog` declaration (or the
+  `recordFireLogEntry` wiring, if the guard records no invocations at all) rather than
+  reading the eventual flag as a dead detector.
+
+  **What an unmapped log can and cannot be (corrected mt#4688).** This bullet used to say the
+  check "can only ever flag them," which is wrong whenever the log has records:
+  `checkCoverageReceipt` tests `hasCoverage` FIRST and short-circuits, so live fires earn
+  `[OK]` with or without a declaration (`.minsky/hooks/coverage-receipt.ts:431-450`). What an
+  unmapped log can never be is **`[DORMANT]`** — that branch is the one requiring invocation
+  evidence. Nor is it excluded from `Checked:`; only `nonGuard` and `retired` are. So the
+  defect is LATENT: the log reads healthy until its first quiet window, then flips straight to
+  `[FLAGGED]` and reads as a dead entry point. Do not wait for the flag to appear before
+  filing — an unmapped log reporting `[OK]` today is the same defect, unfired.
 - **`[NON-GUARD] <name>: written by <producer>`** — the log has a declared producer that is
   not a guard at all (today: `ask-form-lint`, written on the `asks_create` command path).
   Not a defect and not fixable by a declaration — there is no entry point to instrument, so
@@ -242,8 +298,11 @@ about whether anything still invokes it — which is precisely the dead-entry-po
 correctly?**), not as evidence of liveness.
 
 Also read the `Unmapped (...)` line if present: those calibration logs have no guard
-declaring them, so the check has no invocation evidence for them and can only ever flag
-them. That is a wiring gap to file, not a dead detector.
+declaring them, so the check has no invocation evidence for them and can therefore never
+report `[DORMANT]` — a quiet window takes them straight to `[FLAGGED]`. That is a wiring gap
+to file, not a dead detector, and it is worth filing while the log still reads `[OK]`. This
+sentence overstated the consequence until mt#4688; the corrected bullet above carries the
+detail.
 
 This is the LIVE-input complement to the canary's synthetic-input check; see
 `docs/architecture/evaluation-loop-fire-log.md` §Coverage-receipt gate.
@@ -303,7 +362,7 @@ disposition MUST carry both:
    which fields a detector ought to have written (deriving "missing" would need
    a per-detector table that could drift from the parsers). Then check your
    expectation against the log itself:
-   `jq -c 'select(.<field> != null)' .minsky/<name>-calibration.jsonl | wc -l`,
+   `jq -c 'select(.<field> != null)' ~/.local/state/minsky/projects/*/<name>-calibration.jsonl | wc -l`,
    and cite the count. The log file is the record; this command's output is a
    rendering of it.
 
@@ -320,23 +379,47 @@ Originating incident (2026-08-03, mem#827): a sweep dispositioned `wall-of-text`
 `trigger` at the top level of the same output. The false premise propagated into
 an Accepted ADR and two task specs before anyone checked the log.
 
-### A record without `captureSchema` is un-auditable, not clean (mt#3607)
+### A record with no judged text is un-auditable, not clean (mt#3607, corrected mt#4465)
 
-Records carry a `captureSchema` field once their writer started snapshotting the
-input it judged. **Absence is not a neutral fact — it means the judged text is
-unrecoverable, so that record can never be re-classified**, and any rate computed
-over a population containing them is a rate over records you cannot check.
+**Bound the FP rate to the records whose judged text you can actually read.** A
+record you cannot re-read is not evidence of correct behavior; it is evidence of
+nothing, which is a different thing and must not be averaged in.
 
-Split the population before computing anything:
+**`captureSchema` is one way a record carries judged text, not the only one — do
+not equate its absence with unrecoverable (mt#4465).** This section used to say
+absence "means the judged text is unrecoverable, so that record can never be
+re-classified." That was measurably false for four logs at once, and the sweep
+made the same understatement, so a reviewer trusting either was told to HOLD over
+text sitting in every record. Measured 2026-08-29: `untaken-action` carried
+`final_message_tail` on **390 of 390** records with zero `captureSchema`;
+`negative-existence-claim` carried a populated `claims[].excerpt` on **90 of 90**;
+`wall-of-text` carried `excerpt` on 433 of 620.
+
+Absence of the marker means the writer **did not adopt the shared capture
+contract** — which is what `capturedRecords` reports, and which is still worth
+fixing. It does not, by itself, mean the text is gone.
+
+**Read `judgedText.recoverability` and `recoverableRecords`; do not derive the
+split by hand from `captureSchema`.** The sweep now checks the marker AND each
+detector's own judged-text field (`JUDGED_TEXT_FIELDS` in
+`src/domain/calibration/calibration-sweep.ts`), at both record levels:
 
 ```
-jq -c 'select(.captureSchema != null)' .minsky/<name>-calibration.jsonl | wc -l   # auditable
-jq -c 'select(.captureSchema == null)' .minsky/<name>-calibration.jsonl | wc -l   # not
+# What to bound the rate to — the sweep's own numbers:
+#   Judged text: PARTIAL — <recoverableRecords> of <recordsAssessed>
 ```
 
-Report both counts in the disposition, and bound the FP rate to the auditable
-half. The pre-capture records are not evidence of correct behavior; they are
-evidence of nothing, which is a different thing and must not be averaged in.
+If you do split by hand, split on the field that log actually uses, not on
+`captureSchema`:
+
+```
+jq -c 'select(.final_message_tail != "")' ~/.local/state/minsky/projects/*/untaken-action-calibration.jsonl | wc -l
+```
+
+**If the output says no judged-text field is mapped for a detector, that GONE is
+about the MAP, not the data.** Check the raw JSONL for a field the sweep has not
+been told about, and add it to `JUDGED_TEXT_FIELDS` rather than dispositioning
+the log unratable.
 
 This matters most where the judged artifact is MUTABLE. For a PR-body surface,
 re-fetching the body and re-running the matchers answers "what would the detector
@@ -641,7 +724,27 @@ reviewing — loses the most.
   stay unreviewed and will be in the next sweep. This is expected, not an error;
   report the number rather than letting a later sweep reveal it.
 - **`clampedPaths`** — the token's count sat BELOW an existing watermark (a stale
-  token), so the watermark was left where it was rather than moved backwards.
+  token) on a log that is NOT stranded, so the watermark was left where it was
+  rather than moved backwards. Note this is a write that LANDS and changes
+  nothing, which is why it no longer counts toward `watermarkAdvanced` (mt#4941).
+- **`repairedPaths`** (mt#4941) — the counterpart to `clampedPaths`, on the same
+  starting condition and in the opposite direction. The watermark sat ABOVE the
+  log's own record count, so its basis was gone (the log was rotated, truncated,
+  or re-rooted under it). It is **reset to 0**, not to the count this sweep
+  observed: a stranded log renders `firesSinceLastReview: 0` and `newRecords:
+  []`, so you were shown nothing and classified nothing, and writing the observed
+  count would mark the whole live corpus reviewed by nobody. **Expect these logs
+  back in the next sweep with a real backlog** — that is the repair working, not
+  a failure. A repair does not count toward `watermarkAdvanced` either, so a
+  repair-only pass reads `watermarkAdvanced: false` beside a populated
+  `repairedPaths`: nothing reviewed, N strands cleared.
+
+  Until mt#4941 a stranded log was CLAMPED like a stale token, so its ack wrote
+  the stranding value straight back and the log stayed review-due forever with
+  nothing reviewable. If you see a log whose `watermarkStranded` is true and
+  whose ack reports it in `clampedPaths` rather than `repairedPaths`, you are
+  running a pre-mt#4941 build — including via a long-lived MCP daemon that
+  predates the merge.
 - **`unreceiptedPaths`** — review-due logs your token does not cover, so they were
   NOT advanced. Re-run read-only and ack again with the fresh token.
 - **`newlyDuePaths`** (mt#4391) — logs that crossed a threshold DURING your pass,

@@ -107,6 +107,10 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       // re-sort, and every pre-existing name keeps its relative position — which
       // is the property this assertion exists to guard.
       "context-fill-gauge",
+      // mt#4701 — appended at the TAIL of PROMPT_SCAN_GUARDS, so every existing
+      // co-firing sequence above is byte-identical; it lands here rather than
+      // last because the cadence detector below is deliberately relocated.
+      "cross-turn-hedge-detector",
       // calibration-review-cadence-detector is relocated to stay the true
       // LAST entry across the mt#2812 x mt#2824 merge (2026-07-16) — see
       // registry.ts's comment on this registration.

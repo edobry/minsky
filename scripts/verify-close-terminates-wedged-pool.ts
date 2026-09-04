@@ -9,24 +9,20 @@
  * The defect appears only when connections CANNOT drain, so the verification has
  * to produce that state for real.
  *
- * THE TECHNIQUE (mem#838). A local TCP proxy sits in front of the real pooler.
- * Once the pool is full it FREEZES: it stops forwarding bytes in both directions
- * but keeps every socket open and never propagates a close. That is exactly the
- * half-open shape — the peer is gone, the socket is not — so every in-flight
- * query's promise is left permanently unsettled, which is what makes
- * `Promise.all(connections.map(c => c.end()))` unable to settle.
+ * THE TECHNIQUE (mem#838) now lives in `scripts/lib/freeze-proxy.ts`, extracted
+ * by mt#4547 so its two non-obvious gotchas (per-chunk forwarding rather than
+ * `pipe()`; `family: 4` against oven-sh/bun#25633) exist in ONE place rather
+ * than in two copies that can drift. Read that module's docblock for the
+ * mechanism; this script is now just the mt#4515 assertion on top of it.
  *
- * Two gotchas that cost time before (both from mem#838, kept because they are
- * not obvious and this script would silently misbehave without them):
- *   1. Forward per-chunk with explicit listeners, NOT `pipe()`. Attaching a
- *      `data` listener before piping consumes and DROPS the early bytes,
- *      including postgres's startup message.
- *   2. `net.connect({ family: 4 })`. The pooler hostname resolves to several
- *      mixed-family addresses and Bun's multi-address connect path is defective
- *      (oven-sh/bun#25633, mt#3534).
+ * The proxy is the counter — no `lsof` needed. It knows exactly how many client
+ * sockets it is holding, which is the number this task is about.
  *
- * The proxy itself is the counter — no `lsof` needed. It knows exactly how many
- * client sockets it is holding, which is the number this task is about.
+ * SCOPE, and the sibling that covers the other half (mt#4547). This script
+ * measures the CLIENT side: did OUR sockets go away? It says nothing about what
+ * Supavisor thinks, and `pg_stat_activity` cannot answer that either — see
+ * `scripts/verify-supavisor-slot-reclaim.ts`, which reads the pooler's own
+ * client-connection gauge from the Supabase metrics endpoint.
  *
  * USAGE
  *   bun scripts/verify-close-terminates-wedged-pool.ts              # the fix
@@ -41,10 +37,12 @@
  * NOTE ON OUTPUT: this prints socket counts, timings and pass/fail only. The
  * connection string is read into a variable and never printed, on any path.
  */
-import { createServer, connect, type Socket } from "node:net";
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import {
+  readPoolerConnectionString,
+  upstreamTargetOf,
+  proxyConnectionString,
+  startFreezeProxy,
+} from "./lib/freeze-proxy";
 
 const UNBOUNDED = process.argv.includes("--unbounded");
 /** How long we allow close() to take before declaring it hung. */
@@ -52,86 +50,23 @@ const HANG_DEADLINE_MS = 15_000;
 /** Concurrent queries used to fill the pool before freezing. */
 const FILL_CONCURRENCY = 6;
 
-function readConnectionString(): string | null {
-  try {
-    const raw = readFileSync(join(homedir(), ".config/minsky/config.yaml"), "utf8");
-    // `Bun.YAML.parse`, not `js-yaml` (PR #3308 R1). The repo declares only
-    // `@types/js-yaml`, so importing the runtime package resolved transitively
-    // and would break the moment that transitive edge moved. Bun ships a YAML
-    // parser and this file already requires Bun via its shebang, so the
-    // dependency is removed rather than added.
-    //
-    // Cast because `YAML` is honoured at runtime (verified on the pinned Bun
-    // 1.3.14) but is absent from the installed `@types/bun` — the same shape as
-    // postgres-provider.ts's `socket` option, and scoped to this one property so
-    // nothing else loses checking.
-    const bunYaml = (Bun as { YAML?: { parse(text: string): unknown } }).YAML;
-    if (!bunYaml) return null; // older Bun without the built-in parser
-    const cfg = bunYaml.parse(raw) as {
-      persistence?: { postgres?: { connectionString?: string } };
-    } | null;
-    return cfg?.persistence?.postgres?.connectionString ?? null;
-  } catch {
-    return null;
-  }
-}
-
-const connectionString = readConnectionString();
+// `yaml` (a declared dependency, ^2.8.0) rather than the `Bun.YAML` global this
+// script used before the mt#4547 extraction. The original note warned against
+// `js-yaml` — only its @types are declared — but `yaml` is a different package,
+// is a real dependency, and is what `scripts/supabase/restart-project.ts`
+// already uses. That also retires the cast for a global absent from @types/bun.
+const connectionString = await readPoolerConnectionString();
 if (!connectionString) {
   console.log("SKIP: no persistence.postgres.connectionString configured");
   process.exit(0);
 }
 
-const upstream = new URL(connectionString.replace(/^postgres(ql)?:/, "http:"));
-const upstreamHost = upstream.hostname;
-const upstreamPort = Number(upstream.port || 6543);
-
-// ── the freeze-proxy ────────────────────────────────────────────────────────
-let frozen = false;
-const clientSockets = new Set<Socket>();
-const upstreamSockets = new Set<Socket>();
-
-const proxy = createServer((client) => {
-  clientSockets.add(client);
-  const server = connect({ host: upstreamHost, port: upstreamPort, family: 4 });
-  upstreamSockets.add(server);
-
-  // Explicit per-chunk forwarding (gotcha 1). While frozen, bytes are dropped
-  // rather than forwarded and no close is propagated — the half-open shape.
-  client.on("data", (chunk) => {
-    if (!frozen) server.write(chunk);
-  });
-  server.on("data", (chunk) => {
-    if (!frozen) client.write(chunk);
-  });
-
-  const drop = (s: Socket, set: Set<Socket>) => {
-    set.delete(s);
-    if (!frozen) {
-      try {
-        s.destroy();
-      } catch {
-        /* already gone */
-      }
-    }
-  };
-  client.on("close", () => drop(client, clientSockets));
-  server.on("close", () => drop(server, upstreamSockets));
-  client.on("error", () => drop(client, clientSockets));
-  server.on("error", () => drop(server, upstreamSockets));
-});
-
-await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", () => resolve()));
-const proxyPort = (proxy.address() as { port: number }).port;
-console.log(`proxy listening on 127.0.0.1:${proxyPort} -> upstream :${upstreamPort}`);
-
-// Point a client at the proxy, preserving credentials and database.
-const viaProxy = new URL(connectionString);
-viaProxy.hostname = "127.0.0.1";
-viaProxy.port = String(proxyPort);
+const upstream = upstreamTargetOf(connectionString);
+const proxy = await startFreezeProxy(upstream);
+console.log(`proxy listening on 127.0.0.1:${proxy.port} -> upstream :${upstream.port}`);
 
 const postgres = (await import("postgres")).default;
-const sql = postgres(viaProxy.toString(), {
+const sql = postgres(proxyConnectionString(connectionString, proxy.port), {
   max: FILL_CONCURRENCY,
   connect_timeout: 10,
   idle_timeout: 0,
@@ -145,7 +80,7 @@ try {
   await Promise.all(
     Array.from({ length: FILL_CONCURRENCY }, () => sql`select pg_sleep(0)`.catch(() => {}))
   );
-  const beforeFreeze = clientSockets.size;
+  const beforeFreeze = proxy.clientSocketCount();
   console.log(`sockets held after filling the pool: ${beforeFreeze}`);
   if (beforeFreeze === 0) {
     console.error("FAIL: the proxy is holding no sockets — the pool never opened through it");
@@ -153,14 +88,13 @@ try {
   }
 
   // ── freeze, then wedge every slot ─────────────────────────────────────────
-  frozen = true;
+  proxy.freeze();
   console.log("proxy frozen — sockets stay open, bytes stop moving");
   for (let i = 0; i < FILL_CONCURRENCY; i++) {
     void sql`select 1`.catch(() => {});
   }
   await new Promise((r) => setTimeout(r, 500));
-  const wedged = clientSockets.size;
-  console.log(`sockets held while wedged: ${wedged}`);
+  console.log(`sockets held while wedged: ${proxy.clientSocketCount()}`);
 
   // ── the measurement ───────────────────────────────────────────────────────
   const startedAt = Date.now();
@@ -177,7 +111,7 @@ try {
 
   if (outcome === hung) {
     console.log(`close() DID NOT RETURN within ${HANG_DEADLINE_MS}ms`);
-    console.log(`sockets still held: ${clientSockets.size}`);
+    console.log(`sockets still held: ${proxy.clientSocketCount()}`);
     if (UNBOUNDED) {
       console.log("PASS (negative control): the unbounded close hangs, as the defect predicts");
     } else {
@@ -187,7 +121,7 @@ try {
   } else {
     // Give the OS a moment to reflect the destroyed sockets.
     await new Promise((r) => setTimeout(r, 300));
-    const remaining = clientSockets.size;
+    const remaining = proxy.clientSocketCount();
     console.log(`close() returned in ${elapsedMs}ms; sockets still held: ${remaining}`);
     if (UNBOUNDED) {
       console.error("FAIL (negative control): the unbounded close was expected to hang");
@@ -202,15 +136,7 @@ try {
     }
   }
 } finally {
-  frozen = false;
-  for (const s of [...clientSockets, ...upstreamSockets]) {
-    try {
-      s.destroy();
-    } catch {
-      /* already gone */
-    }
-  }
-  await new Promise<void>((resolve) => proxy.close(() => resolve()));
+  await proxy.close();
 }
 
 process.exit(exitCode);

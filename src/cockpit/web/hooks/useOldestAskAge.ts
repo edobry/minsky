@@ -10,11 +10,13 @@
  * returns the FULL pending-operator-ask set, so it is the correct source for
  * "oldest across everything currently pending," independent of window state.
  *
- * Query key: ["vitals", "oldest-ask-age"]
+ * Query key: ["vitals", "oldest-ask-age", selectedSlug] (mt#4731 —
+ * selectedSlug in the key so switching projects invalidates and refetches).
  * staleTime: 5s, refetchInterval: 10s (matches useOpenAskCount's cadence so
  * the attention card's two numbers never drift out of sync with each other).
  */
 import { useQuery } from "@tanstack/react-query";
+import { useProject } from "../lib/project-context";
 
 interface AskListItem {
   createdAt: string;
@@ -24,8 +26,9 @@ interface AskListResponse {
   asks: AskListItem[];
 }
 
-async function fetchOldestAskAgeMs(): Promise<number | null> {
-  const res = await fetch("/api/asks");
+async function fetchOldestAskAgeMs(queryParam?: { project: string }): Promise<number | null> {
+  const qs = queryParam ? `?project=${encodeURIComponent(queryParam.project)}` : "";
+  const res = await fetch(`/api/asks${qs}`);
   if (!res.ok) throw new Error(`asks API: ${res.status}`);
   const body = (await res.json()) as AskListResponse;
   if (body.asks.length === 0) return null;
@@ -39,9 +42,10 @@ async function fetchOldestAskAgeMs(): Promise<number | null> {
 }
 
 export function useOldestAskAge() {
+  const { selectedSlug, queryParam } = useProject();
   return useQuery({
-    queryKey: ["vitals", "oldest-ask-age"],
-    queryFn: fetchOldestAskAgeMs,
+    queryKey: ["vitals", "oldest-ask-age", selectedSlug],
+    queryFn: () => fetchOldestAskAgeMs(queryParam),
     staleTime: 5_000,
     refetchInterval: 10_000,
   });

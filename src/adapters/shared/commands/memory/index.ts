@@ -41,7 +41,7 @@ import type {
   MemoryCreateInput,
   MemorySearchResult,
 } from "@minsky/domain/memory/types";
-import { MEMORY_TYPES, MEMORY_SCOPES } from "@minsky/domain/memory/types";
+import { MEMORY_TYPES, MEMORY_SCOPES, toMemorySummary } from "@minsky/domain/memory/types";
 import { checkDerivation } from "@minsky/domain/memory/validation";
 import {
   validateAssociations,
@@ -87,8 +87,12 @@ const memorySearchParams = {
     required: false as const,
   },
   projectId: {
-    schema: z.string(),
-    description: "Filter by project identifier",
+    // uuid FK to projects.id (mt#4668) — validated here, at the command boundary, so a
+    // malformed value is rejected with a message naming the parameter (mt#3155's MCP
+    // parse-on-provided-value path; normalizeCliParameters mirrors it on the CLI side)
+    // rather than reaching the driver as a raw 22P02 cast error.
+    schema: z.string().uuid(),
+    description: "Filter by project identifier (uuid)",
     required: false as const,
   },
   excludeSuperseded: {
@@ -127,8 +131,9 @@ const memoryListParams = {
     required: false as const,
   },
   projectId: {
-    schema: z.string(),
-    description: "Filter by project identifier",
+    // uuid FK to projects.id (mt#4668) — see memorySearchParams.projectId's comment.
+    schema: z.string().uuid(),
+    description: "Filter by project identifier (uuid)",
     required: false as const,
   },
   excludeSuperseded: {
@@ -137,17 +142,73 @@ const memoryListParams = {
     required: false as const,
     defaultValue: false,
   },
-  stale: {
+  unreadOrCold: {
     schema: z.boolean(),
     description:
-      "When true, filter to memories never accessed or older than the staleness threshold",
+      "When true, filter to memories never read OR last read longer ago than the threshold",
+    required: false as const,
+    defaultValue: false,
+  },
+  unreadOrColdDays: {
+    schema: z.number().int().positive(),
+    description: "Threshold (in days) for the --unread-or-cold filter; defaults to 90",
+    required: false as const,
+  },
+  // Deprecated aliases for the two params above, renamed by mt#4799 because
+  // "stale" already means "this memory's tracking task shipped" everywhere else
+  // in the codebase (`staleness.ts`, `task-state-assertion.ts`). Kept working
+  // rather than broken: this is an agent-facing tool surface, so a caller
+  // outside the repo can be passing --stale today and there is no way to find
+  // them. How the pair combines is `foldUnreadOrColdAliases` below.
+  stale: {
+    schema: z.boolean(),
+    description: "DEPRECATED alias for --unread-or-cold (mt#4799).",
     required: false as const,
     defaultValue: false,
   },
   stalenessDays: {
     schema: z.number().int().positive(),
-    description: "Threshold (in days) for the --stale filter; defaults to 90",
+    description: "DEPRECATED alias for --unread-or-cold-days (mt#4799).",
     required: false as const,
+  },
+  // mt#4767 curation filters. Added here as well as in the cockpit so the two
+  // surfaces can express the same populations — a filter the UI can reach and
+  // the tool cannot is how the two drift.
+  untagged: {
+    schema: z.boolean(),
+    description: "When true, filter to memories carrying no tags at all",
+    required: false as const,
+    defaultValue: false,
+  },
+  neverAccessed: {
+    schema: z.boolean(),
+    description:
+      "When true, filter to memories never read since creation. Narrower than " +
+      "--unread-or-cold, " +
+      "which also matches records that WERE read but not recently",
+    required: false as const,
+    defaultValue: false,
+  },
+  cold: {
+    schema: z.boolean(),
+    description:
+      "When true, filter to memories that were read at least once but not within " +
+      "--cold-days. Disjoint from --never-accessed; --unread-or-cold is the union of the two",
+    required: false as const,
+    defaultValue: false,
+  },
+  coldDays: {
+    schema: z.number().int().positive(),
+    description: "Threshold (in days) for the --cold filter; defaults to 14",
+    required: false as const,
+  },
+  onlySuperseded: {
+    schema: z.boolean(),
+    description:
+      "When true, return ONLY superseded memories. Not the inverse of " +
+      "--exclude-superseded, which can exclude them but never restrict to them",
+    required: false as const,
+    defaultValue: false,
   },
   limit: {
     schema: z.number().int().positive(),
@@ -183,6 +244,35 @@ const memoryListParams = {
   until: {
     schema: z.string(),
     description: "Only include memories created on/before this time (YYYY-MM-DD or 7d/24h/30m)",
+    required: false as const,
+  },
+  // mt#4761: sort/dir/offset/tags/nameContains — applied IN SQL by
+  // MemoryService.list(). Previously this surface capped results in-memory
+  // (applyListCap) with no ordering, sorting, or offset support at all.
+  sort: {
+    schema: z.enum(["created", "updated", "lastAccessed", "accessCount", "shortId", "name"]),
+    description:
+      "Sort field, applied in SQL. Defaults to 'created' (ignored when unreadOrCold:true)",
+    required: false as const,
+  },
+  dir: {
+    schema: z.enum(["asc", "desc"]),
+    description: "Sort direction. Defaults to 'desc' (ignored when unreadOrCold:true)",
+    required: false as const,
+  },
+  offset: {
+    schema: z.number().int().nonnegative(),
+    description: "Rows to skip, applied via SQL OFFSET. Defaults to 0",
+    required: false as const,
+  },
+  tags: {
+    schema: z.array(z.string()),
+    description: "Filter by tags — AND semantics: a matching record must carry EVERY listed tag",
+    required: false as const,
+  },
+  nameContains: {
+    schema: z.string(),
+    description: "Case-insensitive substring filter over name",
     required: false as const,
   },
   // mt#2817: opt-in compact projection — id/name/type/description/tags/dates,
@@ -236,8 +326,9 @@ const memoryCreateParams = {
     defaultValue: MEMORY_SCOPES.project,
   },
   projectId: {
-    schema: z.string().nullable(),
-    description: "Project identifier (required when scope=project)",
+    // uuid FK to projects.id (mt#4668) — see memorySearchParams.projectId's comment.
+    schema: z.string().uuid().nullable(),
+    description: "Project identifier (uuid; required when scope=project)",
     required: false as const,
   },
   tags: {
@@ -314,8 +405,9 @@ const memoryUpdateParams = {
     required: false as const,
   },
   projectId: {
-    schema: z.string().nullable(),
-    description: "New project identifier",
+    // uuid FK to projects.id (mt#4668) — see memorySearchParams.projectId's comment.
+    schema: z.string().uuid().nullable(),
+    description: "New project identifier (uuid)",
     required: false as const,
   },
   tags: {
@@ -451,8 +543,9 @@ const memorySupersededParams = {
     required: true as const,
   },
   projectId: {
-    schema: z.string().nullable(),
-    description: "Project identifier for the replacement",
+    // uuid FK to projects.id (mt#4668) — see memorySearchParams.projectId's comment.
+    schema: z.string().uuid().nullable(),
+    description: "Project identifier for the replacement (uuid)",
     required: false as const,
   },
   tags: {
@@ -617,6 +710,53 @@ async function resolveMemoryService(
     // measurement and no new service dependency.
     interveningTaskLookup: createInterveningTaskLookup(db),
   });
+}
+
+// ─── mt#4799 deprecated-alias folding ────────────────────────────────────────
+
+/**
+ * The alias-bearing subset of `memory.list`'s params (mt#4799).
+ *
+ * Named `...AliasInput`, not `...AliasParams`: it is a projection this helper
+ * takes, not a handler's param type, and `custom/no-hand-rolled-command-params`
+ * reserves the `*Params` namespace for types derived from a params map.
+ */
+export interface UnreadOrColdAliasInput {
+  unreadOrCold?: boolean;
+  stale?: boolean;
+  unreadOrColdDays?: number;
+  stalenessDays?: number;
+}
+
+/**
+ * Fold the deprecated `stale` / `stalenessDays` params into the current
+ * `unreadOrCold` / `unreadOrColdDays` names (mt#4799).
+ *
+ * **The two halves combine DIFFERENTLY, and neither is an oversight.** PR #3593
+ * R1 caught a comment here claiming `unreadOrCold` "wins when both are
+ * supplied". It does not — and for the flag it cannot:
+ *
+ * - **The flag ORs.** Both params declare `defaultValue: false`, so an omitted
+ *   flag and an explicit `--unread-or-cold=false` arrive at this function
+ *   identically. There is no value a caller can send meaning "off, and override
+ *   the alias", so precedence is not expressible here; the honest semantics are
+ *   "either flag turns the filter on", which is also what a caller passing
+ *   only the deprecated name expects.
+ * - **The threshold uses `??`, which IS precedence.** `unreadOrColdDays` has no
+ *   default, so `undefined` genuinely distinguishes "not supplied" from any
+ *   real value, and an explicit current-name threshold beats the alias.
+ *
+ * Extracted from the inline expression so the asymmetry is stated once and
+ * asserted directly, rather than being re-derived from two operators.
+ */
+export function foldUnreadOrColdAliases(params: UnreadOrColdAliasInput): {
+  unreadOrCold: boolean;
+  unreadOrColdDays: number | undefined;
+} {
+  return {
+    unreadOrCold: Boolean(params.unreadOrCold || params.stale),
+    unreadOrColdDays: params.unreadOrColdDays ?? params.stalenessDays,
+  };
 }
 
 // ─── ADR-021 project scope resolution ────────────────────────────────────────
@@ -798,9 +938,12 @@ export function registerMemoryCommands(
       const id = await resolveMemoryIdInput(params.id, ctx ?? {});
 
       const service = await resolveMemoryService(deps, ctx ?? {});
-      const record = await service.get(id);
+      // mt#4743: the annotating read. `search()` has carried a staleness verdict since
+      // mt#1709 while this path — the one an agent takes when a handoff or a spec named a
+      // record BY ID — returned the row unannotated, which is the load-bearing case.
+      const result = await service.getWithStaleness(id);
 
-      if (!record) {
+      if (!result) {
         // mt#2696 R1: name both what the caller passed AND how it was
         // interpreted (full UUID vs prefix) rather than echoing the raw
         // input unconditionally — a resolved prefix that no longer matches
@@ -820,7 +963,13 @@ export function registerMemoryCommands(
         throw new Error(message);
       }
 
-      return record;
+      // mt#4743: ADDITIVE. Every field of the record stays at the path it has always been
+      // at and `staleness` sits alongside them, so no existing `memory.get` consumer sees a
+      // shape change; the key is absent entirely for a record that declares no retirement
+      // relationship, matching `MemorySearchResult`'s optional-not-"current" convention.
+      return result.staleness === undefined
+        ? result.record
+        : { ...result.record, staleness: result.staleness };
     },
   });
 
@@ -829,7 +978,12 @@ export function registerMemoryCommands(
     id: "memory.list",
     category: CommandCategory.MEMORY,
     name: "list",
-    description: "Browse memory records with optional type/scope/project filters.",
+    description:
+      "Browse memory records with optional type/scope/project filters, sorted and paginated " +
+      "in SQL (mt#4761). Defaults to created desc when --sort is omitted. Supports --sort " +
+      "(created|updated|lastAccessed|accessCount|shortId|name), --dir (asc|desc), --offset, " +
+      "--tags (AND semantics — every listed tag must be present), and --name-contains " +
+      "(case-insensitive substring match).",
     parameters: memoryListParams,
     execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.list", {
@@ -851,44 +1005,73 @@ export function registerMemoryCommands(
       const sinceTs = parseTime(params.since);
       const untilTs = parseTime(params.until);
 
-      const records = await service.list({
+      // mt#4761: sort/dir/offset/tags/nameContains forwarded to the domain
+      // filter, which now applies them (plus limit) IN SQL — a filter that
+      // existed only for the cockpit was a second implementation waiting to
+      // happen. `limit` is passed through too: MemoryService.list() defaults
+      // it to DEFAULT_LIST_CAP (500) when omitted, matching pre-mt#4761
+      // behavior for this surface.
+      const listFilter = {
         type: params.type,
         scope: params.scope,
         projectId: params.projectId,
         projectScope,
         excludeSuperseded: params.excludeSuperseded,
-        stale: params.stale,
-        stalenessDays: params.stalenessDays,
+        // mt#4799: the deprecated aliases fold in here, so the domain surface
+        // sees only the current names. See {@link foldUnreadOrColdAliases} for
+        // why the two halves combine DIFFERENTLY.
+        ...foldUnreadOrColdAliases(params),
+        untagged: params.untagged,
+        neverAccessed: params.neverAccessed,
+        cold: params.cold,
+        coldDays: params.coldDays,
+        onlySuperseded: params.onlySuperseded,
         association:
           params.associationType && params.associationTarget
             ? { type: params.associationType, targetId: params.associationTarget }
             : undefined,
         since: sinceTs !== null ? new Date(sinceTs).toISOString() : undefined,
         until: untilTs !== null ? new Date(untilTs).toISOString() : undefined,
-      });
+        sort: params.sort,
+        dir: params.dir,
+        limit: params.limit,
+        offset: params.offset,
+        tags: params.tags,
+        nameContains: params.nameContains,
+      };
 
-      // mt#2817: loud cap — never silently drop rows past a default limit.
-      // `total` is the true count of everything matching the filters above
-      // (the SQL query already applied since/until/type/scope/etc, so the
-      // fetched array IS the full matching set before this cap).
-      const { applyListCap } = await import("@minsky/domain/utils/list-pagination");
-      const { items: cappedRecords, meta: truncation } = applyListCap(records, params.limit);
+      const records = await service.list(listFilter);
+
+      // mt#4761 (PR #3488 R1 NON-BLOCKING 2): `applyListCap` runs
+      // UNCONDITIONALLY — the returned/truncated computation must not assume
+      // `list()` already capped to `params.limit`. A `MemoryServiceSurface`
+      // fake that ignores `limit` entirely (returns the full unfiltered set,
+      // e.g. `memory-commands.test.ts`'s fake) needs this exactly as much as
+      // the real SQL-backed service does, which already returns a page at
+      // most `params.limit` long — capping an already-capped array is a
+      // no-op, so this is safe either way.
+      const { applyListCap, computeListTruncation } = await import(
+        "@minsky/domain/utils/list-pagination"
+      );
+      const capped = applyListCap(records, params.limit);
+      const cappedRecords: MemoryRecord[] = capped.items;
+      let truncation: { returned: number; total: number; truncated: boolean } = capped.meta;
+
+      // Prefer a true SQL count over `applyListCap`'s own `total` (which is
+      // only accurate when `records` already held every matching row —
+      // false once `list()` applies its own SQL-side cap).
+      if (service.count) {
+        const total = await service.count(listFilter);
+        truncation = computeListTruncation(total, cappedRecords.length);
+      }
 
       // mt#2817: opt-in compact projection — strip content (and every other
       // non-summary field) so a browse-style query doesn't ship multi-KB
       // bodies the caller didn't ask for. Default (summary:false) is
-      // unchanged from the pre-mt#2817 shape.
-      const outputRecords = params.summary
-        ? cappedRecords.map((r) => ({
-            id: r.id,
-            name: r.name,
-            type: r.type,
-            description: r.description,
-            tags: r.tags,
-            createdAt: r.createdAt,
-            updatedAt: r.updatedAt,
-          }))
-        : cappedRecords;
+      // unchanged from the pre-mt#2817 shape. mt#4761: reuses the SAME
+      // projection the cockpit's memories-list widget now uses
+      // (`toMemorySummary`), so the two surfaces cannot drift.
+      const outputRecords = params.summary ? cappedRecords.map(toMemorySummary) : cappedRecords;
 
       return { records: outputRecords, ...truncation };
     },

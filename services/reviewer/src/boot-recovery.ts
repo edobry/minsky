@@ -86,6 +86,8 @@ import {
   type WebhookOutcome,
 } from "./db/schemas/webhook-events-schema";
 import { updateOutcome, extractPgErrorContext } from "./webhook-events";
+import { recordReviewFailure } from "./failure-alert";
+import type { AskEmitter } from "./ask-emitter";
 import { runReview, type RunReviewDeps, type ReviewResult } from "./review-worker";
 import { log } from "./logger";
 
@@ -218,7 +220,13 @@ export async function recoverPendingReviews(
   config: ReviewerConfig,
   recoveryCfg: BootRecoveryConfig,
   runReviewFn: RunReviewFn = runReview,
-  deps: RunReviewDeps = {}
+  deps: RunReviewDeps = {},
+  // mt#4881: operator alerting for recovered reviews that fail. A separate
+  // parameter rather than a field on `deps` — `RunReviewDeps` is forwarded
+  // wholesale into `runReview`, and the emitter is this module's concern, not
+  // the worker's. Optional: when absent, `recordReviewFailure` still writes the
+  // outcome row and logs that no emitter was wired.
+  askEmitter?: AskEmitter
 ): Promise<BootRecoveryResult> {
   if (!recoveryCfg.enabled) {
     log.info("boot_recovery.disabled", { event: "boot_recovery.disabled" });
@@ -326,17 +334,26 @@ export async function recoverPendingReviews(
               ? "skipped"
               : "failed_at_reviewer";
 
-        void updateOutcome(
-          db,
-          row.deliveryId,
-          outcome,
-          outcome === "failed_at_reviewer"
-            ? {
-                message: result.reason ?? "recovered review did not complete with status=reviewed",
-                stage: "boot_recovery",
-              }
-            : undefined
-        );
+        if (outcome === "failed_at_reviewer") {
+          // mt#4881: same outcome write as before, plus the operator alert.
+          // 33 of the measured 88 failures carry stage "boot_recovery" — a seam
+          // that only covered server.ts would leave ~38% of the class dark.
+          void recordReviewFailure(
+            db,
+            {
+              owner: target.owner,
+              repo: target.repo,
+              prNumber: target.prNumber,
+              headSha: target.headSha,
+              deliveryId: row.deliveryId,
+              stage: "boot_recovery",
+              message: result.reason ?? "recovered review did not complete with status=reviewed",
+            },
+            { askEmitter }
+          );
+        } else {
+          void updateOutcome(db, row.deliveryId, outcome);
+        }
       })
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
@@ -346,10 +363,20 @@ export async function recoverPendingReviews(
           original_delivery_id: row.deliveryId,
           error: message,
         });
-        void updateOutcome(db, row.deliveryId, "failed_at_reviewer", {
-          message,
-          stage: "boot_recovery",
-        });
+        // mt#4881: the thrown half of the boot-recovery path.
+        void recordReviewFailure(
+          db,
+          {
+            owner: target.owner,
+            repo: target.repo,
+            prNumber: target.prNumber,
+            headSha: target.headSha,
+            deliveryId: row.deliveryId,
+            stage: "boot_recovery",
+            message,
+          },
+          { askEmitter }
+        );
       });
 
     dispatched++;

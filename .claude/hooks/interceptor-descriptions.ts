@@ -363,9 +363,19 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     "claim-provenance-scan",
     {
       description:
-        'Records when a task spec asserts a file-level COLLISION with named other work, or a NEGATIVE OWNERSHIP claim ("unowned", "no task covers this"), and no call in the session could have established it — a `pull_request_read` for the cited PR, a path-filtered `git_log`, or a `tasks_search` preceding the write. Fires at the spec-WRITE seam, where both originating incidents wrote and where no PreToolUse guard existed before. Record-only: measured at one true positive in 16 fires (mt#4190 tunes it).',
+        'Records when a task spec makes a claim ABOUT OTHER WORK that no call in the session could have established. Four classes, each with its own discharge: a file-level COLLISION with named other work (a `pull_request_read` for the cited PR, or a path-filtered `git_log`); a NEGATIVE OWNERSHIP claim — "unowned", "no task covers this" (a preceding `tasks_search`); a REMAINING-WORK assertion about a named task, mt#4299 (a STATUS read of that task); and a CAUSAL ATTRIBUTION to a named task — "consistent with mt#X", "because mt#X" — mt#4876, whose discharge is deliberately narrower than the third\'s: a CONTENT read (`tasks_spec_get`, or `tasks_get` with `includeSpec`) or authorship, never a status read, because a status says where a task sits in the lifecycle and only its body says what it claims. Every join is per-paragraph (per-sentence for the fourth) and per-subject, so reading one cited task never discharges a claim about another. Fires at the spec-WRITE seam, where the originating incidents wrote and where no PreToolUse guard existed before. Record-only: measured at one true positive in 16 fires (mt#4190 tunes it).',
       failureClasses: ["unfounded-claim"],
       provenance: [hook("claim-provenance-scan"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "criterion-reconciliation-scan",
+    {
+      description:
+        'Records when a spec write EXPLAINS that a Success Criterion or Acceptance Test is unmet — "is not satisfied", "cannot be satisfied", "unsatisfiable" — names that criterion, and leaves the criterion\'s own normative text untouched in the same revision. Fires at the spec-WRITE seam, one round earlier than the reviewer that caught this four times in eight days (mt#4038, mt#4162, mt#4320; mt#4076 wrote only to the PR body and never reaches this seam). Both halves of the join are sections of the SAME document, so it needs no database and no transcript. Unlike its seam siblings it IS on ADR-024\'s ladder and says so: the discharging action is structural but cannot be the trigger, so the nominating half is a phrase set by necessity — Rung 1 only, and a recall bound is answered by a rung climb rather than a widened list. Record-only at ship; the evaluation stream carries the miss denominator.',
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("criterion-reconciliation-scan"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
@@ -649,9 +659,19 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     "negative-existence-claim-detector",
     {
       description:
-        "Records a claim that something does not exist — zero call sites, nothing implements X — when the search behind it returned at most one hit and the prose cites a task that already shipped the thing. Log-only.",
+        "Records a claim that something does not exist — zero call sites, nothing implements X — when the search behind it was thin (at most one hit) OR narrow (scoped to a proper subtree of the repo) and the prose cites a task that already shipped the thing. A claim that carries the searched subtree as a qualifier is correct authoring and is suppressed. Log-only.",
       failureClasses: ["unfounded-claim"],
       provenance: [hook("negative-existence-claim-detector"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "cross-turn-hedge-detector",
+    {
+      description:
+        "Records a claim the agent HEDGED in an earlier turn and then restated as fact in a later one, with no tool call naming that subject in between. Gives claim-confidence.mdc's warrant vocabulary a falsifier — until now nothing matched on it. Subjects are decidable entity refs only; the hedge turn's OWN lookup is deliberately not counted as resolving, since it is usually what produced the hedge. Log-only.",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("cross-turn-hedge-detector"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
@@ -710,6 +730,26 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     {
       description:
         "The `AskUserQuestion` half of the operator-deferral evaluation: records option labels that defer an action the agent could have probed for itself.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("operator-deferral-detector")],
+      stratum: "registry",
+    },
+  ],
+  [
+    "operator-deferral-artifact-surface-pr",
+    {
+      description:
+        "The PR-body half of the operator-deferral evaluation: records a deferral written into a PR body at create or edit time — the surface `user-preferences.mdc §Probe before deferring` names FIRST, and the one the detector's chat-prose and AskUserQuestion surfaces structurally could not read.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("operator-deferral-detector")],
+      stratum: "registry",
+    },
+  ],
+  [
+    "operator-deferral-artifact-surface-spec",
+    {
+      description:
+        "The task-spec half of the same evaluation: records a deferral written into a spec via `tasks_spec_patch`. Split from its PR-body twin only because a guard's matcher tokens must be filed under the registry family that owns them.",
       failureClasses: ["lost-signal"],
       provenance: [hook("operator-deferral-detector")],
       stratum: "registry",
@@ -830,16 +870,6 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
         'Injects when the final message reports an incident and names the remediation as the principal\'s, with no ask carrying `severity: "incident"`.',
       failureClasses: ["lost-signal"],
       provenance: [hook("turn-end-unescalated-incident-scan"), HOOK_OBSERVERS_RULE],
-      stratum: "registry",
-    },
-  ],
-  [
-    "stop-at-decision-scan",
-    {
-      description:
-        "Records the silent stop at a ripe decision: a turn whose mutations are all evidence-writes, ending having minted nothing and said nothing. Log-only.",
-      failureClasses: ["lost-signal"],
-      provenance: [hook("stop-at-decision-scan"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],

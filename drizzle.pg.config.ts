@@ -71,6 +71,7 @@ export default {
     "./packages/domain/src/storage/schemas/task-embeddings.ts",
     "./packages/domain/src/storage/schemas/rule-embeddings.ts",
     "./packages/domain/src/storage/schemas/task-relationships.ts",
+    "./packages/domain/src/storage/schemas/work-package-schema.ts",
     "./packages/domain/src/storage/schemas/provenance-schema.ts",
     "./packages/domain/src/storage/schemas/agent-transcripts-schema.ts",
     "./packages/domain/src/storage/schemas/agent-transcript-turns-schema.ts",

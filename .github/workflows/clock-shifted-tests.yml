@@ -1,0 +1,95 @@
+name: Clock-Shifted Tests
+
+# mt#4726 — run the suite with the wall clock moved +30 days, to catch fixtures
+# that will expire soon before they redden a real PR.
+#
+# THIS JOB IS INFORMATIONAL AND MUST NOT BECOME A REQUIRED CHECK. It does not run
+# on pull_request at all, so branch protection cannot select it. Its output is a
+# heads-up with ~30 days of lead time; a red run here means a fixture is going to
+# break, not that anything is broken now.
+#
+# Sibling precedent in this repo: `test-forced-tz` in ci.yml varies the TIMEZONE
+# across the whole suite for the same reason on a different axis, and
+# `integration-tests.yml` is the model for a deliberately non-blocking job.
+#
+# Why a scheduled run rather than a lint rule: the static alternative — flag an
+# absolute ISO date literal in a test that also references a `*_MAX_AGE_MS`
+# constant — was measured at ~20 matching files of which exactly ONE was broken,
+# because a rule cannot see whether the literal flows into an injected clock.
+# This observes the actual failure instead of a proxy for it.
+#
+# GitHub's documented `schedule` behaviour, which shapes three choices here:
+#   - "Scheduled workflows run on the latest commit on the default branch." So
+#     this cannot be exercised from a PR branch — use workflow_dispatch for that.
+#   - "The `schedule` event can be delayed during periods of high loads ... High
+#     load times include the start of every hour." Hence :37, not :00.
+#   - "In a public repository, scheduled workflows are automatically disabled
+#     when no repository activity has occurred in 60 days." edobry/minsky is
+#     public and pushes daily, so this is recorded rather than mitigated — but it
+#     is the documented way a nightly stops silently, and a job that stopped looks
+#     exactly like a job that found nothing.
+
+on:
+  schedule:
+    # 07:37 UTC daily. Off the hour boundary per the delay guidance above.
+    - cron: "37 7 * * *"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Days to shift the clock forward (negative shifts backward)"
+        required: false
+        default: "30"
+
+env:
+  # Same mt#3623 install-flake hedge every other workflow in this repo carries.
+  BUN_FEATURE_FLAG_DISABLE_STREAMING_INSTALL: "1"
+
+permissions:
+  contents: read
+
+jobs:
+  clock-shifted:
+    runs-on: ubuntu-latest
+    # Sized per ci.yml's rule (observed healthy duration + the largest single
+    # step cap in the job). The shifted run is the same corpus as `build`'s test
+    # step plus the hooks suite, and the largest step cap here is 15 (bun
+    # install), so this tracks `test-forced-tz`'s 25.
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Cache Bun install (shared root + services/reviewer)
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock', 'services/reviewer/bun.lock') }}
+          restore-keys: |
+            bun-install-${{ runner.os }}-
+
+      - name: Install dependencies
+        timeout-minutes: 15
+        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
+
+      # ripgrep is a runtime dependency of session.grep_search (mt#3163); the
+      # shifted run covers those tests, so it needs the same install the `build`
+      # and `test-forced-tz` jobs do. Kept identical to those steps on purpose.
+      - name: Install ripgrep (required by session.grep_search)
+        timeout-minutes: 12
+        run: |
+          for i in 1 2 3; do
+            if sudo timeout 90 apt-get update && sudo timeout 90 apt-get install -y ripgrep; then break; fi
+            if [ "$i" = 3 ]; then exit 1; fi
+            echo "ripgrep install failed or hung (mt#4300) - retry $i"; sleep 10
+          done
+
+      # The runner refuses to start the suite unless it has first PROVEN the
+      # clock is actually shifted (its preflight, mt#4726 SC6). Exit 2 means the
+      # run itself is broken; exit 1 means a real fixture is going to expire.
+      - name: Run the suite with the clock shifted forward
+        run: bun scripts/run-tests-clock-shifted.ts --days=${{ github.event.inputs.days || '30' }}

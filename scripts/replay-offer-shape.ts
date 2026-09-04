@@ -39,8 +39,8 @@
  * runtime state and are not present in CI.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { resolve } from "node:path";
+import { calibrationLogPath } from "../.minsky/hooks/dispatcher";
 import {
   findOfferShape,
   hasMenuShape,
@@ -59,10 +59,15 @@ interface Record_ {
   timestamp?: string;
 }
 
-const DEFAULT_LOGS = [
-  ".minsky/ask-routing-deferral-calibration.jsonl",
-  ".minsky/operator-deferral-calibration.jsonl",
-];
+/**
+ * mt#4971: resolved through the WRITER's own function rather than the pre-mt#4748
+ * repo paths, which no longer exist — reading them produced a SKIP that looked like
+ * "no records" rather than "wrong location". `fallbackCwd` (not `projectDir`) keeps
+ * the resolver's `CLAUDE_PROJECT_DIR` tier ahead of this checkout.
+ */
+const DEFAULT_LOGS = ["ask-routing-deferral", "operator-deferral"].map((name) =>
+  calibrationLogPath(name, { fallbackCwd: resolve(import.meta.dir, "..") })
+);
 
 const argv = process.argv.slice(2);
 const verbose = argv.includes("--verbose");
@@ -73,21 +78,25 @@ for (let i = 0; i < argv.length; i++) {
     if (next) explicit.push(next);
   }
 }
-// Resolve against the repo the logs actually live in: a session clone does not
-// carry them (they are gitignored runtime state of the MAIN workspace).
-const roots = [process.cwd(), join(homedir(), "Projects", "minsky")];
-const logs = explicit.length > 0 ? explicit : DEFAULT_LOGS;
+// mt#4971 / PR #3624 R2: the repo-root probing that stood here is GONE, not
+// relocated. It existed because `DEFAULT_LOGS` held REPO-RELATIVE names, so a
+// root had to be prepended; `calibrationLogPath` now returns absolute paths, and
+// `join(root, "/abs/path")` CONCATENATES rather than ignoring the root (measured:
+// `join("/repo", "/state/x.jsonl")` is `/repo/state/x.jsonl` — that is `resolve`'s
+// behaviour, not `join`'s). So every probed candidate was unmatchable and the
+// `?? rel` fallback carried the real work. Dead code that reads as live logic.
+//
+// An explicit `--log` may still be relative to the caller's cwd, so it is the one
+// thing that needs resolving.
+const logs = explicit.length > 0 ? explicit.map((p) => resolve(p)) : DEFAULT_LOGS;
 
 let anyRead = false;
 const tally = new Map<string, { before: number; stillFires: number; unreproducible: number }>();
 const stopped: Array<{ leg: string; context: string }> = [];
 
-for (const rel of logs) {
-  const path = explicit.includes(rel)
-    ? rel
-    : (roots.map((r) => join(r, rel)).find((p) => existsSync(p)) ?? rel);
+for (const path of logs) {
   if (!existsSync(path)) {
-    process.stdout.write(`SKIP: log not found: ${rel}\n`);
+    process.stdout.write(`SKIP: log not found: ${path}\n`);
     continue;
   }
   anyRead = true;
@@ -161,7 +170,7 @@ for (const rel of logs) {
   }
   const reproducible = offerMatches - unreproducible;
   process.stdout.write(
-    `${rel}\n  injected=${injected} injection-unknown=${unknownInjection}\n` +
+    `${path}\n  injected=${injected} injection-unknown=${unknownInjection}\n` +
       `  offer-shape matches=${offerMatches}  reproducible-on-captured-window=${reproducible} ` +
       `not-reproducible=${unreproducible}\n` +
       `  of the reproducible: still firing=${stillFiring} now silent=${reproducible - stillFiring}\n`

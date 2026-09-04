@@ -35,6 +35,7 @@
 
 import { parsePositiveIntEnv } from "./config";
 import type { AlertSink } from "./alert-sink";
+import { GITHUB_APP_SETTINGS_URL, type AskEmitter } from "./ask-emitter";
 import { log } from "./logger";
 
 /**
@@ -179,6 +180,31 @@ export function configureGithubAuthHealthAlertSink(sink: AlertSink | null): void
 }
 
 /**
+ * The operator-incident ask emitter, injected once at server boot (mt#2719).
+ *
+ * `null` until configured, in which case a trip still logs and still pushes to
+ * the alert sink — the ask + page are ADDITIVE, exactly as the sink is. This is
+ * the third, independent surface for one trip, and they degrade independently:
+ * a missing DB costs the ask, a missing Telegram config costs the page, and the
+ * error log survives both.
+ *
+ * Why an ask at all when the sink already reaches Telegram: the sink is
+ * fire-and-forget prose with no state. The ask is a durable, respondable record
+ * on the cockpit operator surface, and it is what carries `severity: "incident"`
+ * into the substrate's paging + rate-limiting machinery (mt#3595).
+ */
+let configuredAskEmitter: AskEmitter | null = null;
+
+/**
+ * Wire the shared auth-health tracker's operator-incident ask emitter (mt#2719).
+ * Called once from the reviewer server boot with the same `AskEmitter` instance
+ * the sweepers use, per the mt#2451 single-instance convention.
+ */
+export function configureGithubAuthHealthAskEmitter(emitter: AskEmitter | null): void {
+  configuredAskEmitter = emitter;
+}
+
+/**
  * Process-wide auth-health tracker shared by both sweepers. The default
  * emitters log the distinct `reviewer.auth_health_failing` /
  * `reviewer.auth_health_recovered` events and push a trip to the configured
@@ -216,6 +242,31 @@ export const githubAuthHealth = new AuthHealthTracker(DEFAULT_AUTH_HEALTH_THRESH
       log.warn("reviewer.auth_health_alert_sink_unhandled", {
         event: "reviewer.auth_health_alert_sink_unhandled",
         error: sinkErr instanceof Error ? sinkErr.message : String(sinkErr),
+      });
+    });
+
+    // mt#2719: the paging tier. Deduped by the SAME `tripped` flag that guards
+    // this whole callback — `onTrip` fires exactly once per trip and re-arms
+    // only after a recovery — so no dedup state is added here.
+    //
+    // Fire-and-forget with the same guard as the sink above: `onTrip` is
+    // synchronous by contract (it is called from `recordFailure`, on the
+    // sweepers' error path), and a paging failure must never propagate into a
+    // sweep cycle. `emitOperatorIncidentAlert` already never rejects; the
+    // `.catch` is belt-and-braces against a future emitter that violates that.
+    void Promise.resolve(
+      configuredAskEmitter?.emitOperatorIncidentAlert({
+        source: "github_auth",
+        consecutiveFailures,
+        threshold,
+        observedBy: source,
+        lastError,
+        remediationUrl: GITHUB_APP_SETTINGS_URL,
+      })
+    ).catch((askErr: unknown) => {
+      log.warn("reviewer.auth_health_ask_unhandled", {
+        event: "reviewer.auth_health_ask_unhandled",
+        error: askErr instanceof Error ? askErr.message : String(askErr),
       });
     });
   },

@@ -49,6 +49,37 @@
  * a general task-id match would flag nearly every record in the corpus. Only a clause that
  * states a RETIREMENT RELATIONSHIP counts.
  *
+ * ## The text scan matches the RESIDUAL, not the body (mt#4454)
+ *
+ * A clause states a retirement relationship only when the record is ASSERTING it. A record that
+ * QUOTES one — from another memory, from a spec, from its own documented test fixture — is
+ * giving an example, and the grammar is identical either way, so no pattern can tell them
+ * apart. ADR-024 Rung 1's prefilter can: elide the quoting contexts, then match what is left.
+ * `extractTrackingTaskRefs` runs {@link elideQuotedAndMarkdown} first for that reason.
+ *
+ * **Both halves earn their place, measured on real records.** mem#484 quotes another memory's
+ * budget in PROSE QUOTES and survives markdown elision untouched; mem#1340 carries a
+ * discrimination-control table whose fixture sits in a CODE SPAN. Either half alone leaves one
+ * of them firing.
+ *
+ * ## The known false-negative, stated rather than discovered later
+ *
+ * ADR-024's half (b) is *"prose-quoted spans **and explicit discussion-framing**"*, and only
+ * the first is implemented (see `../text/prose-elision.ts`). So a record that quotes its OWN
+ * budget — *`this memory set for itself ("retires when mt#4525 … land")`* — is elided along
+ * with the records quoting someone else's, because nothing here distinguishes whose clause is
+ * being quoted.
+ *
+ * Measured 2026-08-30 over the live corpus: of 10 records whose stored association held a ref
+ * this prefilter suppresses, **2 (mem#1237, mem#361) are self-quotations** — so the cost is
+ * real and roughly a fifth of the affected set, not a hypothetical. It is accepted rather than
+ * fixed here because discussion-framing detection is the harder half ADR-024 flags as *"an
+ * empirical gate, not an assumption"*, and because the recall loss is a record that will simply
+ * not be annotated, against a precision gain on records that were being annotated WRONGLY. If
+ * self-quotation turns out to be commoner than 2-in-10, that is the evidence for building the
+ * second half — not a reason to widen the patterns, which is the arms race ADR-024 §Context
+ * exists to end.
+ *
  * @see mt#1709 — this module
  * @see docs/memory-staleness-annotation.md — patterns + annotation shape
  * @see docs/architecture/adr-012-memory-entity-associations.md — the association source
@@ -56,7 +87,9 @@
  */
 
 import { renderMeasurementNote, type MeasurementDecay } from "./measurement-decay";
+import { renderTaskStateNote, type TaskStateDrift } from "./task-state-assertion";
 import { TRACKS_TASK_ASSOCIATION } from "./associations";
+import { elideQuotedAndMarkdown } from "../text/prose-elision";
 
 /**
  * Task statuses that mean the tracked work has landed.
@@ -178,6 +211,17 @@ export interface MemoryStaleness {
    * the system.
    */
   measurement?: MeasurementDecay;
+  /**
+   * Trigger 3's finding (mt#4743): the record asserts another task's status, and that status
+   * no longer matches the task record. Independent of the two fields above for the same reason
+   * `measurement` is — a record can carry any combination — so it is a sibling field.
+   *
+   * Unlike `measurement`, this does NOT force `outcome` to `"stale"`. A record whose
+   * PRESCRIPTION is still live can carry a dated status mention in a lineage bullet; that is
+   * worth flagging to a reader without asserting the whole record has expired. `outcome`
+   * is promoted only when a drifted assertion names a task that has since gone terminal.
+   */
+  taskStateDrift?: TaskStateDrift;
 }
 
 /**
@@ -197,7 +241,22 @@ export interface StalenessDetectionInput {
  * the fall-through: an association map that lacks `tracksTask` is NOT treated as an
  * authoritative "no tracking task" — see the module docblock.
  */
-export function extractTrackingTaskRefs(record: StalenessDetectionInput): {
+/** Options for {@link extractTrackingTaskRefs}. See the field's comment before using it. */
+export interface ExtractTrackingTaskRefsOptions {
+  /**
+   * Match on the RAW body instead of the quotation-elided residual — i.e. reproduce the
+   * pre-mt#4454 behaviour, including its false positives.
+   *
+   * Only `scripts/rederive-memory-associations.ts` sets this, to date stored associations against
+   * the derivation that produced them (mt#4765). Do not set it on any read or write path.
+   */
+  skipQuotationElision?: boolean;
+}
+
+export function extractTrackingTaskRefs(
+  record: StalenessDetectionInput,
+  options?: ExtractTrackingTaskRefsOptions
+): {
   refs: string[];
   source: StalenessRefSource;
 } {
@@ -209,14 +268,35 @@ export function extractTrackingTaskRefs(record: StalenessDetectionInput): {
     };
   }
 
-  const haystack = `${record.description ?? ""}\n${record.content}`;
+  const raw = `${record.description ?? ""}\n${record.content ?? ""}`;
+
+  // ADR-024 Rung 1 (mt#4454): match on the RESIDUAL, not the raw body. A clause the record
+  // QUOTES — from another memory, from a spec, from its own documented test fixture — is
+  // example text, not a retirement condition this record declares about itself. The two
+  // halves are complements and both are needed here, measured against real records:
+  //
+  //   mem#484  "retire when mt#2056 ships"      prose quotes  -> needs (b); (a) alone misses it
+  //   mem#1340 `Retire when mt#1541 ships.`     code span     -> needs (a)
+  //
+  // Same-length blanking means every offset into `elided` is a valid offset into `raw`, which
+  // is what lets the anchor check below read the raw text at a match position found here.
+  // `skipQuotationElision` exists for ARCHAEOLOGY and has exactly one caller:
+  // `scripts/rederive-memory-associations.ts` (mt#4765), which needs to know what the write path
+  // produced BEFORE mt#4454 added the elision, so it can tell a stored association that the old
+  // patterns minted from a quoted clause apart from one an author DECLARED. Those two are
+  // byte-identical once stored, and the difference is only recoverable by re-deriving both ways.
+  //
+  // It is deliberately NOT a general escape hatch: passing it reproduces a defect. Nothing on a
+  // read or write path may set it, which is why it is an options bag on this function rather than
+  // a second exported entry point that would look like a peer.
+  const elided = options?.skipQuotationElision === true ? raw : elideQuotedAndMarkdown(raw);
   const refs: string[] = [];
 
   for (const pattern of SELF_ANCHORED_PATTERNS) {
     // Patterns are module-level and `g`-flagged, so lastIndex persists across calls.
     // Reset before each use rather than relying on exec-to-exhaustion.
     pattern.lastIndex = 0;
-    for (const match of haystack.matchAll(pattern)) {
+    for (const match of elided.matchAll(pattern)) {
       const captured = match[1];
       if (captured) refs.push(captured.toLowerCase());
     }
@@ -224,10 +304,17 @@ export function extractTrackingTaskRefs(record: StalenessDetectionInput): {
 
   for (const pattern of CONDITIONAL_PATTERNS) {
     pattern.lastIndex = 0;
-    for (const match of haystack.matchAll(pattern)) {
+    for (const match of elided.matchAll(pattern)) {
       const captured = match[1];
       if (!captured) continue;
-      if (hasRetirementAnchor(haystack, match.index ?? 0)) refs.push(captured.toLowerCase());
+      // The CLAUSE is read from the elided text; the ANCHOR is read from the RAW text at the
+      // same offset. Deliberate, and the same raw/elided split `spec-criterion-claim.ts`'s
+      // `hasCorpusReferentNear` makes: an anchor word is routinely decorated — "**Budget:**",
+      // `` `Budget` `` — and blanking a backticked anchor would drop a genuine clause for a
+      // reason that has nothing to do with quotation. Reading the anchor from raw cannot
+      // reintroduce the quoted-clause false positive, because a quoted clause produced no
+      // match to anchor in the first place.
+      if (hasRetirementAnchor(raw, match.index ?? 0)) refs.push(captured.toLowerCase());
     }
   }
 
@@ -317,6 +404,67 @@ export function combineStaleness(
     outcome: "stale",
     note: retirement.note ? `${retirement.note}\n\n${measurementNote}` : measurementNote,
     measurement,
+  };
+}
+
+/**
+ * Fold trigger 3's finding into whatever the earlier triggers concluded (mt#4743).
+ *
+ * Mirrors {@link combineStaleness} with one deliberate difference: it does NOT
+ * unconditionally promote `outcome` to `"stale"`.
+ *
+ * Trigger 2 promotes because a decayed measurement is a statement about THIS record's own
+ * numbers — if they no longer describe the system, the record is stale, whatever its tracking
+ * task is doing. A drifted status mention is weaker: a lineage bullet reading "mt#X (TODO)"
+ * when mt#X is now IN-PROGRESS is dated, and says nothing about whether the record's
+ * PRESCRIPTION still holds. Promoting on that would flag a third of the corpus's family roots
+ * as obsolete on the strength of one aging parenthetical, which is the noise
+ * {@link MemorySearchResult.staleness}'s optional-not-"current" convention exists to avoid.
+ *
+ * So promotion requires a drifted assertion whose task has gone TERMINAL — measured at 47 of
+ * the 53 wrong claims in the live corpus, i.e. almost all of the real signal, without the tail
+ * that carries almost none of it.
+ *
+ * Non-promoting drift is still RECORDED in the structured field and renders nothing, the same
+ * discipline `computeStaleness` applies to `unresolved`: a finding we made and chose not to
+ * put in front of a reader stays inspectable rather than being discarded. This also preserves
+ * `note`'s stated invariant — present only when `outcome === "stale"`.
+ */
+export function combineTaskStateDrift(
+  existing: MemoryStaleness | undefined,
+  drift: TaskStateDrift | undefined
+): MemoryStaleness | undefined {
+  if (!drift) return existing;
+
+  const promotes = drift.drifted.some((d) => d.nowTerminal);
+
+  if (!existing) {
+    return promotes
+      ? {
+          outcome: "stale",
+          source: "text",
+          completedTasks: [],
+          unresolvedTasks: [],
+          note: renderTaskStateNote(drift),
+          taskStateDrift: drift,
+        }
+      : {
+          outcome: "current",
+          source: "text",
+          completedTasks: [],
+          unresolvedTasks: [],
+          taskStateDrift: drift,
+        };
+  }
+
+  if (!promotes) return { ...existing, taskStateDrift: drift };
+
+  const note = renderTaskStateNote(drift);
+  return {
+    ...existing,
+    outcome: "stale",
+    note: existing.note ? `${existing.note}\n\n${note}` : note,
+    taskStateDrift: drift,
   };
 }
 

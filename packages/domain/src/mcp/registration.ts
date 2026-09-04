@@ -122,6 +122,118 @@ export class ClaudeDesktopRegistrar extends McpServersJsonRegistrar {
 }
 
 /**
+ * Default local-daemon MCP endpoint the `claude-code` shim entry connects to
+ * (PR #3423 R2).
+ *
+ * Matches `DEFAULT_DAEMON_URL` in `src/mcp/shim/main.ts` and
+ * `DEFAULT_LOCAL_DAEMON_HOST`/`DEFAULT_LOCAL_DAEMON_PORT` (127.0.0.1:48765)
+ * in `src/mcp/daemon/local-daemon.ts` — duplicated here rather than
+ * imported, since `packages/domain` does not depend on `src/` (same
+ * constraint as `detectJsonIndent` above). Not currently configurable from
+ * this registrar: `registerWithClient`'s `port`/`host` parameters carry
+ * `.minsky/config.yaml`'s `mcp.*` settings for the CURRENT project's own
+ * `minsky mcp start`, an unrelated concept from the machine-wide daemon's
+ * endpoint, so reusing them here would be a category error, not a feature.
+ * An operator who needs a non-default daemon endpoint can point
+ * `minsky setup local-http --url <custom>` at the entry afterward, or set
+ * `MINSKY_SHIM_DAEMON_URL` in their environment (`main.ts`'s `parseArgs`
+ * reads it ahead of `--url`).
+ */
+const DEFAULT_LOCAL_DAEMON_MCP_URL = "http://127.0.0.1:48765/mcp";
+
+/**
+ * Registrar for the Claude Code MCP client.
+ *
+ * Claude Code resolves MCP servers at three scopes — local (per-project,
+ * keyed under `projects.<path>` in `~/.claude.json`), project (`.mcp.json`
+ * in the repo, shared via git), and user (a top-level `mcpServers` key in
+ * `~/.claude.json`, shared across every project) — per
+ * https://code.claude.com/docs/en/mcp. This registrar targets USER scope:
+ * an agent opened in a repo Minsky has never initialized has no MCP tools of
+ * its own yet and cannot bootstrap onboarding through a per-project-only
+ * registration (mt#4700, absorbed into mt#4676).
+ *
+ * User scope is a single, platform-uniform path — unlike Claude Desktop's
+ * OS-specific config directory — so `configPath` does not branch on
+ * `process.platform`.
+ *
+ * `mergeConfig = true` because `~/.claude.json` is Claude Code's own live
+ * state file (settings, per-project history, OAuth credentials) — the
+ * `registerWithClient` merge path (JSON-parse, splice in `mcpServers`,
+ * write back) preserves everything else in the file rather than
+ * overwriting it, the same way `ClaudeDesktopRegistrar` does for
+ * `claude_desktop_config.json`.
+ */
+export class ClaudeCodeRegistrar extends McpServersJsonRegistrar {
+  readonly name = "claude-code";
+  override readonly mergeConfig = true;
+
+  configPath(_projectRoot: string): string {
+    return path.join(homedir(), ".claude.json");
+  }
+
+  /**
+   * Emits the SHIM invocation — `["mcp", "shim", "--url", <daemonUrl>]` —
+   * rather than `McpServersJsonRegistrar`'s inherited default, a raw
+   * `["mcp", "start", ...]` stdio spawn of the full ~32 MB server (PR #3423
+   * R2).
+   *
+   * The stdio-spawn form is the PRE-ADR-038 topology: one full server
+   * process per conversation. `minsky setup local-http`
+   * (`src/mcp/setup/local-http-config.ts`) exists specifically to migrate
+   * existing entries OFF that form onto the shim, which forwards to a single
+   * shared daemon instead. Writing a brand-new user-scope entry in the
+   * legacy form would spawn a full server in every conversation the operator
+   * opens, and would need migrating again the moment it existed — the exact
+   * shape `local-http` was built to retire, authored fresh.
+   *
+   * Args shape matches `rewriteToShimArgs()`'s output in
+   * `local-http-config.ts:291-295` for an entry with no pre-`mcp` prefix
+   * (there is none here — this is a fresh entry, not a rewrite).
+   *
+   * `command: "minsky"` (inherited from `McpServersJsonRegistrar`'s base
+   * shape) is load-bearing, not incidental: `mcp shim` is NOT a normal CLI
+   * subcommand — `scripts/cli-entry.ts` (the package's `bin`) intercepts
+   * `["mcp","shim"]` from argv and imports a separate build artifact,
+   * deliberately never entering `src/cli.ts` (that path pulls in tsyringe
+   * and the full command registry, and the shim's RSS thinness is
+   * load-bearing per mt#3812 / `src/mcp/shim/rss-budget.test.ts`). Only an
+   * invocation that goes THROUGH the bin wrapper can reach it — measured in
+   * `local-http-config.ts:106-119`: `minsky mcp shim --url …` runs,
+   * `bun dist/minsky.js mcp shim --url …` and `bun src/cli.ts mcp shim
+   * --url …` both fail with `unknown command 'shim'`. This entry's
+   * `command: "minsky"` is exactly the form that resolves to the bin
+   * wrapper, so it works — not by luck, but because it uses the one
+   * invocation shape that can.
+   *
+   * `transport`/`port`/`host` are accepted (interface conformance) and
+   * ignored: those describe how `minsky mcp start` would bind for THIS
+   * project (`.minsky/config.yaml`'s `mcp` section), which has no bearing on
+   * a shim entry that talks to the machine-wide daemon over HTTP regardless.
+   *
+   * Scoped to `ClaudeCodeRegistrar` only — the other seven registrars still
+   * emit the stdio-spawn form via the inherited `generateConfig()` /
+   * TOML-generator methods. Whether cursor/windsurf/etc. should also move to
+   * shim form is a separate decision nobody has made; flipping them here
+   * would be exactly that decision, made as a side effect.
+   */
+  override generateConfig(_transport: string, _port?: number, _host?: string): string {
+    return JSON.stringify(
+      {
+        mcpServers: {
+          "minsky-server": {
+            command: "minsky",
+            args: ["mcp", "shim", "--url", DEFAULT_LOCAL_DAEMON_MCP_URL],
+          },
+        },
+      },
+      undefined,
+      2
+    );
+  }
+}
+
+/**
  * Registrar for the Windsurf editor MCP client.
  *
  * Windsurf stores MCP config globally at ~/.codeium/windsurf/mcp_config.json,
@@ -270,6 +382,8 @@ export function getRegistrar(client: string): ClientRegistrar {
       return new CursorRegistrar();
     case "claude-desktop":
       return new ClaudeDesktopRegistrar();
+    case "claude-code":
+      return new ClaudeCodeRegistrar();
     case "vscode":
       return new VSCodeRegistrar();
     case "windsurf":
@@ -282,9 +396,36 @@ export function getRegistrar(client: string): ClientRegistrar {
       return new OpenHandsRegistrar();
     default:
       throw new Error(
-        `MCP client "${client}" is not yet supported. Supported clients: cursor, claude-desktop, vscode, windsurf, junie, codex, openhands`
+        `MCP client "${client}" is not yet supported. Supported clients: cursor, claude-desktop, claude-code, vscode, windsurf, junie, codex, openhands`
       );
   }
+}
+
+/**
+ * Indentation of an existing JSON document, defaulting to 2.
+ *
+ * Re-serializing a large, operator-owned config file (`~/.claude.json`,
+ * `claude_desktop_config.json`) with the wrong indent rewrites the WHOLE
+ * file rather than just the entry being changed — a surprising diff for a
+ * file the operator never asked to be reformatted, and for `~/.claude.json`
+ * specifically a file that also carries real OAuth credentials and
+ * per-project history (PR #3423 R1).
+ *
+ * Same mechanism as `detectIndent()` in `src/mcp/setup/local-http-config.ts`
+ * — duplicated here rather than imported, since `packages/domain` does not
+ * depend on `src/` (Clean Architecture: Domain → Adapters, not the reverse).
+ *
+ * Returns the whitespace VERBATIM for a tab-indented document rather than a
+ * width — `JSON.stringify` accepts a string indent as readily as a number,
+ * and collapsing tabs to a numeric default would itself reformat every line
+ * of a tab-indented config, the exact hazard this function exists to avoid.
+ */
+export function detectJsonIndent(raw: string): string | number {
+  const match = raw.match(/\n(\s+)"/);
+  const indent = match?.[1];
+  if (indent === undefined) return 2;
+  if (indent.includes("\t")) return indent;
+  return indent.length;
 }
 
 /**
@@ -341,7 +482,14 @@ export async function registerWithClient(
           ...newServers,
         },
       };
-      await fileSystem.writeFile(filePath, JSON.stringify(merged, undefined, 2));
+      // Preserve the existing file's indentation rather than forcing 2 spaces
+      // (PR #3423 R1) — a vendor-owned state file re-serialized with a
+      // different indent is a whole-file diff for a change the operator
+      // never asked for.
+      await fileSystem.writeFile(
+        filePath,
+        JSON.stringify(merged, undefined, detectJsonIndent(existing))
+      );
     }
   } else {
     await createFileIfNotExists(filePath, newConfigJson, overwrite, fileSystem);

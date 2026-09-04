@@ -108,6 +108,62 @@ describe("compileCheckTargets (mt#2497, extended mt#2304, mt#3058)", () => {
       compileCheckTargets({ skills: false, rules: false, agents: false, hooks: false })
     ).toEqual([]);
   });
+
+  // ─── mt#4866 SC3: stay in sync with minskyCompileTargetsFromPresence ───────
+  //
+  // This function's own docblock says it is "kept in sync with
+  // minskyCompileTargetsFromPresence". SC3 gated cursor-rules-ts and agents.md
+  // on the recorded harness there, so the same gate must exist here — otherwise
+  // the pre-commit check would demand outputs a bare `minsky compile` no longer
+  // produces, and a claude-code project would be told they are stale forever with
+  // no invocation able to refresh them.
+  describe("harness gate (mt#4866 SC3)", () => {
+    const RULES_ONLY = { skills: false, rules: true, agents: false, hooks: false };
+    const NO_OUTPUTS = { cursorRules: false, agentsMd: false };
+
+    test("drops cursor-rules-ts and agents.md under claude-code with no existing outputs", () => {
+      expect(
+        compileCheckTargets({ ...RULES_ONLY, harness: "claude-code", existingOutputs: NO_OUTPUTS })
+      ).toEqual(["claude.md", "claude-rules"]);
+    });
+
+    test("keeps an output that already exists, per-target", () => {
+      expect(
+        compileCheckTargets({
+          ...RULES_ONLY,
+          harness: "claude-code",
+          existingOutputs: { cursorRules: true, agentsMd: false },
+        })
+      ).toEqual(["cursor-rules-ts", "claude.md", "claude-rules"]);
+    });
+
+    // This repository's own case: both outputs are committed here, so the gate
+    // is inert and the pre-commit check verifies exactly what it did before.
+    test("with BOTH outputs present the target set is unchanged", () => {
+      expect(
+        compileCheckTargets({
+          ...RULES_ONLY,
+          harness: "claude-code",
+          existingOutputs: { cursorRules: true, agentsMd: true },
+        })
+      ).toEqual(["cursor-rules-ts", "claude.md", "agents.md", "claude-rules"]);
+    });
+
+    test("gates nothing when no harness is recorded (additive for existing callers)", () => {
+      expect(compileCheckTargets(RULES_ONLY)).toEqual([
+        "cursor-rules-ts",
+        "claude.md",
+        "agents.md",
+        "claude-rules",
+      ]);
+    });
+
+    test("gates nothing for a different harness", () => {
+      expect(
+        compileCheckTargets({ ...RULES_ONLY, harness: "cursor", existingOutputs: NO_OUTPUTS })
+      ).toEqual(["cursor-rules-ts", "claude.md", "agents.md", "claude-rules"]);
+    });
+  });
 });
 
 describe("claudeHooksCompileAffected (mt#2977)", () => {

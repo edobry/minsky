@@ -28,9 +28,41 @@
  * raw query param; none of them do their own db-fetch/import, so none of
  * them can be taken down by a project-scope-resolution failure.
  */
+import type { NextFunction, Request, Response } from "express";
 import { ALL_PROJECTS, type ProjectScope } from "@minsky/domain/project/scope";
 import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
 import { log } from "@minsky/shared/logger";
+
+/**
+ * Structural enforcement (mt#4730): every Express request handled after this
+ * middleware runs carries a pre-resolved `ProjectScope` on `req.projectScope`
+ * — a handler consumes it directly instead of remembering to import and call
+ * {@link resolveCockpitProjectScope} itself. This is the "inherits scoping by
+ * construction" arm of the mt#4730 census (the other arm, for surfaces that
+ * are deliberately global, is the allowlist in `scope-census.ts`).
+ *
+ * Declared globally (not per-router) because Express resolves declaration
+ * merging across the whole `Express.Request` interface regardless of which
+ * file augments it — the population, per ADR-021 §Cockpit daemon, is exactly
+ * "every request this daemon serves," so a single global augmentation matches
+ * the domain rather than fragmenting it per mount point.
+ */
+declare global {
+  // declaration-merging convention (see @types/express-serve-static-core).
+  namespace Express {
+    interface Request {
+      /**
+       * Set by {@link createProjectScopeMiddleware}. Always present once that
+       * middleware has run (defaults to `ALL_PROJECTS` — see its fail-open
+       * contract). Optional on the type only because a request handled before
+       * the middleware runs (there should be none in production) has no
+       * guarantee; treat a missing value defensively (`?? ALL_PROJECTS`)
+       * rather than asserting it non-null.
+       */
+      projectScope?: ProjectScope;
+    }
+  }
+}
 
 /** Sentinel value the frontend sends to explicitly request the "All projects" view. */
 export const ALL_PROJECTS_PARAM = "all";
@@ -94,4 +126,54 @@ export async function resolveCockpitProjectScope(
     );
     return ALL_PROJECTS;
   }
+}
+
+/**
+ * Structural-enforcement middleware (mt#4730): resolves `req.query.project`
+ * to a `ProjectScope` ONCE per request and attaches it to `req.projectScope`,
+ * so route handlers mounted after it read `req.projectScope` directly instead
+ * of each remembering to import and call {@link resolveCockpitProjectScope}.
+ *
+ * Mount once, globally, before every `mountXRoutes(app)` call in
+ * `server.ts` — Express runs middleware in mount order, so every handler
+ * registered afterward sees a populated `req.projectScope`. This also feeds
+ * the widget dispatcher (`routes/health.ts`'s `GET /api/widget/:id/data`),
+ * which forwards `req.projectScope` onto `WidgetContext.projectScope`.
+ *
+ * Fail-open by construction: this middleware never lets a request hang.
+ * {@link resolveCockpitProjectScope}'s own contract (see this module's
+ * docblock) already resolves any failure to `ALL_PROJECTS` rather than
+ * rejecting, so the `.catch()` below is a defensive backstop, not the
+ * primary fail-open path — but it is NOT optional: without it, an
+ * unexpected rejection (a future change to that contract, or a throw from
+ * this callback itself) would leave the returned promise settled with no
+ * `.then()` handler to run and no `next()` ever called, silently hanging
+ * every request behind this middleware with no timeout and no error surfaced
+ * (PR #3471 R1 — the previous version had exactly this gap).
+ *
+ * @param options.getDb  Test seam threaded straight through to
+ *   {@link resolveCockpitProjectScope}. Production callers never set this.
+ */
+export function createProjectScopeMiddleware(options?: {
+  getDb?: () => Promise<ScopeResolverDb | null>;
+}): (req: Request, res: Response, next: NextFunction) => void {
+  return (req, _res, next) => {
+    const rawProject = req.query["project"];
+    const projectParam = typeof rawProject === "string" ? rawProject : undefined;
+    resolveCockpitProjectScope(projectParam, options)
+      .then((scope) => {
+        req.projectScope = scope;
+      })
+      .catch((err) => {
+        log.warn(
+          "[cockpit] project-scope middleware: unexpected rejection resolving scope; " +
+            "falling back to ALL_PROJECTS (a scoping failure must never hang a request)",
+          { error: err instanceof Error ? err.message : String(err) }
+        );
+        req.projectScope = ALL_PROJECTS;
+      })
+      .finally(() => {
+        next();
+      });
+  };
 }

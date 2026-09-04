@@ -15,6 +15,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { CommandPalette } from "./CommandPalette";
 import { NewConversationProvider } from "../hooks/useNewConversation";
+import { ProjectProvider } from "../lib/project-context";
+import { stubProjectsRoute } from "../lib/test-support/projects";
 
 function createTestQueryClient(): QueryClient {
   return new QueryClient({
@@ -26,9 +28,11 @@ function renderPalette() {
   return render(
     <QueryClientProvider client={createTestQueryClient()}>
       <MemoryRouter>
-        <NewConversationProvider>
-          <CommandPalette />
-        </NewConversationProvider>
+        <ProjectProvider>
+          <NewConversationProvider>
+            <CommandPalette />
+          </NewConversationProvider>
+        </ProjectProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -55,6 +59,7 @@ beforeEach(() => {
       headers: { "Content-Type": "application/json" },
     });
   }) as unknown as typeof globalThis.fetch;
+  stubProjectsRoute();
 });
 
 afterEach(() => {

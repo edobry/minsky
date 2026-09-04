@@ -48,6 +48,10 @@ export interface SessionDriverSummary {
   harnessSessionId: string | null;
   /** Registry lifecycle: `spawned` / `running` / `exited` / `crashed` / … */
   status: string;
+  /** Which harness drives this session (mt#4935) — `"claude-code"` today. */
+  harnessKind?: string;
+  /** Credential/identity posture (mt#4935) — `"subscription"` or `"api-key"`. */
+  authMode?: string;
 }
 
 /**

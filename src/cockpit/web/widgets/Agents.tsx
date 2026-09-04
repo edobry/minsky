@@ -30,6 +30,7 @@ import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { useListControls, type SortDir } from "../lib/useListControls";
+import { SortIndicator } from "../components/SortIndicator";
 import { useActiveConversationSessions } from "../hooks/useActiveConversationSessions";
 import { useFocusAttachment } from "../hooks/useFocusAttachment";
 import { basePathFor, pathForTab } from "./RunDetail";
@@ -38,13 +39,35 @@ import { livenessDotClass, type Liveness } from "../lib/liveness-colors";
 import { ConversationSearchPanel } from "./ConversationSearchPanel";
 import { needsMeBand, subagentElapsed, BAND_RANK, type NeedsMeBand } from "../lib/fleet-groups";
 import { fetchAsks, type AsksListResponse } from "./AskDetail";
-import { useProject } from "../lib/project-context";
+import {
+  useProject,
+  useOptionalProject,
+  projectLabelById,
+  shouldShowProjectIndicator,
+} from "../lib/project-context";
+import { ProjectBadge } from "../components/ProjectBadge";
 import { AgentDrivenPeek } from "./AgentDrivenPeek";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
 import { Checkbox } from "../components/ui/checkbox";
 
-/** Kind badge (mt#2767 Row model; "driven-session" added by mt#2752). */
-type RunKind = "dispatched-agent" | "principal-conversation" | "subagent-group" | "driven-session";
+/**
+ * Kind badge (mt#2767 Row model; "driven-session" added by mt#2752;
+ * "unattributed-summary" added by mt#4733 — see run-merge.ts's module
+ * header, "Collapsed rendering under a narrow filter"). Mirrors the
+ * server-side `RunKind` (src/cockpit/widgets/run-merge.ts) — keep in sync.
+ */
+type RunKind =
+  | "dispatched-agent"
+  | "principal-conversation"
+  | "subagent-group"
+  | "driven-session"
+  | "unattributed-summary";
 
 /**
  * Row attachment-state indicator (mt#2286) — mirrors the server-side
@@ -76,6 +99,13 @@ export interface AgentRow {
   liveness: Liveness;
   taskId: string | null;
   taskTitle: string | null;
+  /**
+   * Owning project's uuid (server: `widgets/agents.ts` AgentRow.projectId,
+   * mt#4732); resolved to a label via `projectLabelById` for the
+   * all-projects badge (mt#4773). Optional for back-compat with older
+   * payloads.
+   */
+  projectId?: string | null;
   prNumber: number | null;
   prStatus: string | null;
   lastActivityAt: string;
@@ -161,6 +191,11 @@ const KIND_BADGE_CONFIG: Record<RunKind, { label: string; className: string }> =
   // mt#2752 — app-started driven sessions: the amber tint marks "you can type
   // here" (input affordance), vs the read-only observe rows above (SC4).
   "driven-session": { label: "Drivable", className: "bg-warn-amber/15 text-warn-amber" },
+  // mt#4733 — collapsed NULL-attribution aggregate under a project filter
+  // (SC2's "de-emphasized" treatment): same muted/no-fill styling as
+  // "dispatched-agent" above, distinct label so it reads as neither a real
+  // conversation nor a real subagent group.
+  "unattributed-summary": { label: "Unattributed", className: "text-muted-foreground/70" },
 };
 
 /**
@@ -309,17 +344,6 @@ function formatRelative(isoTimestamp: string): string {
   if (diffHr < 24) return `${diffHr}h ago`;
   const diffDay = Math.floor(diffHr / 24);
   return `${diffDay}d ago`;
-}
-
-// ---------------------------------------------------------------------------
-// Sort direction indicator
-// ---------------------------------------------------------------------------
-
-function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
-  if (!active) {
-    return <span className="text-muted-foreground opacity-30 ml-0.5">↕</span>;
-  }
-  return <span className="ml-0.5">{dir === "asc" ? "↑" : "↓"}</span>;
 }
 
 // ---------------------------------------------------------------------------
@@ -477,10 +501,7 @@ function AgentsControlBar({
       >
         Kind:
       </span>
-      <Select
-        value={filters.kind}
-        onValueChange={(v) => onFilterKind(v as AgentFilters["kind"])}
-      >
+      <Select value={filters.kind} onValueChange={(v) => onFilterKind(v as AgentFilters["kind"])}>
         <SelectTrigger
           className="h-6 bg-background"
           aria-labelledby={kindLabelId}
@@ -494,6 +515,8 @@ function AgentsControlBar({
           <SelectItem value="principal-conversation">Conversation</SelectItem>
           <SelectItem value="subagent-group">Subagent</SelectItem>
           <SelectItem value="driven-session">Drivable</SelectItem>
+          {/* mt#4733 — the collapsed NULL-attribution aggregate. */}
+          <SelectItem value="unattributed-summary">Unattributed</SelectItem>
         </SelectContent>
       </Select>
 
@@ -616,6 +639,9 @@ function LiveDot() {
 //   container, not a real entity) — the row toggles expand instead of
 //   navigating; individual nested entries below link to their own
 //   conversation.
+// - unattributed-summary (mt#4733): same "synthetic collapsed container,
+//   not a real entity" shape as subagent-group above — falls through to
+//   the same `return null` default.
 // ---------------------------------------------------------------------------
 
 function rowPath(agent: AgentRow): string | null {
@@ -654,6 +680,15 @@ export function resolveGoToAction(agent: AgentRow): GoToAction {
     // Synthetic collapsed container, not a real entity (mirrors rowPath()'s
     // treatment above) — nothing to go to until it's expanded.
     return { type: "disabled", reason: "Expand the row to open a subagent conversation" };
+  }
+  if (agent.kind === "unattributed-summary") {
+    // mt#4733 — same "synthetic collapsed container" shape as
+    // "subagent-group" above, but must be checked explicitly here: this
+    // kind's `attachState` is always null (mt#2286 doesn't apply to it),
+    // so without this branch it would fall through to the dispatched-agent
+    // switch below and report the misleading "Attachment status
+    // unavailable" reason instead of an honest "nothing to go to yet".
+    return { type: "disabled", reason: "Expand the row to open an unattributed conversation" };
   }
   if (agent.kind === "driven-session") {
     // Inherently app-started ("in-cockpit" by construction) — no attachment
@@ -978,6 +1013,15 @@ function AgentRowItem({
   const [expanded, setExpanded] = useState(false);
   const label = livenessLabel(agent.liveness);
   const path = rowPath(agent);
+  // Project identity in the all-projects view (mt#4773) — the payload has
+  // carried `projectId` per row since mt#4732; the UI dropped it. Same
+  // when-to-show rule as task/changeset rows (mt#4729). Optional context:
+  // a row rendered outside the provider has no selection to indicate.
+  const projectCtx = useOptionalProject();
+  const projectLabel =
+    projectCtx && shouldShowProjectIndicator(projectCtx.projects, projectCtx.selectedSlug)
+      ? projectLabelById(projectCtx.projects, agent.projectId ?? null)
+      : null;
   const hasSubagents = agent.subagents.length > 0;
   // mt#2912 — a row with an active driven binding (either a dispatched-agent
   // row annotated via the DrivenChip, or a standalone driven-session row)
@@ -1020,6 +1064,10 @@ function AgentRowItem({
         </span>
         {agent.taskId && <span className="text-xs text-muted-foreground">{agent.taskId}</span>}
       </div>
+
+      {/* Project identity (mt#4773) — all-projects view only, same affordance
+          as task/changeset rows. */}
+      {projectLabel && <ProjectBadge label={projectLabel} className="flex-shrink-0" />}
 
       {/* Needs-me badge (mt#2884) — the SECOND status channel, independent of
           the liveness dot: "does this run need the human" vs "is it alive". */}

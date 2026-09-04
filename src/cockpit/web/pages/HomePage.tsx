@@ -23,6 +23,7 @@
  * §Widgets). New registry widgets no longer auto-append here.
  */
 import type { ReactNode } from "react";
+import { InstanceScopeCue } from "../components/InstanceScopeCue";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { TriageBand } from "../widgets/TriageBand";
@@ -33,6 +34,51 @@ import { ErrorBoundary } from "../components/ErrorBoundary";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
+import { useProject } from "../lib/project-context";
+import { useOpenAskCount, useUnscopedOpenAskCount } from "../hooks/useOpenAskCount";
+import { elsewhereCount } from "../lib/attention-leak";
+
+// ---------------------------------------------------------------------------
+// Needs-you cross-project leak line (mt#4794) — see Rail.tsx's AttentionDigest
+// for the sibling instance and the full rationale (mt#4757 audit).
+// ---------------------------------------------------------------------------
+
+/**
+ * Muted one-line secondary under the "Needs you" band: when a project filter
+ * is active and other projects carry pending asks the scoped view doesn't
+ * show, name what's outside the current scope instead of letting TriageBand's
+ * own "Nothing needs you" / "N pending" read as the whole picture.
+ *
+ * Reuses the SAME attention-widget hooks the rail's Attention digest reads
+ * (`useOpenAskCount` / `useUnscopedOpenAskCount`) rather than TriageBand's
+ * `/api/asks` list — one additional unscoped query shared across both
+ * surfaces, not a second data source (spec: "no new endpoint").
+ */
+function NeedsYouElsewhere() {
+  const { selectedSlug, setSelectedSlug } = useProject();
+  const filterActive = selectedSlug !== null;
+  const { data: scoped } = useOpenAskCount();
+  const { data: unscoped } = useUnscopedOpenAskCount({ enabled: filterActive });
+  const elsewhere = elsewhereCount(filterActive, scoped, unscoped);
+
+  if (elsewhere == null) return null;
+
+  const label =
+    scoped === 0
+      ? `clear here — ${elsewhere} pending in other projects`
+      : `${elsewhere} more pending in other projects`;
+
+  return (
+    <Link
+      to="/asks"
+      data-testid="needs-you-elsewhere"
+      onClick={() => setSelectedSlug(null)}
+      className="mt-1 block text-xs text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+    >
+      {label} →
+    </Link>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Fleet strip — liveness counts over the unified run list.
@@ -104,9 +150,13 @@ function FleetGauge({ dotClass, count, unit }: { dotClass: string; count: number
 }
 
 function FleetStrip() {
+  const { selectedSlug, queryParam } = useProject();
   const query = useQuery<WidgetData, Error>({
-    queryKey: ["agents"],
-    queryFn: () => fetchWidgetData("agents"),
+    // mt#4731: selectedSlug in the key so switching projects invalidates
+    // and refetches — the home fleet strip previously ignored the selected
+    // project entirely, unlike its own /agents page.
+    queryKey: ["agents", selectedSlug],
+    queryFn: () => fetchWidgetData("agents", queryParam),
     staleTime: 10_000,
     refetchInterval: 15_000,
   });
@@ -223,8 +273,12 @@ const SUBSTRATE_WIDGETS: {
 ];
 
 function useSubstrateHealth(): SubsystemHealth[] {
-  // Same query keys the widgets themselves use — one cache, whether the data
-  // renders as a calm-line mention or as the expanded card.
+  // Deliberately-global (mt#4731, not project-scoped): the MCP server, the
+  // reviewer bot, and the embeddings pipeline are each ONE process serving
+  // every project — there is no per-project MCP server or reviewer instance
+  // to scope this to. Same query keys the widgets themselves use — one
+  // cache, whether the data renders as a calm-line mention or as the
+  // expanded card.
   const mcp = useQuery<WidgetData, Error>({
     queryKey: ["widget", "mcp-server-status"],
     queryFn: () => fetchWidgetData("mcp-server-status"),
@@ -264,6 +318,9 @@ function SubstrateBand() {
 
   return (
     <div className="flex flex-col gap-3">
+      {/* Substrate health is instance-level (mt#4727 census); say so while a
+          project filter is active (mt#4773). */}
+      <InstanceScopeCue compact />
       {/* Anomalies expand to their full existing status cards — the one off
           thing must be louder than every healthy thing combined. */}
       {anomalous.length > 0 && (
@@ -322,6 +379,9 @@ export function HomePage() {
         <BandEyebrow>Needs you</BandEyebrow>
         <ErrorBoundary id="triage-band">
           <TriageBand />
+        </ErrorBoundary>
+        <ErrorBoundary id="needs-you-elsewhere">
+          <NeedsYouElsewhere />
         </ErrorBoundary>
       </section>
 

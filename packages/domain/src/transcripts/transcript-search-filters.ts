@@ -32,6 +32,7 @@ import { getLoggableErrorSummary } from "../errors/index";
 // Type-only import (erased at compile time → no runtime cycle with the services
 // that import this module's value exports).
 import type { TranscriptTurnResult } from "./transcript-similarity-service";
+import type { TranscriptTurnSnippetResult } from "./transcript-search-projection";
 
 /** A `from`/`to` date window. Either bound may be omitted. */
 export interface TranscriptDateRange {
@@ -63,21 +64,55 @@ export interface TranscriptWindowCoverage {
  * yet indexed, so an empty/short `results` is not misread as "no matches"
  * (mt#2319 SC#4).
  */
-export interface TranscriptSearchResponse {
-  results: TranscriptTurnResult[];
+export interface TranscriptSearchResponseOf<T> {
+  results: T[];
   coverage?: TranscriptWindowCoverage;
 }
+
+/**
+ * The full-turn response shape. Unchanged from before mt#4917 — the cockpit's
+ * conversation-search route still builds exactly this, because it calls the
+ * services directly and never projects.
+ */
+export type TranscriptSearchResponse = TranscriptSearchResponseOf<TranscriptTurnResult>;
+
+/**
+ * The projected response shape (mt#4917), under the default `snippet`
+ * projection. See `transcript-search-projection.ts` for why the projection
+ * lives at the command layer rather than in the services.
+ */
+export type TranscriptSnippetSearchResponse =
+  TranscriptSearchResponseOf<TranscriptTurnSnippetResult>;
+
+/**
+ * What the two search COMMANDS return: rows in whichever shape the caller's
+ * `projection` selected.
+ *
+ * One response type over a union of ROWS, rather than a union of the two
+ * response types, because a caller cannot narrow `{results: A[]} | {results:
+ * B[]}` without a discriminant that does not exist on the wire — and adding one
+ * would be a second contract change for no benefit. Narrow per row instead:
+ * `"userText" in row`.
+ */
+export type TranscriptSearchCommandResponse = TranscriptSearchResponseOf<
+  TranscriptTurnResult | TranscriptTurnSnippetResult
+>;
 
 /**
  * Assemble the `{ results, coverage }` response, omitting `coverage` entirely
  * when there is no gap to report (so callers that don't pass a date window, or
  * whose window is fully indexed, get a clean `{ results }`). Centralizes the
  * shape decision both search commands use, so they cannot drift.
+ *
+ * Generic over the row type since mt#4917: the same coverage rule applies
+ * whether the caller is shipping full turns (the cockpit) or projected ones
+ * (the MCP/CLI commands), and duplicating it per shape is how the two would
+ * eventually diverge.
  */
-export function buildSearchResponse(
-  results: TranscriptTurnResult[],
+export function buildSearchResponse<T>(
+  results: T[],
   coverage: TranscriptWindowCoverage
-): TranscriptSearchResponse {
+): TranscriptSearchResponseOf<T> {
   return coverage.unindexedSessionsInWindow > 0 ? { results, coverage } : { results };
 }
 

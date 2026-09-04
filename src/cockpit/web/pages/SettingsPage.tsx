@@ -1,4 +1,5 @@
 import { KeyRound, Activity } from "lucide-react";
+import { InstanceScopeCue } from "../components/InstanceScopeCue";
 import { useQuery } from "@tanstack/react-query";
 import { CredentialsManager } from "../widgets/Credentials";
 import { BasicHealthBody } from "../widgets/BasicHealth";
@@ -40,6 +41,9 @@ export function SettingsPage() {
         <p className="text-sm text-muted-foreground mt-0.5">
           Manage credentials and configuration.
         </p>
+        {/* Deliberately global (mt#4727 census); say so while a project
+            filter is active (mt#4773). */}
+        <InstanceScopeCue className="mt-1" />
       </div>
 
       <section aria-label="Credentials">

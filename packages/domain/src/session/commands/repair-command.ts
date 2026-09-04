@@ -15,6 +15,7 @@ import { createRepositoryBackendFromSession } from "../session-pr-operations";
 import { getRepositoryBackendFromConfig } from "../repository-backend-detection";
 import { type GitServiceInterface } from "../../git";
 import { taskIdToBranchName } from "../../tasks/task-id";
+import { parseGitHubOwnerRepo } from "../../uri-utils";
 import { findPRNumberForBranch, createOctokit } from "../../repository/github-pr-operations";
 import { FallbackTokenProvider, type TokenProvider } from "../../auth";
 import { projectPrState } from "../session-update-operations";
@@ -214,19 +215,10 @@ async function analyzeSessionIssues(
 function parseGitHubRepoUrl(repoUrl: string): { owner: string; repo: string } | null {
   if (!repoUrl) return null;
 
-  // SSH: git@github.com:owner/repo.git
-  const sshMatch = repoUrl.match(/git@github\.com:([^/]+)\/([^.]+)(?:\.git)?$/);
-  if (sshMatch && sshMatch[1] && sshMatch[2]) {
-    return { owner: sshMatch[1], repo: sshMatch[2] };
-  }
-
-  // HTTPS: https://github.com/owner/repo.git or https://github.com/owner/repo
-  const httpsMatch = repoUrl.match(/https:\/\/github\.com\/([^/]+)\/([^/.]+)(?:\.git)?$/);
-  if (httpsMatch && httpsMatch[1] && httpsMatch[2]) {
-    return { owner: httpsMatch[1], repo: httpsMatch[2] };
-  }
-
-  return null;
+  // mt#4671: shared parser — a GitHub repo name may contain dots. The anchored
+  // regexes here failed to match such a URL at all rather than truncating it,
+  // which is a different wrong answer to the same question.
+  return parseGitHubOwnerRepo(repoUrl);
 }
 
 /**

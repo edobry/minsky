@@ -8,6 +8,15 @@ import { injectable } from "tsyringe";
 import * as fs from "fs";
 import * as path from "path";
 import { RuleService, type RuleMeta as RuleMetadata } from "../rules";
+import { RULE_FORMAT_OUTPUT_DIR, type RuleFormat } from "./types";
+
+/**
+ * Format the `generate*Rules` convenience wrappers assume when the caller names
+ * none. Hoisted to one constant (mt#4714 R1) so the paired `outputDir` default
+ * can be DERIVED from it via {@link RULE_FORMAT_OUTPUT_DIR} rather than
+ * hardcoded alongside it.
+ */
+const DEFAULT_GENERATOR_RULE_FORMAT: RuleFormat = "minsky";
 import {
   createTemplateContext,
   type RuleGenerationConfig,
@@ -290,14 +299,11 @@ export class RuleTemplateService {
    * @returns Output directory path
    */
   private getOutputDir(config: RuleGenerationConfig): string {
-    // Use configured output directory if provided
-    const outputDir =
-      config.outputDir ||
-      (config.ruleFormat === "cursor"
-        ? ".cursor/rules"
-        : config.ruleFormat === "generic"
-          ? ".ai/rules"
-          : ".minsky/rules");
+    // Use configured output directory if provided; otherwise the shared
+    // format→directory mapping (mt#4714 — `RULE_FORMAT_OUTPUT_DIR` in
+    // ./types is the single source of truth; do not restate it here or in
+    // any caller).
+    const outputDir = config.outputDir || RULE_FORMAT_OUTPUT_DIR[config.ruleFormat];
 
     // If output dir is absolute, use it as-is
     if (path.isAbsolute(outputDir)) {
@@ -340,8 +346,16 @@ export class RuleTemplateService {
         mcpEnabled: false,
         mcpTransport: "stdio",
         preferMcp: false,
-        ruleFormat: options.ruleFormat || "minsky",
-        outputDir: options.outputDir || ".minsky/rules",
+        ruleFormat: options.ruleFormat ?? DEFAULT_GENERATOR_RULE_FORMAT,
+        // DERIVED from the format, not hardcoded (mt#4714 R1). This was
+        // `options.outputDir || ".minsky/rules"`, which reproduced this task's
+        // own defect one level down: a caller passing `ruleFormat: "cursor"`
+        // with no outputDir got `.minsky/rules` — a format and a directory that
+        // disagree. Behavior is unchanged for the default format, which maps to
+        // ".minsky/rules" anyway.
+        outputDir:
+          options.outputDir ??
+          RULE_FORMAT_OUTPUT_DIR[options.ruleFormat ?? DEFAULT_GENERATOR_RULE_FORMAT],
       },
     });
   }
@@ -362,8 +376,16 @@ export class RuleTemplateService {
         mcpEnabled: true,
         mcpTransport: "stdio",
         preferMcp: true,
-        ruleFormat: options.ruleFormat || "minsky",
-        outputDir: options.outputDir || ".minsky/rules",
+        ruleFormat: options.ruleFormat ?? DEFAULT_GENERATOR_RULE_FORMAT,
+        // DERIVED from the format, not hardcoded (mt#4714 R1). This was
+        // `options.outputDir || ".minsky/rules"`, which reproduced this task's
+        // own defect one level down: a caller passing `ruleFormat: "cursor"`
+        // with no outputDir got `.minsky/rules` — a format and a directory that
+        // disagree. Behavior is unchanged for the default format, which maps to
+        // ".minsky/rules" anyway.
+        outputDir:
+          options.outputDir ??
+          RULE_FORMAT_OUTPUT_DIR[options.ruleFormat ?? DEFAULT_GENERATOR_RULE_FORMAT],
       },
     });
   }
@@ -384,8 +406,16 @@ export class RuleTemplateService {
         mcpEnabled: true,
         mcpTransport: "stdio",
         preferMcp: options.preferMcp === undefined ? false : options.preferMcp,
-        ruleFormat: options.ruleFormat || "minsky",
-        outputDir: options.outputDir || ".minsky/rules",
+        ruleFormat: options.ruleFormat ?? DEFAULT_GENERATOR_RULE_FORMAT,
+        // DERIVED from the format, not hardcoded (mt#4714 R1). This was
+        // `options.outputDir || ".minsky/rules"`, which reproduced this task's
+        // own defect one level down: a caller passing `ruleFormat: "cursor"`
+        // with no outputDir got `.minsky/rules` — a format and a directory that
+        // disagree. Behavior is unchanged for the default format, which maps to
+        // ".minsky/rules" anyway.
+        outputDir:
+          options.outputDir ??
+          RULE_FORMAT_OUTPUT_DIR[options.ruleFormat ?? DEFAULT_GENERATOR_RULE_FORMAT],
       },
     });
   }

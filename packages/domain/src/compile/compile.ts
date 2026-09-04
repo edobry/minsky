@@ -7,6 +7,7 @@
 
 import realFs from "fs/promises";
 import path from "path";
+import { parse as parseYaml } from "yaml";
 import { resolveWorkspacePath } from "../workspace";
 import { createMinskyCompileService, type MinskyCompileService } from "./compile-service";
 import type { MinskyCompileServiceResult, MinskyCompileTargetOutcome } from "./compile-service";
@@ -62,18 +63,132 @@ export function minskyCompileTargetsFromPresence(present: {
   rules: boolean;
   agents: boolean;
   hooks: boolean;
+  /**
+   * The harness recorded for this project (`workspace.harness` in
+   * `.minsky/config.local.yaml`, written by `performSetup`). Optional: when
+   * absent — an unsignalled project, or any caller that does not probe it —
+   * behaviour is exactly as before, so this is additive for existing callers.
+   */
+  harness?: string;
+  /**
+   * Whether each harness-specific output ALREADY exists on disk. A target whose
+   * output is present is always regenerated, even when the harness gate below
+   * would otherwise skip it: a project that has `.cursor/rules/` or `AGENTS.md`
+   * is demonstrably consuming them, and leaving them to rot stale is worse than
+   * writing them. Minsky's own repository has both, so this is also what keeps
+   * this change a no-op here.
+   */
+  existingOutputs?: { cursorRules: boolean; agentsMd: boolean };
 }): string[] {
+  // mt#4866 SC3. `cursor-rules-ts` and `agents.md` were selected on the presence
+  // of `.minsky/rules/` alone, regardless of harness — so a bare `minsky compile`
+  // after a Claude-Code-only `init` wrote 6 `.cursor/rules/*.mdc` files and a
+  // 90-byte `AGENTS.md` that nothing in that project reads. Measured live
+  // 2026-09-04: with `workspace.harness: claude-code` recorded and only
+  // `.minsky/rules/` present, the probe returned all four rules-sourced targets.
+  //
+  // The RFC states the intended behaviour directly (§Phase 0): "a bare `minsky
+  // compile` after a Claude-Code-only `init` stops also writing `.cursor/rules/`
+  // and `AGENTS.md`". Both halves, hence `agents.md` is gated here and not left
+  // harness-agnostic.
+  //
+  // `claude.md` and `claude-rules` are NOT gated — they are the two channels
+  // Claude Code actually implements (mt#3107), so under this harness they are
+  // exactly what should be written.
+  //
+  // Two escapes, both required by SC3 and both already exercised: an explicit
+  // `--target` never reaches this function (`runMinskyCompile` returns early), and
+  // an output that already exists stays maintained via `existingOutputs`.
+  const { targets } = minskyCompileTargetsWithGateReport(present);
+  return targets;
+}
+
+/**
+ * Which targets a bare invocation compiles, AND which the harness gate SKIPPED.
+ *
+ * The gate is otherwise invisible: a skipped target simply does not appear, which
+ * is indistinguishable from a target that was never applicable. That matters most
+ * for the pre-commit staleness check, where a silently-narrowed target set is the
+ * difference between "these outputs are current" and "these outputs are not being
+ * maintained and nothing will tell you" (PR #3623 R1).
+ *
+ * `gatedOut` names each skipped target with its reason, so callers can surface it.
+ * Returns the same `targets` array {@link minskyCompileTargetsFromPresence} does —
+ * that function delegates here, so the two can never disagree.
+ */
+export function minskyCompileTargetsWithGateReport(present: {
+  skills: boolean;
+  rules: boolean;
+  agents: boolean;
+  hooks: boolean;
+  harness?: string;
+  existingOutputs?: { cursorRules: boolean; agentsMd: boolean };
+}): { targets: string[]; gatedOut: { target: string; reason: string }[] } {
+  const claudeCodeOnly = present.harness === "claude-code";
+  const cursorRulesExists = present.existingOutputs?.cursorRules ?? false;
+  const agentsMdExists = present.existingOutputs?.agentsMd ?? false;
+
   const targets: string[] = [];
+  const gatedOut: { target: string; reason: string }[] = [];
+
+  const gateReason = (output: string): string =>
+    `harness is "claude-code", which does not read ${output}, and ${output} does not ` +
+    `already exist. Compile it explicitly with --target to opt in, or create ${output} ` +
+    `once and it will be maintained from then on.`;
+
   if (present.skills) targets.push("claude-skills");
   if (present.rules) {
-    targets.push("cursor-rules-ts");
+    if (!claudeCodeOnly || cursorRulesExists) targets.push("cursor-rules-ts");
+    else gatedOut.push({ target: "cursor-rules-ts", reason: gateReason(".cursor/rules") });
+
     targets.push("claude.md");
-    targets.push("agents.md");
+
+    if (!claudeCodeOnly || agentsMdExists) targets.push("agents.md");
+    else gatedOut.push({ target: "agents.md", reason: gateReason("AGENTS.md") });
+
     targets.push("claude-rules");
   }
   if (present.agents) targets.push("claude-agents");
   if (present.hooks) targets.push("claude-hooks");
-  return targets;
+
+  return { targets, gatedOut };
+}
+
+/**
+ * The harness recorded for this project, or `undefined` when none is.
+ *
+ * Reads `workspace.harness` from `.minsky/config.local.yaml` — the gitignored
+ * machine-local overlay `performSetup` writes it to (`setup.ts`) — falling back to
+ * the committed `.minsky/config.yaml` for projects that recorded it there.
+ *
+ * Deliberately a direct file read rather than a call into the configuration
+ * system: this runs inside the compile probe, which is injectable-fs-only by
+ * design (`MinskyCompileFsDeps`) so the target-selection tests stay hermetic.
+ * Pulling the config loader in here would drag its own IO into that seam.
+ *
+ * Fails OPEN — any read or parse problem yields `undefined`, which means "no
+ * harness recorded", which means the pre-mt#4866 target set. An unreadable config
+ * must not silently STOP writing outputs a project depends on; the failure
+ * direction is toward writing more, not less.
+ */
+export async function readRecordedHarness(
+  workspacePath: string,
+  fsDeps: MinskyCompileFsDeps
+): Promise<string | undefined> {
+  for (const fileName of ["config.local.yaml", "config.yaml"]) {
+    try {
+      const raw = await fsDeps.readFile(path.join(workspacePath, ".minsky", fileName), "utf-8");
+      const parsed = parseYaml(raw) as { workspace?: { harness?: unknown } } | null;
+      const harness = parsed?.workspace?.harness;
+      if (typeof harness === "string" && harness.length > 0) return harness;
+    } catch {
+      // intentional-swallow: a missing or unparseable config is the common case
+      // (most projects record no harness at all), and the fallback — undefined,
+      // meaning "gate nothing" — is the safe direction. Nothing actionable is
+      // lost: the next file is tried, and the caller's behaviour is unchanged.
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -87,9 +202,9 @@ export async function probeMinskyCompileTargets(
   workspacePath: string,
   fsDeps: MinskyCompileFsDeps
 ): Promise<string[]> {
-  const dirExists = async (dirPath: string): Promise<boolean> => {
+  const pathExists = async (candidate: string): Promise<boolean> => {
     try {
-      await fsDeps.access(dirPath);
+      await fsDeps.access(candidate);
       return true;
     } catch {
       return false;
@@ -97,10 +212,17 @@ export async function probeMinskyCompileTargets(
   };
 
   return minskyCompileTargetsFromPresence({
-    skills: await dirExists(path.join(workspacePath, ".minsky", "skills")),
-    rules: await dirExists(path.join(workspacePath, ".minsky", "rules")),
-    agents: await dirExists(path.join(workspacePath, ".minsky", "agents")),
-    hooks: await dirExists(path.join(workspacePath, ".minsky", "hooks")),
+    skills: await pathExists(path.join(workspacePath, ".minsky", "skills")),
+    rules: await pathExists(path.join(workspacePath, ".minsky", "rules")),
+    agents: await pathExists(path.join(workspacePath, ".minsky", "agents")),
+    hooks: await pathExists(path.join(workspacePath, ".minsky", "hooks")),
+    // mt#4866 SC3: the harness gate, plus the already-exists escape that keeps a
+    // project already consuming these outputs from having them go stale.
+    harness: await readRecordedHarness(workspacePath, fsDeps),
+    existingOutputs: {
+      cursorRules: await pathExists(path.join(workspacePath, ".cursor", "rules")),
+      agentsMd: await pathExists(path.join(workspacePath, "AGENTS.md")),
+    },
   });
 }
 

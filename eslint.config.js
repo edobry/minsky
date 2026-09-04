@@ -120,7 +120,27 @@ const COCKPIT_PALETTE_EXEMPT_FILES = [
 // direct-vs-transitive coverage gap, and the `allowedExact` escape-hatch rationale below.
 const COCKPIT_NODE_IMPORT_GUARD_OPTIONS = {
   bannedExact: ["@minsky/shared/logger"],
-  bannedPrefixes: ["@minsky/domain"],
+  // `../../widgets` is the SERVER widget tree (`src/cockpit/widgets/**`), added mt#4874 in
+  // response to PR #3562 R1. Those modules import `db-providers.ts` — `process.env`,
+  // `@minsky/domain/persistence` — so a VALUE import from the web bundle reproduces this
+  // guard's originating crash exactly. It already happened once: mt#3348 R2 (PR #3348) shipped
+  // `import { NOT_YET_WIRED_REASON_PREFIX } from "../../widgets/reviewer-cost"`, crashed the
+  // page with "process is not defined", and was repaired with a dependency-free contract module
+  // plus a Dockerfile COPY. Nothing mechanical caught it, because this guard's config listed
+  // only package specifiers.
+  //
+  // TWO `../` is load-bearing and NOT a typo for one. `../widgets/**` from `components/` or
+  // `pages/` resolves to `src/cockpit/web/widgets/**` — the browser-safe React components,
+  // legitimately value-imported at ~20 sites. Only the two-level form escapes the web tree.
+  //
+  // Coverage bound, stated rather than implied (same honesty as the rule's own transitive
+  // caveat): this matches the SPECIFIER STRING, and a relative specifier's meaning depends on
+  // the importing file's depth. It covers `hooks/` and `pages/`, which is where every such
+  // import lives today. A file at `src/cockpit/web/*.tsx` reaching the server tree would spell
+  // it `../widgets/**` and is NOT caught; a file three levels deep (e.g. `pages/plant-flow/`)
+  // writing `../../widgets/**` means the SAFE tree and would be a false positive — there are
+  // none today, and an `allowedExact` entry is the escape hatch if one appears.
+  bannedPrefixes: ["@minsky/domain", "../../widgets"],
   // Spot-checked at mt#3239 authoring time: each of these already-in-use submodules has zero
   // Node dependencies at least one import-hop deep. Adding an entry here is a decision, not a
   // lint tweak — see the rule's own doc comment for the verification bar before adding another.
@@ -743,6 +763,18 @@ export default [
             },
           ],
           patterns: [
+            {
+              // mt#4854: the v1 MCP SDK is gone as a DIRECT dependency, but
+              // `@modelcontextprotocol/inspector` (devDependency) hard-depends on
+              // `@modelcontextprotocol/sdk@^1.17.0`, so bun still hoists v1 to
+              // `node_modules/@modelcontextprotocol/sdk`. A stray v1 import would therefore
+              // RESOLVE and typecheck cleanly — nothing else in the toolchain would catch the
+              // regression. This rule is what actually enforces the migration; removing the
+              // inspector devDependency would be the alternative, and is out of scope.
+              group: ["@modelcontextprotocol/sdk", "@modelcontextprotocol/sdk/*"],
+              message:
+                "The v1 MCP SDK was retired (mt#4854). Import from the v2 packages: @modelcontextprotocol/server (Server, spec types, ProtocolError/ProtocolErrorCode), /server/stdio (StdioServerTransport), /client (Client, InMemoryTransport), /node (NodeStreamableHTTPServerTransport), /core (spec Zod schemas). v1 survives in node_modules only as a transitive dep of @modelcontextprotocol/inspector.",
+            },
             {
               group: [
                 "*/*.js",

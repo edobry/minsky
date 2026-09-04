@@ -21,6 +21,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card"
 import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { useListControls, type SortDir } from "../lib/useListControls";
+import { SortIndicator } from "../components/SortIndicator";
 import { statusStyle, type TaskStatus } from "../lib/status-colors";
 import {
   streamHealth,
@@ -29,6 +30,12 @@ import {
   type StreamHealthState,
 } from "../lib/workstream-health";
 import { fetchAsks, formatRelative, type AsksListResponse } from "./AskDetail";
+import {
+  useOptionalProject,
+  projectLabelById,
+  shouldShowProjectIndicator,
+} from "../lib/project-context";
+import { ProjectBadge } from "../components/ProjectBadge";
 import { useQuery } from "@tanstack/react-query";
 import {
   Select,
@@ -62,6 +69,19 @@ interface WorkstreamCard {
   blockedChildCount: number;
   /** Newest task updatedAt in the stream, ISO string or null (mt#2885). */
   lastActivityAt: string | null;
+  /**
+   * Root task's owning project uuid, or null (mt#4773).
+   *
+   * OPTIONAL here while the server type has it required, deliberately — same
+   * reason `altitude?:` below is optional. The bundle and the daemon are
+   * rebuilt by SEPARATE watchers (mt#2297 rebuilds `dist` on a web change;
+   * mt#2299 restarts the daemon on a backend change), so a freshly-built
+   * bundle can receive a payload from a daemon that has not restarted yet and
+   * does not send this field. Narrowing to required would make that window a
+   * type lie rather than a rendering no-op; the consumer reads
+   * `card.projectId ?? null`, which is correct either way.
+   */
+  projectId?: string | null;
 }
 
 /** Semantic slice names (mt#2385) — keep in sync with workstreams.ts */
@@ -69,7 +89,11 @@ type WorkstreamAltitude = "full" | "rollup" | "actionable";
 
 interface WorkstreamsPayload {
   workstreams: WorkstreamCard[];
-  /** Slice that produced this payload; optional for back-compat with pre-mt#2385 payloads */
+  /**
+   * Slice that produced this payload; optional for back-compat with
+   * pre-mt#2385 payloads — the same server-required/frontend-optional
+   * exception `projectId` documents above, and the precedent for it.
+   */
   altitude?: WorkstreamAltitude;
 }
 
@@ -137,17 +161,6 @@ function Chevron({ open }: { open: boolean }) {
       <polyline points="6 9 12 15 18 9" />
     </svg>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Sort direction indicator
-// ---------------------------------------------------------------------------
-
-function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
-  if (!active) {
-    return <span className="text-muted-foreground opacity-30 ml-0.5">↕</span>;
-  }
-  return <span className="ml-0.5">{dir === "asc" ? "↑" : "↓"}</span>;
 }
 
 // ---------------------------------------------------------------------------
@@ -369,6 +382,15 @@ interface WorkstreamCardProps {
 
 function WorkstreamCardItem({ card, defaultOpen, health }: WorkstreamCardProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
+  // Project identity in the all-projects view (mt#4773) — the stream belongs
+  // to its root task's project; same affordance as task/changeset/agent rows.
+  // Optional context: a card rendered outside the provider has no selection
+  // to indicate.
+  const projectCtx = useOptionalProject();
+  const projectLabel =
+    projectCtx && shouldShowProjectIndicator(projectCtx.projects, projectCtx.selectedSlug)
+      ? projectLabelById(projectCtx.projects, card.projectId ?? null)
+      : null;
   // Rollup altitude returns cards without child rows — header-only card,
   // no expand affordance (mt#2385).
   const hasChildren = card.children.length > 0;
@@ -390,6 +412,8 @@ function WorkstreamCardItem({ card, defaultOpen, health }: WorkstreamCardProps) 
             </CardTitle>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Project identity (mt#4773) — all-projects view only. */}
+            {projectLabel && <ProjectBadge label={projectLabel} />}
             {/* Supervision signals (mt#2885): health chip + needs-me rollups +
                 last motion — readable without expansion. */}
             <StreamHealthChip health={health} />
@@ -645,7 +669,15 @@ function WorkstreamsInner({ workstreams }: { workstreams: WorkstreamCard[] }) {
       {/* Count line — was in the CardTitle; now a subtitle below WidgetShell's title */}
       {totalCount > 0 && (
         <p className="text-xs text-muted-foreground mb-2">
-          {filteredCount === totalCount ? totalCount : `${filteredCount}/${totalCount}`} active
+          {/* "with open work", not "active" (mt#4775): this list is filtered
+              server-side to parents with >=1 non-terminal child
+              (widgets/workstreams.ts:344), which is a STRUCTURAL sense of
+              active. /digest counts workstreams that emitted events today — an
+              ACTIVITY sense. Both are correct and they legitimately disagree
+              (a parent with open work and no events today; a parent whose last
+              child closed this morning), so the shared word was the defect. */}
+          {filteredCount === totalCount ? totalCount : `${filteredCount}/${totalCount}`} with open
+          work
         </p>
       )}
 
@@ -668,23 +700,23 @@ function WorkstreamsInner({ workstreams }: { workstreams: WorkstreamCard[] }) {
 
       {/* Content */}
       {totalCount === 0 ? (
-        <p className="text-sm text-muted-foreground">No active workstreams</p>
+        <p className="text-sm text-muted-foreground">No workstreams with open work</p>
       ) : filteredCount === 0 ? (
         <div className="py-6 text-center">
           <p className="text-sm text-muted-foreground">No workstreams match these filters</p>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={clearFilters}
-            className="mt-2 text-xs"
-          >
+          <Button variant="ghost" size="sm" onClick={clearFilters} className="mt-2 text-xs">
             Clear filters
           </Button>
         </div>
       ) : (
         <div>
           {pageItems.map((card) => (
-            <WorkstreamCardItem key={card.parentId} card={card} defaultOpen={defaultOpen} health={healthByStream.get(card.parentId)!} />
+            <WorkstreamCardItem
+              key={card.parentId}
+              card={card}
+              defaultOpen={defaultOpen}
+              health={healthByStream.get(card.parentId)!}
+            />
           ))}
           <PaginationBar
             page={page}

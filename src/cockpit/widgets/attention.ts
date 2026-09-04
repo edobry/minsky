@@ -21,6 +21,8 @@ import { isSqlCapable } from "@minsky/domain/persistence/types";
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import type { AskRepository } from "@minsky/domain/ask/repository";
 import type { Ask } from "@minsky/domain/ask/types";
+import type { ProjectScope } from "@minsky/domain/project/scope";
+import type { ScopeResolverDb } from "@minsky/domain/project/scope-resolver";
 import {
   pendingAsksForWindow,
   compareAskPriority,
@@ -116,12 +118,20 @@ function toAttentionAsk(ask: Ask): AttentionAsk {
  *      `pendingAsksForWindow` — same query as the CLI sibling (mt#1491).
  *   2. Otherwise fall back to all `suspended` asks routed to "operator",
  *      sorted by priority.
+ *
+ * @param projectScope  Project scope for filtering (mt#4727). Defaults to
+ *   ALL_PROJECTS when omitted, matching `AskRepository.listByState`'s own
+ *   default.
  */
-export async function loadCohort(repo: AskRepository, windowKey: string | null): Promise<Ask[]> {
+export async function loadCohort(
+  repo: AskRepository,
+  windowKey: string | null,
+  projectScope?: ProjectScope
+): Promise<Ask[]> {
   const nowMs = Date.now();
 
   if (windowKey) {
-    return pendingAsksForWindow(repo, windowKey, nowMs);
+    return pendingAsksForWindow(repo, windowKey, nowMs, projectScope);
   }
 
   // Fallback: pending operator asks (no active window).
@@ -132,15 +142,32 @@ export async function loadCohort(repo: AskRepository, windowKey: string | null):
   // Reading only `suspended` here would drop exactly those asks the moment the
   // window closed — windows are open 30-60 minutes a day, so this branch is the
   // widget's normal state and the ask would be invisible until the next one.
-  const [routed, suspended] = await Promise.all([
-    repo.listByState("routed"),
-    repo.listByState("suspended"),
-  ]);
-  const operatorAsks = [...routed, ...suspended].filter(
-    (a) => a.routingTarget === "operator" && !isTerminal(a.state)
-  );
+  const operatorAsks = await pendingOperatorAsks(repo, projectScope);
   operatorAsks.sort(compareAskPriority);
   return operatorAsks;
+}
+
+/**
+ * Every operator-routed ask still awaiting an answer, ignoring windows.
+ *
+ * Extracted (mt#4775) so the header COUNT and the cohort LIST cannot drift
+ * apart. The header used to run its own `listByState("suspended")`, so it
+ * undercounted the very list it heads by exactly the asks sitting in `routed` —
+ * invisible whenever nothing was woken, which is why it surfaced as an
+ * intermittent off-by-N (home 40 vs /asks 41) rather than a constant one. One
+ * predicate, two callers.
+ */
+export async function pendingOperatorAsks(
+  repo: AskRepository,
+  projectScope?: ProjectScope
+): Promise<Ask[]> {
+  const [routed, suspended] = await Promise.all([
+    repo.listByState("routed", projectScope),
+    repo.listByState("suspended", projectScope),
+  ]);
+  return [...routed, ...suspended].filter(
+    (a) => a.routingTarget === "operator" && !isTerminal(a.state)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -151,6 +178,14 @@ export interface AttentionDeps {
   repo: AskRepository;
   /** Currently open window key — null if no window is open. */
   activeWindowKey: string | null;
+  /**
+   * Optional test seam (mt#4727, mirrors task-list.ts's mt#3016 seam):
+   * overrides `resolveCockpitProjectScope`'s own db-fetch. Production
+   * callers never set this — the default factory omits it, so
+   * `resolveCockpitProjectScope` falls back to its own `defaultGetDb` (the
+   * real `getContextInspectorDb()` singleton).
+   */
+  getDb?: () => Promise<ScopeResolverDb | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -168,18 +203,33 @@ export function createAttentionWidget(getDeps: () => Promise<AttentionDeps>): Wi
     id: "attention",
     title: "Attention",
     updateMode: { type: "polling", intervalMs: 10_000 },
-    async fetch(_ctx: WidgetContext): Promise<WidgetData> {
+    async fetch(ctx: WidgetContext): Promise<WidgetData> {
       try {
-        const { repo, activeWindowKey } = await getDeps();
+        const { repo, activeWindowKey, getDb } = await getDeps();
+
+        // Project scope (mt#4727): ?project=<slug> resolved to a project
+        // uuid, defaulting to ALL_PROJECTS when omitted/"all" — same
+        // resolution rules as every other cockpit project-scoped read
+        // (mt#2418 pattern, task-list.ts:91-93). resolveCockpitProjectScope
+        // owns its own db-fetch and never throws (fail-open to ALL_PROJECTS
+        // on any resolution failure — PR #2056 R1), so a scoping problem can
+        // never take this widget down.
+        const { resolveCockpitProjectScope } = await import("../project-scope");
+        const projectScope = await resolveCockpitProjectScope(ctx.query?.project, { getDb });
 
         // Load cohort for the active window (or fallback all-operator asks)
-        const cohort = await loadCohort(repo, activeWindowKey);
+        const cohort = await loadCohort(repo, activeWindowKey, projectScope);
 
-        // Total pending: all suspended asks routed to operator (for header counter)
-        const allSuspended = await repo.listByState("suspended");
-        const totalPending = allSuspended.filter(
-          (a) => a.routingTarget === "operator" && !isTerminal(a.state)
-        ).length;
+        // Total pending: the SAME predicate `loadCohort` uses, deliberately
+        // (mt#4775). This read `suspended` only while the no-window branch of
+        // `loadCohort` above reads `routed` + `suspended`, so the header
+        // undercounted the very list it heads by exactly the operator asks
+        // sitting in `routed` — which is where a woken ask lives from the moment
+        // its window opens until it is answered. The two agreed whenever nothing
+        // was `routed`, which is why this surfaced as an intermittent off-by-N
+        // (home 40 vs /asks 41) rather than a constant one, and why a test built
+        // on a homogeneous fixture would pass against the unfixed code.
+        const totalPending = (await pendingOperatorAsks(repo, projectScope)).length;
 
         const activeWindow: ActiveWindowInfo | null = activeWindowKey
           ? { windowKey: activeWindowKey }

@@ -29,6 +29,7 @@ import {
   fetchChangedFilesSince,
   fetchIncrementalDiffSince,
   fetchListFiles,
+  fetchPullRequestContext,
   MAX_FILES_FETCHED,
   fetchReviewThreads,
   resolveThread,
@@ -1425,5 +1426,140 @@ describe("fetchIncrementalDiffSince", () => {
     const result = await fetchIncrementalDiffSince(octokit, "owner", "repo", "base1", "head2");
 
     expect(result).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchPullRequestContext — too-large diff fallback (mt#4434)
+// ---------------------------------------------------------------------------
+
+/**
+ * The 406 GitHub returns when the whole-PR diff exceeds either of its caps.
+ * Message copied from the production log for PR #3412 (the 300-file cap).
+ */
+function tooLargeError(): Error {
+  const err = new Error(
+    "Sorry, the diff exceeded the maximum number of files (300). Consider using 'List pull " +
+      'requests files\' API or locally cloning the repository instead.: {"resource":' +
+      '"PullRequest","field":"diff","code":"too_large"}'
+  ) as Error & { status: number; response: unknown };
+  err.status = 406;
+  err.response = {
+    data: { errors: [{ resource: "PullRequest", field: "diff", code: "too_large" }] },
+  };
+  return err;
+}
+
+/**
+ * Fake Octokit for fetchPullRequestContext.
+ *
+ * `requestImpl` stands in for the diff-media-type fetch — the call that 406s in
+ * production — and `files` for the per-file listing fetched alongside it.
+ */
+function buildContextOctokit(
+  requestImpl: () => Promise<{ data: unknown }>,
+  files: Array<{
+    filename: string;
+    status?: string;
+    additions?: number;
+    deletions?: number;
+    patch?: string;
+  }>
+): Octokit {
+  return {
+    request: mock(requestImpl),
+    paginate: mock(async () => files),
+    rest: {
+      pulls: {
+        listFiles: mock(async () => ({ data: [] })),
+        get: mock(async () => ({
+          data: {
+            number: 3412,
+            title: "big one",
+            body: "",
+            changed_files: files.length,
+            head: {
+              ref: "task/mt-4639",
+              sha: "deadbeef",
+              repo: { owner: { login: "edobry" }, name: "minsky" },
+            },
+            base: { ref: "main" },
+          },
+        })),
+      },
+    },
+  } as unknown as Octokit;
+}
+
+describe("fetchPullRequestContext — too-large diff (mt#4434)", () => {
+  const FILES = [
+    {
+      filename: "src/alpha.ts",
+      status: "modified",
+      additions: 1,
+      deletions: 0,
+      patch: "@@ -1,1 +1,2 @@\n ctx\n+added",
+    },
+  ];
+
+  test("survives a too_large 406 and reconstructs the diff from per-file patches", async () => {
+    // The regression this task fixes. Before it, the unguarded diff request
+    // rejected the enclosing Promise.all, so this call threw and the whole
+    // review died — taking the per-file result that had already succeeded
+    // beside it.
+    const octokit = buildContextOctokit(async () => {
+      throw tooLargeError();
+    }, FILES);
+
+    const ctx = await fetchPullRequestContext(octokit, "edobry", "minsky", 3412);
+
+    // Assert the diff carries CONTENT, not merely that no error was thrown —
+    // an empty string would satisfy a "did not throw" assertion identically.
+    expect(ctx.diff).toContain("diff --git a/src/alpha.ts b/src/alpha.ts");
+    expect(ctx.diff).toContain("+added");
+    expect(ctx.fileEntries).toHaveLength(1);
+  });
+
+  test("uses GitHub's own diff when the fetch succeeds — the fallback stays dormant", () => {
+    // Control for the test above: without this, both would pass for an
+    // implementation that ALWAYS reconstructs and never uses the real diff.
+    const octokit = buildContextOctokit(async () => ({ data: "REAL DIFF FROM GITHUB" }), FILES);
+
+    return fetchPullRequestContext(octokit, "edobry", "minsky", 3412).then((ctx) => {
+      expect(ctx.diff).toBe("REAL DIFF FROM GITHUB");
+      expect(ctx.diff).not.toContain("diff --git");
+    });
+  });
+
+  test("re-throws a NON-size failure instead of silently degrading", async () => {
+    // The guard absorbs exactly one condition. A 500, a timeout or an auth
+    // failure must still reject — reconstructing around those would turn a real
+    // outage into a quietly incomplete review.
+    const boom = new Error("Internal Server Error") as Error & { status: number };
+    boom.status = 500;
+
+    const octokit = buildContextOctokit(async () => {
+      throw boom;
+    }, FILES);
+
+    await expect(fetchPullRequestContext(octokit, "edobry", "minsky", 3412)).rejects.toThrow(
+      "Internal Server Error"
+    );
+  });
+
+  test("fails loudly when BOTH paths are unavailable", async () => {
+    // Diff refused AND no per-file patches (fetchListFiles returns [] on error
+    // and above MAX_FILES_FETCHED). An empty diff would reach the model as a PR
+    // with no changes — indistinguishable from "nothing to review".
+    const octokit = buildContextOctokit(async () => {
+      throw tooLargeError();
+    }, []);
+
+    // The message must START with "too large" so `sanitizeReason` allowlists it
+    // rather than collapsing it into "an internal error occurred. Use `/review`
+    // to retry." — retry advice that cannot work for a deterministic size cap.
+    await expect(fetchPullRequestContext(octokit, "edobry", "minsky", 3412)).rejects.toThrow(
+      /^too large to review — split the PR or review it locally/
+    );
   });
 });

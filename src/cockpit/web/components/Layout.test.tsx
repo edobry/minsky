@@ -32,6 +32,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ProjectProvider } from "../lib/project-context";
+import { stubProjectsRoute } from "../lib/test-support/projects";
 import { Layout } from "./Layout";
 
 let originalFetch: typeof globalThis.fetch;
@@ -47,6 +48,7 @@ beforeEach(() => {
       })
     )
   ) as unknown as typeof globalThis.fetch;
+  stubProjectsRoute();
   try {
     localStorage.clear();
   } catch {

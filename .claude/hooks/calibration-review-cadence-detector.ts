@@ -76,8 +76,15 @@
 //      points the agent at when a log is review-due
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { getMinskyStateDir } from "@minsky/shared/paths";
+import {
+  calibrationReviewStorePath,
+  WATERMARK_STORE_FILENAME,
+  LAST_WARNED_STORE_FILENAME,
+} from "@minsky/shared/calibration-review-store-paths";
 import { readInput, writeOutput, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 // mt#3744 deliberately removed the `./domain-bootstrap` import: this hook no longer resolves
@@ -108,8 +115,53 @@ import type { DispatchContext, GuardOutcome } from "./registry";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_CALIBRATION_CADENCE";
 
-const WATERMARK_STORE_PATH = ".minsky/calibration-review-watermarks.json";
-const LAST_WARNED_STORE_PATH = ".minsky/calibration-review-cadence-last-warned.json";
+// ---------------------------------------------------------------------------
+// mt#4880 — the watermark / last-warned stores are state-dir, project-keyed
+// ---------------------------------------------------------------------------
+//
+// The two repo-rooted `.minsky/calibration-review-*.json` constants that stood
+// here are gone; both stores resolve through
+// `@minsky/shared/calibration-review-store-paths`, which every writer AND the
+// cockpit READER (`src/cockpit/ask-state-cache.ts`) now share.
+//
+// The comment below used to say they "stay repo-rooted … still correctly
+// gitignored." That justification was a minsky-repo-only property — the exact
+// premise mt#4748 exists to retire — and mt#4816 allowlisted these three modules
+// as `DELIBERATE, AND UNDECIDED` pending the decision mt#4880 records.
+//
+// ---------------------------------------------------------------------------
+// mt#4748 R1 — calibration/evaluation log READ path (state-dir, project-keyed)
+// ---------------------------------------------------------------------------
+//
+// The LOGS this hook reads via
+// `readContent` below moved: `.minsky/hooks/dispatcher.ts`'s
+// `calibrationLogPath`/`evaluationLogPath` now resolve under
+// `getMinskyStateDir()/projects/<key>/`, not `<repoRoot>/.minsky/`. This
+// detector's whole job is noticing when a log is review-due; reading the old
+// (now-empty) location makes it report nothing, silently, forever — the
+// exact can't-fail-probe class mt#4748's R1 fix exists to prevent.
+//
+// `projectStateKey` is duplicated (not imported) from the guard-events
+// ingest module (its `ingest-runtime.ts`) / `dispatcher.ts` — same
+// no-cross-dependency convention: importing that ingest module here
+// would pull its `drizzle-orm` / DB-schema imports into every UserPromptSubmit
+// hook invocation's cold start, for one leaf pure function. MUST compute the
+// IDENTICAL value from the IDENTICAL `repoRoot` input as the write side, or
+// this reader looks in the wrong project's subdirectory.
+function projectStateKey(repoRoot: string): string {
+  return createHash("sha256").update(repoRoot).digest("hex").slice(0, 16);
+}
+
+/**
+ * Resolve a `CALIBRATION_LOG_REGISTRY` / derived-entry `path` (still
+ * repo-relative — e.g. `.minsky/<name>-calibration.jsonl` or
+ * `.minsky/<name>-evaluations.jsonl`, see that field's docblock in
+ * `calibration-sweep.ts`) at its ACTUAL post-mt#4748 location.
+ */
+export function resolveCalibrationStatePath(repoRoot: string, relPath: string): string {
+  const bareName = relPath.replace(/^\.minsky\//, "");
+  return join(getMinskyStateDir(), "projects", projectStateKey(repoRoot), bareName);
+}
 
 /**
  * Re-warning cooldown: once a log is flagged review-due and the operator has
@@ -272,6 +324,40 @@ export function formatCadenceWarning(due: ReviewDueLog[]): string {
     "Run /calibration-review to classify false positives and record a flip/tune/keep disposition.";
 
   const legLine = (d: ReviewDueLog): string => {
+    // mt#4904 (PR #3572 R1): handled BEFORE the shared line below, not as
+    // another label on it. Both halves of that line are wrong for this leg —
+    // it quotes `injectedFiresSinceLastReview`, which the stranding clamps to
+    // 0, so a stranded log would read "0 new fire(s)" while being reported as
+    // needing review. The fabricated zero is the defect, not a detail.
+    //
+    // Note this leg had ALSO inherited the ternary's final `else`, labelling
+    // itself "unreviewed for >= N days" — the time-stale text.
+    if (d.reason === "watermark-stranded") {
+      return (
+        `  - ${d.name}: watermark ${d.watermarkCount} EXCEEDS ${d.totalFires} record(s) — ` +
+        `the log was rotated, truncated or re-rooted under it, so its new-fire count is ` +
+        `not meaningful and every other review trigger silently declined it. ` +
+        `Re-reviewing resets the watermark to the current count.`
+      );
+    }
+    // mt#4049: handled BEFORE the shared line, for the same reason the stranded
+    // leg is — the shared line quotes `injectedFiresSinceLastReview`, which this
+    // leg requires to be ZERO, so it would read "0 new fire(s)" about a log
+    // being reported as needing review. That fabricated zero is what mt#3197's
+    // deferral note predicted, and it is why this leg needed its own text
+    // rather than another label on the ternary.
+    //
+    // The question is also different in kind. Every other leg asks the reviewer
+    // to RATE fires; there are none here to rate. This asks whether the gate is
+    // too broad — which is what the suppressed count actually evidences.
+    if (d.reason === "all-suppressed") {
+      return (
+        `  - ${d.name}: suppressed ${d.suppressedSinceLastReview} of ` +
+        `${d.firesSinceLastReview} detection(s) and injected NONE — the detector is ` +
+        `running and the operator has seen nothing. Is this gate too broad? ` +
+        `Judge the suppressions, not a false-positive rate: there are no fires to rate.`
+      );
+    }
     const reasonLabel =
       d.reason === "past-threshold"
         ? "past review threshold (fires + diversity)"
@@ -670,14 +756,16 @@ export async function run(
   // nearest `.git` so the watermark/last-warned state files land in
   // `<repo>/.minsky/`, not a stray subdirectory `.minsky/`.
   const repoRoot = findRepoRoot(input.cwd ?? process.cwd());
-  const watermarkPath = join(repoRoot, WATERMARK_STORE_PATH);
-  const lastWarnedPath = join(repoRoot, LAST_WARNED_STORE_PATH);
+  const watermarkPath = calibrationReviewStorePath(WATERMARK_STORE_FILENAME, repoRoot);
+  const lastWarnedPath = calibrationReviewStorePath(LAST_WARNED_STORE_FILENAME, repoRoot);
 
   try {
     const watermarks = readJsonOrDefault<WatermarkStore>(watermarkPath, {});
+    // mt#4748 R1: the logs themselves live under the state dir now, not
+    // `<repoRoot>/.minsky/` — see the module note above `projectStateKey`.
     const readContent = async (relPath: string): Promise<string | null> => {
       try {
-        return readFileSync(join(repoRoot, relPath), "utf-8");
+        return readFileSync(resolveCalibrationStatePath(repoRoot, relPath), "utf-8");
       } catch {
         return null;
       }
@@ -762,14 +850,16 @@ export async function main(): Promise<void> {
   // nearest `.git` so the watermark/last-warned state files land in
   // `<repo>/.minsky/`, not a stray subdirectory `.minsky/`.
   const repoRoot = findRepoRoot(input.cwd ?? process.cwd());
-  const watermarkPath = join(repoRoot, WATERMARK_STORE_PATH);
-  const lastWarnedPath = join(repoRoot, LAST_WARNED_STORE_PATH);
+  const watermarkPath = calibrationReviewStorePath(WATERMARK_STORE_FILENAME, repoRoot);
+  const lastWarnedPath = calibrationReviewStorePath(LAST_WARNED_STORE_FILENAME, repoRoot);
 
   try {
     const watermarks = readJsonOrDefault<WatermarkStore>(watermarkPath, {});
+    // mt#4748 R1: the logs themselves live under the state dir now, not
+    // `<repoRoot>/.minsky/` — see the module note above `projectStateKey`.
     const readContent = async (relPath: string): Promise<string | null> => {
       try {
-        return readFileSync(join(repoRoot, relPath), "utf-8");
+        return readFileSync(resolveCalibrationStatePath(repoRoot, relPath), "utf-8");
       } catch {
         return null;
       }

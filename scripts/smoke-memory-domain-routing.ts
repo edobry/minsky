@@ -17,6 +17,7 @@
  */
 
 import "reflect-metadata";
+import { maskConnectionString } from "@minsky/domain/persistence/connection-string";
 
 const dbUrl = process.env.DATABASE_URL || process.env.MINSKY_POSTGRES_URL;
 
@@ -48,7 +49,7 @@ function fail(check: string, detail: string): void {
 
 async function run(): Promise<void> {
   console.log("smoke-memory-domain-routing: starting");
-  console.log(`  Database: ${connectionString.replace(/:[^:@]+@/, ":<REDACTED>@")}`);
+  console.log(`  Database: ${maskConnectionString(connectionString)}`);
   console.log("");
 
   // Bootstrap persistence

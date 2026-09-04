@@ -37,6 +37,30 @@ task graph — back ~184px of content width.
   navigation and reload. If storage is unavailable the preference simply becomes
   session-ephemeral and the rail opens expanded.
 
+### The project filter (mt#2418; per-option triage summary mt#4795)
+
+A single Postgres can hold rows from several projects (ADR-021). When the rail
+knows 2+ projects, a "Filter by project" dropdown appears at the top of the
+rail (below the wordmark, above the New conversation action), letting you
+view one project's data at a time, or "All projects" (the default). The
+selection persists across navigation and reload (`localStorage`, matching the
+rail-collapse preference above), and every scoped widget/page on every route
+re-fetches under the new filter.
+
+Renders nothing for a single-project deployment — there is nothing to filter,
+so the control would be pure noise.
+
+**Per-option triage summary.** Each option in the open dropdown carries a
+muted one-line summary — e.g. "40 need you · 3 working" for a project with
+pending asks and active agents, or "clear" for a project with neither — so
+"which project needs me" is answerable at the point of choosing, without
+switching into that project first. The "All projects" option shows the
+cross-project aggregate. If a project's summary fails to load, the option
+reads "status unavailable" — never a fabricated "clear" — so an outage never
+reads as a healthy project. The summary line is a snapshot fetched while the
+dropdown is open; it does not change what the closed dropdown or the
+underlying filter behavior look like.
+
 ### Keyboard shortcuts
 
 | Chord            | Does                                  |
@@ -249,6 +273,96 @@ defined in `src/cockpit/web/index.css` and documented in
 [`docs/brand-system.md`](brand-system.md) §2. They follow the brand system's
 semantic-token discipline — no raw hex on the surface.
 
+## Agents / unified run list (`/agents`, mt#2767, mt#4733)
+
+The Agents page merges every kind of active work into one list — Minsky workspace
+sessions, standalone harness conversations, and collapsed subagent/unattributed
+groups — instead of separate pages per kind (mt#2767, "unified run list"). Each row
+carries a **Kind** badge, and the control bar's **Kind** dropdown filters to one:
+
+| Kind badge       | Row represents                                                                                                                                                                                                                                                                                                      | Click behavior                                                                                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Agent**        | A dispatched Minsky workspace session (`kind: "dispatched-agent"`).                                                                                                                                                                                                                                                 | Opens the workspace detail route.                                                                                                                                 |
+| **Conversation** | A standalone harness conversation with no workspace link and no spawn parent (`kind: "principal-conversation"`) — e.g. the operator's own chat.                                                                                                                                                                     | Opens the conversation route.                                                                                                                                     |
+| **Subagent**     | One or more subagent conversations collapsed under a parent that isn't in the current view (`kind: "subagent-group"`). Synthetic — not a real entity.                                                                                                                                                               | Not a link; expands to reveal the nested conversations, each of which links individually.                                                                         |
+| **Drivable**     | An app-started driven session (mt#2752) — the input-capable surface at `/driven/:id`.                                                                                                                                                                                                                               | Opens the drive view.                                                                                                                                             |
+| **Unattributed** | The collapsed aggregate of every NULL-project-attribution conversation (and NULL-attributed subagent whose out-of-view parent can't be resolved) under a **specific** project filter (mt#4733). Synthetic — not a real entity, and only ever appears when `?project=` names one project rather than "All projects". | Not a link; expands to reveal the individual unattributed conversations, each of which links individually — same collapsed-container shape as **Subagent** above. |
+
+**Why "Unattributed" exists:** `agent_transcripts.project_id` is resolved
+best-effort at ingest and is nullable by design, so a specific project filter's
+window query includes every NULL-attribution conversation alongside the filtered
+project's own rows (never silently hiding one whose attribution failed to
+resolve). Rendering each as its own peer row floods a narrow filter — live-measured
+at a 45:2 ratio against one project's own activity — so they collapse into this
+one row instead. Full mechanism: `src/cockpit/widgets/run-merge.ts`'s module
+header ("Collapsed rendering under a narrow filter").
+
+## Messages (`/messages`, mt#4874)
+
+Cross-session peer messages, both halves against each other: what this project's
+conversations **sent** (a `SendMessage` tool call) and what they **received** (a
+delivered message carrying the harness's structured `origin` envelope). Reached
+via the **Messages** entry in the rail, between Agents and Asks. It is a read
+surface over transcripts already ingested — nothing here binds a socket or
+intercepts a message in flight; to DRIVE a conversation through that socket, see
+mt#4870.
+
+A top-level route rather than a tab under `/conversation/:id`, because the
+question it answers — "did that message land, and what else has been passing
+between my sessions" — is about the traffic BETWEEN conversations and has no
+single conversation to hang off.
+
+### Reading a row
+
+Each row carries its direction (**SENT** / **RECEIVED**), when it happened, and
+how its counterpart resolved. A paired row links **both** conversations: its own
+and the one at the other end.
+
+Received rows additionally show whether the peer was a **session peer** (another
+Claude Code session on this machine, over a Unix socket) or an **in-session
+agent** (a teammate or subagent inside one session). The harness marks both as
+`peer`, so merging them would present a subagent's message as though it came
+from another of your terminals. Receiver-side facts — the socket path, the
+sender's pid, `msg_id` — are shown as facts; none of them is the join key,
+because the sender's record carries none of them.
+
+### What "no delivery record found" means, and does not
+
+Correlation is on exact message text within a five-minute window (the harness's
+own `dialogExpiry`), because the two sides share no identifier. So:
+
+- A **paired** row means a send and a delivery were matched one-to-one.
+- **"ambiguous"** means the text matched more than one candidate. The page says
+  so and declines to pick; identical messages sent in the same instant are a real
+  property of the data, not a corner case.
+- **"no delivery record found"** on a send means exactly that — no delivery was
+  FOUND. It is not a claim that the message failed. A send to a subagent lands in
+  that subagent's transcript, and the vendor documentation additionally describes
+  held, refused, expired, over-size, burst-refused and loop-throttled outcomes.
+  The page therefore never totals sends-minus-deliveries into an "undelivered"
+  count, and you should not read it as one.
+
+### Coverage limits, stated on the page
+
+The page renders what it cannot see, in every state including the empty one —
+an empty feed is exactly when you need to know whether that means no traffic or
+no coverage:
+
+- **Local transcripts only.** A message appears only if at least one endpoint is
+  a conversation ingested on this machine; two remote or cloud sessions messaging
+  each other are invisible.
+- **Not real-time.** Latency is the transcript watcher's debounce plus ingest.
+- **Held and refused messages never arrive at all** — they exist only on the
+  sender's side.
+
+Two further gaps appear as counts when non-zero: deliveries whose raw envelope is
+not indexed in `transcript_lines` (mt#4590 owns that backfill), and turns the
+tool-call index named that carry no send when read — the index drifting from the
+transcripts it derives from (mt#4892). The second is reported as a floor, not a
+measurement: sends the index failed to name are not detectable from this view.
+
+**An empty page is the expected state for most projects.**
+
 ## Driven sessions (`/driven/:id`, mt#2750–mt#2752)
 
 The drive surface of the harness-host ladder (umbrella mt#2230): the cockpit
@@ -406,6 +520,34 @@ and the row marked.
 **Expand all / Collapse all** act on folds as well as on individual calls. Fold
 state is per-view only — nothing is remembered between visits, so a historical
 conversation reads the same on any day.
+
+### A subagent conversation opens with its dispatch brief (mt#4354, mt#4909)
+
+A conversation dispatched by another agent begins with the brief that agent
+wrote. It renders as its own block — labelled **dispatch brief** on a violet
+rail matching the spawn-lineage colour, never under the operator's own label,
+because the parent AGENT composed it (mt#4354). The header carries the task, the
+workspace session, a `read-only` badge when the dispatch declared that intent,
+and an ascent link back to the exact `Agent` call that dispatched it. Generated
+tooling boilerplate is folded; Minsky's own prompt watermarks are stripped.
+
+**It is pinned above the thread, because it would otherwise be unreachable
+(mt#4909).** The brief is turn 0, and the thread is FETCHED a page at a time
+from the tail — so on any conversation longer than one page turn 0 has not been
+fetched at all, and it sat three `load earlier turns` clicks away. The server
+sends it alongside the first page as a separate head block and the view renders
+it above the start boundary, so reading top-down gives the assignment, then what
+is still unfetched, then the turns.
+
+Consequences worth knowing when reading a conversation:
+
+- **The boundary count does not change.** `N earlier turns not loaded` still
+  counts real unfetched history; the brief is additive and is not one of them.
+- **The brief appears exactly once.** Page back far enough to fetch turn 0 and
+  the pinned copy stands down, because the real turn is now in the thread.
+- **No brief, no affordance.** A root conversation — or a subagent dispatched
+  before the mt#2292 stamp existed — renders exactly as it did before, with no
+  empty container above the thread.
 
 ### Identity registration and deeplinks
 
@@ -569,6 +711,116 @@ as `no-telemetry` rather than admitting.
 open EMPTY and fill from its next turn. The drive channel now replays the
 conversation's on-disk history, so the pane opens with its prior turns.
 
+### Memory curation worklists (mt#4767)
+
+`/memories` leads with five **worklists** in place of the old stats card. Each is a count whose
+click navigates the table to exactly that population, where the mt#4766 write actions below
+already live — so they are queue heads, not statistics. The stats card they replaced showed a
+total, a type breakdown, a 7-day count, a superseded count and a top-3-accessed list; all true,
+none actionable.
+
+| Worklist   | Predicate                                           | URL                                 |
+| ---------- | --------------------------------------------------- | ----------------------------------- |
+| Untagged   | `cardinality(tags) = 0`                             | `?mem_f_untagged=true`              |
+| Never read | `last_accessed_at IS NULL`                          | `?mem_f_neverAccessed=true`         |
+| Cold       | `last_accessed_at IS NOT NULL AND < now() - N days` | `?mem_f_cold=true&mem_f_coldDays=N` |
+| Duplicates | grouped by `md5(content)` — a page VIEW, read-only  | `?mem_view=duplicates`              |
+| Superseded | `superseded_by IS NOT NULL`                         | `?mem_f_onlySuperseded=true`        |
+
+**"Cold", not "stale", and the distinction is load-bearing.** `MemoryListFilter.unreadOrCold` is
+`last_accessed_at IS NULL **OR** older than N` — a union that SUBSUMES never-read, so it cannot
+render the two as separate lists. Measured 2026-08-31 at its own 90-day default it returned 252
+rows against never-read's 251, because exactly one record in the corpus had been read but not
+within 90 days; built on it, two of the five worklists would have been the same list with
+near-identical counts. `cold` is therefore a separate, disjoint filter. Separately, "stale"
+already means something else here — `staleness.ts` emits `⚠️ POSSIBLY OBSOLETE` for a memory whose
+_tracking task_ shipped. mt#4763's "Stale" cohort chip was relabelled "Cold" accordingly, and
+mt#4799 then renamed the field itself `stale` → `unreadOrCold` so the word means one thing in this
+codebase. Legacy `?mem_f_stale=true` links still filter and still light the chip: the old name is
+kept as a READ-ONLY alias at every layer that reads it (the page's cohort check, the list widget's
+filter state, the cockpit query parser, and the `memory.list` tool's `--stale` /
+`--staleness-days` params). Nothing writes it any more.
+
+The **Cold** default of 14 days is grounded in the measured read distribution, not chosen round:
+of 1,093 ever-read records, 805 were read within 7 days and 152 more within 14, after which the
+tail collapses (112 / 18 / 6).
+
+**Duplicates surfaces and never acts.** mt#1619 owns the dedup key decision and the cleanup, so
+the view exposes no destructive control and links out. Its content-only `md5(content)` key also
+catches renamed copies, which is why it reports a different population than mt#1619's
+`(name, content)` key — that difference is an input to that decision.
+
+A **growth panel** below the worklists shows creations per week over 8 weeks, split
+handoff/retrospective/other, leading with the handoff share.
+
+**Search mode overrides every filter.** When the toolbar's search box is non-empty the table
+queries `memories-search`, which applies no `mem_f_*` filter at all. Clicking a worklist or a
+cohort chip therefore clears the search first, and neither highlights while a search is active.
+
+### Memory curation write actions (mt#4766)
+
+`/memories` and `/memory/:id` gained row-level and bulk write actions — edit
+tags, edit name/description, supersede, and hard delete — where previously
+the cockpit could not change a memory in any way (the widget transport was
+`GET`-only). Every mutation routes through the shared command registry
+(`memory.update` / `memory.supersede` / `memory.delete`), never
+`MemoryService` directly, per ADR-004: the command layer is where
+`checkDerivation`, `validateAssociations` (ADR-012's closed association-type
+vocabulary), and the `tracksTask` auto-derivation actually run, and a route
+calling the service would silently skip all of them.
+
+#### `PATCH /api/memories/:id`
+
+Mutation (same auth gate as every other cockpit mutation endpoint — see
+`docs/architecture/cockpit.md`'s auth posture). Body: any of `name`,
+`description`, `tags` (string array), `associations`
+(`Record<string, string[]>`). An unknown field, or a wrong-typed value for
+one of these, returns `400` without reaching the command layer. `404` if the
+memory does not exist. A non-empty `associations` value under a key outside
+ADR-012's vocabulary is rejected `400` by the command layer itself (the
+message names ADR-012 — this is the check that only exists because the route
+goes through the command layer rather than the bare service). On success:
+`{ record: MemoryRecord }`.
+
+#### `POST /api/memories/:id/supersede`
+
+Mutation. Body: `type`, `name`, `description`, `content`, `scope` (all
+required non-empty strings; `type`/`scope` must be a valid enum value) plus
+optional `projectId`, `tags`, `confidence`, `reason`. `400` on a
+missing/invalid required field or an unknown field. `404` if the old memory
+does not exist. On success: `{ old: MemoryRecord, replacement: MemoryRecord }`
+— the old row's `supersededBy` points at the replacement's id.
+
+**Actor attribution is server-ascribed, never caller-supplied.**
+`sourceAgentId`/`sourceSessionId` are not accepted in the request body at
+all — a request that includes either is rejected `400` as an unknown field —
+and every replacement record's `sourceAgentId` is unconditionally set
+server-side to the fixed `COCKPIT_OPERATOR_SOURCE_AGENT_ID` constant. This
+applies mt#2898's finding on the ask-resolve route (`responder` read from the
+request body, forgeable by any caller once a permission bridge started
+trusting it) to a second entity before the same hole got dug twice.
+
+#### `DELETE /api/memories/:id`
+
+Mutation. Hard delete — the row is removed and the memory's embedding row is
+best-effort removed from `memories_embeddings`. **There is no undo, and
+unlike tasks (`deleted_task_ids`) memory has no short-id tombstone table** —
+once a `mem#N` record is deleted, that short id can be reissued to a
+different, unrelated future record. The cockpit's delete-confirmation dialog
+states both consequences before the operator confirms. On success:
+`{ deleted: true, id }`.
+
+#### `POST /api/memories/bulk/retag` · `POST /api/memories/bulk/delete`
+
+Mutation. Both follow `operational-safety-dry-run-first`: body
+`{ "ids": string[], "execute"?: boolean }` (retag also takes
+`"tags": string[]`). `execute` defaults to `false` (preview) — the response
+lists exactly which records would change (id, current state, new state) with
+no write performed. Pass `execute: true` to apply. A selection larger than
+10 records (`BULK_RECORD_CAP`) is refused `400` regardless of `execute`,
+naming the `operational-safety-dry-run-first` discipline rather than
+silently truncating the selection.
+
 ### `GET /api/health`
 
 The cockpit daemon exposes a lightweight health endpoint at
@@ -607,5 +859,13 @@ health indicator reflects the `db` field in addition to overall HTTP reachabilit
   §Driven sessions surface)
 - mt#2397 / mt#2604 / mt#3700 — the rail: persistent spine, mobile drawer, desktop collapse
   (the §The rail surface)
+- mt#2767 / mt#4728 / mt#4733 — Agents unified run list, project-scoped filtering, the
+  NULL-attribution collapse (the §Agents / unified run list surface)
+- mt#4874 — cross-session peer messages, sends and deliveries correlated (the §Messages
+  surface); mt#4875 / mt#4877 made the receiver rows selectable at all, mt#4870 owns
+  DRIVING a conversation through the same socket
+- mt#4766 — Memory curation write path (retag / edit / supersede / delete),
+  routed through the shared command registry per ADR-004 (the §Memory
+  curation surface)
 - [`docs/architecture/cockpit.md`](architecture/cockpit.md) — cockpit architecture reference
 - [`docs/brand-system.md`](brand-system.md) — tokens, motion budget, `prefers-reduced-motion`

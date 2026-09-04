@@ -15,6 +15,10 @@ import {
   buildReminder,
   run,
   runAskSurface,
+  runArtifactSurface,
+  detectArtifactBodyDeferral,
+  readArtifactBodyForCall,
+  ARTIFACT_TEXT_FIELD_BY_TOOL,
   INJECTION_ENABLED,
   OVERRIDE_ENV_VAR,
   detectActPathWorkaround,
@@ -28,38 +32,38 @@ import { findKillVerb } from "./block-bulk-process-kill";
 import { findOfferShape } from "./ask-routing-deferral-detector";
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput, ToolHookInput } from "./types";
-import type { DispatchContext } from "./registry";
 import { extractDistinctPhrases } from "../../src/domain/calibration/calibration-sweep";
+import {
+  ANCHOR_JUSTIFICATION,
+  ASKS_CREATE_TOOL,
+  ASK_OPTION_LABEL,
+  CREDENTIALS_LIST_TOOL,
+  DEFERRAL_PROSE,
+  FIXTURE_PATH,
+  OPERATOR_ROUTED_RESULT,
+  RAILWAY_ACCESS,
+  R5_LABEL,
+  askTurn,
+  assistantText,
+  correlatedToolResult,
+  correlatedToolUse,
+  ctxWith,
+  userPrompt,
+} from "./operator-deferral-fixtures";
 
 // ---------------------------------------------------------------------------
 // Shared fixture literals
 // ---------------------------------------------------------------------------
 
-const FIXTURE_PATH = "/tmp/fixture.jsonl";
-/** The capability-deferral phrase behind this detector's first live fire. */
-const RAILWAY_ACCESS = "requires Railway access";
-const DEFERRAL_PROSE = `Deferred to operator: ${RAILWAY_ACCESS}.`;
 /** The generic directive's opening — asserted present on some surfaces, ABSENT on others. */
 const PROBE_DIRECTIVE = "Run the capability probe";
-const ASK_OPTION_LABEL = "ask-option-label";
 const CAPABILITY_PROSE = "capability-deferral-prose";
-const R5_LABEL = "You recover the reviewer service";
 /** Shared `test.each` title for every suppression corpus below. */
 const STAYS_SILENT = "stays silent: %s";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
 // ---------------------------------------------------------------------------
-
-const userPrompt = (text: string): TranscriptLine => ({
-  type: "user",
-  message: { role: "user", content: text },
-});
-
-const assistantText = (text: string): TranscriptLine => ({
-  type: "assistant",
-  message: { role: "assistant", content: [{ type: "text", text }] },
-});
 
 const assistantToolUse = (name: string, input: Record<string, unknown>): TranscriptLine => ({
   type: "assistant",
@@ -74,15 +78,6 @@ const toolResult = (text: string): TranscriptLine => ({
     content: [{ type: "tool_result", tool_use_id: "toolu_x", content: [{ type: "text", text }] }],
   },
 });
-
-const ctxWith = (lines: TranscriptLine[]): DispatchContext =>
-  ({
-    event: "UserPromptSubmit",
-    hostCapSec: 60,
-    budgets: { overallMs: 60000, fetchMs: 20000, gitMs: 20000 },
-    transcriptCandidates: [FIXTURE_PATH],
-    transcriptLines: lines,
-  }) as unknown as DispatchContext;
 
 // ---------------------------------------------------------------------------
 // Surface C — permission-deferral prose (mt#3463)
@@ -320,6 +315,132 @@ describe("evaluation stream records misses, not just fires (mt#3463)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Surface G — artifact-body deferral (mt#4769)
+// ---------------------------------------------------------------------------
+
+describe("mt#4769: a deferral authored into an artifact body is observable", () => {
+  /** The shape of the originating incident: a deferral in a PR body. */
+  const DEFERRING_BODY = `## Outcome\n\nThe remaining step ${RAILWAY_ACCESS}, so it is deferred to the operator.\n`;
+
+  const prCreate = (body: unknown): ToolHookInput =>
+    ({
+      session_id: "s-artifact",
+      tool_name: "mcp__minsky__session_pr_create",
+      tool_input: { title: "Ship the thing", body },
+      cwd: "/tmp",
+    }) as unknown as ToolHookInput;
+
+  // AT1 — the surface fires and the record carries the evidence a reviewer
+  // needs to classify it.
+  test("AT1: a capability-shaped deferral in a PR body produces an artifact-body calibration record", () => {
+    const outcome = runArtifactSurface(prCreate(DEFERRING_BODY), ctxWith([]));
+    expect(outcome).not.toBeNull();
+
+    const calibration = outcome?.calibration as Record<string, unknown>;
+    // The unit, so a false-positive review can separate this class from the
+    // chat-prose one. Before mt#4769 the calibration log had no such field and
+    // three units would have written one undifferentiated stream.
+    expect(calibration.evaluated).toBe("artifact-body");
+    expect(calibration.source).toBe("live");
+
+    const matches = calibration.matches as Array<Record<string, unknown>>;
+    expect(matches.length).toBeGreaterThan(0);
+    // The body carries two capability-deferral shapes at once and WHICH pattern
+    // wins is a precedence detail, not this test's subject — pinning it would
+    // couple the artifact surface to the pattern list's ordering. Assert the
+    // pair of properties that actually matter: `phrase` is the pattern hit (the
+    // sweep's diversity axis) and `context` is the surrounding prose a human
+    // reads to classify the fire. Both must be populated (mt#3781).
+    expect(String(matches[0]?.phrase)).toContain("deferred to the operator");
+    expect(String(matches[0]?.context)).toContain(RAILWAY_ACCESS);
+  });
+
+  // AT2 — the denominator. Without this the artifact class would have matches
+  // and no population, and SC5's measured FP rate would have no divisor.
+  test("AT2: a body with no deferral prose yields no outcome (its evaluation is still recorded)", () => {
+    const benign = `## Summary\n\nRenames a constant and updates its two call sites.\n`;
+    expect(runArtifactSurface(prCreate(benign), ctxWith([]))).toBeNull();
+  });
+
+  test("the spec-patch param is read too, not just the PR body", () => {
+    const input = {
+      session_id: "s-artifact-spec",
+      tool_name: "mcp__minsky__tasks_spec_patch",
+      tool_input: { taskId: "mt#1", content: DEFERRING_BODY },
+      cwd: "/tmp",
+    } as unknown as ToolHookInput;
+    expect(runArtifactSurface(input, ctxWith([]))).not.toBeNull();
+  });
+
+  test("the field map names exactly the three writes the rule names", () => {
+    expect(ARTIFACT_TEXT_FIELD_BY_TOOL).toEqual({
+      session_pr_create: "body",
+      session_pr_edit: "body",
+      tasks_spec_patch: "content",
+    });
+  });
+
+  test("a tool outside the map yields no text, so no empty-denominator row is written", () => {
+    const input = {
+      session_id: "s-other",
+      tool_name: "mcp__minsky__session_commit",
+      tool_input: { message: `This ${RAILWAY_ACCESS}.` },
+      cwd: "/tmp",
+    } as unknown as ToolHookInput;
+    expect(readArtifactBodyForCall(input.tool_name, input.tool_input).text).toBeNull();
+    expect(runArtifactSurface(input, ctxWith([]))).toBeNull();
+  });
+
+  test("a non-string body is not coerced into a match", () => {
+    expect(runArtifactSurface(prCreate(undefined), ctxWith([]))).toBeNull();
+    expect(runArtifactSurface(prCreate({ nested: "x" }), ctxWith([]))).toBeNull();
+  });
+
+  test("an empty body is not evaluated as a match", () => {
+    expect(detectArtifactBodyDeferral([], "   \n  ")).toEqual([]);
+  });
+
+  // PR #3533 R1, pinned END-TO-END rather than at the record builder. The wrong
+  // label did not come from `buildCalibrationRecord` — it came from the shared
+  // `toOutcome`, which both prose and ask surfaces route through. A builder-level
+  // assertion passes while the surface that actually reaches it is mislabelled,
+  // so the regression has to be asserted at the surface.
+  test("R1 regression: the ask surface's own outcome is labelled ask-tool-call", () => {
+    const deferringAsk: Record<string, unknown> = {
+      questions: [
+        {
+          question: "The reviewer service is CRASHED. How should we proceed?",
+          options: [{ label: "You recover the reviewer service" }],
+        },
+      ],
+    };
+    const input = {
+      session_id: "s-ask-label",
+      tool_name: "AskUserQuestion",
+      tool_input: deferringAsk,
+      cwd: "/tmp",
+    } as unknown as ToolHookInput;
+
+    const outcome = runAskSurface(input, ctxWith([]));
+    expect(outcome).not.toBeNull();
+    expect((outcome?.calibration as Record<string, unknown>).evaluated).toBe("ask-tool-call");
+  });
+
+  // AT4 — negative control, in its mechanical form. The FULL-revert control is
+  // in the PR body; this one pins the dispatch gate specifically.
+  test("AT4: with the guard overridden, a firing body produces nothing", () => {
+    const prior = process.env[OVERRIDE_ENV_VAR];
+    process.env[OVERRIDE_ENV_VAR] = "1";
+    try {
+      expect(runArtifactSurface(prCreate(DEFERRING_BODY), ctxWith([]))).toBeNull();
+    } finally {
+      if (prior === undefined) delete process.env[OVERRIDE_ENV_VAR];
+      else process.env[OVERRIDE_ENV_VAR] = prior;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Surface A — capability-deferral prose (the family's R1/R3/R5 prose shapes)
 // ---------------------------------------------------------------------------
 
@@ -446,8 +567,8 @@ describe("fires on a tool-interleaved turn (mt#2057 dead-surface regression)", (
     userPrompt("why can't you fix this yourself?"),
   ];
 
-  test("the phrase before the tool calls is still scanned", () => {
-    const outcome = run(
+  test("the phrase before the tool calls is still scanned", async () => {
+    const outcome = await run(
       { session_id: "s1", transcript_path: FIXTURE_PATH } as ClaudeHookInput,
       ctxWith(interleaved)
     );
@@ -514,8 +635,16 @@ describe("diversity axis (mt#3781)", () => {
   // sweep actually calls.
   test("AT1: extractDistinctPhrases sees one phrase across the two fires", () => {
     const records = [
-      buildCalibrationRecord("s1", detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION))),
-      buildCalibrationRecord("s2", detectCapabilityDeferral(assistant(TRIGGER_AFTER_REVIEW))),
+      buildCalibrationRecord(
+        "s1",
+        detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION)),
+        "prose-turn"
+      ),
+      buildCalibrationRecord(
+        "s2",
+        detectCapabilityDeferral(assistant(TRIGGER_AFTER_REVIEW)),
+        "prose-turn"
+      ),
     ];
 
     const parsed = records.map(
@@ -529,7 +658,8 @@ describe("diversity axis (mt#3781)", () => {
   test("AT2: the record still carries the surrounding prose", () => {
     const record = buildCalibrationRecord(
       "s1",
-      detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION))
+      detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION)),
+      "prose-turn"
     ) as { matches: Array<{ phrase: string; context: string }> };
 
     // `leadSentences: 1` pulls in the sentence before the trigger, which is the
@@ -765,8 +895,8 @@ describe("calibration-first posture", () => {
     expect(INJECTION_ENABLED).toBe(false);
   });
 
-  test("no injection is emitted while the gate is closed", () => {
-    const outcome = run(
+  test("no injection is emitted while the gate is closed", async () => {
+    const outcome = await run(
       { session_id: "s3", transcript_path: FIXTURE_PATH } as ClaudeHookInput,
       ctxWith([userPrompt("go"), assistantText(DEFERRAL_PROSE), userPrompt("next")])
     );
@@ -775,11 +905,19 @@ describe("calibration-first posture", () => {
   });
 
   test("record carries the mt#2554 coverage-receipt source field and matches shape", () => {
-    const record = buildCalibrationRecord("s4", [
-      { surface: ASK_OPTION_LABEL, matchedPhrase: R5_LABEL, context: R5_LABEL },
-    ]);
+    const record = buildCalibrationRecord(
+      "s4",
+      [{ surface: ASK_OPTION_LABEL, matchedPhrase: R5_LABEL, context: R5_LABEL }],
+      "ask-tool-call"
+    );
     expect(record["source"]).toBe("live");
     expect(record["injection_enabled"]).toBe(false);
+    // PR #3533 R1. `evaluated` shipped defaulted on the first push, so the ask
+    // surface — which reaches this builder through the shared `toOutcome` — was
+    // labelled `prose-turn` on every fire. Pin the VALUE, not just the arity: a
+    // wrong-but-present label reads as data to a false-positive review, which is
+    // worse than the missing field it replaced.
+    expect(record["evaluated"]).toBe("ask-tool-call");
     const matches = record["matches"] as Array<Record<string, unknown>>;
     expect(matches[0]).toEqual({
       category: ASK_OPTION_LABEL,
@@ -808,8 +946,8 @@ describe("calibration-first posture", () => {
     expect(reminder).not.toContain(OVERRIDE_ENV_VAR);
   });
 
-  test("a clean turn produces no outcome", () => {
-    const outcome = run(
+  test("a clean turn produces no outcome", async () => {
+    const outcome = await run(
       { session_id: "s5", transcript_path: FIXTURE_PATH } as ClaudeHookInput,
       ctxWith([userPrompt("go"), assistantText("Merged and verified."), userPrompt("next")])
     );
@@ -1015,8 +1153,8 @@ describe("Surface D — denial-anchored deferral (mt#3533)", () => {
     expect(detectDenialAnchoredDeferral([assistantText("All green."), asksCreate()])).toEqual([]);
   });
 
-  test("run() reports the surface through the calibration record", () => {
-    const outcome = run(
+  test("run() reports the surface through the calibration record", async () => {
+    const outcome = await run(
       { session_id: "s-d", transcript_path: FIXTURE_PATH } as ClaudeHookInput,
       ctxWith([
         userPrompt("apply the setting"),
@@ -1073,82 +1211,15 @@ describe("Surface D — denial-anchored deferral (mt#3533)", () => {
 const ASK_JUSTIFICATION = "ask-justification";
 
 /** The channel that lied in the anchor instance — and that surface A counts as a probe. */
-const CREDENTIALS_LIST_TOOL = "mcp__minsky__config_credentials_list";
 
 /** The independent channel that would have falsified it. */
 const AI_VALIDATE_TOOL = "mcp__minsky__ai_validate";
-
-/** The tool whose payload carries an ask justification. */
-const ASKS_CREATE_TOOL = "mcp__minsky__asks_create";
-
-/**
- * ask#6754's claim, verbatim in substance (mt#3547, 2026-08-01): the agent read
- * ONE channel, the credential store, which returned exit-0 JSON that silently
- * omitted the provider — and then asked the operator to authorize pulling a
- * PRODUCTION credential off Railway on that premise.
- */
-const ANCHOR_JUSTIFICATION =
-  "I have no OpenAI key — the credential store has Anthropic and Google, not OpenAI. May I " +
-  "pull the production key off Railway so the replay corpus can run?";
-
-const OPERATOR_ROUTED_RESULT = JSON.stringify({
-  id: "ask-1",
-  state: "routed",
-  routingTarget: "operator",
-  transport: "inbox",
-});
 
 const POLICY_CLOSED_RESULT = JSON.stringify({
   id: "ask-1",
   state: "closed",
   routingTarget: "policy",
 });
-
-function correlatedToolUse(
-  id: string,
-  name: string,
-  input: Record<string, unknown>
-): TranscriptLine {
-  return {
-    type: "assistant",
-    message: { role: "assistant", content: [{ type: "tool_use", id, name, input }] },
-  } as unknown as TranscriptLine;
-}
-
-function correlatedToolResult(id: string, content: string): TranscriptLine {
-  return {
-    type: "user",
-    message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content }] },
-  } as unknown as TranscriptLine;
-}
-
-/** A turn that creates an ask, plus whatever channel calls preceded it. */
-function askTurn(options: {
-  justification?: string;
-  result?: string;
-  channels?: Array<{ name: string; input?: Record<string, unknown> }>;
-}): TranscriptLine[] {
-  const {
-    justification = ANCHOR_JUSTIFICATION,
-    result = OPERATOR_ROUTED_RESULT,
-    channels = [{ name: CREDENTIALS_LIST_TOOL }],
-  } = options;
-
-  const lines: TranscriptLine[] = [];
-  channels.forEach((channel, i) => {
-    lines.push(correlatedToolUse(`toolu_ch${i}`, channel.name, channel.input ?? {}));
-    lines.push(correlatedToolResult(`toolu_ch${i}`, "{}"));
-  });
-  lines.push(
-    correlatedToolUse("toolu_ask", ASKS_CREATE_TOOL, {
-      kind: "authorization.approve",
-      title: "Authorize pulling the production OpenAI key",
-      question: justification,
-    })
-  );
-  lines.push(correlatedToolResult("toolu_ask", result));
-  return lines;
-}
 
 describe("surface E — ask-justification capability-absence (mt#3999)", () => {
   test("AT1: the anchor instance fires, and the advisory names the second channel", () => {
@@ -1301,12 +1372,12 @@ describe("surface E — ask-justification capability-absence (mt#3999)", () => {
     expect(detectAskJustificationAbsence(turn)).toHaveLength(1);
   });
 
-  test("run() actually reports surface E — the wiring, not just the detector", () => {
+  test("run() actually reports surface E — the wiring, not just the detector", async () => {
     // Every other test in this block calls `detectAskJustificationAbsence`
     // directly, so deleting the surface from `run()`'s match list would leave
     // them ALL green — the mt#3270 R1 shape this file's own comment warns
     // about. This is the test that fails when the wiring goes.
-    const outcome = run(
+    const outcome = await run(
       { session_id: "s-e", transcript_path: FIXTURE_PATH } as ClaudeHookInput,
       ctxWith([userPrompt("run the replay corpus"), ...askTurn({}), userPrompt("next")])
     );
@@ -1316,7 +1387,7 @@ describe("surface E — ask-justification capability-absence (mt#3999)", () => {
 
   test("the calibration record keeps the shared matches shape", () => {
     const matches = detectAskJustificationAbsence(askTurn({}));
-    const record = buildCalibrationRecord("sess-1", matches);
+    const record = buildCalibrationRecord("sess-1", matches, "prose-turn");
     const entries = record["matches"] as Array<Record<string, unknown>>;
 
     expect(entries[0]).toEqual({

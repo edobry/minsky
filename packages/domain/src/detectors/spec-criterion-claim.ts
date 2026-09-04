@@ -325,15 +325,14 @@ export function extractCriteria(
  * to serve this detector would silently change what those guards can see. The hook
  * composes the two instead.
  *
- * Straight and curly DOUBLE quotes only. Single quotes are excluded because an
- * apostrophe (`doesn't`, `agent's`) opens a span that never closes, which would
- * blank the rest of the line. Spans do not cross a newline for the same reason.
- * Same-length replacement preserves the offset alignment {@link
- * hasCorpusReferentNear} depends on.
+ * **MOVED to `../text/prose-elision.ts` by mt#4454** and re-exported here so this
+ * module's consumers (`.minsky/hooks/spec-criterion-claim-detector.ts` imports it
+ * from this path) are unchanged. It moved because a SECOND domain consumer appeared
+ * — `../memory/staleness.ts` — and a shared Rung-1 primitive should not live inside
+ * one detector's module. Same-length replacement still preserves the offset
+ * alignment {@link hasCorpusReferentNear} depends on.
  */
-export function elideProseQuotedSpans(text: string): string {
-  return text.replace(/"[^"\n]*"|“[^”\n]*”/g, (m) => m.replace(/[^\n]/g, " "));
-}
+export { elideProseQuotedSpans } from "../text/prose-elision";
 
 /**
  * Whether a criterion ships its own falsifier.

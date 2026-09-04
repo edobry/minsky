@@ -108,7 +108,7 @@ function resolveCognitionMode(ctx: CognitionResolutionContext): CognitionMode {
 }
 ```
 
-`CognitionResolutionContext` includes the command invocation kind (CLI, MCP, skill), an explicit override (`--cognition-mode=...`), and access to the harness-detection layer at `src/domain/runtime/harness-detection.ts`.
+`CognitionResolutionContext` includes the command invocation kind (CLI, MCP, skill), an explicit override (`--cognition-mode=...`), and access to the harness-detection layer at `packages/domain/src/runtime/harness-detection.ts`.
 
 The pseudocode above describes the _target_ resolution once all phases land. Before Phase 5 (see Implementation Plan), MCP invocations continue to default to **direct** so that existing AI-using features are not forced into delegated mode before the retrofit (mt#1058) completes. The Phase 5 change flips the MCP default to delegated, matching the pseudocode. CLI invocations default to direct throughout. Tests inject the provider explicitly.
 
@@ -161,7 +161,7 @@ The pseudocode above describes the _target_ resolution once all phases land. Bef
 
 ## Implementation Plan
 
-1. **Phase 1 — Abstraction.** This task (mt#1057): define `src/domain/cognition/` with the interfaces above. Implement `DirectCognitionProvider` wrapping `AICompletionService`. Implement `DelegatedCognitionProvider` producing `CognitionBundle` outputs. Implement `DegradedCognitionProvider`. Mode resolution via composition-root wiring. Stub provider for tests.
+1. **Phase 1 — Abstraction.** This task (mt#1057): define `packages/domain/src/cognition/` with the interfaces above. Implement `DirectCognitionProvider` wrapping `AICompletionService`. Implement `DelegatedCognitionProvider` producing `CognitionBundle` outputs. Implement `DegradedCognitionProvider`. Mode resolution via composition-root wiring. Stub provider for tests.
 
 2. **Phase 2 — First consumer.** mt#1063 (subtask of mt#321) consumes the abstraction for criterion evaluation and synthesis. Validates interface shape under real use before any generalization.
 
@@ -185,8 +185,8 @@ The pseudocode above describes the _target_ resolution once all phases land. Bef
 - [ADR-004: Two-Phase Command Execution](./adr-004-two-phase-command-execution.md)
 - [ADR-005: ForgeBackend Sub-Interfaces](./adr-005-forgebackend-subinterfaces.md)
 - [ADR-006: Agent Identity Scheme for MCP Callers](./adr-006-agent-identity.md)
-- [`src/domain/ai/types.ts`](../../src/domain/ai/types.ts) — existing `AICompletionService` interface
-- [`src/domain/runtime/harness-detection.ts`](../../src/domain/runtime/harness-detection.ts) — existing mode-detection helpers
+- [`packages/domain/src/ai/types.ts`](../../packages/domain/src/ai/types.ts) — existing `AICompletionService` interface
+- [`packages/domain/src/runtime/harness-detection.ts`](../../packages/domain/src/runtime/harness-detection.ts) — existing mode-detection helpers
 - [`docs/theory-of-operation.md`](../theory-of-operation.md) §System 4 — VSM framing
 - mt#321 — agent-readiness assessment (first consumer)
 - mt#800 / mt#915 — skills architecture with dual-path prompt generation

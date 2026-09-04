@@ -73,11 +73,13 @@ import type { SpecTextRead } from "./authored-spec-text";
 // routine — so the calibration excerpt cannot use a bare `.slice`, which may
 // split a surrogate pair (`custom/no-unsafe-string-truncation`).
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+import { blankSameLength } from "../../packages/domain/src/text/prose-elision";
 import {
   normalizeTaskId,
   prNumbersWithFileListRead,
   sessionReadMergeHistory,
   sessionRanASearch,
+  taskIdsWithSpecRead,
   taskIdsWithStatusRead,
 } from "./evidence-provenance-table";
 
@@ -371,7 +373,7 @@ const CITATION_PARENTHETICAL_RE = /\(\s*same\s+file\b[^)]*\)/gi;
  * into the paragraph stays aligned.
  */
 function elideCitationParentheticals(text: string): string {
-  return text.replace(CITATION_PARENTHETICAL_RE, (m) => m.replace(/[^\n]/g, " "));
+  return text.replace(CITATION_PARENTHETICAL_RE, blankSameLength);
 }
 
 /**
@@ -626,6 +628,167 @@ export function targetTaskId(toolInput: Record<string, unknown> | undefined): st
 }
 
 // ---------------------------------------------------------------------------
+// Claim recognition — a CAUSAL ATTRIBUTION to another task (mt#4876)
+// ---------------------------------------------------------------------------
+
+/**
+ * A causal or explanatory connective.
+ *
+ * SAMPLED, NOT INVENTED — the discipline `warn-unwired-task-relationship.ts`
+ * states for its own vocabulary: *"a guessed vocabulary is how a detector ends up
+ * with high recall against text nobody writes and none against the text that
+ * produced the incident."* Every entry below was counted over the agent-authored
+ * corpus (`docs/` + `.minsky/rules/`, `*.md` + `*.mdc`), as sentences carrying BOTH
+ * the connective and an `mt#` ref:
+ *
+ *   because 45 · which is why 7 · the reason 5 · explains 2 · consistent with 2 · due to 1
+ *
+ * `caused by` measured ZERO there and is kept anyway on different evidence: it is
+ * one of the five trigger phrases `/create-task` §2c already names for causal
+ * claims in specs (recorded verbatim in mt#4301), so it is attested spec-authoring
+ * vocabulary that this doc corpus happens not to sample.
+ *
+ * SIX candidates measured ZERO and are DROPPED rather than carried on plausibility —
+ * `accounts for`, `on account of`, `stems from`, `attributable to`, `that is why`,
+ * `explained by`. That deletion is the sampling rule doing its work; do not re-add one
+ * without a count. (Seven candidates measured zero in all; `caused by` was the seventh
+ * and is kept on the separate evidence named above.)
+ *
+ * `explains` is safe against `unexplained`: the leading `\b` cannot match inside a
+ * word, so *"a new, unexplained signal"* — a phrase from the originating incident's
+ * own correction — does not fire.
+ */
+const CAUSAL_CONNECTIVE_RE = new RegExp(
+  [
+    String.raw`\bconsistent\s+with\b`,
+    String.raw`\bbecause(?:\s+of)?\b`,
+    String.raw`\bwhich\s+is\s+why\b`,
+    String.raw`\bthe\s+reasons?\b`,
+    String.raw`\bexplain(?:s|ing)?\b`,
+    String.raw`\bdue\s+to\b`,
+    String.raw`\bcaused\s+by\b`,
+  ].join("|"),
+  "i"
+);
+
+/**
+ * Relationship vocabulary that belongs to `warn-unwired-task-relationship.ts`
+ * (mt#2264), which runs on this SAME seam and demands a wired graph edge.
+ *
+ * `blocked on` was in this task's proposed connective list and is REMOVED here.
+ * mt#2264's `RELATIONSHIP_PHRASES` carries `blocked\s+by` and `gated\s+on`
+ * literally, and *"mt#X is blocked on mt#Y"* is that assertion, not a claim about
+ * what mt#Y's record says. Matching it would double-fire two guards on one claim
+ * at one seam — the exact collision {@link stripDuplicateCheckRecords} exists to
+ * prevent for the mt#4004 sibling.
+ *
+ * A sentence carrying one of these is skipped even when it also carries a causal
+ * connective, because the relationship reading is the one mt#2264 will act on.
+ */
+const RELATIONSHIP_SENTENCE_RE =
+  /\b(?:blocked\s+(?:on|by)|gated\s+on|depends?\s+on|depending\s+on|waits?\s+on|fed\s+by|feeds|blocks|prerequisite\s+for|subtask\s+of|child\s+of|parent\s+of|part\s+of|umbrella\s+for)\b/i;
+
+/**
+ * Fenced blocks and blockquote lines, blanked to same-length filler.
+ *
+ * ADR-024's Rung 1 prescribes eliding markdown non-prose before matching, and this
+ * is that pass — but DELIBERATELY NOT `elideMarkdownNonProse`, whose second pass
+ * blanks inline code spans. This corpus writes real task references inside
+ * backticks routinely, and `check-task-spec-read.ts` records the reason its own ask
+ * regex is *"deliberately NOT fence- or code-span-aware"*: **a backticked `mt#4753`
+ * is a real reference to a real task, not a quotation of one.** Blanking code spans
+ * would delete the ref half of the conjunction and drive the fire rate toward zero
+ * — a result that reads as a precision win and is the guard switched off. That is
+ * the same trap {@link isAuditRecordParagraph} records one class over.
+ *
+ * What IS elided is quotation proper: a fenced block (a spec quoting another spec)
+ * and a blockquote line (`>`), neither of which is this author asserting anything.
+ * The filler is non-`\s`, non-`\w` and same-length per mt#4792, so offsets survive
+ * and no match can form ACROSS an elided span.
+ */
+function elideQuotationOnly(text: string): string {
+  return text
+    .replace(/^ {0,3}(`{3,}|~{3,})[^\r\n]*\r?\n[\s\S]*?^ {0,3}\1[ \t]*\r?$/gm, blankSameLength)
+    .replace(/^[ \t]{0,3}>.*$/gm, blankSameLength);
+}
+
+/**
+ * Sentences of a paragraph, with wrapped lines rejoined first.
+ *
+ * The SENTENCE is the unit here, where the two sibling classes use the paragraph.
+ * That is deliberate and in the stricter direction: this class's connectives are
+ * far commoner in ordinary spec prose than a collision verb or a remaining-work
+ * phrase, so a paragraph-wide conjunction would measure co-occurrence rather than
+ * attribution — the failure {@link paragraphs}'s own docstring records costing 8 of
+ * 8 sampled fires when the collision class scanned the whole body.
+ *
+ * Newlines collapse to spaces before splitting because this repo hard-wraps at 100
+ * columns, so a sentence routinely spans three lines — the wrapped-line trap
+ * mem#1067 §2 records, and the one that made `isAuditRecordParagraph` count items
+ * rather than lines.
+ */
+function sentences(para: string): string[] {
+  return para
+    .replace(/\s*\n\s*/g, " ")
+    .split(/(?<=[.!?])\s+/)
+    .filter((s) => s.trim() !== "");
+}
+
+/**
+ * Sentences that attribute an explanation to a named task.
+ *
+ * BOTH signals required in ONE sentence — a causal connective AND an `mt#N` ref —
+ * because either alone is ordinary spec prose. A cross-reference list, a
+ * duplicate-check candidate list and a `## Members` list all name refs without
+ * explaining anything, and none of them fires.
+ */
+export function causalAttributionSentences(specText: string): string[] {
+  const out: string[] = [];
+  for (const para of paragraphs(elideQuotationOnly(specText))) {
+    // A gate report is the recorded OUTPUT of the checks this guard demands, not
+    // an assertion — the largest measured false class on the sibling classes, and
+    // the one that fires hardest at the most careful authors (mem#719).
+    if (isAuditRecordParagraph(para)) continue;
+    for (const sentence of sentences(para)) {
+      if (RELATIONSHIP_SENTENCE_RE.test(sentence)) continue;
+      if (!CAUSAL_CONNECTIVE_RE.test(sentence)) continue;
+      if (!taskIdMatcher().test(sentence)) continue;
+      out.push(sentence);
+    }
+  }
+  return out;
+}
+
+/**
+ * The task ids a causal-attribution sentence is ABOUT, normalized for the join.
+ *
+ * EXPLICIT ids only — there is no deictic branch, unlike
+ * {@link remainingWorkSubjects}. *"this task"* in a spec refers to the spec being
+ * written, whose content the author necessarily has in hand, so a self-referential
+ * explanation has no read to demand. An empty result is NOT ADJUDICABLE and the
+ * caller must not fire on it.
+ *
+ * `ownTaskId` is EXCLUDED for the same reason: a sentence explaining the target
+ * task by reference to itself is not a claim about another task's record.
+ */
+export function causalAttributionSubjects(para: string, ownTaskId: string | null): string[] {
+  const own = ownTaskId === null ? "" : normalizeTaskId(ownTaskId);
+  const subjects = new Set<string>();
+  for (const m of para.matchAll(taskIdMatcher())) {
+    const id = normalizeTaskId(m[0] ?? "");
+    if (id !== "" && id !== own) subjects.add(id);
+  }
+  return [...subjects];
+}
+
+/** True when the spec explains something by reference to another named task. */
+export function claimsCausalTaskAttribution(specText: string, ownTaskId: string | null): boolean {
+  return causalAttributionSentences(specText).some(
+    (s) => causalAttributionSubjects(s, ownTaskId).length > 0
+  );
+}
+
+// ---------------------------------------------------------------------------
 // No advisory text, deliberately
 // ---------------------------------------------------------------------------
 //
@@ -688,7 +851,8 @@ export function run(input: ToolHookInput, ctx: DispatchContext): GuardOutcome | 
   const collision = claimsFileCollision(specText);
   const ownership = claimsNoOwner(specText);
   const remainingWork = claimsRemainingWork(specText, ownTaskId);
-  if (!collision && !ownership && !remainingWork) {
+  const causalAttribution = claimsCausalTaskAttribution(specText, ownTaskId);
+  if (!collision && !ownership && !remainingWork && !causalAttribution) {
     return { calibration: { ...base, outcome: "clean", reason: "no provenance-bearing claim" } };
   }
 
@@ -748,6 +912,28 @@ export function run(input: ToolHookInput, ctx: DispatchContext): GuardOutcome | 
       return subjects.length > 0 && !subjects.every((id) => readIds.has(id));
     });
     if (unbackedParagraph) unbacked.push("a remaining-work assertion");
+  }
+
+  if (causalAttribution) {
+    // The discharge is a CONTENT read, never a status read — the distinction the
+    // class exists for. `taskIdsWithSpecRead` is a strict subset of
+    // `taskIdsWithStatusRead`: the originating claim was sourced from a TITLE,
+    // which `tasks_get` returns and the wider set would have credited.
+    const readIds = taskIdsWithSpecRead(calls);
+    // PER SENTENCE and PER SUBJECT, the join shape mt#4190 established for the
+    // collision class and mt#4299 inherited: a union across sentences would make
+    // a task named in one sentence a required read for the claim made in another,
+    // firing at an author who read exactly the task their claim was about.
+    //
+    // `subjects.length > 0` is the not-adjudicable guard. A sentence explaining
+    // something by reference only to the task being written has no other record to
+    // demand, and firing on it would be a claim the author cannot discharge by any
+    // action — the shape that teaches a reader to discount the guard (mem#719).
+    const unbackedSentence = causalAttributionSentences(specText).some((sentence) => {
+      const subjects = causalAttributionSubjects(sentence, ownTaskId);
+      return subjects.length > 0 && !subjects.every((id) => readIds.has(id));
+    });
+    if (unbackedSentence) unbacked.push("a causal attribution to another task");
   }
 
   if (unbacked.length === 0) {

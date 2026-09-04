@@ -99,9 +99,7 @@ export async function validatePostgresBackend(
       };
     }
 
-    log.cli(
-      `Testing connection to: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
-    );
+    log.cli(`Testing connection to: ${maskConnectionString(connectionString)}`);
 
     const provider: PersistenceProvider = persistenceProvider;
 

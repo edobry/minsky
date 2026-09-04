@@ -10,7 +10,7 @@ import {
   INTERRUPTION_NOTICE_PREFIX,
   INTERRUPTION_NOTICE_TEXT,
 } from "@minsky/shared/minsky-notices";
-import { splitInjectedContent } from "./injected-content";
+import { INJECTED_KIND_NOUN, splitInjectedContent } from "./injected-content";
 
 // Reused across several fixtures below (the "error-handling" command-wrapper
 // tests) — a shared constant, not a per-test literal, per
@@ -842,5 +842,72 @@ describe("splitInjectedContent — bash-mode family (mt#4058)", () => {
     expect(segments).toHaveLength(2);
     expect(segments[0]).toMatchObject({ type: "injected", span: { kind: "bash-command" } });
     expect(segments[1]).toEqual({ type: "prose", text: prose });
+  });
+});
+
+describe("fork-boilerplate (mt#4072)", () => {
+  // A worker fork's opening preamble. The real block is an invariant 947 chars
+  // across all 15 corpus occurrences; abbreviated here to its first and last
+  // sentences, which is what the matcher actually keys on (the tag pair).
+  const BOILERPLATE =
+    "<fork-boilerplate>\nYou are a worker fork. The transcript above is the parent's " +
+    "history — inherited reference, not your situation. Do NOT spawn subagents with the " +
+    "Agent tool. One shot: report once and stop.\n</fork-boilerplate>";
+
+  test("the boilerplate plus the parent's directive SPLITS — the directive survives", () => {
+    // The only shape that occurs: 15 of 15 corpus turns carry a directive after
+    // the close tag. A matcher that consumed to end-of-turn would eat it.
+    // The leading newline stays ON the prose segment, matching every sibling
+    // family here (`command`, `session-notice`, `bash`) — the matcher consumes
+    // the block and nothing more, rather than trimming the operator's side.
+    const directive = "\nNow audit the retry path.";
+    const segments = splitInjectedContent(BOILERPLATE + directive);
+
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toMatchObject({ type: "injected", span: { kind: "fork-boilerplate" } });
+    expect(segments[1]).toEqual({ type: "prose", text: directive });
+  });
+
+  test("no raw tag leaks into any prose segment", () => {
+    const segments = splitInjectedContent(`${BOILERPLATE}\nDo the thing.`);
+
+    for (const segment of segments) {
+      if (segment.type === "prose") {
+        expect(segment.text).not.toContain("<fork-boilerplate>");
+        expect(segment.text).not.toContain("</fork-boilerplate>");
+      }
+    }
+  });
+
+  test("the collapsed header reuses the local-command-caveat noun", () => {
+    // Naming criterion: the precedent already names this class of
+    // model-directed boilerplate, so no new vocabulary is introduced.
+    const segments = splitInjectedContent(`${BOILERPLATE}\nGo.`);
+    const first = segments[0];
+
+    expect(first?.type).toBe("injected");
+    if (first?.type === "injected") {
+      expect(first.span.label).toBe(INJECTED_KIND_NOUN["local-command-caveat"]);
+      expect(first.span.label).toBe("harness caveat");
+    }
+  });
+
+  test("a boilerplate-only turn still yields the span and no prose (synthetic)", () => {
+    // SYNTHETIC — labelled as such because this shape does NOT occur in the
+    // corpus (0 of 15). Kept as a unit case for the matcher's own boundary, not
+    // as a claim about observed input.
+    const segments = splitInjectedContent(BOILERPLATE);
+
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toMatchObject({ type: "injected", span: { kind: "fork-boilerplate" } });
+  });
+
+  test("ordinary prose mentioning the tag name is untouched", () => {
+    // The matcher requires a real tag pair at turn start; prose about the tag
+    // (this task's own planning conversations, for one) must stay prose.
+    const prose = "The fork-boilerplate preamble renders under the operator's label.";
+    const segments = splitInjectedContent(prose);
+
+    expect(segments).toEqual([{ type: "prose", text: prose }]);
   });
 });

@@ -10,6 +10,7 @@ import { existsSync, statSync, openSync, readSync, closeSync, mkdirSync } from "
 import { readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
+import { createHash } from "node:crypto";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { inArray } from "drizzle-orm";
 import { guardEventsTable, type GuardEventInsert } from "../storage/schemas/guard-events-schema";
@@ -31,7 +32,10 @@ export function resolveStateDir(env: NodeJS.ProcessEnv = process.env): string {
 
 /**
  * Ascend from `startDir` looking for a `.minsky` directory — the repo-root
- * signal every `location: "repo"` stream source is relative to. Mirrors
+ * signal. Since mt#4816 no stream is relative to it (the `location: "repo"`
+ * kind is retired); it survives because `projectStateKey` hashes it, so it is
+ * what separates one managed project's calibration records from another's.
+ * Mirrors
  * `findRepoRoot` (`src/cockpit/web-dist.ts`) in shape, but keyed on `.minsky`
  * rather than `src/cockpit/web` since `packages/domain` must not depend on
  * `src/` (layering: domain has no adapter-layer imports). Falls back to
@@ -50,13 +54,45 @@ export function resolveRepoRoot(startDir: string = process.cwd()): string {
   return startDir;
 }
 
+/**
+ * Derive a stable, filesystem-safe key for a repo root so calibration/
+ * evaluation streams from DIFFERENT Minsky-managed projects never collide in
+ * the shared, machine-local state dir (mt#4748 SC1). Deterministic sha256
+ * over the resolved absolute path — the same shape VS Code's
+ * `workspaceStorage` keying uses, for the same reason.
+ *
+ * Duplicated (not imported) in `.minsky/hooks/dispatcher.ts` — the actual
+ * WRITE side, which must derive the identical key from the identical
+ * `repoRoot` input for the sweep below to ever find what the hook wrote.
+ * Each module tree stays free of a dependency on the other by convention
+ * (mirrors why `fire-log.ts` and `guard-health.ts` each carry their own
+ * `getXStateDir`, rather than sharing one); this function's whole contract
+ * is "same input -> same output", which a 3-line pure function duplicated
+ * twice satisfies exactly as well as a shared import would.
+ */
+export function projectStateKey(repoRoot: string): string {
+  return createHash("sha256").update(repoRoot).digest("hex").slice(0, 16);
+}
+
 export function resolveStreamPath(
   source: GuardEventStreamSource,
   roots: { repoRoot: string; stateDir: string }
 ): string {
-  return source.location === "repo"
-    ? join(roots.repoRoot, source.relativePath)
-    : join(roots.stateDir, source.relativePath);
+  // mt#4816: the `location === "repo"` branch that stood here is GONE, together with the
+  // `"repo"` member of `GuardEventStreamLocation` — `subagent-model-mismatch` was the last row
+  // declaring it, and re-introducing one is now a type error rather than a grep's problem.
+  // `roots.repoRoot` is still load-bearing below: it is the project key's input.
+  //
+  // mt#4748: calibration/evaluation streams are project-keyed within the
+  // shared state dir (see `projectStateKey` above). Every OTHER state-dir
+  // family (fire-log, guard-health-log, two-strikes, …) stays flat/global —
+  // those are deliberately cross-project observability streams, not a repo-
+  // scoped buffer, and project-scoping them is explicitly out of this task's
+  // scope (mt#4748 spec's `project_id` schema-work carve-out).
+  if (source.family === "calibration" || source.family === "evaluation") {
+    return join(roots.stateDir, "projects", projectStateKey(roots.repoRoot), source.relativePath);
+  }
+  return join(roots.stateDir, source.relativePath);
 }
 
 function realReadTail(path: string, fromByte: number): { size: number; content: string } | null {

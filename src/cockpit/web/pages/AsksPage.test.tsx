@@ -16,6 +16,12 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AsksPage, GroupSubjectBadge } from "./AsksPage";
 import type { AskItem } from "../widgets/AskDetail";
+import { ProjectProvider } from "../lib/project-context";
+import {
+  MINSKY_PROJECT,
+  PEEZOMBIE_PROJECT,
+  stubProjectsRoute,
+} from "../lib/test-support/projects";
 
 const originalFetch = global.fetch;
 
@@ -61,6 +67,7 @@ describe("AsksPage GroupSubjectBadge — Shape 3: group.subject mixed id-space (
       }
       return fallback();
     }) as unknown as typeof fetch;
+    stubProjectsRoute();
 
     const { container } = renderBadge("mt#77");
     const link = container.querySelector('a[href="/tasks/mt%2377"]');
@@ -72,6 +79,7 @@ describe("AsksPage GroupSubjectBadge — Shape 3: group.subject mixed id-space (
 
   test("a gh# subject stays plain text — NOT rendered as a broken Minsky link", () => {
     global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+    stubProjectsRoute();
     const { container } = renderBadge("gh#1761");
     expect(container.querySelector("a")).toBeNull();
     expect(container.textContent).toBe("gh#1761");
@@ -79,6 +87,7 @@ describe("AsksPage GroupSubjectBadge — Shape 3: group.subject mixed id-space (
 
   test("an unrecognized subject shape also stays plain text", () => {
     global.fetch = mock(async () => fallback()) as unknown as typeof fetch;
+    stubProjectsRoute();
     const { container } = renderBadge("something-else");
     expect(container.querySelector("a")).toBeNull();
     expect(container.textContent).toBe("something-else");
@@ -167,11 +176,14 @@ function renderAsksPageWithViews(pending: AskItem[], terminal: AskItem[]) {
     }
     return fallback();
   }) as unknown as typeof fetch;
+  stubProjectsRoute();
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const result = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <AsksPage />
+        <ProjectProvider>
+          <AsksPage />
+        </ProjectProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -266,11 +278,15 @@ describe("AsksPage resolved view (mt#4092)", () => {
     switchTo("Resolved");
     await waitFor(() => expect(screen.getByText("already decided")).toBeDefined());
 
-    // ["asks"] is shared with the home TriageBand. If the resolved view wrote
-    // through it, the home page would start showing closed asks as things that
-    // need the principal — the exact signal degradation this task must not
-    // cause, and one no assertion about THIS page would catch.
-    const shared = queryClient.getQueryData(["asks"]) as { asks: AskItem[] } | undefined;
+    // ["asks", selectedSlug] is shared with the home TriageBand (mt#4731:
+    // selectedSlug joined the key, null here since no project is selected in
+    // this test's ProjectProvider). If the resolved view wrote through it,
+    // the home page would start showing closed asks as things that need the
+    // principal — the exact signal degradation this task must not cause, and
+    // one no assertion about THIS page would catch.
+    const shared = queryClient.getQueryData(["asks", null]) as
+      | { asks: AskItem[] }
+      | undefined;
     expect(shared?.asks.map((a) => a.id)).toEqual([pending.id]);
   });
 
@@ -291,11 +307,14 @@ function renderAsksPage(asks: AskItem[]) {
     if (url.startsWith("/api/asks")) return jsonResponse({ asks, total: asks.length });
     return fallback();
   }) as unknown as typeof fetch;
+  stubProjectsRoute();
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <AsksPage />
+        <ProjectProvider>
+          <AsksPage />
+        </ProjectProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -504,11 +523,14 @@ function renderAsksPageWithTaskIds(asks: AskItem[], ids: string[]) {
     }
     return fallback();
   }) as unknown as typeof fetch;
+  stubProjectsRoute();
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <AsksPage />
+        <ProjectProvider>
+          <AsksPage />
+        </ProjectProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -612,11 +634,14 @@ describe("AsksPage expanded row renders the question as Markdown (mt#3639)", () 
       if (url.startsWith("/api/asks")) return jsonResponse({ asks, total: asks.length });
       return fallback();
     }) as unknown as typeof fetch;
+    stubProjectsRoute();
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={client}>
         <MemoryRouter>
-          <AsksPage />
+          <ProjectProvider>
+            <AsksPage />
+          </ProjectProvider>
         </MemoryRouter>
       </QueryClientProvider>
     );
@@ -655,13 +680,16 @@ function renderAsksPageWithResolve(asks: AskItem[], status: number, body: unknow
     if (url.startsWith("/api/asks")) return jsonResponse({ asks, total: asks.length });
     return fallback();
   }) as unknown as typeof fetch;
+  stubProjectsRoute();
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <AsksPage />
+        <ProjectProvider>
+          <AsksPage />
+        </ProjectProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -697,5 +725,62 @@ describe("AsksPage inline actions report their own outcome (mt#4503)", () => {
     expect(screen.queryByTestId("inline-ask-status")).toBeNull();
     expect(screen.queryByTestId("inline-ask-error")).toBeNull();
     expect(screen.queryByTestId("pending-spinner")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Loaded-projects coverage (mt#4842 SC4)
+// ---------------------------------------------------------------------------
+
+/**
+ * The point of the sweep, asserted inside one of the nineteen files it touched.
+ *
+ * Every test above renders through `renderAsksPage`, and until this task that
+ * helper left `/api/projects` unstubbed: the provider's query threw, `projects`
+ * stayed `undefined`, and `shouldShowProjectIndicator` was evaluated against an
+ * empty list on every run — so the per-row badge (mt#4773) could not render
+ * here no matter what the rows carried. Nothing went red, because no assertion
+ * in this file looked for it.
+ *
+ * This is the same behaviour `pages/AsksPage.projectbadge.test.tsx` pins with
+ * its own hand-rolled stub. Duplicated deliberately and narrowly: what is under
+ * test is that THIS file's shared fixture now loads projects, which its own
+ * assertions are the only place to show.
+ */
+describe("AsksPage rows label their project once the list actually loads (mt#4842)", () => {
+  const PROJECT_STORAGE_KEY = "cockpit.project.v1";
+
+  function projectStampedAsk(id: string, title: string, projectId: string): AskItem {
+    return { ...askWithLongOptions(), id, shortId: undefined, title, projectId };
+  }
+
+  afterEach(() => {
+    try {
+      localStorage.removeItem(PROJECT_STORAGE_KEY);
+    } catch {
+      /* jsdom/happy-dom always provides localStorage; ignore if not */
+    }
+  });
+
+  test("the all-projects view badges each row — displayName, or the slug when there is none", async () => {
+    // Explicit: `localStorage` is one global shared across the whole bun test
+    // process, so a slug left behind by an earlier FILE would suppress the
+    // badge here (`TaskList.test.tsx`'s header records that leak).
+    try {
+      localStorage.removeItem(PROJECT_STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+    renderAsksPage([
+      projectStampedAsk("ask-p1", "Minsky-scoped decision", MINSKY_PROJECT.id),
+      projectStampedAsk("ask-p2", "Peezombie-scoped decision", PEEZOMBIE_PROJECT.id),
+    ]);
+
+    await waitFor(() => expect(screen.getByText("Minsky-scoped decision")).toBeDefined());
+    // `displayName` when the project has one ("Minsky"); the slug when it does
+    // not — the `projectLabelById` fallback, unreachable while the list was
+    // empty.
+    await waitFor(() => expect(screen.getByText("Minsky")).toBeDefined());
+    expect(screen.getByText(PEEZOMBIE_PROJECT.slug)).toBeDefined();
   });
 });

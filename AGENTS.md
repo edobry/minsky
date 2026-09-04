@@ -393,9 +393,83 @@ Structure source code so tests don't need complex mocking:
   shell), and the support-vs-diagnostic split for log assertions (`testing-boundaries.mdc
   §Console Output`), enforced by `custom/no-spy-patching`.
 
+### The clock is injected, never read at the point of use
+
+`Date.now()` / `new Date()` reached from inside the code under test is a **time bomb**: the test
+passes the day it is written and fails on a date nobody chose. This is a convention rather than a
+case-by-case call because the per-site tier demonstrably does not contain it — three per-site fixes
+shipped in eight weeks (mt#2654 2026-07-07, mt#2839 2026-07-15, mt#4721 2026-08-29), in three
+different files, and the class detonated again after each. Two of those detonations turned `main`
+red for **every open PR**.
+
+**1. The seam is an optional trailing parameter with a real default.**
+
+```typescript
+// ❌ Time bomb — the window is computed against whatever day the suite happens to run on
+export function pruneExpired(entries: Entry[]): Entry[] {
+  const now = Date.now();
+  // ...
+}
+
+// ✅ Injectable — production callers pass nothing, tests pass a fixed value
+export function pruneExpired(entries: Entry[], nowMs: number = Date.now()): Entry[] {
+  // ...
+}
+```
+
+Name it `nowMs` for epoch millis and `now` for a `Date`. Put it last, so no existing caller changes.
+
+**This is NOT the `deps?.x ?? createX()` fallback that [ADR-026](mdc:docs/architecture/adr-026-dependency-injection-convention.md)
+rule 3 bans.** That ban targets a fallback which CONSTRUCTS A SERVICE — it "silently connects tests
+to real infrastructure when a caller forgets to inject a fake." A clock default supplies a
+**primitive**, constructs nothing, and reaches no infrastructure.
+[ADR-036](mdc:docs/architecture/adr-036-testing-doubles-mechanism-and-patching-ban.md) §Decision
+rule 2 settles the question in as many words: *"an optional `deps` parameter with a real default
+counts as no change, per ADR-026 rule 2."* Expect to be asked this; it is the first thing that looks
+wrong about the shape.
+
+**2. Public entry points thread the parameter, or say why they do not.**
+
+A seam nothing reaches is not a seam. When a module exposes an injectable clock, every exported
+entry point above it either forwards the parameter or carries a comment saying it deliberately does
+not. This is the half mt#4721 failed on: `readAskConversationMap(mapPath, nowMs = Date.now())` was
+already injectable and its docblock already said why — *"`nowMs` is injected rather than read from
+the clock at each call site so the retention behaviour stays deterministic under test"* — but the
+test reached that subsystem through `run()`, which passes nothing. So the test got the real clock
+and took a fixed-date shortcut instead, and detonated seven days later.
+
+**3. Fixtures anchor to the SAME value the test injects.**
+
+Pinning the clock while fixtures still call the real one is a NEW bug, not a fix: a fixture meaning
+"20 days ago" lands before or after the frozen `now` unpredictably, depending on the day the suite
+runs.
+
+```typescript
+// ❌ The injected clock and the fixtures disagree
+const NOW = Date.parse("2026-01-01T00:00:00Z");
+const stale = { at: new Date(Date.now() - 20 * DAY).toISOString() }; // real clock!
+
+// ✅ One reference, used by both
+const NOW = Date.parse("2026-01-01T00:00:00Z");
+const daysAgo = (n: number) => new Date(NOW - n * DAY).toISOString();
+const stale = { at: daysAgo(20) };
+```
+
+Never anchor a fixture to an absolute literal date that a `Date.now()`-relative window will later be
+compared against — that is the `BASE_DATE` shape mt#2654 fixed.
+
+**Enforcement: none. This is discipline-tier, and saying so is the point.** No lint rule checks it
+and none is planned as a general rule: a bare `Date.now()` is usually the correct construct in
+production code, and the population is far too large for a repo-wide ban — compare
+`custom/no-silent-catch` (1462 pre-existing sites) and `custom/require-subprocess-network-timeout`
+(542), both registered `off` for exactly that reason. The backstop is **mt#4726**, a scheduled run
+with the clock shifted forward, which DETECTS violations rather than preventing them. If a lint rule
+is ever wanted, the tractable slice is the decidable one: a defaulted clock parameter that a public
+entry point in the same file fails to thread (rule 2 above).
+
 ## Test Data
 
-- Use predictable, representative test data. Avoid `new Date()`, `Math.random()`, or anything that makes tests flaky.
+- Use predictable, representative test data. Avoid `new Date()`, `Math.random()`, or anything that makes tests flaky. For dates specifically this is not just a flakiness concern — an absolute fixture compared against a real-clock window fails on a future date rather than intermittently. See §Testable Design → *The clock is injected, never read at the point of use* for the seam shape and the fixture-anchoring rule.
 - Create fixtures with helper functions; keep setup visually separate from assertions.
 - Reset state between tests — never rely on ordering or cross-test side effects.
 
@@ -1586,6 +1660,17 @@ which is the growth the consolidation exists to stop.
 - **Generated-file edit** — edits to generated files. `MINSKY_FORCE_EDIT_GENERATED`.
 - **Branch-freshness** — commit/PR whose diff OVERLAPS main's new commits (mt#3484: ahead-count alone no longer blocks; a failed overlap probe fails closed). `MINSKY_SKIP_FRESHNESS`.
 - **Bundle-boot smoke** — merge w/o smoke pass. `MINSKY_SKIP_BUNDLE_SMOKE`.
+- **typecheck-infra red** (mt#4950) — a merge whose HEAD has `typecheck-infra` CONCLUDED
+  non-success. Same file and the same shared `check-runs` response as bundle-boot smoke, one
+  check name over, and **deliberately narrower than it**: it denies ONLY on an explicit
+  non-success conclusion — absent, pending and an unparseable API response all PASS, where the
+  bundle gate denies on all four. The measured finding was PRs merging over a RED check
+  (`infra/` silently untypechecked), not a webhook miss, so denying on absence would add a
+  merge-stopper for a failure this never measured. A red X here means NO COVERAGE rather than a
+  type error — the job dies in `pulumi install` before `tsgo` runs — and the denial says so,
+  because the job name implies the opposite. Branch protection would be the more general home
+  (`evaluateRequiredChecksStatus` already reads it) and is NOT used: `forge_branch_protection_get`
+  returns `Resource not accessible by integration` for the App token. `MINSKY_SKIP_TYPECHECK_INFRA`.
 - **Required-checks** — bypass w/o checks pass. `MINSKY_SKIP_REQUIRED_CHECKS`.
 - **Merge-review REQUEST_CHANGES override** — false-positive review finding; operator-approved D8 grant (`grant-guard-override.ts --guard require-review-before-merge --ask`), no env skip.
 - **Execution-evidence** — new tests/scripts w/o evid (BLOCKS). `[unverified-tests]`. Five log-only calibration surfaces ride along. Four have their own override; the fifth, consumer-account (mt#4493), deliberately has NONE — a log-only surface has no decision to bypass, and minting a 100th `MINSKY_*` name is what ADR-028 D3 exists to stop, so `MINSKY_HOOK_OVERRIDE=require-execution-evidence-before-merge` covers it. It fires when a diff REMOVES a signal-producing call (`process.exit(`, `.emit(`, `.close(`, a state-file write) under `src`/`packages`/`cockpit-tray` and the body carries no `Consumer account:` section naming what consumed it and what replaces it; the finding is the missing account, never the removal, which is often right. The only surface reading diff HUNKS rather than the file list, so it alone makes a second `gh api` call — prefiltered to PRs touching a scanned root. `scripts/` is out: a one-shot script's exit is its own status code, supervised by nobody. The four with overrides: per-AT `MINSKY_SKIP_AT_COVERAGE`, per-criterion `MINSKY_SKIP_SC_COVERAGE`, test-first `MINSKY_SKIP_TEST_FIRST_EVIDENCE` (mt#3244 — a bugfix-shaped PR MODIFYING an existing test must record a negative control: the test observed FAILING pre-fix), and render-path `MINSKY_SKIP_RENDER_PATH_EVIDENCE` (mt#2421 — a PR touching a user-facing render path should carry a URL or image the principal can open; trigger is test-INDEPENDENT, because mt#3810 shipped an unlooked-at render WITH passing happy-dom tests). The blocking floor covers `.test.tsx`/`.spec.tsx` as of mt#3868 — until then `isTestFile` matched `.ts` only, so none of the 92 cockpit-web test files could reach it. Measured before widening over 699 merged PRs in the prior 60 days: 23 newly in scope, of which **2** would newly have been denied (PRs #2339 and #2253, both lacking the evidence block). 21 of 23 already carried it, which is why this shipped straight to blocking rather than calibration-first.
@@ -2100,17 +2185,21 @@ Task lifecycle transitions are owned by per-phase skills: `/plan-task` (planning
 three-way overload of "session". Stage-1 convention — NEW code, docs, UI copy only; does NOT
 rename the existing `session_*` tool/API surface (stage 2, mt#2527, separately scheduled).
 
-## The three senses
+## The four senses
 
 | Term (use this) | What it names | Old/ecosystem name | Example surface |
 | --- | --- | --- | --- |
 | **workspace** | The Minsky per-task isolated git-clone + branch (`SessionRecord`, `~/.local/state/minsky/sessions/`, ~59 `session_*` tools) | "session" | cockpit `/agents/:id` detail page (workspace-session id-space) |
 | **conversation** | A harness chat (Claude Code conversation UUID, `agent_session_id`, transcripts, `claude --resume`) | "session" (ecosystem-dominant term) | cockpit `/conversation/:id`, `transcripts_*` MCP tools |
-| **transport session** | The MCP client↔server connection (`Mcp-Session-Id`) | "session" (MCP-spec term) | disconnect tracker, `processRole` |
+| **drive** (working term; noun pending ask#11428) | Cockpit subject-surface that spawns/reconnects a harness process across a series of conversations (`DrivenSessionRecord`) | none — working label only | driven-session host |
+| **transport session** — legacy artifact, do not propagate; frozen pending mt#4608 | The MCP client↔server connection (`Mcp-Session-Id`); spec referent retired 2026-07-28 | "session" (MCP-spec term, pre-2026-07-28) | disconnect tracker, `processRole` |
 
-Use **workspace** and **conversation** in new prose, comments, variable/type names, and UI copy.
-Reserve bare **session** for the MCP-transport sense only — the one place it's the authoritative
-external-spec term (`Mcp-Session-Id`) with no better word.
+Use **workspace**, **conversation**, and the working term **drive** in new prose, comments,
+variable/type names, and UI copy. Bare **session** is not a Minsky vocabulary word for any sense
+— it survives only as quoted foreign vocabulary, at four boundaries: harness field names
+(`agent_session_id`, stream-json `session_id`), the frozen `minsky://session/<uuid>` deeplink URI
+type, historical migrations, and the frozen MCP transport artifact (`mcp-session-id` header
+handling, the `McpSessionId` brand — disposition: mt#4608). See ADR-022 §Amendment (2026-09-04).
 
 ## What this rule does NOT change (stage 2 scope, mt#2527)
 
@@ -2140,7 +2229,9 @@ sense it shows, not blend the words.
 
 `docs/architecture/adr-022-session-vs-conversation-terminology.md` · `cockpit-deeplinks.mdc` (the
 `session` URI-type/route divergence this generalizes) · mt#2522 (epic) · mt#2686 (this rule's
-origin) · mt#2527 (stage 2). Full index: `docs/rules-rationale/terminology-workspace-conversation.md`.
+origin) · mt#2527 (stage 2) · mt#4838 (2026-09-04 amendment: transport row retired, drive row
+added) · ask#11428 (the drive's pending noun). Full index:
+`docs/rules-rationale/terminology-workspace-conversation.md`.
 
 # User Preferences
 
@@ -2331,10 +2422,11 @@ How to apply: `docs/rules-rationale/work-completion.md §Recovery layer spec dis
 
 When a task spec introduces an **event-driven or polling mechanism** — webhook handler, scheduled job, cron, sweeper, watcher, poller — it MUST name the **concrete invocation path**: what starts it, what calls it, how it is wired in.
 
-These fail silently in two shapes, identical from outside: the feature exists, its tests pass, it produces nothing.
+These fail silently in three shapes. The first two are identical from outside: the feature exists, its tests pass, it produces nothing. The third inverts them — the mechanism was working, and a change stops it.
 
 - **Nothing calls it.** No scheduler, no registration, no production callsite — or the only caller is a stub (mt#1618).
 - **It runs; a dependency inside it is dead.** The failure is caught and converted into the same value a legitimately empty result produces — no missing caller to grep for, no error to find (mt#3019, mt#3046).
+- **The change REMOVES the signal a consumer depended on.** The inverse of the first shape, and invisible to it: nothing new is uninvoked — an existing invoker is deleted, or newly guarded so it stops running. A process exit, an emitted event, a closed connection, a state file another process polls: each is rarely only cleanup, and something downstream is usually watching for it. So when a design stops a behavior, enumerate what CONSUMED it before calling the design complete (mt#4493).
 
 **Trigger keywords:** "fires", "triggers", "polls", "watches", "scheduled", "periodic", "on event", "listener", "handler". Never swallow a dependency failure into a "nothing to do" value — log the actual error.
 

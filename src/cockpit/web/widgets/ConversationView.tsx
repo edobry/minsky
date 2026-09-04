@@ -196,6 +196,16 @@ type ConversationViewProps = ConversationViewCommonProps &
       drivenSessionId: string;
       /** The `blocks` array from the caller's `useDrivenSession` hook. */
       drivenBlocks: SessionContextSnapshotBlock[];
+      /**
+       * One-line record header (mt#4935, ADR-047 §Consequences) — the
+       * caller's `useDrivenSession(drivenSessionId).harnessKind`/`.authMode`,
+       * passed straight through (same "caller owns the data, this component
+       * only renders" contract as `drivenBlocks` above). Omitted or `null`
+       * renders no header line rather than a placeholder — the registry read
+       * that supplies these is best-effort and may not have resolved yet.
+       */
+      harnessKind?: string | null;
+      authMode?: string | null;
       sessionId?: undefined;
       snapshot?: undefined;
       workspaceSessionId?: never;
@@ -496,6 +506,56 @@ function ConversationThread({
   // View-level expand-all / collapse-all broadcast (mt#2790): each click bumps
   // `epoch` so every mounted ToolInvocation re-syncs its local `open` state.
   const [expandSignal, setExpandSignal] = useState<ExpandSignal>(undefined);
+
+  /**
+   * The dispatch brief, pinned above the thread's start boundary (mt#4909).
+   *
+   * A subagent conversation opens with the assignment its parent wrote, and the
+   * tail-first FETCH (mt#4263 — not the render window; the two are different
+   * mechanisms) leaves that turn unfetched on anything longer than one page. It
+   * was three `load earlier turns` round trips away on the conversation this
+   * was measured against, which made mt#4354's whole argument — the brief is
+   * what a reader opens this page to find — false in practice.
+   *
+   * Built by running the ONE block back through the same thread pipeline the
+   * windowed turns use, rather than rendering it specially. A brief pinned here
+   * and the same brief reached by paging back must be the same artifact; giving
+   * the pin its own render path is how those two drift, and mt#4354's header,
+   * ascent link and folded boilerplate all live in that shared path anyway.
+   *
+   * `null` whenever the server sent no head block — a root conversation, a
+   * pre-stamp subagent, or a window that already reached index 0 — so there is
+   * no empty affordance in any of those cases.
+   */
+  const pinnedBriefNodes = useMemo(() => {
+    const head = snapshot.headBlock;
+    if (head === undefined) return null;
+    const brief = buildConversationThread(
+      [head],
+      snapshot.spawnChildrenByToolUseId,
+      snapshot.toolNamesByUseId
+    );
+    const prepared = mergeCommandInvocations(
+      pairToolInvocations(brief.visibleTurns, brief.callNameByToolUseId)
+    ).filter((t) => t.elements.some(hasRenderablePreparedElement));
+    if (prepared.length === 0) return null;
+    return buildTurnNodes({
+      preparedTurns: prepared,
+      supersededGroups: [],
+      blockIndexById: brief.blockIndexById,
+      turnIndexByBlockId: brief.turnIndexByBlockId,
+      entityIndex,
+      expandSignal,
+      filmPath,
+    });
+  }, [
+    snapshot.headBlock,
+    snapshot.spawnChildrenByToolUseId,
+    snapshot.toolNamesByUseId,
+    entityIndex,
+    expandSignal,
+    filmPath,
+  ]);
 
   // Land on the newest exchange once, after the windowed items are actually in
   // the DOM (layout effect keyed on the mounted count — an empty first commit
@@ -809,6 +869,16 @@ function ConversationThread({
           Collapse all
         </button>
       </div>
+      {/* Above the start boundary, not below it (mt#4909): the boundary's job
+          is to say what sits further back, and the brief is the conversation's
+          own opening rather than something hidden behind that count. Reading
+          top-down then gives the assignment, then "N earlier turns not loaded",
+          then the turns — which is the order they actually occurred in. */}
+      {pinnedBriefNodes !== null && (
+        <div data-testid="pinned-dispatch-brief" className="flex flex-col gap-4">
+          {pinnedBriefNodes}
+        </div>
+      )}
       <ThreadStartBoundary
         hiddenBefore={hiddenBefore}
         isRevealing={isRevealing}
@@ -872,6 +942,8 @@ const DRIVEN_BASE_ASSEMBLED_AT = new Date(0).toISOString();
 function DrivenSessionThread({
   drivenSessionId,
   drivenBlocks,
+  harnessKind,
+  authMode,
   className,
   turnTarget,
   filmPath,
@@ -879,6 +951,9 @@ function DrivenSessionThread({
 }: ConversationViewCommonProps & {
   drivenSessionId: string;
   drivenBlocks: SessionContextSnapshotBlock[];
+  /** mt#4935 — one-line record header; see `ConversationViewProps`'s doc comment. */
+  harnessKind?: string | null;
+  authMode?: string | null;
   className?: string;
 }) {
   const baseSnapshot = useMemo<SessionContextSnapshot>(
@@ -889,6 +964,14 @@ function DrivenSessionThread({
       // binary, so a driven session IS a Claude Code harness session. If the
       // host ever drives a second harness, thread the harness through from the
       // driven-session record instead (mt#2751 R1 note).
+      //
+      // mt#4935 note: that "thread it through" record now exists
+      // (`harnessKind` below), but this field is a DIFFERENT vocabulary —
+      // the transcript-rendering SOURCE FORMAT (`SessionContextSnapshot`'s
+      // own underscore-cased `harness` enum), not the supervisor's
+      // hyphen-cased `harness_kind` column. The two happen to agree today
+      // because only one harness exists; conflating them is a decision for
+      // whichever task actually adds a second rendering format, not this one.
       harness: "claude_code",
       blocks: EMPTY_DRIVEN_BASE_BLOCKS,
       assembledAt: DRIVEN_BASE_ASSEMBLED_AT,
@@ -896,14 +979,26 @@ function DrivenSessionThread({
     [drivenSessionId]
   );
   return (
-    <ConversationThread
-      snapshot={baseSnapshot}
-      extraBlocks={drivenBlocks.length > 0 ? drivenBlocks : undefined}
-      className={className}
-      turnTarget={turnTarget}
-      filmPath={filmPath}
-      tail={tail}
-    />
+    <>
+      {/* mt#4935, ADR-047 §Consequences, SC6 — one line, no new widget. Renders
+          nothing until BOTH values are present (the registry read resolves
+          harnessKind/authMode together, or not at all — see
+          useDrivenSession.ts's doc comment); a partial pair never renders a
+          line with a placeholder in it. */}
+      {harnessKind && authMode && (
+        <div className="mb-2 font-mono text-xs text-muted-foreground">
+          {harnessKind} · {authMode}
+        </div>
+      )}
+      <ConversationThread
+        snapshot={baseSnapshot}
+        extraBlocks={drivenBlocks.length > 0 ? drivenBlocks : undefined}
+        className={className}
+        turnTarget={turnTarget}
+        filmPath={filmPath}
+        tail={tail}
+      />
+    </>
   );
 }
 
@@ -1145,6 +1240,8 @@ export function ConversationView(props: ConversationViewProps) {
       <DrivenSessionThread
         drivenSessionId={props.drivenSessionId}
         drivenBlocks={props.drivenBlocks}
+        harnessKind={props.harnessKind}
+        authMode={props.authMode}
         className={props.className}
         turnTarget={props.turnTarget}
         filmPath={props.filmPath}

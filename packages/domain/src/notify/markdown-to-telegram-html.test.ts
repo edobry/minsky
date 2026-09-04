@@ -8,16 +8,17 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { escapeHtml, markdownToTelegramHtml } from "./markdown-to-telegram-html";
+import { escapeHtmlText } from "../html/escape";
+import { markdownToTelegramHtml } from "./markdown-to-telegram-html";
 
-describe("escapeHtml", () => {
+describe("escapeHtmlText, under the Telegram text contract", () => {
   test("escapes exactly the three characters HTML mode reserves", () => {
-    expect(escapeHtml(`a < b > c & d "e" 'f'`)).toBe(`a &lt; b &gt; c &amp; d "e" 'f'`);
+    expect(escapeHtmlText(`a < b > c & d "e" 'f'`)).toBe(`a &lt; b &gt; c &amp; d "e" 'f'`);
   });
 
   test("escapes the ampersand first so entities are not double-escaped", () => {
     // Naive ordering yields &amp;lt; here.
-    expect(escapeHtml("&<")).toBe("&amp;&lt;");
+    expect(escapeHtmlText("&<")).toBe("&amp;&lt;");
   });
 });
 

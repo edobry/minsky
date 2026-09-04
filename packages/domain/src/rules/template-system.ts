@@ -31,7 +31,7 @@ export interface RuleGenerationConfig {
   mcpTransport: "stdio" | "http";
   /** Whether to prefer MCP in hybrid mode */
   preferMcp: boolean;
-  /** Rule format (cursor or generic) */
+  /** Rule format — see {@link RuleFormat} for the accepted values */
   ruleFormat: RuleFormat;
   /** Output directory for generated files */
   outputDir: string;

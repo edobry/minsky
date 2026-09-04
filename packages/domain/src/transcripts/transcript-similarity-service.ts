@@ -83,7 +83,18 @@ import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-sche
 import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "../errors/index";
 import { buildTurnDateRangeConditions } from "./transcript-search-filters";
+import { toDisplaySnippet } from "./text-snippet";
 import type { AgentSessionId } from "./transcript-source";
+
+/**
+ * The handle drizzle hands a `db.transaction()` callback (mt#4919).
+ *
+ * Derived from `PostgresJsDatabase` rather than imported, because drizzle does
+ * not export the transaction type under a stable public name — deriving it
+ * keeps this correct across drizzle upgrades instead of pinning a path into its
+ * internals.
+ */
+type TransactionScope = Parameters<Parameters<PostgresJsDatabase["transaction"]>[0]>[0];
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -153,14 +164,22 @@ export interface TranscriptTurnResult {
    */
   resumeHint: string;
   /**
-   * Bounded excerpt around the match, with matched spans delimited by `[` and
-   * `]` (mt#3713). Present on full-text search results; absent on paths that
-   * do not match against text (semantic search, whole-session reads).
+   * Bounded excerpt for this hit.
    *
-   * Additive to the pre-mt#3713 shape: `userText` / `assistantText` still
-   * carry the turn in full, so an existing consumer is unaffected. Prefer this
-   * field when displaying results — a transcript turn can run to tens of
-   * kilobytes, which is why search results were unscannable before it existed.
+   * **Producer-dependent, like `score` above.** `TranscriptFtsService` fills it
+   * from Postgres `ts_headline` — an excerpt cut AROUND the match, with matched
+   * spans delimited by `[` and `]` (mt#3713). `TranscriptSimilarityService`
+   * fills it with the turn's LEADING text, stripped and truncated (mt#4917),
+   * because a vector match has no matched terms to cut around. Both are bounded
+   * and both are safe to display; only the FTS one marks matches.
+   *
+   * Still absent on whole-session reads (`getSession`), which do not search.
+   *
+   * Additive to the pre-mt#3713 shape at the SERVICE layer: `userText` /
+   * `assistantText` are still returned in full here, so the cockpit's
+   * conversation-search route — which calls this service directly — is
+   * unaffected. The MCP/CLI COMMANDS are what drop the full text, under the
+   * default `snippet` projection (`transcript-search-projection.ts`, mt#4917).
    */
   snippet?: string;
 }
@@ -291,6 +310,46 @@ export interface FindSimilarSessionOptions {
   projectId?: string;
 }
 
+/**
+ * Characters of leading text kept in a semantic hit's {@link TranscriptTurnResult.snippet}.
+ *
+ * Sized to land in the same neighbourhood as the FTS side's `ts_headline`
+ * output so the two search surfaces read alike, rather than picked round:
+ * `TS_HEADLINE_OPTIONS` (`transcript-fts-search-query.ts`) is
+ * `MaxFragments=2, MaxWords=28`, i.e. up to ~56 words, which at English's ~6
+ * characters per word plus the fragment delimiter is ~350-400 characters.
+ */
+const SEMANTIC_SNIPPET_MAX_CHARS = 400;
+
+/**
+ * Build the display excerpt for a SEMANTIC hit (mt#4917).
+ *
+ * The FTS side gets its `snippet` from Postgres `ts_headline`, which cuts
+ * around the matched lexemes. There is no equivalent here and there cannot be:
+ * a vector match has no matched terms to cut around — the query's words may not
+ * appear in the hit at all, which is the entire point of semantic search. So
+ * this takes the LEADING text instead, run through the same harness-markup and
+ * markdown stripping the cockpit's conversation labels use, and truncated on a
+ * word boundary.
+ *
+ * Prefers `userText` when both sides are present, matching
+ * `selectLiteralSnippetSource`'s convention on the FTS side so a caller reading
+ * both surfaces sees the same side of the turn quoted.
+ *
+ * Note this is additive: `userText` / `assistantText` are still returned in
+ * full by this service. The command layer is what drops them
+ * (`transcript-search-projection.ts`), and it does so precisely BECAUSE this
+ * field now exists on both surfaces.
+ */
+function buildSemanticSnippet(userText: string | null, assistantText: string | null): string {
+  // Falls through on a present-but-EMPTY user side, which is deliberately not
+  // what `deriveTurnRole` does with the same value: an empty string is a real
+  // role signal (the row matched a `user_text IS NOT NULL` filter) and a
+  // useless display excerpt. The two questions get different answers.
+  const source = userText !== null && userText !== "" ? userText : assistantText;
+  return toDisplaySnippet(source, SEMANTIC_SNIPPET_MAX_CHARS);
+}
+
 // ── Service ───────────────────────────────────────────────────────────────────
 
 @injectable()
@@ -299,6 +358,69 @@ export class TranscriptSimilarityService {
     private readonly db: PostgresJsDatabase,
     private readonly embeddingService: EmbeddingService
   ) {}
+
+  /**
+   * Run a vector-ordered query with pgvector's iterative index scan enabled
+   * (mt#4919).
+   *
+   * ## The defect this fixes
+   *
+   * pgvector applies a `WHERE` filter AFTER the HNSW index is scanned, and the
+   * scan yields only `hnsw.ef_search` candidates (default 40). A selective
+   * filter therefore removes most of them and the query returns FEWER rows than
+   * the `LIMIT` asked for — silently, with nothing in the result to distinguish
+   * that from a genuinely small corpus. pgvector's README states it directly:
+   * "If a condition matches 10% of rows, with HNSW and the default
+   * `hnsw.ef_search` of 40, only 4 rows will match on average."
+   *
+   * Measured against prod 2026-09-02, `LIMIT 20` on the repo project:
+   * `role: "user"` (~12.7% selective) returned **10**, and adding
+   * `originKind: "human"` (~6%) returned **7**. Deterministic, not flaky.
+   *
+   * ## Why iterative_scan and not a bigger ef_search
+   *
+   * Both were measured. `ef_search = 100` returns the full 20 at 12.7%
+   * selectivity but only **15** at 6% — a fixed budget is a guess against an
+   * unknown selectivity, and the next filter combination is another guess.
+   * `iterative_scan` returned the full 20 at both, at no cost worth naming
+   * (83-95 ms against 158 ms for the default).
+   *
+   * `strict_order` rather than `relaxed_order`: both returned the full page,
+   * and strict preserves exact distance ordering, which a ranked search surface
+   * should not silently give up.
+   *
+   * ## Why this DEVIATES from ADR-013, deliberately
+   *
+   * ADR-013 prescribes an application-layer adaptive over-fetch for filtered
+   * vector search, implemented in `TaskSimilarityService.searchByText`. **Do
+   * not "restore consistency" by reproducing that here.** ADR-013's own text
+   * describes its widen as "the application-layer equivalent of pgvector 0.8's
+   * bounded iterative scan" — an emulation of exactly this setting. It needed
+   * the emulation because its filter was a MUTABLE DENORMALIZED column
+   * (`tasks_embeddings.status`) that had drifted from its source of truth, so
+   * the filter had to move out of the index for correctness and the recall fix
+   * rode along. No such constraint exists here: `role`, `project_id`,
+   * `user_origin` and `started_at` are real columns on the joined tables, with
+   * no denormalized copy to drift. The database ships the mechanism ADR-013 was
+   * imitating (`pg_extension` reports vector **0.8.0**, the release that
+   * introduced it), so the emulation buys nothing.
+   *
+   * ## Why a transaction
+   *
+   * `SET LOCAL` is scoped to the surrounding transaction and reverts on commit,
+   * so it cannot leak to another caller sharing this pooled connection. A bare
+   * `SET` would; a database- or role-level default would additionally change
+   * every OTHER vector search in the system, including the `tasks_embeddings`
+   * path that deliberately does its own thing.
+   */
+  private async withIterativeScan<T>(
+    run: (tx: TransactionScope) => Promise<T> | PromiseLike<T>
+  ): Promise<T> {
+    return this.db.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL hnsw.iterative_scan = strict_order`);
+      return run(tx);
+    });
+  }
 
   /**
    * Embed the query text and return the nearest-neighbor turns by L2 distance
@@ -367,31 +489,35 @@ export class TranscriptSimilarityService {
 
     // Query: JOIN agent_transcript_turns to agent_transcripts, ORDER BY L2 distance.
     try {
-      const rows = await this.db
-        .select({
-          agentSessionId: agentTranscriptTurnsTable.agentSessionId,
-          turnIndex: agentTranscriptTurnsTable.turnIndex,
-          userText: agentTranscriptTurnsTable.userText,
-          userOrigin: agentTranscriptTurnsTable.userOrigin,
-          assistantText: agentTranscriptTurnsTable.assistantText,
-          startedAt: agentTranscriptTurnsTable.startedAt,
-          endedAt: agentTranscriptTurnsTable.endedAt,
-          isSpawnBoundary: agentTranscriptTurnsTable.isSpawnBoundary,
-          score: distanceExpr,
-          sessionStartedAt: agentTranscriptsTable.startedAt,
-          sessionModel: agentTranscriptsTable.model,
-          sessionCwd: agentTranscriptsTable.cwd,
-          relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
-          relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
-        })
-        .from(agentTranscriptTurnsTable)
-        .innerJoin(
-          agentTranscriptsTable,
-          eq(agentTranscriptTurnsTable.agentSessionId, agentTranscriptsTable.agentSessionId)
-        )
-        .where(conditions.length > 0 ? and(...conditions) : undefined)
-        .orderBy(distanceExpr)
-        .limit(limit);
+      // mt#4919: iterative scan, or a selective filter silently returns fewer
+      // rows than `limit`. See withIterativeScan for the measurements.
+      const rows = await this.withIterativeScan((tx) =>
+        tx
+          .select({
+            agentSessionId: agentTranscriptTurnsTable.agentSessionId,
+            turnIndex: agentTranscriptTurnsTable.turnIndex,
+            userText: agentTranscriptTurnsTable.userText,
+            userOrigin: agentTranscriptTurnsTable.userOrigin,
+            assistantText: agentTranscriptTurnsTable.assistantText,
+            startedAt: agentTranscriptTurnsTable.startedAt,
+            endedAt: agentTranscriptTurnsTable.endedAt,
+            isSpawnBoundary: agentTranscriptTurnsTable.isSpawnBoundary,
+            score: distanceExpr,
+            sessionStartedAt: agentTranscriptsTable.startedAt,
+            sessionModel: agentTranscriptsTable.model,
+            sessionCwd: agentTranscriptsTable.cwd,
+            relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
+            relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
+          })
+          .from(agentTranscriptTurnsTable)
+          .innerJoin(
+            agentTranscriptsTable,
+            eq(agentTranscriptTurnsTable.agentSessionId, agentTranscriptsTable.agentSessionId)
+          )
+          .where(conditions.length > 0 ? and(...conditions) : undefined)
+          .orderBy(distanceExpr)
+          .limit(limit)
+      );
 
       // Fetch per-session message counts in bulk.
       const sessionIds = [...new Set(rows.map((r) => r.agentSessionId))];
@@ -407,6 +533,11 @@ export class TranscriptSimilarityService {
         endedAt: row.endedAt,
         isSpawnBoundary: row.isSpawnBoundary,
         score: typeof row.score === "number" ? row.score : Number(row.score),
+        // mt#4917: semantic hits carried no `snippet` at all, so a caller had
+        // no bounded way to read a hit and the command layer had nothing to
+        // project onto. See buildSemanticSnippet for why this is leading text
+        // rather than a match-centred excerpt.
+        snippet: buildSemanticSnippet(row.userText, row.assistantText),
         sessionMetadata: {
           agentSessionId: row.agentSessionId,
           startedAt: row.sessionStartedAt,
@@ -502,31 +633,37 @@ export class TranscriptSimilarityService {
     }
 
     try {
-      const rows = await this.db
-        .select({
-          agentSessionId: agentTranscriptTurnsTable.agentSessionId,
-          turnIndex: agentTranscriptTurnsTable.turnIndex,
-          userText: agentTranscriptTurnsTable.userText,
-          userOrigin: agentTranscriptTurnsTable.userOrigin,
-          assistantText: agentTranscriptTurnsTable.assistantText,
-          startedAt: agentTranscriptTurnsTable.startedAt,
-          endedAt: agentTranscriptTurnsTable.endedAt,
-          isSpawnBoundary: agentTranscriptTurnsTable.isSpawnBoundary,
-          score: distanceExpr,
-          sessionStartedAt: agentTranscriptsTable.startedAt,
-          sessionModel: agentTranscriptsTable.model,
-          sessionCwd: agentTranscriptsTable.cwd,
-          relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
-          relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
-        })
-        .from(agentTranscriptTurnsTable)
-        .innerJoin(
-          agentTranscriptsTable,
-          eq(agentTranscriptTurnsTable.agentSessionId, agentTranscriptsTable.agentSessionId)
-        )
-        .where(and(...conditions))
-        .orderBy(distanceExpr)
-        .limit(limit);
+      // mt#4919: same reason as search() — this method filters too, so it has
+      // the same recall exposure. Its filters are the seed-session exclusion,
+      // `projectId` and `originKind`; it exposes no `role` option (PR #3588 R1
+      // corrected an earlier version of this comment that claimed it did).
+      const rows = await this.withIterativeScan((tx) =>
+        tx
+          .select({
+            agentSessionId: agentTranscriptTurnsTable.agentSessionId,
+            turnIndex: agentTranscriptTurnsTable.turnIndex,
+            userText: agentTranscriptTurnsTable.userText,
+            userOrigin: agentTranscriptTurnsTable.userOrigin,
+            assistantText: agentTranscriptTurnsTable.assistantText,
+            startedAt: agentTranscriptTurnsTable.startedAt,
+            endedAt: agentTranscriptTurnsTable.endedAt,
+            isSpawnBoundary: agentTranscriptTurnsTable.isSpawnBoundary,
+            score: distanceExpr,
+            sessionStartedAt: agentTranscriptsTable.startedAt,
+            sessionModel: agentTranscriptsTable.model,
+            sessionCwd: agentTranscriptsTable.cwd,
+            relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
+            relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
+          })
+          .from(agentTranscriptTurnsTable)
+          .innerJoin(
+            agentTranscriptsTable,
+            eq(agentTranscriptTurnsTable.agentSessionId, agentTranscriptsTable.agentSessionId)
+          )
+          .where(and(...conditions))
+          .orderBy(distanceExpr)
+          .limit(limit)
+      );
 
       const sessionIds = [...new Set(rows.map((r) => r.agentSessionId))];
       const messageCounts = await this.getMessageCounts(sessionIds);
@@ -603,6 +740,13 @@ export class TranscriptSimilarityService {
     // fixed here). `<->` regardless, so the whole file speaks one metric and
     // the alignment check has a single expectation per file.
     const embeddingLiteral = `'[${(seedRow.summaryEmbedding as number[]).join(",")}]'`;
+    // NOT wrapped in withIterativeScan, and that is a checked finding rather
+    // than an oversight (mt#4919): `agent_transcripts.summary_embedding` has NO
+    // ANN index — verified against prod, the only HNSW index on this cluster is
+    // `idx_agent_transcript_turns_embedding`. This ORDER BY is therefore an
+    // exact sequential scan, which cannot under-return, and `iterative_scan`
+    // would have nothing to act on. If a summary-embedding HNSW index is ever
+    // added, this call site needs the wrapper.
     const distanceExpr = sql`${agentTranscriptsTable.summaryEmbedding} <-> ${sql.raw(embeddingLiteral)}::vector`;
 
     // Project scoping (mt#2417, Phase 1.4) — see search()'s equivalent filter.

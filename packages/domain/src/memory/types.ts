@@ -128,8 +128,49 @@ export interface MemoryUpdateInput {
   sourceAgentId?: string | null;
   sourceSessionId?: string | null;
   confidence?: number | null;
-  /** Optional structured entity associations. Replaces the map; merge is caller's responsibility. */
+  /**
+   * Optional structured entity associations. **MERGED into the stored map, not replacing it** —
+   * a present key is set, a key with an EMPTY ARRAY is removed, and a key absent from the map is
+   * left untouched.
+   *
+   * That third case is the trap: `delete obj.k` produces an absent key, so it is a silent no-op
+   * rather than a removal. Build removals with `removeAssociationKeys()` from `./associations`.
+   *
+   * This docstring previously read *"Replaces the map; merge is caller's responsibility"*, which
+   * was the exact inverse of the implementation and is the reason the trap was reachable at all:
+   * under replace semantics `delete` WOULD remove the key. Corrected by mt#4843; the incident it
+   * caused is mt#4796.
+   */
   associations?: MemoryAssociations;
+}
+
+// --- Content-free projection (mt#4761) ---
+
+/**
+ * Compact projection of a `MemoryRecord` with no `content` body — the same
+ * shape the `memory.list` command's `summary: true` param has produced since
+ * mt#2817 (`src/adapters/shared/commands/memory/index.ts:886-889`). Pulled
+ * out to a shared function so the cockpit's `memories-list` widget — which
+ * bypasses the command layer and calls `MemoryService.list()` directly — can
+ * reach the same content-free shape instead of shipping full records
+ * (mt#4761's AT1: no record in the widget's HTTP payload may carry `content`).
+ */
+export type MemorySummaryRecord = Pick<
+  MemoryRecord,
+  "id" | "name" | "type" | "description" | "tags" | "createdAt" | "updatedAt"
+>;
+
+/** Project a `MemoryRecord` down to `MemorySummaryRecord` (mt#4761). */
+export function toMemorySummary(record: MemoryRecord): MemorySummaryRecord {
+  return {
+    id: record.id,
+    name: record.name,
+    type: record.type,
+    description: record.description,
+    tags: record.tags,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
 }
 
 // --- Search types ---
@@ -139,6 +180,21 @@ export interface MemoryUpdateInput {
  */
 export interface MemorySearchResult {
   record: MemoryRecord;
+  /**
+   * **Cosine similarity in [0, 1] — HIGHER means more similar** (mt#4787).
+   *
+   * The direction is stated here because its absence was the defect. The
+   * vector store returns an L2 DISTANCE (`<->`, lower is nearer); this field
+   * is that distance converted at the `MemoryService` boundary via
+   * {@link l2DistanceToSimilarity}, so that every consumer reads one
+   * unambiguous direction. Before mt#4787 the raw distance was passed through
+   * under this name and three separate surfaces rendered it as a similarity —
+   * the closest match displaying the smallest number.
+   *
+   * Do not reintroduce a raw distance here. If you need one, convert back with
+   * {@link similarityToL2Distance} at the point of use and name the local
+   * `distance`.
+   */
   score: number;
   /**
    * Read-time staleness verdict (mt#1709). Present only when the record declares a
@@ -151,6 +207,57 @@ export interface MemorySearchResult {
    */
   staleness?: MemoryStaleness;
 }
+
+/**
+ * A single record fetched by id, with the same read-time staleness verdict
+ * {@link MemorySearchResult} carries (mt#4743).
+ *
+ * Separate from `MemorySearchResult` because a fetch-by-id has no `score` — there is no
+ * query to be relevant to. Sharing the `staleness` field type (and, in the service, the
+ * same annotation pass) is what makes the two surfaces agree by construction rather than
+ * by two implementations that must be kept in step.
+ */
+export interface MemoryReadResult {
+  record: MemoryRecord;
+  /** See {@link MemorySearchResult.staleness}. Same semantics, same computation. */
+  staleness?: MemoryStaleness;
+}
+
+/**
+ * Sort field for `MemoryService.list()` (mt#4761), applied via SQL `ORDER BY`.
+ * Ignored when `filter.unreadOrCold` is true — that filter forces its own
+ * `lastAccessedAt` ascending, nulls-first order (see
+ * `MemoryListFilter.unreadOrCold`).
+ */
+export type MemoryListSortField =
+  | "created"
+  | "updated"
+  | "lastAccessed"
+  | "accessCount"
+  | "shortId"
+  | "name";
+
+/** Sort direction for `MemoryService.list()` (mt#4761). */
+export type MemoryListSortDirection = "asc" | "desc";
+
+/**
+ * Default threshold for {@link MemoryListFilter.cold}, in days (mt#4767).
+ *
+ * Grounded in the measured read distribution rather than picked as a round
+ * number (`decision-defaults.mdc §Thresholds`). Of 1,093 ever-read records on
+ * 2026-08-31, 805 (74%) had been read within 7 days and 152 more within 14;
+ * beyond that the tail collapses — 112 in 14–30d, 18 in 30–60d, 6 older. 14
+ * days is where the distribution bends, so it separates "not in the working
+ * set" from the ordinary weekly rhythm. For contrast a 7-day cut flags 288
+ * records (most of them simply last week's), 30 days flags 24, and
+ * `unreadOrColdDays`' own 90-day default flags 1 — the corpus has only tracked
+ * `last_accessed_at` since 2026-05-27, so a 90-day cold threshold cannot
+ * work here at all.
+ *
+ * Re-derive from the corpus if the read cadence changes; this is an observed
+ * value, not a policy.
+ */
+export const DEFAULT_COLD_DAYS = 14;
 
 /**
  * Options for filtering memory list results.
@@ -169,15 +276,88 @@ export interface MemoryListFilter {
   /** When true, excludes memories that have been superseded (superseded_by IS NOT NULL) */
   excludeSuperseded?: boolean;
   /**
-   * When true, filter to records with last_accessed_at IS NULL OR older than stalenessDays.
-   * Results are sorted by lastAccessedAt ASC NULLS FIRST (oldest/never-accessed first).
+   * When true, filter to records with `last_accessed_at IS NULL OR older than
+   * unreadOrColdDays` — the UNION of {@link neverAccessed} and {@link cold}.
+   * Results are sorted by lastAccessedAt ASC NULLS FIRST (oldest/never-accessed
+   * first).
+   *
+   * **Named `unreadOrCold`, not `stale` (mt#4799).** Two independent problems
+   * with the old name, and mt#4767 fixed only the user-visible one:
+   *
+   * 1. It is a UNION wearing a singular name. Its two disjuncts are exactly
+   *    {@link neverAccessed} and {@link cold}, which is why mt#4767 could not
+   *    build two disjoint worklists on it and had to add them beside it.
+   * 2. The word was already spoken for. `staleness.ts:517` and
+   *    `task-state-assertion.ts:206` both emit `⚠️ POSSIBLY OBSOLETE` for a
+   *    memory whose TRACKING TASK shipped — an unrelated property. In this
+   *    codebase "stale" means that.
+   *
+   * **Kept rather than retired**, though the caller count argued for
+   * retirement (measured 2026-09-03: no caller wants the union, and at the
+   * 90-day default it is `neverAccessed` plus exactly one row). The deciding
+   * fact is structural: `buildListConditions` ANDs its conditions, so setting
+   * `neverAccessed` and `cold` together yields the EMPTY set. The union is not
+   * reconstructible from the two disjoint filters — it is expressible only
+   * here. Retiring it would delete a capability on the strength of a
+   * one-row margin that is a property of today's corpus, not of the semantics.
    */
-  stale?: boolean;
+  unreadOrCold?: boolean;
   /**
-   * Threshold in days for the stale filter. Defaults to 90.
-   * Ignored unless stale is true.
+   * Threshold in days for the {@link unreadOrCold} filter. Defaults to 90.
+   * Ignored unless `unreadOrCold` is true.
    */
-  stalenessDays?: number;
+  unreadOrColdDays?: number;
+  /**
+   * When true, filter to records carrying no tags at all
+   * (`cardinality(tags) = 0`) — mt#4767's "Untagged" curation worklist.
+   *
+   * NOT expressible via `tags`: that filter is array CONTAINMENT
+   * (`tags @> ARRAY[...]`), which can ask "does it have these tags" and can
+   * never ask "does it have none".
+   */
+  untagged?: boolean;
+  /**
+   * When true, filter to records never read since creation
+   * (`last_accessed_at IS NULL`) — mt#4767's "Never read" worklist.
+   *
+   * DELIBERATELY NOT {@link unreadOrCold} (mt#4767), which is
+   * `last_accessed_at IS NULL OR older than unreadOrColdDays` — a UNION whose
+   * first disjunct IS this filter, so it cannot express never-read and
+   * read-but-cold as two separate populations. Measured on the live corpus
+   * 2026-08-31: the union at its own 90-day default returned 252 rows against
+   * this filter's 251, because exactly ONE record had been read but not within
+   * 90 days. (Re-measured 2026-09-03 on a corpus of 1,366: 256 against 255 —
+   * same one-row margin.) Building both worklists on the union would have
+   * shipped the same list twice.
+   */
+  neverAccessed?: boolean;
+  /**
+   * When true, filter to records that HAVE been read but not recently
+   * (`last_accessed_at IS NOT NULL AND last_accessed_at < now() - coldDays`)
+   * — mt#4767's "Cold" worklist. Strictly disjoint from {@link neverAccessed}
+   * by construction; together they partition what {@link unreadOrCold} unions.
+   *
+   * "Cold", not "stale": `staleness.ts` already emits `⚠️ POSSIBLY OBSOLETE`
+   * for a DIFFERENT property — a memory whose tracking task shipped — so the
+   * word is spoken for. The union filter beside this one carried the offending
+   * name until mt#4799 renamed it to {@link unreadOrCold}.
+   */
+  cold?: boolean;
+  /**
+   * Threshold in days for the cold filter. Defaults to
+   * {@link DEFAULT_COLD_DAYS}. Ignored unless cold is true.
+   */
+  coldDays?: number;
+  /**
+   * When true, filter to records that HAVE been superseded
+   * (`superseded_by IS NOT NULL`) — mt#4767's "Superseded" worklist.
+   *
+   * Not reachable via {@link excludeSuperseded}, which is one-directional:
+   * `true` removes superseded rows and `false` removes nothing, so neither
+   * value restricts TO them. Setting both is contradictory and yields no
+   * rows, which is the honest result rather than a silent precedence rule.
+   */
+  onlySuperseded?: boolean;
   /**
    * Filter by association containment. Returns only memories where
    * associations[type] contains targetId.
@@ -194,6 +374,33 @@ export interface MemoryListFilter {
   since?: string;
   /** Upper bound (inclusive) on `createdAt` — ISO-8601 timestamp (mt#2817). */
   until?: string;
+  /**
+   * Sort field, applied in SQL (mt#4761). Defaults to `"created"` when omitted.
+   * Ignored when `unreadOrCold` is true.
+   */
+  sort?: MemoryListSortField;
+  /**
+   * Sort direction, applied in SQL (mt#4761). Defaults to `"desc"` when omitted.
+   * Ignored when `unreadOrCold` is true.
+   */
+  dir?: MemoryListSortDirection;
+  /**
+   * Max rows to return, applied via SQL `LIMIT` (mt#4761). Defaults to
+   * `DEFAULT_LIST_CAP` (`../utils/list-pagination.ts`) when omitted.
+   */
+  limit?: number;
+  /** Rows to skip, applied via SQL `OFFSET` (mt#4761). Defaults to 0. */
+  offset?: number;
+  /**
+   * AND-semantics filter over the `tags` `text[]` column (mt#4761): a
+   * matching record must carry EVERY listed tag, not merely one of them.
+   */
+  tags?: string[];
+  /**
+   * Case-insensitive substring filter over `name`, applied via SQL `ILIKE`
+   * (mt#4761).
+   */
+  nameContains?: string;
 }
 
 /**
@@ -201,6 +408,30 @@ export interface MemoryListFilter {
  */
 export interface MemorySearchOptions {
   limit?: number;
+  /**
+   * **Minimum cosine similarity in [0, 1]** — results scoring below it are
+   * dropped (mt#4787). Same direction as {@link MemorySearchResult.score}, so
+   * a threshold and a displayed score are directly comparable.
+   *
+   * This matches what the `memory.search` command has always DOCUMENTED
+   * ("Minimum similarity score threshold"). It did not match what the code
+   * did: the value was forwarded untouched to `VectorStorage.search`, which
+   * applies it as `score <= threshold` against an L2 DISTANCE — a maximum, and
+   * in the opposite direction. `MemoryService` now converts it with
+   * {@link similarityToL2Distance} before the store sees it.
+   *
+   * **Caller audit at the time of the change (PR #3512 R1).** Exactly ONE
+   * production caller sets this: the `memory.similar` command
+   * (`src/adapters/shared/commands/memory/index.ts:1260`), whose own parameter
+   * is described as "Minimum similarity score threshold" — so it was already
+   * asking for a similarity floor and silently receiving the inverse. This
+   * change fixes that caller rather than flipping a contract out from under
+   * it. Every other consumer passes only `limit`/`filter` and is unaffected:
+   * the `memory.search` command, the cockpit's `memories-search` and
+   * `memories-detail` widgets, the MCP enrichment and bundle middleware, and
+   * `scripts/benchmark-mcp-memory-enrichment.ts` /
+   * `scripts/principal-corpus/acceptance-tests.ts`.
+   */
   threshold?: number;
   filter?: MemoryListFilter;
 }

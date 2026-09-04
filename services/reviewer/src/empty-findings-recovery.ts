@@ -73,6 +73,23 @@ import { safeTruncate } from "@minsky/shared/safe-truncate";
 export const SYNTHESIZED_FINDING_FILE = "(review summary)";
 
 /**
+ * The opening of the synthesized finding's `details`, which
+ * `services/reviewer/scripts/measure-recovery-fire-rate.ts` matches to detect
+ * a recovery fire from the posted GitHub review body — the durable,
+ * credential-free record of this pass's fire rate.
+ *
+ * **This string is a contract, not prose (mt#2926).** The script held its own
+ * hard-coded copy until now, so editing this sentence made the script report
+ * ZERO fires — silently, with no error, since "no marker found" and "the pass
+ * never fired" are the same observation to it. That is a probe that cannot
+ * fail, so the copy is retired: the script imports this constant, and the
+ * regression test below pins that the synthesized `details` still starts with
+ * it. APPEND to the details text; do not rewrite this opening.
+ */
+export const RECOVERY_FIRE_MARKER_PREFIX =
+  "Synthesized by the empty-findings coherence recovery pass (mt#2685)";
+
+/**
  * Max characters of the `conclude_review` summary embedded verbatim in the
  * synthesized finding's `details` field. `summary` is unbounded model output
  * (`ConcludeReviewArgsSchema.summary` has no `max()`), so without a cap a
@@ -153,10 +170,18 @@ export function applyEmptyFindingsRecovery(
     line: 1,
     summary: "Reviewer concluded REQUEST_CHANGES but emitted no structured findings",
     details:
-      `Synthesized by the empty-findings coherence recovery pass (mt#2685): the reviewer ` +
+      // Built FROM the exported constant rather than repeating its text, so
+      // the measurement script's matcher cannot drift away from what this
+      // pass actually writes — see RECOVERY_FIRE_MARKER_PREFIX.
+      `${RECOVERY_FIRE_MARKER_PREFIX}: the reviewer ` +
       `model called conclude_review with event=REQUEST_CHANGES but zero submit_finding calls, ` +
       `so the structured findings channel was empty even though the conclusion summary ` +
-      `describes blocking issue(s) in prose. Original conclusion summary:\n\n${truncateSummaryForDetails(
+      `describes blocking issue(s) in prose. ` +
+      // mt#2926 APPENDS here rather than rewriting the opening above.
+      `mt#2926 added a forced-findings pass upstream of this synthesis, which asks the model ` +
+      `to file the findings its own conclusion describes; this placeholder means that pass did ` +
+      `not produce a usable structured finding (it errored, returned nothing parseable, or the ` +
+      `provider path does not run it). Original conclusion summary:\n\n${truncateSummaryForDetails(
         concludeCall.args.summary
       )}`,
   };

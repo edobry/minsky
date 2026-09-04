@@ -18,6 +18,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { ChangesetsPage } from "./ChangesetsPage";
 import { ProjectProvider } from "../lib/project-context";
+import { stubProjectsRoute } from "../lib/test-support/projects";
 import type { ChangesetsListResponse } from "../widgets/Changesets";
 
 // ---------------------------------------------------------------------------
@@ -191,6 +192,7 @@ function mockChangesetsFetch(response: { status: number; body: unknown }) {
     }
     return Promise.resolve(new Response("Not found", { status: 404 }));
   }) as unknown as typeof globalThis.fetch;
+  stubProjectsRoute();
 }
 
 function mockChangesetsFetchError(errorMessage: string) {
@@ -201,6 +203,7 @@ function mockChangesetsFetchError(errorMessage: string) {
     }
     return Promise.resolve(new Response("Not found", { status: 404 }));
   }) as unknown as typeof globalThis.fetch;
+  stubProjectsRoute();
 }
 
 // ---------------------------------------------------------------------------
@@ -454,6 +457,7 @@ describe("ChangesetsPage — loading state", () => {
   test("renders loading placeholder before data arrives", () => {
     // Fetch hangs — query stays in pending state
     globalThis.fetch = mock(() => new Promise(() => {})) as unknown as typeof globalThis.fetch;
+    stubProjectsRoute();
     renderChangesetsPage();
     expect(screen.getByText(/loading changesets/i)).toBeDefined();
   });

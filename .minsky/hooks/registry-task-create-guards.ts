@@ -530,4 +530,114 @@ export const TASK_CREATE_GUARDS: readonly GuardRegistration[] = [
       expects: "calibration",
     },
   },
+
+  // -------------------------------------------------------------------------
+  // mt#4213 — a spec EXPLAINS that a criterion is unmet, and leaves that
+  // criterion's own normative text saying the opposite.
+  //
+  // Eighth on this seam. Its subject is neither the spec's claims about the
+  // world (spec-criterion-claim, claim-provenance-scan) nor the task graph
+  // (warn-unwired-task-relationship), but the spec's INTERNAL consistency after
+  // a partial revision.
+  //
+  // Four recurrences in eight days, each caught by the reviewer as BLOCKING at
+  // a cost of one round: R1 mt#4038 / PR #2914, R3 mt#4162 / PR #3053, R4
+  // mt#4320 / PR #3161 (R2 mt#4076 wrote only to the PR body and never reaches
+  // this seam). The prose tier is DONE and every one of them post-dates it —
+  // R3 and R4 each failed ~90 minutes after the same agent applied the rule
+  // correctly, which is what makes prose the wrong tier rather than an
+  // under-rehearsed one.
+  //
+  // UNLIKE its siblings on this seam, this guard IS on ADR-024's ladder and
+  // says so: the discharging ACTION is structural, but it cannot be the
+  // TRIGGER (every patch not touching a criterion would fire), so the
+  // nominating half is a phrase set by necessity. Rung 1 only, and if recall
+  // binds the answer is Rung 2 — never a widened substring list.
+  // -------------------------------------------------------------------------
+  {
+    name: "criterion-reconciliation-scan",
+    effects: [recorderEffect()],
+    // `advisory`: which phrasings count as an unmet-assertion is a heuristic the
+    // calibration log exists to size. The half it conjoins with is EXACT — does
+    // this write carry the named criterion's own entry, or not.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    // The three spec-WRITE tools. `tasks_create` is excluded on purpose: a
+    // criterion cannot be explained as unmet in the write that first authors it.
+    matcher:
+      "mcp__minsky__tasks_spec_patch|mcp__minsky__tasks_edit|mcp__minsky__tasks_spec_search_replace",
+    module: () => import("./criterion-reconciliation-scan").then((m) => ({ run: m.run })),
+    renderProbe: () => import("./criterion-reconciliation-scan").then((m) => m.renderWorstCase()),
+    // Pure: two string scans over the authored text plus the shared criteria
+    // parser. No database read and no filesystem access except the injectable
+    // `specFile` branch, so this is cheaper than the `spec-criterion-claim`
+    // sibling, which does an indexed single-row read on the edit path.
+    timeoutMs: 10000,
+    calibrationLog: "criterion-reconciliation",
+    // Calibration-first per ADR-024; asserted in the module's tests.
+    denyCapable: false,
+    // Reads `tool_input` only, never `ctx.transcriptLines`.
+    needsTranscript: false,
+    // MEASURED via `renderProbe`: 384 chars with BOTH rendered dimensions
+    // saturated at once — the id list at its `MAX_RENDERED_IDS` cap AND a
+    // non-empty overflow suffix. A proved ceiling rather than a sample, because
+    // every dimension is bounded; 420 leaves ~9% headroom. The sibling
+    // `spec-criterion-claim-detector` records this same cap as still OWED, so
+    // paying it at authoring time is deliberate.
+    attentionCost: { denialMessageSizeChars: 420, optionCount: 1 },
+    // R4's shape (mt#4320), reduced: an assertion naming a criterion, with no
+    // `## Success Criteria` / `## Acceptance Tests` section in the write to
+    // amend it. Purely string-driven — no task id is consulted and no database
+    // is touched — so the canary is deterministic in every environment.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_spec_patch",
+        tool_input: {
+          taskId: "mt#999999",
+          content: "## Outcome\n\nAT3 as written cannot be satisfied by the shipped fix.\n",
+        },
+      },
+      expects: "calibration",
+    },
+  },
+  {
+    // mt#4769 — the REACH half of the operator-deferral family, task-spec half.
+    // The sibling registration in `registry-pr-create-guards.ts` carries the
+    // full rationale; this one exists because `registry.test.ts`'s "PreToolUse
+    // families share no matcher token" invariant requires a guard's matcher
+    // tokens to be filed under the family that OWNS them, and `tasks_spec_patch`
+    // is this family's. Same module, same function, same log — one surface, two
+    // registrations, for a registry-shape reason rather than a behavioural one.
+    //
+    // The originating incident wrote its deferral into BOTH a PR body and a task
+    // spec, so dropping this half to keep a single registration would have
+    // covered half the incident that produced the task.
+    name: "operator-deferral-artifact-surface-spec",
+    effects: [recorderEffect()],
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__tasks_spec_patch",
+    module: () =>
+      import("./operator-deferral-detector").then((m) => ({ run: m.runArtifactSurface })),
+    renderProbe: () => import("./operator-deferral-detector").then((m) => m.renderWorstCase()),
+    // 5s — see the sibling registration's note. Same work, same budget.
+    timeoutMs: 5000,
+    calibrationLog: "operator-deferral",
+    denyCapable: false,
+    needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 2100, optionCount: 1 },
+    canary: {
+      input: {
+        transcript_path: "mt4769-canary-transcript",
+        tool_name: "mcp__minsky__tasks_spec_patch",
+        tool_input: {
+          taskId: "mt#999999",
+          content:
+            "## Outcome\n\nLive verification requires Railway access, so it is deferred to the operator.\n",
+        },
+      },
+      transcriptLines: [{ type: "user", message: { role: "user", content: "first turn" } }],
+      expects: "calibration",
+    },
+  },
 ];

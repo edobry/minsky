@@ -64,7 +64,7 @@ import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
+import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/server";
 
 // ---------------------------------------------------------------------------
 // Manifest — service-specific constants. Everything that isn't a secret.

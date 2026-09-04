@@ -14,6 +14,7 @@
 import { useDeployVitals, type DeploymentStatus } from "../../hooks/useDeployVitals";
 import { formatDurationShort } from "../../lib/format-duration";
 import { LoopCardShell } from "./LoopCardShell";
+import { InstanceScopeCue } from "../InstanceScopeCue";
 import { RingGauge } from "./RingGauge";
 import { Sparkline } from "./Sparkline";
 
@@ -78,6 +79,7 @@ export function DeployLoopCard() {
   return (
     <LoopCardShell
       label="Deploy"
+      headerExtra={<InstanceScopeCue compact />}
       needsAttention={needsAttention}
       ring={
         <RingGauge

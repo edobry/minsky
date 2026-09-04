@@ -1,535 +1,59 @@
 /**
- * Cockpit driven-session host (mt#2750, Rung 2A of the harness-host ladder).
+ * Cockpit driven-session HOST — the supervisor (mt#2750, Rung 2A; split from
+ * its transport by mt#4934, ADR-047).
  *
- * Spawns the GENUINE `claude` binary as a managed child —
- * `claude -p --input-format stream-json --output-format stream-json --verbose
- * --include-partial-messages`, cwd set to the target workspace — parses the
- * newline-delimited stream-json event stream defensively (the upstream event
- * schema is thin; see anthropics/claude-code#24594 / #24596), and exposes the
- * process through a `DrivenSessionRegistry` so the WS attach point
- * (./driven-session-ws.ts) and the Express routes (./routes/driven-sessions.ts)
- * can both observe/drive the same in-memory session set.
+ * Owns the drive record (`DrivenSessionRecord`), the `driverGeneration`
+ * counter, restart/reconnect policy (mt#3038), cost-row bookkeeping, and the
+ * `DrivenSessionRegistry` the WS attach point (./driven-session-ws.ts) and
+ * the Express routes (./routes/driven-sessions.ts) both observe. It does
+ * NOT know how a session driver is spawned or how its wire protocol is
+ * shaped — that is a `DriverTransport` (./driver-transport.ts). This module
+ * selects a single transport today (`ClaudeStreamJsonTransport`,
+ * ./claude-transport.ts — the genuine `claude` binary under the
+ * user's own subscription auth; RFC `372937f0-3cb4-8142-b3e3-c7238d3b51ba`'s
+ * load-bearing invariant, unchanged by the split); mt#4935 will make that
+ * selection per drive record.
  *
- * Load-bearing invariant (RFC `372937f0-3cb4-8142-b3e3-c7238d3b51ba`): genuine
- * binary + user's own creds + user's own machine — NO Agent SDK anywhere on
- * this drive path. This module imports NOTHING from `@anthropic-ai/*` — see
- * the static-import assertion test in driven-session-host.test.ts.
- *
- * CRITICAL TESTING CONSTRAINT: every test in this codebase MUST inject a fake
- * `spawnFn` (see `SpawnFn`/`ProcessLike` below) rather than spawn the real
- * `claude` binary — spawning the genuine binary spends the user's Agent SDK
- * credit (real money) and runs a headless skip-permissions agent. Production
- * code (the default `spawnFn`) is the only caller of the real
- * `node:child_process.spawn`.
- *
- * Nested-scope note (SC5): the spawned `claude` child inherits the operator's
- * MCP config and MAY call back into Minsky MCP tools during its turn. The
- * cockpit daemon (this process) and the Minsky MCP server are SEPARATE OS
- * processes reached over stdio/HTTP by the child — there is no in-process
- * loop, no shared event loop, and no coupling between this host's stdout
- * parser and whatever the child's MCP tool call talks to. The child's own
- * `agentSessionId` (harness/conversation identity — see
- * docs/architecture/adr-022-session-vs-conversation-terminology.md) is
- * distinct from any Minsky WORKSPACE session the operator points `cwd` at;
- * this host never resolves or mutates a workspace session record. A
- * tool_use/tool_result pair appearing in the child's event stream is just
- * another pair of forwarded events to this host — see the "nested MCP tool
- * use doesn't deadlock" test.
- *
- * @see mt#2750 — this module
+ * @see mt#2750 — this module's origin
+ * @see mt#4934 — the transport-interface split, ADR-047
  * @see mt#2237 — parent (Rung 2), mt#2230 — umbrella
  * @see docs/architecture/adr-023-cockpit-ui-delivery-native-boundary.md — daemon-side + network transport
  * @see mt#2538 — daemon bind/auth (consumed by ./driven-session-ws.ts)
  * @see ./driven-session-ws.ts — WS upgrade attach point (auth + event fan-out)
  * @see ./routes/driven-sessions.ts — Express start/stop/list routes
+ * @see ./driver-transport.ts — the transport contract
+ * @see ./claude-transport.ts — the transport this module selects
  */
 
-import { spawn as nodeSpawn } from "child_process";
 import { randomUUID } from "crypto";
-import { statSync } from "fs";
-import { stat } from "fs/promises";
 import { PassThrough } from "stream";
 import { log } from "@minsky/shared/logger";
 import { INTERRUPTION_NOTICE_TEXT } from "@minsky/shared/minsky-notices";
+import type {
+  DriverAuthMode,
+  DriverTransport,
+  DriverTransportEvent,
+  DrivenInputImage,
+  DrivenSessionCostSummary,
+  PermissionMode,
+  ProcessLike,
+  SpawnFn,
+} from "./driver-transport";
 import {
-  mcpConfigArgs,
-  redactMcpConfigForLog,
-  resolveDrivenSessionMcpConfig,
-} from "./driven-session-mcp-config";
+  DEFAULT_AUTH_MODE,
+  DEFAULT_HARNESS_KIND,
+  DEFAULT_PERMISSION_MODE,
+  DEFAULT_TRANSPORT_ID,
+  TRANSPORT_ID_ACP,
+} from "./driver-transport";
+import { ClaudeStreamJsonTransport } from "./claude-transport";
+import { AcpTransport } from "./acp-transport";
 
-/**
- * Resolve the `--mcp-config` payload for a spawn, reporting what was refused.
- *
- * The resolver deliberately returns its rejections rather than logging them
- * (see its module docblock's invariant); this is the one place that turns them
- * into operator-visible output. Both the start and the resume path go through
- * here so a resume cannot silently provision a different server set than the
- * start did — the mt#3377 defect class, one level up.
- *
- * Every failure here is a WARNING, never a throw. A driven session with fewer
- * tools than intended is degraded; a driven session that will not spawn is
- * broken, and the second is much worse on a surface the principal drives from a
- * phone.
- */
-function resolveMcpConfigForSpawn(
-  repoPath: string,
-  names: readonly string[] | undefined,
-  context: string
-): string {
-  const resolution = resolveDrivenSessionMcpConfig(repoPath, names === undefined ? {} : { names });
-
-  if (resolution.sourceError !== null) {
-    log.warn(
-      `[driven-session] ${context}: could not read the operator's MCP servers — ` +
-        `provisioning only \`minsky\`. ${resolution.sourceError}`
-    );
-  }
-  for (const { name, reason } of resolution.rejected) {
-    log.warn(`[driven-session] ${context}: not provisioning MCP server \`${name}\` — ${reason}`);
-  }
-
-  return resolution.config;
-}
-
-// ---------------------------------------------------------------------------
-// Injectable process abstraction (mirrors mt#2749's fsMod/TailerLike pattern
-// and mt#2538's overrideToken pattern) — production spawns the REAL `claude`
-// binary via node:child_process.spawn; tests inject a fake ProcessLike that
-// emits canned stream-json frames on stdout and captures stdin writes.
-// ---------------------------------------------------------------------------
-
-/**
- * Minimal structural surface of a spawned child process. A real
- * `child_process.ChildProcess` satisfies this; test fakes construct a small
- * EventEmitter + PassThrough-backed double instead (see
- * driven-session-host.test.ts) — neither this interface nor any production
- * code here cares which.
- */
-export interface ProcessLike {
-  readonly pid: number | undefined;
-  readonly stdout: NodeJS.ReadableStream;
-  readonly stderr: NodeJS.ReadableStream;
-  readonly stdin: NodeJS.WritableStream;
-  kill(signal?: NodeJS.Signals | number): boolean;
-  on(
-    event: "exit",
-    listener: (code: number | null, signal: NodeJS.Signals | null) => void
-  ): unknown;
-  on(event: "error", listener: (err: Error) => void): unknown;
-}
-
-export interface SpawnOptions {
-  cwd: string;
-  env?: NodeJS.ProcessEnv;
-}
-
-export type SpawnFn = (command: string, args: string[], options: SpawnOptions) => ProcessLike;
-
-/**
- * Production default — the ONLY place this module spawns a real process.
- * `child_process.spawn`'s return type (`ChildProcess`) is a strict structural
- * superset of `ProcessLike` (extra EventEmitter overloads, signal-typed
- * fields, etc.) that TypeScript won't narrow directly; the `as unknown` cast
- * is the same "no alternative typing for a real Node handle" case already
- * disabled at src/mcp/stdio-proxy/proxy.ts's ChildProcess side-channel cast.
- */
-const prodSpawnFn: SpawnFn = (command, args, opts) =>
-  // eslint-disable-next-line custom/no-excessive-as-unknown -- ChildProcess -> ProcessLike structural narrowing, no alternative typing (mirrors stdio-proxy/proxy.ts precedent)
-  nodeSpawn(command, args, {
-    cwd: opts.cwd,
-    env: opts.env ?? process.env,
-    stdio: ["pipe", "pipe", "pipe"],
-  }) as unknown as ProcessLike;
-
-// ---------------------------------------------------------------------------
-// Permission posture (SC6) — explicit, logged parameter; never a silent inject.
-// ---------------------------------------------------------------------------
-
-/**
- * `bypassPermissions` maps to `--dangerously-skip-permissions`, required for a
- * genuinely non-interactive `-p` session: Rung 2A ships no permission-prompt
- * UI (that's Rung 2B+), so there is nothing to answer an interactive
- * permission request with. `default` spawns the child WITHOUT that flag — a
- * tool call requiring permission is denied by the CLI in print mode (no TTY
- * to prompt against), which surfaces as an ordinary denied-tool-result event
- * on the stream, NOT a hang.
- *
- * Chosen default (see `DEFAULT_PERMISSION_MODE`): `bypassPermissions`. This is
- * a documented, logged choice — every spawn logs the mode it used (see
- * `startDrivenSession`) so the choice is always visible in daemon logs, and
- * callers may override it explicitly per session. If an org's managed policy
- * blocks `--dangerously-skip-permissions`, the child exits immediately with a
- * non-zero code and a policy-violation message on stderr; `startDrivenSession`
- * detects an exit with no prior `init` event and surfaces a readable
- * `minsky_error` event on the channel rather than leaving the caller hanging.
- */
-export type PermissionMode = "bypassPermissions" | "default";
-
-export const DEFAULT_PERMISSION_MODE: PermissionMode = "bypassPermissions";
-
-function permissionModeArgs(mode: PermissionMode): string[] {
-  return mode === "bypassPermissions" ? ["--dangerously-skip-permissions"] : [];
-}
-
-/** The genuine binary this host spawns. Never anything from `@anthropic-ai/*`. */
-export const CLAUDE_BINARY = "claude";
-
-// ---------------------------------------------------------------------------
-// Spawn-cwd preflight (mt#3397)
-// ---------------------------------------------------------------------------
-
-/**
- * Verdict of {@link probeSpawnCwd}. Deliberately THREE-valued: `"unknown"` is
- * not merged into `"missing"`, because the two carry opposite consequences —
- * `"missing"` retires a conversation permanently, `"unknown"` must not.
- */
-export type CwdProbeResult = "present" | "missing" | "unknown";
-
-/**
- * Check whether a spawn cwd is a directory that exists.
- *
- * Why this exists: Node reports a missing `options.cwd` as an `ENOENT` naming
- * the COMMAND — `ENOENT: no such file or directory, posix_spawn 'claude'` —
- * indistinguishable from the binary being absent from PATH. Node documents this
- * ("If given, but the path does not exist, the child process emits an ENOENT
- * error and exits immediately. ENOENT is also emitted when the command does not
- * exist") and deliberately declined to pre-validate the cwd itself
- * (nodejs/node#11520 → doc-only PR nodejs/node#34505), leaving the check to the
- * caller. This is that caller-side check.
- *
- * `"unknown"` (a permission error, an I/O error, an unresponsive network mount)
- * fails OPEN — the caller spawns anyway and lets the real error surface. Only a
- * definitive ENOENT/ENOTDIR, or a path that exists but is not a directory,
- * returns `"missing"`, because `"missing"` is what marks a conversation
- * unrecoverable FOREVER. A transiently unreadable workspace must never retire a
- * conversation the principal may still want.
- */
-export function probeSpawnCwd(cwd: string): CwdProbeResult {
-  try {
-    return classifyCwdStat(statSync(cwd).isDirectory());
-  } catch (err) {
-    return classifyCwdProbeError(err, cwd);
-  }
-}
-
-/**
- * Async twin of {@link probeSpawnCwd}, for callers that are already async.
- *
- * PR #2452 R1 (BLOCKING): boot reconciliation probes every non-terminal row, so
- * a synchronous `statSync` there can stall the daemon's event loop for as long
- * as the slowest path takes to answer — unbounded on an unresponsive network
- * mount. The two spawn paths keep the sync probe deliberately: they are
- * synchronous by contract (`startDrivenSession` hands the caller a session id
- * without awaiting the child) and they are about to block on `spawn` anyway, so
- * making them async would ripple through four call sites to remove a stat that
- * immediately precedes a process launch. The loops get this one instead.
- */
-export async function probeSpawnCwdAsync(cwd: string): Promise<CwdProbeResult> {
-  try {
-    const stats = await stat(cwd);
-    return classifyCwdStat(stats.isDirectory());
-  } catch (err) {
-    return classifyCwdProbeError(err, cwd);
-  }
-}
-
-function classifyCwdStat(isDirectory: boolean): CwdProbeResult {
-  return isDirectory ? "present" : "missing";
-}
-
-/**
- * Shared error classification for both probes.
- *
- * The `"unknown"` branch logs at WARN (PR #2452 R1): failing open is the right
- * behavior, but doing it silently means an operator seeing a session stuck in
- * `reconnecting` has no way to find out that the probe could not read the
- * workspace. The errno is the diagnostic — EACCES reads very differently from
- * EIO or a hung mount's ETIMEDOUT.
- */
-function classifyCwdProbeError(err: unknown, cwd: string): CwdProbeResult {
-  const code = (err as NodeJS.ErrnoException).code;
-  if (code === "ENOENT" || code === "ENOTDIR") return "missing";
-  log.warn(
-    `[driven-session] could not determine whether ${cwd} exists (${code ?? "no errno"}) — ` +
-      `treating it as possibly-present so the conversation is not retired on a transient fault`
-  );
-  return "unknown";
-}
-
-/**
- * The `unrecoverableReason` for a session whose workspace is gone.
- *
- * Deliberately says the WORKSPACE is gone, not that the work is: a driven
- * session's conversation lives in the harness's own on-disk transcript, which
- * survives both the session driver's death and the workspace's deletion (memory
- * mem#669 — "the process died" is NOT "the work is gone"). What is lost is the
- * ability to RESUME in place: `claude --resume` needs the original cwd, both to
- * run in and because the harness keys its transcript directory off that path.
- */
-export function missingCwdReason(cwd: string): string {
-  return (
-    `deleted cwd — the workspace directory ${cwd} no longer exists, so this conversation ` +
-    `cannot be resumed in place (its transcript is unaffected)`
-  );
-}
-
-/**
- * The documented headless invocation (mt#2750 spec Context — Claude Code
- * headless docs, code.claude.com/docs/en/headless): `-p` is required for
- * `--input-format stream-json`; `--output-format stream-json` for structured
- * output; `--verbose` for the full event stream; `--include-partial-messages`
- * for token deltas (`stream_event`).
- */
-export function buildDrivenSessionArgs(
-  permissionMode: PermissionMode,
-  model?: string,
-  mcpConfig?: string | null
-): string[] {
-  return [
-    "-p",
-    "--input-format",
-    "stream-json",
-    "--output-format",
-    "stream-json",
-    "--verbose",
-    "--include-partial-messages",
-    // mt#3040: principal-selected model (a resolved dispatch alias, e.g. "fable").
-    // Omitted → the genuine claude binary resolves its own default.
-    ...(model ? ["--model", model] : []),
-    // mt#3377: provision the minsky MCP server explicitly. Without this the
-    // child resolves MCP servers against its cwd (a session workspace), which
-    // carries none — see ./driven-session-mcp-config.ts.
-    ...mcpConfigArgs(mcpConfig),
-    ...permissionModeArgs(permissionMode),
-  ];
-}
-
-/**
- * The resume-spawn invocation (mt#3038, RFC "Conversation-first drive"
- * Phase 1): identical to {@link buildDrivenSessionArgs} plus `--resume
- * <harnessSessionId>`, which resumes the CLI's own on-disk transcript for
- * that conversation id rather than starting a fresh one. This is the ONLY
- * difference between a fresh spawn and a restart-recovery respawn — the
- * durable entity is the conversation (the RFC's thesis), and the session driver
- * (child process) is disposable.
- */
-export function buildResumeSessionArgs(
-  permissionMode: PermissionMode,
-  harnessSessionId: string,
-  model?: string | null,
-  mcpConfig?: string | null
-): string[] {
-  return [
-    "-p",
-    "--resume",
-    harnessSessionId,
-    "--input-format",
-    "stream-json",
-    "--output-format",
-    "stream-json",
-    "--verbose",
-    "--include-partial-messages",
-    // mt#3040 preservation: a resume must keep the ORIGINALLY-selected model
-    // rather than silently falling back to the CLI's default.
-    ...(model ? ["--model", model] : []),
-    // mt#3377: a resumed session driver needs the same server set as a fresh spawn —
-    // the conversation is durable, the process is disposable, and a resume
-    // that silently dropped the MCP servers would degrade mid-conversation.
-    ...mcpConfigArgs(mcpConfig),
-    ...permissionModeArgs(permissionMode),
-  ];
-}
-
-// ---------------------------------------------------------------------------
-// Defensive stream-json line parsing
-// ---------------------------------------------------------------------------
-
-/**
- * Normalize a stream `"data"` chunk (Buffer or string, per Node stream
- * conventions) to a string. Deliberately avoids calling `chunk.toString("utf-8")`
- * with an explicit encoding argument — this project's root `@types/node` vs.
- * bun-types' bundled copy disagree on the `Buffer#toString` overload set (the
- * same ambient-typing ambiguity documented in ./auth.ts's token-encoding
- * comment), which either mis-narrows a `Buffer | string` union to zero-arg
- * `string.prototype.toString` or drops the `Buffer` global's static methods
- * entirely depending on which copy wins. `String(chunk)` sidesteps it:
- * for a real Node Buffer this invokes `.toString()` with no arguments, whose
- * documented default encoding is already `"utf8"`.
- */
-function chunkToString(chunk: unknown): string {
-  return typeof chunk === "string" ? chunk : String(chunk);
-}
-
-/** Accumulates chunked stdout data and yields complete newline-delimited lines. */
-export class NewlineSplitter {
-  private buffer = "";
-
-  /** Feed a chunk; returns zero or more complete (non-empty) lines. */
-  push(chunk: string): string[] {
-    this.buffer += chunk;
-    const parts = this.buffer.split("\n");
-    this.buffer = parts.pop() ?? "";
-    return parts.filter((line) => line.length > 0);
-  }
-}
-
-/**
- * Parse one stdout line as a stream-json event. Defensive per the mt#2750
- * spec (the upstream event schema is thin — anthropics/claude-code#24594 /
- * #24596): a non-JSON or non-object line becomes a `minsky_parse_error`
- * event rather than throwing, so one malformed line never kills the parser
- * loop or the session.
- */
-export function parseStreamJsonLine(line: string): Record<string, unknown> {
-  try {
-    const parsed: unknown = JSON.parse(line);
-    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-    return { type: "minsky_parse_error", raw: line, error: "parsed value is not a JSON object" };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { type: "minsky_parse_error", raw: line, error: message };
-  }
-}
-
-/**
- * Extract the harness session id from a `system`/`init` event. Checked
- * defensively against BOTH `session_id` (the raw CLI stream's documented
- * snake_case field) and `sessionId` (camelCase) since the upstream schema is
- * thin and unconfirmed field casing is exactly the kind of gap
- * anthropics/claude-code#24594 tracks.
- */
-function extractHarnessSessionId(payload: Record<string, unknown>): string | null {
-  const raw = payload["session_id"] ?? payload["sessionId"];
-  return typeof raw === "string" && raw.length > 0 ? raw : null;
-}
-
-function isInitEvent(payload: Record<string, unknown>): boolean {
-  return (
-    payload["type"] === "system" &&
-    payload["subtype"] === "init" &&
-    extractHarnessSessionId(payload) !== null
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Cost/usage extraction from the terminal `result` event (mt#2753, Rung 2D).
-//
-// Per the Claude Code headless docs (code.claude.com/docs/en/headless) and
-// the Agent SDK cost-tracking guide (code.claude.com/docs/en/agent-sdk/cost-tracking),
-// the terminal `result` message of EACH turn (a driven session is multi-turn —
-// `--input-format stream-json` reads a continuous stream of user messages over
-// stdin, so a long-lived session emits one `result` event per turn, not just
-// one at process exit) carries:
-//   - `total_cost_usd` (top-level, includes subagent activity)
-//   - `duration_ms` / `duration_api_ms`
-//   - `num_turns` (tool-round count for that turn — NOT the session's turn
-//     index, which this module tracks separately as `DrivenSessionCostSummary.turnIndex`)
-//   - `usage` — `{ input_tokens, output_tokens, cache_creation_input_tokens,
-//     cache_read_input_tokens }` (top-level agent loop only — undercounts
-//     under subagent nesting; see `total_cost_usd`/`modelUsage` for whole-tree)
-//   - `modelUsage` — map of model name to `{ inputTokens, outputTokens,
-//     cacheReadInputTokens, cacheCreationInputTokens, costUSD }` (whole-tree,
-//     the "model mix" the mt#2753 spec asks for)
-// Extraction is defensive (same posture as parseStreamJsonLine/extractHarnessSessionId
-// above) — the upstream event schema is thin (anthropics/claude-code#24594/#24596)
-// and `total_cost_usd`/`costUSD` are documented as CLIENT-SIDE ESTIMATES, not
-// authoritative billing data.
-// ---------------------------------------------------------------------------
-
-/** Token totals shared by the top-level `usage` object and each per-model entry. */
-export interface DrivenSessionUsageTotals {
-  inputTokens: number | null;
-  outputTokens: number | null;
-  cacheCreationInputTokens: number | null;
-  cacheReadInputTokens: number | null;
-}
-
-/** One model's entry in the `result` event's `modelUsage` map — the "model mix". */
-export interface DrivenSessionModelUsage extends DrivenSessionUsageTotals {
-  costUsd: number | null;
-}
-
-/** Extracted cost/usage summary for ONE turn's terminal `result` event. */
-export interface DrivenSessionCostSummary {
-  /** 0-based ordinal of this `result` event within the session's lifetime
-   * (a driven session may emit several across a multi-turn conversation). */
-  turnIndex: number;
-  subtype: string | null;
-  isError: boolean;
-  /** Cumulative estimated cost for this turn's `query()`-equivalent, including
-   * subagent activity — a client-side estimate, not authoritative billing. */
-  totalCostUsd: number | null;
-  durationMs: number | null;
-  durationApiMs: number | null;
-  /** The CLI's own `num_turns` (tool-round count within this turn). */
-  numTurns: number | null;
-  /** Top-level agent-loop usage only — excludes subagent activity. */
-  usage: DrivenSessionUsageTotals | null;
-  /** Whole-tree per-model breakdown (includes subagent activity) — the "model mix". */
-  modelUsage: Record<string, DrivenSessionModelUsage> | null;
-  /** When this host observed the event (not the upstream event's own timestamp — it has none). */
-  observedAt: string;
-}
-
-function numOrNull(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function extractUsageTotals(raw: unknown): DrivenSessionUsageTotals | null {
-  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const u = raw as Record<string, unknown>;
-  return {
-    inputTokens: numOrNull(u["input_tokens"]),
-    outputTokens: numOrNull(u["output_tokens"]),
-    cacheCreationInputTokens: numOrNull(u["cache_creation_input_tokens"]),
-    cacheReadInputTokens: numOrNull(u["cache_read_input_tokens"]),
-  };
-}
-
-function extractModelUsage(raw: unknown): Record<string, DrivenSessionModelUsage> | null {
-  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const out: Record<string, DrivenSessionModelUsage> = {};
-  for (const [model, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (value === null || typeof value !== "object") continue;
-    const v = value as Record<string, unknown>;
-    out[model] = {
-      inputTokens: numOrNull(v["inputTokens"]),
-      outputTokens: numOrNull(v["outputTokens"]),
-      cacheCreationInputTokens: numOrNull(v["cacheCreationInputTokens"]),
-      cacheReadInputTokens: numOrNull(v["cacheReadInputTokens"]),
-      // costUSD is the documented TS SDK field name; costUsd tolerated defensively.
-      costUsd: numOrNull(v["costUSD"] ?? v["costUsd"]),
-    };
-  }
-  return Object.keys(out).length > 0 ? out : null;
-}
-
-/**
- * Parse ONE `result`-type stream-json event into a cost summary. Returns
- * `null` for a non-`result` payload (callers gate on `payload["type"] ===
- * "result"` before calling this, but the guard is repeated here so the
- * function is safe to call unconditionally).
- */
-export function extractResultSummary(
-  payload: Record<string, unknown>,
-  turnIndex: number
-): DrivenSessionCostSummary | null {
-  if (payload["type"] !== "result") return null;
-  return {
-    turnIndex,
-    subtype: typeof payload["subtype"] === "string" ? payload["subtype"] : null,
-    isError: payload["is_error"] === true || payload["subtype"] === "error",
-    totalCostUsd: numOrNull(payload["total_cost_usd"]),
-    durationMs: numOrNull(payload["duration_ms"]),
-    durationApiMs: numOrNull(payload["duration_api_ms"]),
-    numTurns: numOrNull(payload["num_turns"]),
-    usage: extractUsageTotals(payload["usage"]),
-    modelUsage: extractModelUsage(payload["modelUsage"]),
-    observedAt: new Date().toISOString(),
-  };
-}
+export * from "./driver-transport";
+export * from "./claude-cwd-preflight";
+export * from "./claude-argv";
+export * from "./claude-transport-parsing";
+export * from "./claude-transport";
 
 // ---------------------------------------------------------------------------
 // Registry — daemon-side map of app-started driven sessions
@@ -558,10 +82,10 @@ export type DrivenSessionStatus =
   | "reconnecting"
   | "unrecoverable";
 
-/** One event observed on a driven session's channel (from the child's stdout
- * stream, or a host-generated synthetic terminal event — `minsky_error` /
+/** One event observed on a driven session's channel (from the transport's
+ * output, or a host-generated synthetic terminal event — `minsky_error` /
  * `minsky_exit` — namespaced so they can never collide with an upstream
- * stream-json `type`). */
+ * event `type`). */
 export interface DrivenSessionEvent {
   seq: number;
   receivedAt: string;
@@ -599,7 +123,7 @@ const MAX_EVENT_LOG = 2000;
  * Synthetic frame type for an operator turn sent through the composer
  * (mt#3372). Minsky-namespaced like the other host-synthesized frames
  * (`minsky_exit` / `minsky_error` / `minsky_unrecoverable`) so it can never
- * collide with an upstream stream-json type.
+ * collide with an upstream event type.
  *
  * The frontend reducer matches this literal in
  * `web/lib/driven-session-accumulator.ts` rather than importing it: that module
@@ -636,6 +160,48 @@ export interface DrivenSessionRecord {
   readonly taskId: string | null;
   /** The Minsky workspace sessionId the session was launched against (see taskId). */
   readonly minskySessionId: string | null;
+  /**
+   * Which harness drives this session (mt#4935, ADR-047 §Consequences) —
+   * `"claude-code"` today. Read-only after construction: a session driver
+   * swap (`resumeDrivenSession`) carries the SAME harness forward from
+   * `DrivenSessionResumeSource.harnessKind`, never re-derives it.
+   */
+  readonly harnessKind: string;
+  /**
+   * Which `DriverTransport` this record was spawned/resumed through — the
+   * SAME instance as {@link transport}'s own `.id` (mt#4935). Persisted
+   * separately from `transport` (which is never serialized) so a rehydrated
+   * record can report a transport id without holding a live transport
+   * instance.
+   */
+  readonly transportId: string;
+  /**
+   * The harness's OWN conversation id (mt#4935) — for `harnessKind ===
+   * "claude-code"` the SAME value as {@link harnessSessionId}. Mutable for
+   * the same reason that field is: unknown until the child's `init` event
+   * links it (see `DrivenSessionRegistry.linkHarnessId`).
+   */
+  harnessConversationId: string | null;
+  /**
+   * Credential/identity posture this drive runs under (mt#4935) —
+   * `"subscription"` or `"api-key"`. Read-only after construction, same
+   * carry-forward rule as `harnessKind`.
+   */
+  readonly authMode: DriverAuthMode;
+  /**
+   * Project attribution (mt#4732), resolved by the CALLER at launch time from
+   * the bound workspace's own `SessionRecord.projectId` when `minskySessionId`
+   * is known and resolvable — this module never resolves it itself (the
+   * "no domain-layer lookups" invariant this file's docblock states holds;
+   * see ../driven-session-launch.ts's `resolveTaskWorkspace`). `null` for
+   * every launch shape with no bound workspace (scratch sessions, explicit
+   * `cwd` launches, the ambient principal-conversation driver, entity
+   * threads) and for a session rehydrated from the `driven_sessions` table
+   * after a daemon restart — `driven_sessions` does not persist this column,
+   * so a rehydrated/attached record's project is unknown by construction,
+   * not merely unresolved (same "not tracked" posture as `model` below).
+   */
+  readonly projectId: string | null;
   status: DrivenSessionStatus;
   /** Set only when `status === "unrecoverable"` (mt#3038 R1 delta #2). */
   unrecoverableReason: string | null;
@@ -654,12 +220,24 @@ export interface DrivenSessionRecord {
    * resetting/double-counting across a respawn.
    */
   readonly driverGeneration: number;
-  /** Internal — the wired child handle. Not serialized to any API response. */
+  /** Internal — the wired child handle, owned by whichever `DriverTransport`
+   * spawned it. Not serialized to any API response. */
   readonly proc: ProcessLike;
+  /**
+   * The `DriverTransport` instance selected FOR THIS RECORD at spawn/resume
+   * time (mt#4934 PR #3594 R1) — every later call that needs to talk to the
+   * session driver (`sendDrivenSessionInput`, `stopDrivenSession`) goes
+   * through this, never a global singleton or a freshly-constructed default.
+   * A single hard-coded transport type is selected everywhere today
+   * (`selectDriverTransport`); mt#4935 makes the selection meaningful by
+   * reading a transport id off the drive record. Not serialized to any API
+   * response.
+   */
+  readonly transport: DriverTransport;
   /** All events observed since spawn, in order (bounded by MAX_EVENT_LOG). */
   readonly eventLog: DrivenSessionEvent[];
   /**
-   * Cost/usage summaries extracted from each terminal `result` event observed
+   * Cost/usage summaries extracted from each terminal turn result observed
    * so far (mt#2753, Rung 2D) — one entry per turn. Unbounded (a driven
    * session's turn count is orders of magnitude smaller than its raw event
    * count, so MAX_EVENT_LOG-style bounding is unnecessary here).
@@ -702,6 +280,11 @@ export class DrivenSessionRegistry {
 
   linkHarnessId(record: DrivenSessionRecord, harnessSessionId: string): void {
     record.harnessSessionId = harnessSessionId;
+    // mt#4935: for every harness this codebase drives today, the harness's
+    // own conversation id IS the value just discovered — `harnessSessionId`
+    // stays the compatibility column (ADR-022 stage-2 retires it), this is
+    // the harness-agnostic name a non-Claude harness (mt#4936) also writes.
+    record.harnessConversationId = harnessSessionId;
     this.byHarnessId.set(harnessSessionId, record);
   }
 
@@ -837,8 +420,8 @@ export function hasLiveSessionDriver(record: DrivenSessionRecord): boolean {
  *     live turn to interrupt, that is exactly the case the mt#3038 resume
  *     machinery exists to recover, not a reason to defer a restart.
  *
- * A freshly-spawned record with NO events yet (before the child's first
- * stream-json line, e.g. its `system`/`init` event) counts as mid-turn: its
+ * A freshly-spawned record with NO events yet (before the transport's first
+ * observed event, e.g. its `system`/`init` signal) counts as mid-turn: its
  * first turn is already in flight and has not reached a terminal event.
  */
 export function isDrivenSessionMidTurn(record: DrivenSessionRecord): boolean {
@@ -847,6 +430,166 @@ export function isDrivenSessionMidTurn(record: DrivenSessionRecord): boolean {
   if (!last) return true;
   const type = last.payload["type"];
   return type !== "result" && type !== "minsky_exit";
+}
+
+// ---------------------------------------------------------------------------
+// Transport selection (mt#4934/mt#4935, PR #3595 R1) — dispatches by
+// `transportId` (`DriverTransport.id`). No silent fallback: an unrecognized
+// id is a REFUSAL (the caller builds an `unrecoverable` record naming the
+// unknown id — the same shape a missing-cwd spawn failure already produces),
+// never a spawn under a transport the caller never asked for. Every caller
+// that persists a `transportId` reads it off the RETURNED transport
+// instance's own `.id`, never off the request, so a persisted row can never
+// claim an identity the transport that actually ran didn't have.
+// ---------------------------------------------------------------------------
+
+type DriverTransportFactory = (overrides: {
+  command?: string;
+  spawnFn?: SpawnFn;
+  getAnthropicApiKey?: () => string | null;
+  /** ACP-only (mt#4936) — `ClaudeStreamJsonTransport`'s factory ignores it. */
+  getOpenAiApiKey?: () => string | null;
+}) => DriverTransport;
+
+const DEFAULT_DRIVER_TRANSPORT_FACTORY: DriverTransportFactory = (overrides) =>
+  new ClaudeStreamJsonTransport(overrides);
+
+/**
+ * ACP factory (mt#4936) — `createAskRepository` is deliberately OMITTED from
+ * the overrides passed here: `AcpTransport`'s own constructor default wires
+ * a real, DB-backed `AskRepository` (mirrors `ClaudeStreamJsonTransport`'s
+ * self-contained `getAnthropicApiKey` default) — this factory has no domain
+ * imports of its own, per this module's docblock invariant.
+ */
+const ACP_DRIVER_TRANSPORT_FACTORY: DriverTransportFactory = (overrides) =>
+  new AcpTransport({
+    spawnFn: overrides.spawnFn,
+    getAnthropicApiKey: overrides.getAnthropicApiKey,
+    getOpenAiApiKey: overrides.getOpenAiApiKey,
+  });
+
+/** Every `DriverTransport` this build knows how to construct, by `.id`. */
+const DRIVER_TRANSPORT_FACTORIES: Readonly<Record<string, DriverTransportFactory>> = {
+  [DEFAULT_TRANSPORT_ID]: DEFAULT_DRIVER_TRANSPORT_FACTORY,
+  [TRANSPORT_ID_ACP]: ACP_DRIVER_TRANSPORT_FACTORY,
+};
+
+type SelectDriverTransportResult =
+  | { ok: true; transport: DriverTransport }
+  | { ok: false; reason: string };
+
+function selectDriverTransport(overrides: {
+  transportId?: string;
+  command?: string;
+  spawnFn?: SpawnFn;
+  getAnthropicApiKey?: () => string | null;
+  getOpenAiApiKey?: () => string | null;
+}): SelectDriverTransportResult {
+  const transportId = overrides.transportId ?? DEFAULT_TRANSPORT_ID;
+  const factory = DRIVER_TRANSPORT_FACTORIES[transportId];
+  if (!factory) {
+    return { ok: false, reason: `Unknown transport_id "${transportId}"` };
+  }
+  return {
+    ok: true,
+    transport: factory({
+      command: overrides.command,
+      spawnFn: overrides.spawnFn,
+      getAnthropicApiKey: overrides.getAnthropicApiKey,
+      getOpenAiApiKey: overrides.getOpenAiApiKey,
+    }),
+  };
+}
+
+/**
+ * Fold one normalized {@link DriverTransportEvent} into supervisor state —
+ * the successor to the pre-split `wireChildProcess`'s bookkeeping half.
+ * Every branch below reproduces the ORIGINAL per-line processing order
+ * exactly: link/cost bookkeeping happens first (when applicable), and
+ * `appendEvent` with the event's raw payload always happens last, so the
+ * WebSocket event sequence and persisted rows this produces are unaffected
+ * by which transport emitted the event.
+ */
+function handleTransportEvent(
+  record: DrivenSessionRecord,
+  registry: DrivenSessionRegistry,
+  event: DriverTransportEvent,
+  opts: Pick<
+    StartDrivenSessionOptions,
+    "onHarnessSessionLinked" | "onResultSummary" | "onStateChange"
+  >
+): void {
+  if (event.kind === "unrecoverable") {
+    record.status = "unrecoverable";
+    record.unrecoverableReason = event.reason;
+    log.error(`[driven-session] spawn failed for ${record.localId} — ${event.reason}`);
+    appendEvent(record, { type: "minsky_unrecoverable", reason: event.reason });
+    notifyStateChange(record, opts.onStateChange);
+    return;
+  }
+
+  if (event.kind === "processError") {
+    record.status = "crashed";
+    record.crashError = event.crashError;
+    log.error(`[driven-session] spawn error for ${record.localId}: ${event.crashError}`);
+    appendEvent(record, { type: "minsky_error", message: record.crashError });
+    notifyStateChange(record, opts.onStateChange);
+    return;
+  }
+
+  if (event.kind === "processExited") {
+    record.exitCode = event.code;
+    record.exitSignal = event.signal;
+    record.status = classifyExit(record, event.code, event.signal);
+    if (record.status === "crashed" && !record.crashError && event.crashErrorBase) {
+      record.crashError = `${event.crashErrorBase}${
+        record.harnessSessionId ? "" : " (no init event was ever observed)"
+      }`;
+    }
+    appendEvent(record, {
+      type: "minsky_exit",
+      code: event.code,
+      signal: event.signal,
+      status: record.status,
+      ...(record.crashError ? { error: record.crashError } : {}),
+    });
+    notifyStateChange(record, opts.onStateChange);
+    return;
+  }
+
+  if (event.kind === "harnessSessionDiscovered" && !record.harnessSessionId) {
+    registry.linkHarnessId(record, event.harnessSessionId);
+    if (opts.onHarnessSessionLinked) {
+      try {
+        opts.onHarnessSessionLinked(record);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error(
+          `[driven-session] onHarnessSessionLinked observer threw for ${record.localId}: ${message}`
+        );
+      }
+    }
+    notifyStateChange(record, opts.onStateChange);
+  }
+
+  if (event.kind === "turnResult") {
+    record.costHistory.push(event.summary);
+    if (opts.onResultSummary) {
+      try {
+        opts.onResultSummary(record, event.summary);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error(
+          `[driven-session] onResultSummary observer threw for ${record.localId}: ${message}`
+        );
+      }
+    }
+  }
+
+  // Every line-shaped event carries the exact upstream payload for one line —
+  // forwarded verbatim, same as the pre-split code's unconditional
+  // `appendEvent(record, payload)` at the end of its per-line loop body.
+  appendEvent(record, event.raw);
 }
 
 // ---------------------------------------------------------------------------
@@ -863,23 +606,46 @@ export interface StartDrivenSessionOptions {
   /** Workspace-session binding recorded on the record (mt#2752) — opaque to this module. */
   minskySessionId?: string | null;
   /**
+   * Project attribution recorded on the record (mt#4732) — opaque to this
+   * module, resolved by the caller (see `DrivenSessionRecord.projectId`'s
+   * doc comment). Omitted/`null` when the launch has no bound workspace.
+   */
+  projectId?: string | null;
+  /**
    * The `--model` argument for the spawned binary (a resolved dispatch alias,
    * e.g. "fable"; mt#3040). When set, appended to the spawn argv so the genuine
    * `claude` binary runs on the principal-selected model. Omitted → the CLI's
    * own default resolution (pre-mt#3040 behavior).
    */
   model?: string;
+  /** Which harness drives this session (mt#4935). Defaults to `DEFAULT_HARNESS_KIND`
+   * (`"claude-code"`). */
+  harnessKind?: string;
+  /** Which `DriverTransport` to spawn through, by `.id` (mt#4935) — consumed by
+   * `selectDriverTransport`. Defaults to `DEFAULT_TRANSPORT_ID`. */
+  transportId?: string;
   /**
-   * Observer invoked once, when the child's `system/init` event links the
-   * harness session id (mt#2752 spawn-time identity registration). The
-   * CALLER owns any domain-side effect (e.g. the `driven_spawn` link write
-   * in ../driven-session-launch.ts) — keeping this module free of domain
-   * imports per the docblock invariant. Errors are caught and logged; a
-   * throwing observer never disturbs the event loop.
+   * The harness's own conversation id, if already known at launch time
+   * (mt#4935) — a fresh spawn normally has none yet; it is populated once the
+   * child's `init` event links `harnessSessionId` (see
+   * `DrivenSessionRegistry.linkHarnessId`). Defaults to `null`.
+   */
+  harnessConversationId?: string | null;
+  /** Credential/identity posture to drive under (mt#4935). Defaults to
+   * `DEFAULT_AUTH_MODE` (`"subscription"`). Threaded into the transport's
+   * `spawn` call as `DriverTransportStartOptions.authMode`. */
+  authMode?: DriverAuthMode;
+  /**
+   * Observer invoked once, when the transport's `harnessSessionDiscovered`
+   * event links the harness session id (mt#2752 spawn-time identity
+   * registration). The CALLER owns any domain-side effect (e.g. the
+   * `driven_spawn` link write in ../driven-session-launch.ts) — keeping this
+   * module free of domain imports per the docblock invariant. Errors are
+   * caught and logged; a throwing observer never disturbs the event loop.
    */
   onHarnessSessionLinked?: (record: DrivenSessionRecord) => void;
   /**
-   * Observer invoked once per turn, when the terminal `result` event yields a
+   * Observer invoked once per turn, when a `turnResult` event yields a
    * cost/usage summary (mt#2753 — persistence is the CALLER's responsibility,
    * matching `onHarnessSessionLinked`'s domain-import-free convention above).
    * Errors are caught and logged; a throwing observer never disturbs the
@@ -901,21 +667,35 @@ export interface StartDrivenSessionOptions {
   command?: string;
   /** Override the spawn function (test seam — REQUIRED for all tests, see module docblock). */
   spawnFn?: SpawnFn;
+  /**
+   * Override how the constructed transport reads the configured Anthropic
+   * API key (mt#4935, test seam) — threaded through `selectDriverTransport`
+   * to the transport's own constructor. REQUIRED for any test exercising
+   * `authMode: "api-key"`: since PR #3595 R1 finding 4, a transport with no
+   * configured credential THROWS rather than degrading, so an uninjected
+   * test would otherwise reach the real `readConfiguredAnthropicApiKey`
+   * (global configuration singleton, uninitialized under `bun test`).
+   */
+  getAnthropicApiKey?: () => string | null;
+  /** See `getAnthropicApiKey` above — the same test seam for `AcpTransport`'s
+   * `codex`-harness credential (mt#4936). REQUIRED for any test exercising
+   * `harnessKind: "codex"` under `transport_id: "acp"`. */
+  getOpenAiApiKey?: () => string | null;
   /** Override environment variables passed to the child (test seam). */
   env?: NodeJS.ProcessEnv;
   /** Override the registry (test seam — hermetic instance per test). */
   registry?: DrivenSessionRegistry;
   /**
    * The `--mcp-config` payload for the child (mt#3377). Omitted → synthesized
-   * from `cwd` by `buildDrivenSessionMcpConfig`, which is what production
-   * wants. Pass `null` to spawn with NO MCP config at all (the pre-mt#3377
-   * behavior); pass a string to override the server set. Tests pass `null` so
-   * argv assertions stay independent of the host machine's binary path.
+   * from `cwd` by the transport, which is what production wants. Pass `null`
+   * to spawn with NO MCP config at all (the pre-mt#3377 behavior); pass a
+   * string to override the server set. Tests pass `null` so argv assertions
+   * stay independent of the host machine's binary path.
    */
   mcpConfig?: string | null;
   /**
    * Which MCP servers to provision, by name (mt#4239). Omitted → the
-   * `DEFAULT_DRIVEN_SESSION_MCP_SERVERS` set.
+   * transport's own default set.
    *
    * Ignored when `mcpConfig` is given: an explicit payload already IS the
    * answer, so honoring both would be two sources of truth for one question.
@@ -973,77 +753,116 @@ function notifyStateChange(
 }
 
 /**
- * Spawn a driven session and wire its stdout/stderr/exit into the registry.
- * Returns synchronously (does NOT block on the child's `init` event) — the
- * caller (POST /api/driven-session) can hand the operator a session id
- * immediately; the `init` event (and everything else) is buffered into
- * `record.eventLog` and replayed to the WS channel on connect.
+ * Spawn a driven session and wire its output into the registry.
+ * Returns synchronously (does NOT block on the transport's first observed
+ * event) — the caller (POST /api/driven-session) can hand the operator a
+ * session id immediately; the `init` signal (and everything else) is
+ * buffered into `record.eventLog` and replayed to the WS channel on connect.
  */
 export function startDrivenSession(opts: StartDrivenSessionOptions): StartDrivenSessionResult {
   const permissionMode = opts.permissionMode ?? DEFAULT_PERMISSION_MODE;
-  const command = opts.command ?? CLAUDE_BINARY;
-  const spawnFn = opts.spawnFn ?? prodSpawnFn;
   const registry = opts.registry ?? drivenSessionRegistry;
-  // mt#3377: `undefined` means "production default"; an explicit `null` means
-  // "no MCP config" — so the two are deliberately NOT collapsed with `??`.
-  const mcpConfig =
-    opts.mcpConfig === undefined
-      ? resolveMcpConfigForSpawn(opts.cwd, opts.mcpServerNames, "start")
-      : opts.mcpConfig;
-  const argv = buildDrivenSessionArgs(permissionMode, opts.model, mcpConfig);
+  const localId = opts.localId ?? randomUUID();
+  const startedAt = new Date().toISOString();
   const installOpts = { replacePrevious: opts.replacePrevious ?? false };
+  const harnessKind = opts.harnessKind ?? DEFAULT_HARNESS_KIND;
+  const requestedTransportId = opts.transportId ?? DEFAULT_TRANSPORT_ID;
+  const authMode = opts.authMode ?? DEFAULT_AUTH_MODE;
+  const selected = selectDriverTransport({
+    transportId: requestedTransportId,
+    command: opts.command,
+    spawnFn: opts.spawnFn,
+    getAnthropicApiKey: opts.getAnthropicApiKey,
+    getOpenAiApiKey: opts.getOpenAiApiKey,
+  });
 
-  // mt#3397 — cwd preflight. Spawning into a directory that does not exist
-  // fails with an ENOENT that NAMES THE BINARY (see probeSpawnCwd), so without
-  // this check the operator reads "Failed to start claude" and goes looking at
-  // their PATH. Terminal-and-registered rather than thrown: the caller
-  // (POST /api/driven-session, the WS resume path) still gets a record back,
-  // and the state-change observer persists the verdict like any other.
-  if (probeSpawnCwd(opts.cwd) === "missing") {
-    const reason = missingCwdReason(opts.cwd);
-    log.error(`[driven-session] not spawning ${command} — ${reason}`);
+  if (!selected.ok) {
     const record = buildReconnectingDrivenSessionRecord({
-      localId: opts.localId ?? randomUUID(),
+      localId,
       harnessSessionId: null,
+      harnessKind,
+      transportId: requestedTransportId,
+      harnessConversationId: opts.harnessConversationId ?? null,
+      authMode,
       cwd: opts.cwd,
       permissionMode,
       taskId: opts.taskId ?? null,
       minskySessionId: opts.minskySessionId ?? null,
+      projectId: opts.projectId ?? null,
       status: "unrecoverable",
-      unrecoverableReason: reason,
+      unrecoverableReason: selected.reason,
       driverGeneration: 0,
-      startedAt: new Date().toISOString(),
+      startedAt,
+    });
+    registry.install(record, installOpts);
+    notifyStateChange(record, opts.onStateChange);
+    return { record };
+  }
+  const { transport } = selected;
+
+  const spawnResult = transport.spawn({
+    cwd: opts.cwd,
+    permissionMode,
+    authMode,
+    harnessKind,
+    taskId: opts.taskId ?? null,
+    model: opts.model,
+    mcpConfig: opts.mcpConfig,
+    mcpServerNames: opts.mcpServerNames,
+    env: opts.env,
+  });
+
+  if (!spawnResult.ok) {
+    const record = buildReconnectingDrivenSessionRecord({
+      localId,
+      harnessSessionId: null,
+      harnessKind,
+      // Read off the INSTANCE that was actually constructed, not the request
+      // — see the module-level note on `selectDriverTransport` above.
+      transportId: transport.id,
+      harnessConversationId: opts.harnessConversationId ?? null,
+      authMode,
+      cwd: opts.cwd,
+      permissionMode,
+      taskId: opts.taskId ?? null,
+      minskySessionId: opts.minskySessionId ?? null,
+      projectId: opts.projectId ?? null,
+      status: "unrecoverable",
+      unrecoverableReason: spawnResult.reason,
+      driverGeneration: 0,
+      startedAt,
+      transport,
     });
     registry.install(record, installOpts);
     notifyStateChange(record, opts.onStateChange);
     return { record };
   }
 
-  log.info(
-    `[driven-session] spawning ${command} ${redactMcpConfigForLog(argv)} ` +
-      `(cwd=${opts.cwd}, permissionMode=${permissionMode})`
-  );
-
-  const proc = spawnFn(command, argv, { cwd: opts.cwd, env: opts.env });
-
   const record: DrivenSessionRecord = {
-    localId: opts.localId ?? randomUUID(),
+    localId,
     cwd: opts.cwd,
     permissionMode,
-    argv,
-    startedAt: new Date().toISOString(),
+    argv: spawnResult.argv,
+    startedAt,
     taskId: opts.taskId ?? null,
     minskySessionId: opts.minskySessionId ?? null,
+    projectId: opts.projectId ?? null,
+    harnessKind,
+    // Read off the INSTANCE, not the request — see the note above.
+    transportId: transport.id,
+    harnessConversationId: opts.harnessConversationId ?? null,
+    authMode,
     status: "spawned",
     unrecoverableReason: null,
     harnessSessionId: null,
-    pid: proc.pid,
+    pid: spawnResult.proc.pid,
     exitCode: null,
     exitSignal: null,
     crashError: null,
     stopRequested: false,
     driverGeneration: 0,
-    proc,
+    proc: spawnResult.proc,
+    transport,
     eventLog: [],
     // A fresh spawn STARTS the conversation — there is no prior history.
     needsHistoryReplay: false,
@@ -1052,129 +871,11 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
   };
   registry.install(record, installOpts);
   notifyStateChange(record, opts.onStateChange);
-  wireChildProcess(proc, record, registry, command, opts);
+  transport.attach(spawnResult.proc, opts.cwd, (event) =>
+    handleTransportEvent(record, registry, event, opts)
+  );
 
   return { record };
-}
-
-/**
- * Shared stdout/stderr/error/exit wiring — factored out of
- * {@link startDrivenSession} so {@link resumeDrivenSession} (mt#3038) can
- * wire a session driver-swap respawn's child through the IDENTICAL parse/persist
- * pipeline without duplicating it. Assumes `record` is ALREADY registered
- * under its `localId` in `registry` (both callers register/replace before
- * calling this).
- */
-function wireChildProcess(
-  proc: ProcessLike,
-  record: DrivenSessionRecord,
-  registry: DrivenSessionRegistry,
-  command: string,
-  opts: Pick<
-    StartDrivenSessionOptions,
-    "onHarnessSessionLinked" | "onResultSummary" | "onStateChange"
-  >
-): void {
-  const stdoutSplitter = new NewlineSplitter();
-  const stderrTail: string[] = [];
-
-  proc.stdout.on("data", (chunk: unknown) => {
-    const text = chunkToString(chunk);
-    for (const line of stdoutSplitter.push(text)) {
-      const payload = parseStreamJsonLine(line);
-      if (isInitEvent(payload) && !record.harnessSessionId) {
-        const harnessSessionId = extractHarnessSessionId(payload);
-        if (harnessSessionId) {
-          registry.linkHarnessId(record, harnessSessionId);
-          if (opts.onHarnessSessionLinked) {
-            try {
-              opts.onHarnessSessionLinked(record);
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              log.error(
-                `[driven-session] onHarnessSessionLinked observer threw for ${record.localId}: ${message}`
-              );
-            }
-          }
-          notifyStateChange(record, opts.onStateChange);
-        }
-      }
-      if (payload["type"] === "result") {
-        const summary = extractResultSummary(payload, record.costHistory.length);
-        if (summary) {
-          record.costHistory.push(summary);
-          if (opts.onResultSummary) {
-            try {
-              opts.onResultSummary(record, summary);
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              log.error(
-                `[driven-session] onResultSummary observer threw for ${record.localId}: ${message}`
-              );
-            }
-          }
-        }
-      }
-      appendEvent(record, payload);
-    }
-  });
-
-  proc.stderr.on("data", (chunk: unknown) => {
-    const text = chunkToString(chunk);
-    stderrTail.push(text);
-    // Keep only a bounded tail for the eventual error message.
-    while (stderrTail.join("").length > 4000) stderrTail.shift();
-  });
-
-  proc.on("error", (err: Error) => {
-    // mt#3397 — an ENOENT here is ambiguous by Node's own design: it means
-    // EITHER the binary is not on PATH OR the cwd does not exist, and its
-    // message names the binary in both cases. The preflight in
-    // startDrivenSession/resumeDrivenSession catches the ordinary
-    // missing-cwd case before we ever get here, so reaching this branch with a
-    // missing cwd means the directory vanished BETWEEN the preflight and the
-    // spawn — rare, but real, and still unrecoverable rather than crashed.
-    const isEnoent = (err as NodeJS.ErrnoException).code === "ENOENT";
-    if (isEnoent && probeSpawnCwd(record.cwd) === "missing") {
-      const reason = missingCwdReason(record.cwd);
-      record.status = "unrecoverable";
-      record.unrecoverableReason = reason;
-      log.error(`[driven-session] spawn failed for ${record.localId} — ${reason}`);
-      appendEvent(record, { type: "minsky_unrecoverable", reason });
-      notifyStateChange(record, opts.onStateChange);
-      return;
-    }
-    record.status = "crashed";
-    record.crashError = isEnoent
-      ? `Failed to start ${command}: not found — is '${command}' on this process's PATH? (${err.message})`
-      : `Failed to start ${command}: ${err.message}`;
-    log.error(`[driven-session] spawn error for ${record.localId}: ${err.message}`);
-    appendEvent(record, {
-      type: "minsky_error",
-      message: record.crashError,
-    });
-    notifyStateChange(record, opts.onStateChange);
-  });
-
-  proc.on("exit", (code, signal) => {
-    record.exitCode = code;
-    record.exitSignal = signal;
-    record.status = classifyExit(record, code, signal);
-    if (record.status === "crashed" && !record.crashError) {
-      const tail = stderrTail.join("").slice(-2000);
-      record.crashError = `${command} exited with code=${code ?? "null"} signal=${signal ?? "null"}${
-        tail ? ` — stderr tail: ${tail}` : ""
-      }${record.harnessSessionId ? "" : " (no init event was ever observed)"}`;
-    }
-    appendEvent(record, {
-      type: "minsky_exit",
-      code,
-      signal,
-      status: record.status,
-      ...(record.crashError ? { error: record.crashError } : {}),
-    });
-    notifyStateChange(record, opts.onStateChange);
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1209,6 +910,13 @@ export interface DrivenSessionResumeSource {
   harnessSessionId: string;
   taskId: string | null;
   minskySessionId: string | null;
+  /**
+   * Project attribution (mt#4732) — carried forward from the record being
+   * resumed. Optional so a caller building `previous` by hand (rather than
+   * passing a live `DrivenSessionRecord` through structurally) doesn't need
+   * to name it; defaults to `null` in {@link resumeDrivenSession}.
+   */
+  projectId?: string | null;
   /** Preserved from the ORIGINAL spawn — stable across every swap (see schema docblock). */
   startedAt: string;
   /** The PRE-swap generation counter; the new record's is `previous.driverGeneration + 1`. */
@@ -1216,6 +924,15 @@ export interface DrivenSessionResumeSource {
   /** The principal-selected model alias (mt#3040) from the original launch — preserved
    * across the resume so it doesn't silently fall back to the CLI's default. */
   model?: string | null;
+  /** Carried forward from the record being resumed (mt#4935). Defaults to
+   * `DEFAULT_HARNESS_KIND` in {@link resumeDrivenSession}. */
+  harnessKind?: string;
+  /** Carried forward from the record being resumed (mt#4935) — which transport
+   * to respawn through. Defaults to `DEFAULT_TRANSPORT_ID`. */
+  transportId?: string;
+  /** Carried forward from the record being resumed (mt#4935). Defaults to
+   * `DEFAULT_AUTH_MODE`. */
+  authMode?: DriverAuthMode;
 }
 
 export interface ResumeDrivenSessionOptions {
@@ -1228,6 +945,12 @@ export interface ResumeDrivenSessionOptions {
   command?: string;
   /** Override the spawn function (test seam — REQUIRED for all tests, see module docblock). */
   spawnFn?: SpawnFn;
+  /** See `StartDrivenSessionOptions.getAnthropicApiKey` — same contract, same
+   * REQUIRED-for-`authMode: "api-key"` note, for the respawn. */
+  getAnthropicApiKey?: () => string | null;
+  /** See `StartDrivenSessionOptions.getOpenAiApiKey` — same contract, for
+   * the respawn (mt#4936). */
+  getOpenAiApiKey?: () => string | null;
   /** Override environment variables passed to the child (test seam). */
   env?: NodeJS.ProcessEnv;
   /** Override the registry (test seam — hermetic instance per test). */
@@ -1266,41 +989,33 @@ export interface ResumeDrivenSessionOptions {
  */
 export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDrivenSessionResult {
   const { previous } = opts;
-  const command = opts.command ?? CLAUDE_BINARY;
-  const spawnFn = opts.spawnFn ?? prodSpawnFn;
   const registry = opts.registry ?? drivenSessionRegistry;
-  // mt#3377: same undefined-vs-null contract as startDrivenSession — a resume
-  // must re-provision the servers, or the conversation would silently lose its
-  // whole MCP tool surface at the first daemon restart.
-  const mcpConfig =
-    opts.mcpConfig === undefined
-      ? resolveMcpConfigForSpawn(previous.cwd, opts.mcpServerNames, `resume ${previous.localId}`)
-      : opts.mcpConfig;
-  const argv = buildResumeSessionArgs(
-    previous.permissionMode,
-    previous.harnessSessionId,
-    previous.model,
-    mcpConfig
-  );
+  const harnessKind = previous.harnessKind ?? DEFAULT_HARNESS_KIND;
+  const requestedTransportId = previous.transportId ?? DEFAULT_TRANSPORT_ID;
+  const authMode = previous.authMode ?? DEFAULT_AUTH_MODE;
+  const selected = selectDriverTransport({
+    transportId: requestedTransportId,
+    command: opts.command,
+    spawnFn: opts.spawnFn,
+    getAnthropicApiKey: opts.getAnthropicApiKey,
+    getOpenAiApiKey: opts.getOpenAiApiKey,
+  });
 
-  // mt#3397 — same cwd preflight as startDrivenSession, and the path the
-  // originating incident actually took: a workspace deleted out from under a
-  // live conversation left every resume attempt crashing with an ENOENT that
-  // named `claude`. `registry.replace` (not `register`) so the old record's
-  // subscribers get the swap signal and redial onto the terminal state; the
-  // generation is NOT incremented, because no new session driver was created.
-  if (probeSpawnCwd(previous.cwd) === "missing") {
-    const reason = missingCwdReason(previous.cwd);
-    log.error(`[driven-session] not resuming ${previous.localId} — ${reason}`);
+  if (!selected.ok) {
     const record = buildReconnectingDrivenSessionRecord({
       localId: previous.localId,
       harnessSessionId: previous.harnessSessionId,
+      harnessKind,
+      transportId: requestedTransportId,
+      harnessConversationId: previous.harnessSessionId,
+      authMode,
       cwd: previous.cwd,
       permissionMode: previous.permissionMode,
       taskId: previous.taskId,
       minskySessionId: previous.minskySessionId,
+      projectId: previous.projectId ?? null,
       status: "unrecoverable",
-      unrecoverableReason: reason,
+      unrecoverableReason: selected.reason,
       driverGeneration: previous.driverGeneration,
       startedAt: previous.startedAt,
     });
@@ -1308,32 +1023,83 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
     notifyStateChange(record, opts.onStateChange);
     return { record };
   }
+  const { transport } = selected;
 
-  log.info(
-    `[driven-session] resuming ${command} ${redactMcpConfigForLog(argv)} (localId=${previous.localId}, ` +
-      `harnessSessionId=${previous.harnessSessionId}, generation=${previous.driverGeneration + 1}, cwd=${previous.cwd})`
-  );
+  const spawnResult = transport.spawnResume({
+    cwd: previous.cwd,
+    permissionMode: previous.permissionMode,
+    authMode,
+    harnessKind,
+    taskId: previous.taskId ?? null,
+    harnessSessionId: previous.harnessSessionId,
+    model: previous.model ?? undefined,
+    mcpConfig: opts.mcpConfig,
+    mcpServerNames: opts.mcpServerNames,
+    env: opts.env,
+    localId: previous.localId,
+    driverGeneration: previous.driverGeneration,
+  });
 
-  const proc = spawnFn(command, argv, { cwd: previous.cwd, env: opts.env });
+  if (!spawnResult.ok) {
+    // mt#3397 — same cwd preflight as startDrivenSession, and the path the
+    // originating incident actually took: a workspace deleted out from under a
+    // live conversation left every resume attempt crashing with an ENOENT that
+    // named `claude`. `registry.replace` (not `register`) so the old record's
+    // subscribers get the swap signal and redial onto the terminal state; the
+    // generation is NOT incremented, because no new session driver was created.
+    const record = buildReconnectingDrivenSessionRecord({
+      localId: previous.localId,
+      harnessSessionId: previous.harnessSessionId,
+      harnessKind,
+      // Read off the INSTANCE, not the request — see selectDriverTransport's note.
+      transportId: transport.id,
+      harnessConversationId: previous.harnessSessionId,
+      authMode,
+      cwd: previous.cwd,
+      permissionMode: previous.permissionMode,
+      taskId: previous.taskId,
+      minskySessionId: previous.minskySessionId,
+      projectId: previous.projectId ?? null,
+      status: "unrecoverable",
+      unrecoverableReason: spawnResult.reason,
+      driverGeneration: previous.driverGeneration,
+      startedAt: previous.startedAt,
+      transport,
+    });
+    registry.replace(previous.localId, record);
+    notifyStateChange(record, opts.onStateChange);
+    return { record };
+  }
 
   const record: DrivenSessionRecord = {
     localId: previous.localId,
     cwd: previous.cwd,
     permissionMode: previous.permissionMode,
-    argv,
+    argv: spawnResult.argv,
     startedAt: previous.startedAt,
     taskId: previous.taskId,
     minskySessionId: previous.minskySessionId,
+    projectId: previous.projectId ?? null,
+    harnessKind,
+    // Read off the INSTANCE, not the request — see selectDriverTransport's note.
+    transportId: transport.id,
+    // A resume already knows the harness's own conversation id — it IS
+    // `harnessSessionId`, required to resume at all — so this is set here
+    // directly rather than waiting for a `harnessSessionDiscovered` event
+    // that will never fire for a resume (mt#4935).
+    harnessConversationId: previous.harnessSessionId,
+    authMode,
     status: "spawned",
     unrecoverableReason: null,
     harnessSessionId: previous.harnessSessionId,
-    pid: proc.pid,
+    pid: spawnResult.proc.pid,
     exitCode: null,
     exitSignal: null,
     crashError: null,
     stopRequested: false,
     driverGeneration: previous.driverGeneration + 1,
-    proc,
+    proc: spawnResult.proc,
+    transport,
     eventLog: [],
     // Attached-from-disk or resumed: prior history is on disk, never in this
     // record's log (mt#3453).
@@ -1344,7 +1110,9 @@ export function resumeDrivenSession(opts: ResumeDrivenSessionOptions): StartDriv
 
   registry.replace(previous.localId, record);
   notifyStateChange(record, opts.onStateChange);
-  wireChildProcess(proc, record, registry, command, opts);
+  transport.attach(spawnResult.proc, previous.cwd, (event) =>
+    handleTransportEvent(record, registry, event, opts)
+  );
 
   if (!opts.skipInterruptionNotice) {
     // Host-authored, not operator-authored — no operator-input echo (mt#3372).
@@ -1381,10 +1149,30 @@ function createDeadProcessPlaceholder(): ProcessLike {
 export interface ReconnectingRecordInput {
   localId: string;
   harnessSessionId: string | null;
+  /** Which harness this record belongs to (mt#4935). Defaults to
+   * `DEFAULT_HARNESS_KIND` in the builder — the two external callers (a
+   * persisted row, an attach-from-disk) both predate any non-Claude harness. */
+  harnessKind?: string;
+  /** Which transport this record would resume through, by `.id` (mt#4935).
+   * Defaults to `DEFAULT_TRANSPORT_ID`. */
+  transportId?: string;
+  /** The harness's own conversation id (mt#4935). Defaults to `harnessSessionId`
+   * — the only harness this builder has ever served. */
+  harnessConversationId?: string | null;
+  /** Credential/identity posture (mt#4935). Defaults to `DEFAULT_AUTH_MODE`. */
+  authMode?: DriverAuthMode;
   cwd: string;
   permissionMode: PermissionMode;
   taskId: string | null;
   minskySessionId: string | null;
+  /**
+   * Project attribution (mt#4732). Optional — the two external reconnect
+   * callers (a persisted `driven_sessions` row at boot, an attach-from-disk)
+   * build this from a schema/shape that doesn't carry it, so it defaults to
+   * `null` in {@link buildReconnectingDrivenSessionRecord} rather than
+   * forcing every call site to pass it explicitly.
+   */
+  projectId?: string | null;
   /** Only these two persisted-only statuses ever reach this builder — a
    * `spawned`/`running`/`exited`/`crashed` row belongs to a live or
    * genuinely-terminal session driver, never a boot-time placeholder. */
@@ -1392,6 +1180,18 @@ export interface ReconnectingRecordInput {
   unrecoverableReason: string | null;
   driverGeneration: number;
   startedAt: string;
+  /**
+   * The transport this record would resume through (mt#4934 PR #3594 R1).
+   * Optional: the boot-time reconciliation caller (../driven-session-launch.ts,
+   * loading a persisted row with no live spawn attempt) has no transport to
+   * report, so this defaults to the default transport factory inside the
+   * builder. Functionally inert either way — every status this
+   * builder ever produces is excluded from {@link hasLiveSessionDriver}, so
+   * nothing ever calls `record.transport` on a placeholder built this way
+   * until an actual {@link resumeDrivenSession} REPLACES it with a record
+   * that selects for real.
+   */
+  transport?: DriverTransport;
 }
 
 /**
@@ -1419,6 +1219,11 @@ export function buildReconnectingDrivenSessionRecord(
     startedAt: input.startedAt,
     taskId: input.taskId,
     minskySessionId: input.minskySessionId,
+    projectId: input.projectId ?? null,
+    harnessKind: input.harnessKind ?? DEFAULT_HARNESS_KIND,
+    transportId: input.transportId ?? DEFAULT_TRANSPORT_ID,
+    harnessConversationId: input.harnessConversationId ?? input.harnessSessionId,
+    authMode: input.authMode ?? DEFAULT_AUTH_MODE,
     status: input.status,
     unrecoverableReason: input.unrecoverableReason,
     harnessSessionId: input.harnessSessionId,
@@ -1429,6 +1234,12 @@ export function buildReconnectingDrivenSessionRecord(
     stopRequested: false,
     driverGeneration: input.driverGeneration,
     proc: createDeadProcessPlaceholder(),
+    // Inert placeholder — see the field's own doc comment: nothing ever calls
+    // `record.transport` here, so this does not need to (and, unlike a real
+    // spawn/resume, must NOT refuse on) an unrecognized `input.transportId`.
+    // The PERSISTED `transportId` field above is what a reader/writer cares
+    // about; it already carries `input.transportId` (or the default) verbatim.
+    transport: input.transport ?? DEFAULT_DRIVER_TRANSPORT_FACTORY({}),
     eventLog: [],
     // Rehydrated at boot: its predecessor's log died with that process (mt#3453).
     needsHistoryReplay: true,
@@ -1438,54 +1249,14 @@ export function buildReconnectingDrivenSessionRecord(
 }
 
 /**
- * One image to attach to a driven-session turn (mt#3235).
+ * Forward operator input to the child through the selected transport. Best
+ * effort — the exact wire shape is owned by the transport (mt#2750 spec
+ * Context: "each input line is a complete JSON user-message object"); adjust
+ * ONLY the transport if a live-verification pass finds the real binary
+ * expects a different shape.
  *
- * Base64 rather than a path or URL: the child process is given the bytes
- * inline, so nothing depends on it being able to reach a file the host fetched
- * from a third party with a short-lived credential.
- */
-export interface DrivenInputImage {
-  base64: string;
-  /** An image mime type the Messages API accepts — e.g. `image/png`. */
-  mediaType: string;
-}
-
-/**
- * Assemble the content-block array for one input turn (mt#3235).
- *
- * Text is omitted when blank rather than sent as an empty block: the Messages
- * API rejects an empty text block, so a caption-less image would otherwise fail
- * the whole turn. An empty result means there is genuinely nothing to send, and
- * the caller reports that as a failed delivery rather than writing a
- * content-less message the child cannot answer.
- */
-function buildInputContent(
-  text: string,
-  images: DrivenInputImage[]
-): Array<Record<string, unknown>> {
-  const content: Array<Record<string, unknown>> = [];
-  if (text.trim().length > 0) {
-    content.push({ type: "text", text });
-  }
-  for (const image of images) {
-    content.push({
-      type: "image",
-      source: { type: "base64", media_type: image.mediaType, data: image.base64 },
-    });
-  }
-  return content;
-}
-
-/**
- * Forward operator input to the child as a stream-json user message. Best
- * effort — the exact input-message shape is a documented-thin part of the
- * upstream schema (mt#2750 spec Context: "each input line is a complete JSON
- * user-message object"); this mirrors the Messages API content-block shape.
- * If the live-verification pass (main-agent, real `claude`) finds the real
- * binary expects a different shape, adjust ONLY this function.
- *
- * On a successful write the text is ALSO appended to the record's event log as
- * a synthetic {@link DRIVEN_OPERATOR_INPUT_EVENT_TYPE} frame (mt#3372). The
+ * On a successful delivery the text is ALSO appended to the record's event log
+ * as a synthetic {@link DRIVEN_OPERATOR_INPUT_EVENT_TYPE} frame (mt#3372). The
  * child never echoes stdin back: the Agent SDK's documented streaming-OUTPUT
  * taxonomy is system / assistant / result / stream_event, and a direct probe of
  * the installed binary (2026-07-30) confirmed no frame carries the message that
@@ -1494,10 +1265,10 @@ function buildInputContent(
  * are harness-origin ones (tool results, injected skill bodies), so the view
  * showed everything except what the operator actually wrote.
  *
- * The frame is deliberately its OWN type rather than a forged stream-json
- * `user` payload, so operator-authored content stays structurally
- * distinguishable from harness-origin `user` frames (mt#3374 keys on that
- * distinction rather than re-deriving it from the text).
+ * The frame is deliberately its OWN type rather than a forged upstream `user`
+ * payload, so operator-authored content stays structurally distinguishable
+ * from harness-origin `user` frames (mt#3374 keys on that distinction rather
+ * than re-deriving it from the text).
  *
  * Appending here also makes {@link isDrivenSessionMidTurn} report true for the
  * window between the operator pressing send and the child's first response
@@ -1511,7 +1282,9 @@ function buildInputContent(
  * fix, just pointed the other way.
  *
  * Two consequences of routing the echo through `appendEvent` worth stating
- * outright, since both are behavior changes rather than bookkeeping:
+ * outright, since both are behavior changes rather than bookkeeping (unchanged
+ * by mt#4934's split — this is a description of mt#3372's/mt#3235's
+ * pre-existing behavior, preserved verbatim):
  *
  *   - **A `spawned` record flips to `running` on the operator's first send**,
  *     one event earlier than before (previously only the child's own first
@@ -1541,22 +1314,8 @@ export function sendDrivenSessionInput(
   opts: { echo?: boolean; images?: DrivenInputImage[] } = {}
 ): boolean {
   if (!hasLiveSessionDriver(record)) return false;
-  const content = buildInputContent(text, opts.images ?? []);
-  if (content.length === 0) return false;
-  const line = JSON.stringify({
-    type: "user",
-    message: {
-      role: "user",
-      content,
-    },
-  });
-  try {
-    record.proc.stdin.write(`${line}\n`);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error(`[driven-session] failed to write input for ${record.localId}: ${message}`);
-    return false;
-  }
+  const delivered = record.transport.sendUserTurn(record.proc, text, opts.images ?? []);
+  if (!delivered) return false;
   if (opts.echo !== false) {
     appendEvent(record, {
       type: DRIVEN_OPERATOR_INPUT_EVENT_TYPE,
@@ -1568,10 +1327,13 @@ export function sendDrivenSessionInput(
 }
 
 /**
- * Graceful stop: close stdin (the child finishes its current turn, sees EOF,
- * and exits on its own) with a SIGTERM fallback after `graceMs` if it hasn't
- * exited by then. Idempotent — a second call on an already-exited/crashed
- * record is a no-op.
+ * Graceful stop: delegates the actual mechanics (close stdin, SIGTERM
+ * fallback after `graceMs`) to `record.transport` — the SAME transport
+ * instance this record was spawned/resumed through (mt#4934 PR #3594 R1),
+ * never a different one. This function's own job is the record-level guard:
+ * a no-op against an already-terminal record (idempotent), and marking
+ * `stopRequested` so a subsequent exit classifies as `"exited"`, not
+ * `"crashed"` (see `classifyExit`).
  */
 export function stopDrivenSession(
   record: DrivenSessionRecord,
@@ -1579,26 +1341,56 @@ export function stopDrivenSession(
 ): void {
   if (isTerminalStatus(record.status)) return;
   record.stopRequested = true;
-  try {
-    record.proc.stdin.end();
-  } catch {
-    // Best-effort — the pipe may already be closed.
+  record.transport.stop(record.proc, opts);
+}
+
+/**
+ * Attribute a DAEMON-observed failure (mt#4943 SC2c) — one the supervisor
+ * learned about from an escaped `unhandledRejection` reclassified by
+ * `classifyUnhandledRejection` (`src/commands/cockpit/start-command.ts`),
+ * rather than one a transport reported through its own `onEvent` stream —
+ * to whichever record's `pid` matches, and mark it `crashed`.
+ *
+ * The pid-keyed lookup exists because the daemon's `unhandledRejection`
+ * handler has no `DrivenSessionRecord` in hand, only the `DriverTransportFailure`
+ * itself (which carries `harnessKind` and `pid`) — this is the ONLY
+ * identifying information available at that call site.
+ *
+ * A no-op when no record's `pid` matches, or when the matching record is
+ * already TERMINAL (`isTerminalStatus`): an exit/crash the transport already
+ * reported through its own event stream (`handleTransportEvent`'s
+ * `processError`/`processExited` branches) must not be overwritten by a
+ * LATER-arriving daemon-level attribution describing the same failure —
+ * this mirrors the same idempotency `handleTransportEvent`'s branches
+ * themselves rely on (each mutates `record.status` unconditionally on the
+ * assumption it fires at most meaningfully once per terminal transition).
+ *
+ * Reuses `handleTransportEvent`'s `processError` conventions exactly:
+ * `crashed` + `crashError` + a `minsky_error` event + `notifyStateChange`.
+ */
+export function markDrivenSessionCrashedByPid(
+  pid: number | undefined,
+  reason: string,
+  opts: {
+    registry?: DrivenSessionRegistry;
+    onStateChange?: (record: DrivenSessionRecord) => void;
+  } = {}
+): DrivenSessionRecord | undefined {
+  if (pid === undefined) {
+    log.error(`[driven-session] cannot attribute a daemon-observed crash — no pid: ${reason}`);
+    return undefined;
   }
-  const graceMs = opts.graceMs ?? 3000;
-  const timer = setTimeout(() => {
-    if (record.status !== "exited" && record.status !== "crashed") {
-      try {
-        record.proc.kill("SIGTERM");
-      } catch {
-        // Best-effort.
-      }
-    }
-  }, graceMs);
-  // Bun's `setTimeout` return type doesn't structurally expose Node's
-  // `Timeout#unref` in this project's ambient types (same class of ambiguity
-  // as the chunkToString comment above) — mirrors the established
-  // `eslint-disable` precedent in src/mcp/stdio-proxy/proxy.ts for an
-  // identical "no alternative typing" cast.
-  // eslint-disable-next-line custom/no-excessive-as-unknown -- Timeout#unref side-channel, no alternative typing
-  (timer as unknown as { unref?: () => void }).unref?.();
+  const registry = opts.registry ?? drivenSessionRegistry;
+  const record = registry.list().find((candidate) => candidate.pid === pid);
+  if (!record) return undefined;
+  if (isTerminalStatus(record.status)) return record;
+
+  record.status = "crashed";
+  record.crashError = reason;
+  log.error(
+    `[driven-session] daemon-attributed crash for ${record.localId} (pid=${pid}): ${reason}`
+  );
+  appendEvent(record, { type: "minsky_error", message: reason });
+  notifyStateChange(record, opts.onStateChange);
+  return record;
 }

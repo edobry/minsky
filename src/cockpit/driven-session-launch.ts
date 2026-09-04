@@ -37,6 +37,10 @@ import { randomUUID } from "crypto";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import type { AttachRefusalReason } from "@minsky/domain/conversation-run-state/attach-admissibility";
+import type {
+  RosterClassification,
+  RosterHolder,
+} from "@minsky/domain/conversation-run-state/claude-code-session-roster";
 import type { ConversationId } from "@minsky/domain/ids";
 import type { AdoptionReason } from "@minsky/domain/storage/schemas/driven-sessions-schema";
 import {
@@ -53,6 +57,7 @@ import {
   buildReconnectingDrivenSessionRecord,
   missingCwdReason,
   probeSpawnCwdAsync,
+  type DriverAuthMode,
   type DrivenSessionRecord,
   type DrivenSessionCostSummary,
   type DrivenSessionRegistry,
@@ -76,6 +81,16 @@ export interface ResolvedTaskWorkspace {
   sessionDir: string;
   /** True when an existing workspace was reused; false when freshly created. */
   reused: boolean;
+  /**
+   * The workspace's own resolved project (mt#4732), read from
+   * `SessionRecord.projectId` — the SAME field the agents widget already
+   * reads for a `dispatched-agent` row (`toAgentRow` in
+   * `../widgets/agents.ts`). `null` when the session record has none (a
+   * workspace created before project scoping existed, or one whose project
+   * could not be resolved at creation time) — the same "unknown, not
+   * excluded" posture as every other nullable project field in this system.
+   */
+  projectId: string | null;
 }
 
 /**
@@ -116,7 +131,12 @@ export async function resolveTaskWorkspace(taskId: string): Promise<ResolvedTask
     log.info(
       `[driven-session] reusing existing workspace ${existing.sessionId} for ${taskId} (${sessionDir})`
     );
-    return { minskySessionId: existing.sessionId, sessionDir, reused: true };
+    return {
+      minskySessionId: existing.sessionId,
+      sessionDir,
+      reused: true,
+      projectId: existing.projectId ?? null,
+    };
   }
 
   const taskService = await getServerTaskService();
@@ -164,7 +184,36 @@ export async function resolveTaskWorkspace(taskId: string): Promise<ResolvedTask
 
   const sessionDir = await resolveSessionDirectory(session.sessionId, sessionProvider);
   log.info(`[driven-session] created workspace ${session.sessionId} for ${taskId} (${sessionDir})`);
-  return { minskySessionId: session.sessionId, sessionDir, reused: false };
+  // mt#4732: `service.start()`'s `Session` return shape doesn't carry
+  // `projectId` (only the persisted `SessionRecord` does), so re-read the
+  // record we just created. One extra provider call on the create-only path
+  // (the far less common branch — most launches reuse an existing workspace).
+  //
+  // mt#4732 R1 — reviewer-bot round 1 non-blocking: this read is a BEST-EFFORT
+  // enrichment, not a precondition of the launch — the workspace itself was
+  // already created successfully above. A transient failure here (a dropped
+  // connection, a momentary pool exhaustion) must degrade to `projectId: null`
+  // rather than fail the whole driven-session launch; the caller already has
+  // everything it needs (minskySessionId, sessionDir) to proceed, and a null
+  // projectId is exactly the "unresolvable" case spliceDrivenSessions already
+  // handles safely (folds into the unattributed-summary aggregate rather than
+  // being hidden or mis-scoped).
+  let resolvedProjectId: string | null = null;
+  try {
+    const created = await sessionProvider.getSession(session.sessionId);
+    resolvedProjectId = created?.projectId ?? null;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn(
+      `[driven-session] could not re-read projectId for newly-created workspace ${session.sessionId}: ${message}`
+    );
+  }
+  return {
+    minskySessionId: session.sessionId,
+    sessionDir,
+    reused: false,
+    projectId: resolvedProjectId,
+  };
 }
 
 /**
@@ -465,6 +514,13 @@ export function createDrivenSessionPersistObserver(
         await upsert(db, {
           localId: record.localId,
           harnessSessionId: record.harnessSessionId,
+          // mt#4935: harness-agnostic drive-record fields, straight off the
+          // live record — never re-derived, so a persisted row always
+          // matches what actually spawned/spawns it.
+          harnessKind: record.harnessKind,
+          transportId: record.transportId,
+          harnessConversationId: record.harnessConversationId,
+          authMode: record.authMode,
           cwd: record.cwd,
           permissionMode: record.permissionMode,
           taskId: record.taskId,
@@ -694,10 +750,15 @@ async function persistBootTerminalVerdict(
       // The two fields this write exists to change.
       status: verdict.status,
       unrecoverableReason: verdict.unrecoverableReason,
-      // Preserved verbatim — see the docblock.
+      // Preserved verbatim — see the docblock. mt#4935 fields join the same
+      // preserved-verbatim set: this write records a verdict, not a rewrite.
       pid: row.pid,
       pidCmdline: row.pidCmdline,
       model: row.model,
+      harnessKind: row.harnessKind,
+      transportId: row.transportId,
+      harnessConversationId: row.harnessConversationId,
+      authMode: row.authMode,
       driverGeneration: row.driverGeneration,
       startedAt: row.startedAt.toISOString(),
     });
@@ -1076,6 +1137,13 @@ export async function reconcilePersistedDrivenSessions(
       const record = buildReconnectingDrivenSessionRecord({
         localId: row.localId,
         harnessSessionId: row.harnessSessionId,
+        // mt#4935: carried forward from the persisted row, never re-derived
+        // to a default — a rehydrated record must report what it actually
+        // is, not what most rows happen to be.
+        harnessKind: row.harnessKind,
+        transportId: row.transportId,
+        harnessConversationId: row.harnessConversationId,
+        authMode: row.authMode as DriverAuthMode,
         cwd: row.cwd,
         permissionMode: row.permissionMode as PermissionMode,
         taskId: row.taskId,
@@ -1295,6 +1363,12 @@ export async function orchestrateDrivenSessionResume(
         startedAt: row.startedAt.toISOString(),
         driverGeneration: row.driverGeneration,
         model: row.model,
+        // mt#4935: carried forward from the persisted row (never re-derived
+        // to a default) — a resume must drive under the SAME harness/
+        // transport/auth posture the original spawn used.
+        harnessKind: row.harnessKind,
+        transportId: row.transportId,
+        authMode: row.authMode as DriverAuthMode,
       },
       // mt#4323: a `resumeDrivenSession` call — by construction the session is
       // re-adopting a conversation it already had, not spawning a fresh one.
@@ -1316,7 +1390,14 @@ export async function orchestrateDrivenSessionResume(
 export type DrivenSessionAttachOutcome =
   | { outcome: "attached"; record: DrivenSessionRecord }
   | { outcome: "locked" }
-  | { outcome: "refused"; reason: AttachRefusalReason; message: string; presence: string }
+  | {
+      outcome: "refused";
+      reason: AttachRefusalReason;
+      message: string;
+      presence: string;
+      /** Present when the roster (mt#4869), not presence, is why this was refused. */
+      holder?: RosterHolder;
+    }
   | { outcome: "no-transcript" };
 
 /** Test seam for {@link orchestrateDrivenSessionAttach}. */
@@ -1335,6 +1416,11 @@ export interface OrchestrateDrivenSessionAttachDeps {
     db: PostgresJsDatabase,
     conversationId: string
   ) => Promise<import("@minsky/domain/conversation-run-state/presence").ConversationPresence>;
+  /**
+   * A FRESH read of Claude Code's live-session roster for this conversation
+   * (mt#4869). Overridden in tests to avoid touching the real `~/.claude`.
+   */
+  classifyHolder?: (conversationId: string) => Promise<RosterClassification>;
   /** Mint the session driver's local id. Overridden in tests for a deterministic id. */
   newLocalId?: () => string;
 }
@@ -1357,19 +1443,24 @@ export interface OrchestrateDrivenSessionAttachDeps {
  *    `driven_sessions` row; a foreign conversation has none, so this reads the
  *    on-disk transcript — the same `~/.claude/projects/**` tree the observe rung
  *    already tails.
- * 2. **The presence gate.** Resume owns its record and knows no other session driver
+ * 2. **The gate.** Resume owns its record and knows no other session driver
  *    holds it. Attach cannot assume that, so it refuses unless
- *    {@link attachAdmissibility} admits. See that module for why refusing on
- *    absent telemetry is the safe direction.
+ *    {@link attachAdmissibility} admits — which as of mt#4869 consults BOTH a
+ *    fresh read of Claude Code's own live-session roster (is a process
+ *    holding this conversation right now?) and presence (is a turn in
+ *    flight?). See that module for why refusing on absent telemetry, or an
+ *    unreadable roster, is the safe direction.
  *
  * ## Two writer classes, two mechanisms
  *
- * The advisory lock (mt#3038) and the presence gate guard DIFFERENT writers and
+ * The advisory lock (mt#3038) and the gate above guard DIFFERENT writers and
  * neither subsumes the other. The lock is Minsky-internal: it stops two cockpit
  * session drivers racing. It cannot see a `claude` the operator started in a terminal,
- * because that process never takes it. The presence gate covers exactly that
- * blind spot, using hook telemetry the terminal process emits without knowing
- * anyone is watching. Both are required; dropping either reopens a fork path.
+ * because that process never takes it. The gate covers exactly that blind
+ * spot — the roster half directly, for any writer that registers a roster
+ * entry (mt#4869's `## Does NOT cover` names which do), and the presence
+ * half via hook telemetry for the rest. Both mechanisms are required;
+ * dropping either reopens a fork path.
  *
  * The gate is checked BEFORE the lock deliberately: a refusal is the common
  * case for a live conversation, and it costs one read rather than a lock
@@ -1403,23 +1494,36 @@ export async function orchestrateDrivenSessionAttach(
     return { outcome: "no-transcript" };
   }
 
+  // mt#4869: a FRESH roster read, ahead of the DB check — it is a filesystem
+  // check, not presence telemetry, so it must run even when the presence
+  // path below cannot (no DB). "No cached snapshot older than the call" is
+  // the spec's own requirement; reading it here, once per attach attempt,
+  // right before the decision, is what satisfies that.
+  const { classifyConversationHolder } = await import(
+    "@minsky/domain/conversation-run-state/claude-code-session-roster"
+  );
+  const classifyHolder = deps.classifyHolder ?? classifyConversationHolder;
+  const roster = await classifyHolder(conversationId);
+
   const db = await (deps.getDb ?? getContextInspectorDb)();
   // No DB means no presence telemetry, and no telemetry is a REFUSAL, not a
   // pass — the same direction attachAdmissibility takes for `UNKNOWN`. Failing
   // open here would make a transient DB outage silently license the fork this
   // whole path exists to prevent. Reached only for a conversation that DOES
-  // exist on disk, so the refusal is about a real attach target.
+  // exist on disk, so the refusal is about a real attach target. The roster
+  // check above still applies regardless of DB health.
   if (!db) {
     const { attachAdmissibility } = await import(
       "@minsky/domain/conversation-run-state/attach-admissibility"
     );
-    const verdict = attachAdmissibility("UNKNOWN");
+    const verdict = attachAdmissibility("UNKNOWN", roster);
     if (verdict.admit) throw new Error("unreachable — UNKNOWN never admits");
     return {
       outcome: "refused",
       reason: verdict.reason,
       message: verdict.message,
       presence: "UNKNOWN",
+      holder: verdict.holder,
     };
   }
 
@@ -1428,12 +1532,24 @@ export async function orchestrateDrivenSessionAttach(
   const { attachAdmissibility } = await import(
     "@minsky/domain/conversation-run-state/attach-admissibility"
   );
-  const verdict = attachAdmissibility(presence);
+  const verdict = attachAdmissibility(presence, roster);
   if (!verdict.admit) {
+    // mt#4869 PR #3592 R1 nit 4: carry the holder's identity into the log
+    // line when the roster (not presence) is why — otherwise an operator
+    // reading logs sees WHO refused nowhere but the HTTP response body.
+    const holderSuffix = verdict.holder
+      ? ` holder=${verdict.holder.surface}:${verdict.holder.name ?? "unnamed"}:pid${verdict.holder.pid}`
+      : "";
     log.info(
-      `[driven-session] attach refused for ${conversationId}: presence=${presence} reason=${verdict.reason}`
+      `[driven-session] attach refused for ${conversationId}: presence=${presence} roster=${roster.liveness} reason=${verdict.reason}${holderSuffix}`
     );
-    return { outcome: "refused", reason: verdict.reason, message: verdict.message, presence };
+    return {
+      outcome: "refused",
+      reason: verdict.reason,
+      message: verdict.message,
+      presence,
+      holder: verdict.holder,
+    };
   }
 
   const withResumeLock =

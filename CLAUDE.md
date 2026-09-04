@@ -667,6 +667,17 @@ which is the growth the consolidation exists to stop.
 - **Generated-file edit** — edits to generated files. `MINSKY_FORCE_EDIT_GENERATED`.
 - **Branch-freshness** — commit/PR whose diff OVERLAPS main's new commits (mt#3484: ahead-count alone no longer blocks; a failed overlap probe fails closed). `MINSKY_SKIP_FRESHNESS`.
 - **Bundle-boot smoke** — merge w/o smoke pass. `MINSKY_SKIP_BUNDLE_SMOKE`.
+- **typecheck-infra red** (mt#4950) — a merge whose HEAD has `typecheck-infra` CONCLUDED
+  non-success. Same file and the same shared `check-runs` response as bundle-boot smoke, one
+  check name over, and **deliberately narrower than it**: it denies ONLY on an explicit
+  non-success conclusion — absent, pending and an unparseable API response all PASS, where the
+  bundle gate denies on all four. The measured finding was PRs merging over a RED check
+  (`infra/` silently untypechecked), not a webhook miss, so denying on absence would add a
+  merge-stopper for a failure this never measured. A red X here means NO COVERAGE rather than a
+  type error — the job dies in `pulumi install` before `tsgo` runs — and the denial says so,
+  because the job name implies the opposite. Branch protection would be the more general home
+  (`evaluateRequiredChecksStatus` already reads it) and is NOT used: `forge_branch_protection_get`
+  returns `Resource not accessible by integration` for the App token. `MINSKY_SKIP_TYPECHECK_INFRA`.
 - **Required-checks** — bypass w/o checks pass. `MINSKY_SKIP_REQUIRED_CHECKS`.
 - **Merge-review REQUEST_CHANGES override** — false-positive review finding; operator-approved D8 grant (`grant-guard-override.ts --guard require-review-before-merge --ask`), no env skip.
 - **Execution-evidence** — new tests/scripts w/o evid (BLOCKS). `[unverified-tests]`. Five log-only calibration surfaces ride along. Four have their own override; the fifth, consumer-account (mt#4493), deliberately has NONE — a log-only surface has no decision to bypass, and minting a 100th `MINSKY_*` name is what ADR-028 D3 exists to stop, so `MINSKY_HOOK_OVERRIDE=require-execution-evidence-before-merge` covers it. It fires when a diff REMOVES a signal-producing call (`process.exit(`, `.emit(`, `.close(`, a state-file write) under `src`/`packages`/`cockpit-tray` and the body carries no `Consumer account:` section naming what consumed it and what replaces it; the finding is the missing account, never the removal, which is often right. The only surface reading diff HUNKS rather than the file list, so it alone makes a second `gh api` call — prefiltered to PRs touching a scanned root. `scripts/` is out: a one-shot script's exit is its own status code, supervised by nobody. The four with overrides: per-AT `MINSKY_SKIP_AT_COVERAGE`, per-criterion `MINSKY_SKIP_SC_COVERAGE`, test-first `MINSKY_SKIP_TEST_FIRST_EVIDENCE` (mt#3244 — a bugfix-shaped PR MODIFYING an existing test must record a negative control: the test observed FAILING pre-fix), and render-path `MINSKY_SKIP_RENDER_PATH_EVIDENCE` (mt#2421 — a PR touching a user-facing render path should carry a URL or image the principal can open; trigger is test-INDEPENDENT, because mt#3810 shipped an unlooked-at render WITH passing happy-dom tests). The blocking floor covers `.test.tsx`/`.spec.tsx` as of mt#3868 — until then `isTestFile` matched `.ts` only, so none of the 92 cockpit-web test files could reach it. Measured before widening over 699 merged PRs in the prior 60 days: 23 newly in scope, of which **2** would newly have been denied (PRs #2339 and #2253, both lacking the evidence block). 21 of 23 already carried it, which is why this shipped straight to blocking rather than calibration-first.
@@ -1374,17 +1385,21 @@ Recipes + leak-containment runbook: same doc, `§Secret-bearing output`.
 three-way overload of "session". Stage-1 convention — NEW code, docs, UI copy only; does NOT
 rename the existing `session_*` tool/API surface (stage 2, mt#2527, separately scheduled).
 
-## The three senses
+## The four senses
 
 | Term (use this) | What it names | Old/ecosystem name | Example surface |
 | --- | --- | --- | --- |
 | **workspace** | The Minsky per-task isolated git-clone + branch (`SessionRecord`, `~/.local/state/minsky/sessions/`, ~59 `session_*` tools) | "session" | cockpit `/agents/:id` detail page (workspace-session id-space) |
 | **conversation** | A harness chat (Claude Code conversation UUID, `agent_session_id`, transcripts, `claude --resume`) | "session" (ecosystem-dominant term) | cockpit `/conversation/:id`, `transcripts_*` MCP tools |
-| **transport session** | The MCP client↔server connection (`Mcp-Session-Id`) | "session" (MCP-spec term) | disconnect tracker, `processRole` |
+| **drive** (working term; noun pending ask#11428) | Cockpit subject-surface that spawns/reconnects a harness process across a series of conversations (`DrivenSessionRecord`) | none — working label only | driven-session host |
+| **transport session** — legacy artifact, do not propagate; frozen pending mt#4608 | The MCP client↔server connection (`Mcp-Session-Id`); spec referent retired 2026-07-28 | "session" (MCP-spec term, pre-2026-07-28) | disconnect tracker, `processRole` |
 
-Use **workspace** and **conversation** in new prose, comments, variable/type names, and UI copy.
-Reserve bare **session** for the MCP-transport sense only — the one place it's the authoritative
-external-spec term (`Mcp-Session-Id`) with no better word.
+Use **workspace**, **conversation**, and the working term **drive** in new prose, comments,
+variable/type names, and UI copy. Bare **session** is not a Minsky vocabulary word for any sense
+— it survives only as quoted foreign vocabulary, at four boundaries: harness field names
+(`agent_session_id`, stream-json `session_id`), the frozen `minsky://session/<uuid>` deeplink URI
+type, historical migrations, and the frozen MCP transport artifact (`mcp-session-id` header
+handling, the `McpSessionId` brand — disposition: mt#4608). See ADR-022 §Amendment (2026-09-04).
 
 ## What this rule does NOT change (stage 2 scope, mt#2527)
 
@@ -1414,7 +1429,9 @@ sense it shows, not blend the words.
 
 `docs/architecture/adr-022-session-vs-conversation-terminology.md` · `cockpit-deeplinks.mdc` (the
 `session` URI-type/route divergence this generalizes) · mt#2522 (epic) · mt#2686 (this rule's
-origin) · mt#2527 (stage 2). Full index: `docs/rules-rationale/terminology-workspace-conversation.md`.
+origin) · mt#2527 (stage 2) · mt#4838 (2026-09-04 amendment: transport row retired, drive row
+added) · ask#11428 (the drive's pending noun). Full index:
+`docs/rules-rationale/terminology-workspace-conversation.md`.
 
 # User Preferences
 
@@ -1605,10 +1622,11 @@ How to apply: `docs/rules-rationale/work-completion.md §Recovery layer spec dis
 
 When a task spec introduces an **event-driven or polling mechanism** — webhook handler, scheduled job, cron, sweeper, watcher, poller — it MUST name the **concrete invocation path**: what starts it, what calls it, how it is wired in.
 
-These fail silently in two shapes, identical from outside: the feature exists, its tests pass, it produces nothing.
+These fail silently in three shapes. The first two are identical from outside: the feature exists, its tests pass, it produces nothing. The third inverts them — the mechanism was working, and a change stops it.
 
 - **Nothing calls it.** No scheduler, no registration, no production callsite — or the only caller is a stub (mt#1618).
 - **It runs; a dependency inside it is dead.** The failure is caught and converted into the same value a legitimately empty result produces — no missing caller to grep for, no error to find (mt#3019, mt#3046).
+- **The change REMOVES the signal a consumer depended on.** The inverse of the first shape, and invisible to it: nothing new is uninvoked — an existing invoker is deleted, or newly guarded so it stops running. A process exit, an emitted event, a closed connection, a state file another process polls: each is rarely only cleanup, and something downstream is usually watching for it. So when a design stops a behavior, enumerate what CONSUMED it before calling the design complete (mt#4493).
 
 **Trigger keywords:** "fires", "triggers", "polls", "watches", "scheduled", "periodic", "on event", "listener", "handler". Never swallow a dependency failure into a "nothing to do" value — log the actual error.
 

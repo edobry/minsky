@@ -1,10 +1,11 @@
-import { and, asc, eq, lte } from "drizzle-orm";
+import { and, asc, eq, lte, sql, type SQL } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import {
   scheduledFollowUpsTable,
   type ScheduledFollowUpRecord,
   type FollowUpStatus,
 } from "../storage/schemas/scheduled-follow-ups-schema";
+import { tasksTable } from "../storage/schemas/task-embeddings";
 
 /**
  * FollowUpService — domain service for the scheduled-follow-up primitive
@@ -16,6 +17,20 @@ import {
  * Idempotent by construction: `fireDue()` only touches rows still in
  * `pending` status via a status-guarded UPDATE, so re-running it (the next
  * sweep tick, an overlapping call) never re-fires an already-fired row.
+ *
+ * ## Project scope (mt#4746) — documented partial-filter semantics
+ *
+ * `scheduled_follow_ups` carries no `projectId` column of its own — same
+ * class of gap as `system_events` (see
+ * `packages/domain/src/events/query.ts`'s docblock, which this mirrors).
+ * `relatedTaskId` DOES exist and references `tasksTable.id`, which carries
+ * `projectId` (mt#2417 Phase 1.4), so `list({ projectScope })` filters via an
+ * `EXISTS` correlated subquery — not a join, so a row with no
+ * `relatedTaskId` costs nothing extra and is never duplicated. A follow-up
+ * with no `relatedTaskId` (most of them, per the schema — `relatedTaskId` is
+ * optional) is NOT attributable to any specific project and is EXCLUDED
+ * from a scoped read; an unscoped read (`projectScope` omitted) is
+ * completely unaffected.
  */
 export class FollowUpService {
   constructor(private readonly db: PostgresJsDatabase<Record<string, unknown>>) {}
@@ -47,12 +62,37 @@ export class FollowUpService {
     return row;
   }
 
-  /** List follow-ups, optionally filtered by status, ordered by due time ascending. */
-  async list(opts?: { status?: FollowUpStatus }): Promise<ScheduledFollowUpRecord[]> {
-    const base = this.db.select().from(scheduledFollowUpsTable);
+  /**
+   * List follow-ups, optionally filtered by status and/or project scope,
+   * ordered by due time ascending.
+   *
+   * @param opts.projectScope  A resolved project uuid, or omitted/undefined
+   *   for unscoped — see this module's docblock's "Project scope" section
+   *   for the documented partial-filter semantics (mt#4746).
+   */
+  async list(opts?: {
+    status?: FollowUpStatus;
+    projectScope?: string;
+  }): Promise<ScheduledFollowUpRecord[]> {
+    const conditions: SQL[] = [];
     if (opts?.status) {
+      conditions.push(eq(scheduledFollowUpsTable.status, opts.status));
+    }
+    if (opts?.projectScope) {
+      // Project scope (mt#4746) — see this module's docblock.
+      conditions.push(
+        sql`EXISTS (
+          SELECT 1 FROM ${tasksTable}
+          WHERE ${tasksTable.id} = ${scheduledFollowUpsTable.relatedTaskId}
+            AND ${tasksTable.projectId} = ${opts.projectScope}
+        )`
+      );
+    }
+
+    const base = this.db.select().from(scheduledFollowUpsTable);
+    if (conditions.length > 0) {
       return base
-        .where(eq(scheduledFollowUpsTable.status, opts.status))
+        .where(conditions.length === 1 ? conditions[0] : and(...conditions))
         .orderBy(asc(scheduledFollowUpsTable.dueAt));
     }
     return base.orderBy(asc(scheduledFollowUpsTable.dueAt));
