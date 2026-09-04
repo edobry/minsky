@@ -89,6 +89,36 @@ const SAMPLE_SYNC_REPORT: SyncReport = {
   duration: 500,
 };
 
+// ─── Deps helpers ─────────────────────────────────────────────────────────────
+//
+// mt#4946 made `resolveSearchBackend` and `createNliClassifier` REQUIRED members
+// (ADR-026 §Decision rule 3 bans the `deps?.x ?? createReal(...)` shape), so every
+// call site now has to say which backend it exercises. That is the point rather
+// than a cost: a test that does not wire a search backend SAYS so, instead of
+// relying on an absent optional member — which is the same silence that let the
+// production call site go unwired for the command's entire life.
+
+type SearchDeps = Pick<KnowledgeCommandsDeps, "resolveSearchBackend" | "createNliClassifier">;
+
+/** For a test that does not exercise knowledge.search's backend at all. */
+function unwiredSearchDeps(reason = "test: search backend not wired"): SearchDeps {
+  return {
+    resolveSearchBackend: async () => ({ ok: false, reason }),
+    createNliClassifier: () => null,
+  };
+}
+
+/** For a test that exercises knowledge.search against in-memory fakes. */
+function wiredSearchDeps(
+  generateEmbedding: EmbeddingService["generateEmbedding"],
+  search: VectorStorage["search"]
+): SearchDeps {
+  return {
+    resolveSearchBackend: async () => ({ ok: true, generateEmbedding, search }),
+    createNliClassifier: () => null,
+  };
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("Knowledge Commands", () => {
@@ -98,7 +128,7 @@ describe("Knowledge Commands", () => {
   describe(SEARCH_CMD, () => {
     test(REGISTERED_MSG, () => {
       registry = createSharedCommandRegistry();
-      registerKnowledgeCommands(registry, {});
+      registerKnowledgeCommands(registry, unwiredSearchDeps());
       const cmd = registry.getCommand(SEARCH_CMD);
       expect(cmd).toBeDefined();
       expect(cmd?.name).toBe("search");
@@ -124,8 +154,10 @@ describe("Knowledge Commands", () => {
       const fakeStorage = makeFakeVectorStorage(fakeResults);
 
       const deps: KnowledgeCommandsDeps = {
-        generateEmbedding: fakeEmbed.generateEmbedding.bind(fakeEmbed),
-        vectorSearch: fakeStorage.search.bind(fakeStorage),
+        ...wiredSearchDeps(
+          fakeEmbed.generateEmbedding.bind(fakeEmbed),
+          fakeStorage.search.bind(fakeStorage)
+        ),
       };
 
       registry = createSharedCommandRegistry();
@@ -184,8 +216,10 @@ describe("Knowledge Commands", () => {
 
       registry = createSharedCommandRegistry();
       registerKnowledgeCommands(registry, {
-        generateEmbedding: fakeEmbed.generateEmbedding.bind(fakeEmbed),
-        vectorSearch: fakeStorage.search.bind(fakeStorage),
+        ...wiredSearchDeps(
+          fakeEmbed.generateEmbedding.bind(fakeEmbed),
+          fakeStorage.search.bind(fakeStorage)
+        ),
       });
 
       const cmd = registry.getCommand(SEARCH_CMD);
@@ -218,8 +252,10 @@ describe("Knowledge Commands", () => {
 
       registry = createSharedCommandRegistry();
       registerKnowledgeCommands(registry, {
-        generateEmbedding: fakeEmbed.generateEmbedding.bind(fakeEmbed),
-        vectorSearch: fakeStorage.search.bind(fakeStorage),
+        ...wiredSearchDeps(
+          fakeEmbed.generateEmbedding.bind(fakeEmbed),
+          fakeStorage.search.bind(fakeStorage)
+        ),
       });
 
       const cmd = registry.getCommand(SEARCH_CMD);
@@ -250,8 +286,10 @@ describe("Knowledge Commands", () => {
 
       registry = createSharedCommandRegistry();
       registerKnowledgeCommands(registry, {
-        generateEmbedding: fakeEmbed.generateEmbedding.bind(fakeEmbed),
-        vectorSearch: fakeStorage.search.bind(fakeStorage),
+        ...wiredSearchDeps(
+          fakeEmbed.generateEmbedding.bind(fakeEmbed),
+          fakeStorage.search.bind(fakeStorage)
+        ),
         getConfig: makeFakeConfig([], {
           sourceAuthority: { "high-source": 10, "low-source": 2 },
           epsilon: 0.05,
@@ -278,8 +316,10 @@ describe("Knowledge Commands", () => {
       const fakeStorage = makeFakeVectorStorage([]);
 
       const deps: KnowledgeCommandsDeps = {
-        generateEmbedding: fakeEmbed.generateEmbedding.bind(fakeEmbed),
-        vectorSearch: fakeStorage.search.bind(fakeStorage),
+        ...wiredSearchDeps(
+          fakeEmbed.generateEmbedding.bind(fakeEmbed),
+          fakeStorage.search.bind(fakeStorage)
+        ),
       };
 
       registry = createSharedCommandRegistry();
@@ -300,13 +340,15 @@ describe("Knowledge Commands", () => {
       expect(result?.redundancies).toEqual([]);
     });
 
-    test("returns degraded structured result when no vector storage is provided", async () => {
-      const fakeEmbed = makeFakeEmbeddingService();
-
-      // Only generateEmbedding injected, no vectorSearch
-      const deps: KnowledgeCommandsDeps = {
-        generateEmbedding: fakeEmbed.generateEmbedding.bind(fakeEmbed),
-      };
+    test("degrades WITH a reason when the search backend cannot be resolved", async () => {
+      // mt#4946 criterion 4: an unavailable backend must name what is missing.
+      // The reason is what distinguishes "never wired" from "empty corpus" —
+      // before this task those two were byte-identical at every surface, which
+      // is precisely why a command that had never returned a result went
+      // unnoticed.
+      const deps: KnowledgeCommandsDeps = unwiredSearchDeps(
+        "no persistence provider on the execution context"
+      );
 
       registry = createSharedCommandRegistry();
       registerKnowledgeCommands(registry, deps);
@@ -314,15 +356,62 @@ describe("Knowledge Commands", () => {
       const cmd = registry.getCommand(SEARCH_CMD);
       expect(cmd).toBeDefined();
       const result = (await cmd?.execute({ query: "test" }, {})) as
-        | (KnowledgeSearchResponse & { backend: string; degraded: boolean })
+        | (KnowledgeSearchResponse & {
+            backend: string;
+            degraded: boolean;
+            degradedReason?: string;
+          })
         | undefined;
       expect(result).toBeDefined();
 
       expect(result?.backend).toBe("none");
       expect(result?.degraded).toBe(true);
+      expect(result?.degradedReason).toBe("no persistence provider on the execution context");
       expect(result?.chunks).toHaveLength(0);
       expect(result?.conflicts).toEqual([]);
       expect(result?.redundancies).toEqual([]);
+    });
+
+    test("resolves the backend through the injected resolver, not a module-level default", async () => {
+      // mt#4946's regression guard. The defect was not that resolution FAILED —
+      // it was that production never supplied a resolver at all, and the
+      // optional member's absence read as a legitimate empty result. Assert the
+      // resolver is actually consulted, and that it receives the execution
+      // context (which is where the DI container lives, and which this command
+      // previously bound as `_ctx` and discarded).
+      const fakeEmbed = makeFakeEmbeddingService();
+      const fakeStorage = makeFakeVectorStorage([
+        { id: "chunk-1", score: 0.9, metadata: { title: "Doc", sourceName: "source-A" } },
+      ]);
+
+      let resolverCalls = 0;
+      let sawContext = false;
+
+      registry = createSharedCommandRegistry();
+      registerKnowledgeCommands(registry, {
+        resolveSearchBackend: async (ctx) => {
+          resolverCalls += 1;
+          sawContext = ctx !== undefined;
+          return {
+            ok: true,
+            generateEmbedding: fakeEmbed.generateEmbedding.bind(fakeEmbed),
+            search: fakeStorage.search.bind(fakeStorage),
+          };
+        },
+        createNliClassifier: () => null,
+      });
+
+      const cmd = registry.getCommand(SEARCH_CMD);
+      expect(cmd).toBeDefined();
+      const result = (await cmd?.execute({ query: "q" }, { interface: "test" })) as
+        | (KnowledgeSearchResponse & { backend: string; degraded: boolean })
+        | undefined;
+
+      expect(resolverCalls).toBe(1);
+      expect(sawContext).toBe(true);
+      expect(result?.backend).toBe("embeddings");
+      expect(result?.degraded).toBe(false);
+      expect(result?.chunks).toHaveLength(1);
     });
   });
 
@@ -330,7 +419,7 @@ describe("Knowledge Commands", () => {
   describe(SOURCES_CMD, () => {
     test(REGISTERED_MSG, () => {
       registry = createSharedCommandRegistry();
-      registerKnowledgeCommands(registry, {});
+      registerKnowledgeCommands(registry, unwiredSearchDeps());
       const cmd = registry.getCommand(SOURCES_CMD);
       expect(cmd).toBeDefined();
       expect(cmd?.name).toBe("sources");
@@ -338,6 +427,7 @@ describe("Knowledge Commands", () => {
 
     test("returns configured sources", async () => {
       const deps: KnowledgeCommandsDeps = {
+        ...unwiredSearchDeps(),
         getConfig: makeFakeConfig([SAMPLE_SOURCE]),
       };
 
@@ -357,6 +447,7 @@ describe("Knowledge Commands", () => {
 
     test("returns empty sources list when none configured", async () => {
       const deps: KnowledgeCommandsDeps = {
+        ...unwiredSearchDeps(),
         getConfig: makeFakeConfig([]),
       };
 
@@ -375,7 +466,7 @@ describe("Knowledge Commands", () => {
   describe(FETCH_CMD, () => {
     test(REGISTERED_MSG, () => {
       registry = createSharedCommandRegistry();
-      registerKnowledgeCommands(registry, {});
+      registerKnowledgeCommands(registry, unwiredSearchDeps());
       const cmd = registry.getCommand(FETCH_CMD);
       expect(cmd).toBeDefined();
       expect(cmd?.name).toBe("fetch");
@@ -385,6 +476,7 @@ describe("Knowledge Commands", () => {
 
     test("throws when source name is not found in config", async () => {
       const deps: KnowledgeCommandsDeps = {
+        ...unwiredSearchDeps(),
         getConfig: makeFakeConfig([]),
       };
 
@@ -408,6 +500,7 @@ describe("Knowledge Commands", () => {
       };
 
       const deps: KnowledgeCommandsDeps = {
+        ...unwiredSearchDeps(),
         getConfig: makeFakeConfig([sourceWithMissingToken]),
       };
 
@@ -426,7 +519,7 @@ describe("Knowledge Commands", () => {
   describe(SYNC_CMD, () => {
     test(REGISTERED_MSG, () => {
       registry = createSharedCommandRegistry();
-      registerKnowledgeCommands(registry, {});
+      registerKnowledgeCommands(registry, unwiredSearchDeps());
       const cmd = registry.getCommand(SYNC_CMD);
       expect(cmd).toBeDefined();
       expect(cmd?.name).toBe("sync");
@@ -441,8 +534,10 @@ describe("Knowledge Commands", () => {
 
       const deps: KnowledgeCommandsDeps = {
         getConfig: makeFakeConfig([SAMPLE_SOURCE]),
-        generateEmbedding: fakeEmbed.generateEmbedding.bind(fakeEmbed),
-        vectorSearch: fakeStorage.search.bind(fakeStorage),
+        ...wiredSearchDeps(
+          fakeEmbed.generateEmbedding.bind(fakeEmbed),
+          fakeStorage.search.bind(fakeStorage)
+        ),
         createKnowledgeService: fakeSyncFactory,
       };
 
@@ -467,8 +562,10 @@ describe("Knowledge Commands", () => {
 
       const deps: KnowledgeCommandsDeps = {
         getConfig: makeFakeConfig([SAMPLE_SOURCE]),
-        generateEmbedding: fakeEmbed.generateEmbedding.bind(fakeEmbed),
-        vectorSearch: fakeStorage.search.bind(fakeStorage),
+        ...wiredSearchDeps(
+          fakeEmbed.generateEmbedding.bind(fakeEmbed),
+          fakeStorage.search.bind(fakeStorage)
+        ),
         createKnowledgeService: fakeSyncFactory,
       };
 
@@ -498,6 +595,7 @@ describe("Knowledge Commands", () => {
       } as unknown as KnowledgeService;
 
       const deps: KnowledgeCommandsDeps = {
+        ...unwiredSearchDeps(),
         getConfig: makeFakeConfig([SAMPLE_SOURCE]),
         createKnowledgeService: () => fakeService,
       };

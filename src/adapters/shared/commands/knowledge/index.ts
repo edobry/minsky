@@ -90,13 +90,61 @@ const knowledgeSyncParams = {
   },
 } satisfies CommandParameterMap;
 
-// ─── Injectable dependencies (for testing) ───────────────────────────────────
+// ─── Injectable dependencies ─────────────────────────────────────────────────
+
+/** Embedding width of `knowledge_embeddings`, matching every other consumer of this domain. */
+const KNOWLEDGE_EMBEDDING_DIMENSION = 1536;
+
+/**
+ * Outcome of resolving knowledge.search's embedding + vector-storage backend.
+ *
+ * Deliberately a RESULT type rather than a nullable handle: the unavailable
+ * case has to carry a reason. Before mt#4946 the two commonest ways for this
+ * command to return nothing — storage that was never wired, and an empty
+ * corpus — were byte-identical at every surface, which is how a command that
+ * had never once returned a result went undetected (mem#78 / mt#2757's shape).
+ */
+export type KnowledgeSearchBackend =
+  | {
+      ok: true;
+      generateEmbedding: EmbeddingService["generateEmbedding"];
+      search: VectorStorage["search"];
+    }
+  | { ok: false; reason: string };
 
 export interface KnowledgeCommandsDeps {
-  /** Override for generating an embedding of a query string */
-  generateEmbedding?: EmbeddingService["generateEmbedding"];
-  /** Override for the vector storage search */
-  vectorSearch?: VectorStorage["search"];
+  /**
+   * Resolve knowledge.search's embedding service and vector storage, at
+   * DISPATCH time.
+   *
+   * Required, with no `?? createReal(...)` behind it. ADR-026 §Decision rule 3
+   * bans the `deps?.x ?? createConfiguredX(...)` shape outright because it
+   * "hides missing DI wiring in new callers behind an apparently-working
+   * default" — which is exactly what mt#4946 was: `registerKnowledgeCommands()`
+   * was called with no arguments from its only production call site, so the
+   * optional `vectorSearch` was permanently undefined and every query took the
+   * degraded early return. Making this a required member moves that failure
+   * from runtime silence to a compile error.
+   *
+   * A resolver rather than a resolved value, so construction stays at dispatch
+   * time: registration runs at process start for every command, and building a
+   * DB-backed vector store there would make command registration depend on a
+   * live database. Same shape as the mt#3609 precedent
+   * (`createRealPrincipalChannelDeps`), whose members are function references
+   * invoked later rather than services constructed eagerly.
+   */
+  resolveSearchBackend: (ctx?: CommandExecutionContext) => Promise<KnowledgeSearchBackend>;
+  /**
+   * Build the conflict-detection classifier, or return null to disable it.
+   *
+   * Required for the same reason, and a factory for the same reason. This
+   * replaced a three-way `deps === undefined` / `nliClassifier === null` /
+   * `nliClassifier set` discriminator that keyed production behaviour on the
+   * ABSENCE of the deps object — an idiom that silently stops working the
+   * moment deps becomes required, disabling conflict detection in production
+   * with nothing to notice.
+   */
+  createNliClassifier: (conflictModel?: string) => NliClassifier | null;
   /** Override for loading config (returns knowledgeBases array + optional reconciliation config) */
   getConfig?: () => Promise<{
     knowledgeBases: KnowledgeSourceConfig[];
@@ -113,8 +161,106 @@ export interface KnowledgeCommandsDeps {
     vectorStorage: VectorStorage;
     config: { knowledgeBases: KnowledgeSourceConfig[] };
   }) => KnowledgeService;
-  /** Override NLI classifier for testing (pass null to disable conflict detection) */
-  nliClassifier?: NliClassifier | null;
+}
+
+// ─── Production dependency construction (the composition-root half) ──────────
+
+/**
+ * Resolve the real embedding service + knowledge vector storage from the DI
+ * container carried on the execution context.
+ *
+ * Every unavailable path returns a REASON rather than an empty stand-in. That
+ * is the point of criterion 6: `createVectorStorageForDomain` answers a
+ * provider it cannot use with an empty `MemoryVectorStorage` and a log line,
+ * so wiring this command through it naively would turn today's honest
+ * `backend: "none", degraded: true` into `backend: "embeddings",
+ * degraded: false` over an empty store — a strictly worse failure, because it
+ * stops looking like one.
+ *
+ * The container is populated on both interfaces that reach this command: MCP
+ * sets it in `src/adapters/mcp/shared-command-integration.ts`, and the CLI
+ * bridge sets it in `src/adapters/shared/bridges/cli/command-generator-core.ts`.
+ */
+async function resolveRealSearchBackend(
+  ctx?: CommandExecutionContext
+): Promise<KnowledgeSearchBackend> {
+  const persistence = ctx?.container?.has("persistence")
+    ? (ctx.container.get(
+        "persistence"
+      ) as import("@minsky/domain/persistence/types").PersistenceProvider)
+    : undefined;
+
+  if (!persistence) {
+    return {
+      ok: false,
+      reason:
+        "knowledge.search: no persistence provider on the execution context, so vector storage " +
+        "could not be resolved. This command requires a running Minsky server with Postgres configured.",
+    };
+  }
+
+  if (!persistence.capabilities.vectorStorage) {
+    return {
+      ok: false,
+      reason:
+        "knowledge.search: the configured persistence provider does not support vector storage, " +
+        "so there is no knowledge_embeddings table to search.",
+    };
+  }
+
+  const { createVectorStorageForDomain } = await import(
+    "@minsky/domain/storage/vector/vector-storage-factory"
+  );
+  const vectorStorage = await createVectorStorageForDomain(
+    "knowledge",
+    KNOWLEDGE_EMBEDDING_DIMENSION,
+    persistence
+  );
+
+  // The capability check above covers the factory's documented fallback
+  // condition, but not a provider that declares the capability and still
+  // answers null. Assert the outcome rather than the precondition: an empty
+  // in-memory store returned here would search clean and find nothing.
+  const { MemoryVectorStorage } = await import(
+    "@minsky/domain/storage/vector/memory-vector-storage"
+  );
+  if (vectorStorage instanceof MemoryVectorStorage) {
+    return {
+      ok: false,
+      reason:
+        "knowledge.search: vector-storage resolution fell back to an empty in-memory store, " +
+        "so a search would report success over no corpus. Refusing rather than returning zero results.",
+    };
+  }
+
+  const { createEmbeddingServiceFromConfig } = await import(
+    "@minsky/domain/ai/embedding-service-factory"
+  );
+  const embeddingService = await createEmbeddingServiceFromConfig();
+
+  return {
+    ok: true,
+    generateEmbedding: embeddingService.generateEmbedding.bind(embeddingService),
+    search: vectorStorage.search.bind(vectorStorage),
+  };
+}
+
+/**
+ * The production dependency set for {@link registerKnowledgeCommands}.
+ *
+ * Follows the mt#3609 / ADR-026 composition-root pattern already used three
+ * lines away from this command's registration call, at
+ * `src/adapters/shared/commands/index.ts` —
+ * `registerPrincipalCommands(createRealPrincipalChannelDeps())`. Members are
+ * function references, invoked at dispatch time; nothing is constructed here.
+ * A grep for the production wiring of knowledge.search now finds this.
+ */
+export function createRealKnowledgeCommandsDeps(): KnowledgeCommandsDeps {
+  return {
+    resolveSearchBackend: resolveRealSearchBackend,
+    createNliClassifier: (conflictModel?: string) =>
+      new AnthropicNliClassifier({ model: conflictModel }),
+  };
 }
 
 // ─── Registration function ────────────────────────────────────────────────────
@@ -123,7 +269,7 @@ export function registerKnowledgeCommands(
   targetRegistry: {
     registerCommand: <T extends CommandParameterMap>(cmd: CommandDefinition<T>) => void;
   } = sharedCommandRegistry,
-  deps?: KnowledgeCommandsDeps
+  deps: KnowledgeCommandsDeps
 ): void {
   // ── knowledge.search ──────────────────────────────────────────────────────
   targetRegistry.registerCommand({
@@ -133,34 +279,30 @@ export function registerKnowledgeCommands(
     description:
       "Semantic search across indexed knowledge bases. Returns ranked results with excerpts.",
     parameters: knowledgeSearchParams,
-    execute: async (params, _ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing knowledge.search", { query: params.query, limit: params.limit });
 
       const limit = params.limit ?? 5;
 
-      // Resolve dependencies
-      const generateEmbedding = deps?.generateEmbedding;
-      const vectorSearch = deps?.vectorSearch;
+      // Resolve the backend at DISPATCH time through the required injected
+      // resolver. Until mt#4946 this read an OPTIONAL `deps.vectorSearch` that
+      // the single production call site never supplied, so the degraded branch
+      // below fired on every query the command ever served. The context is what
+      // carries the DI container, and it was previously bound as `_ctx` and
+      // discarded — the dependency was reachable the whole time.
+      const backend = await deps.resolveSearchBackend(ctx);
 
-      let embeddingFn: EmbeddingService["generateEmbedding"];
-      let searchFn: VectorStorage["search"];
-
-      if (!vectorSearch) {
-        // No vector storage — return degraded result immediately
+      if (!backend.ok) {
         // PR #3602 R1 (NON-BLOCKING), taken at the class level: the catch below
         // carries a reason and this sibling degraded path did not, so the two
         // most common ways for this command to return nothing were
-        // indistinguishable from an empty corpus and from EACH OTHER.
-        //
-        // This is the path that actually fires today, on every query: mt#4946
-        // records that `registerKnowledgeCommands` is invoked with no `deps`
-        // from its only production call site, so `vectorSearch` is always
-        // undefined. Naming that here is what makes the condition visible to
-        // the next person to run the command instead of only in a log line.
-        const degradedReason =
-          "knowledge.search: vector storage was not supplied to registerKnowledgeCommands " +
-          "(deps.vectorSearch is undefined), so no search was attempted — see mt#4946";
-        log.warn("[knowledge.search] Vector storage not available, returning empty results");
+        // indistinguishable from an empty corpus and from EACH OTHER. The
+        // resolver now names the specific condition instead of a fixed string,
+        // which is what distinguishes "no persistence provider" from "provider
+        // has no vector capability" from "resolution fell back to an empty store".
+        log.warn("[knowledge.search] Search backend unavailable, returning empty results", {
+          reason: backend.reason,
+        });
         return {
           chunks: [],
           freshness: {} as Record<ChunkId, ChunkFreshness>,
@@ -169,22 +311,12 @@ export function registerKnowledgeCommands(
           redundancies: [],
           backend: "none" as const,
           degraded: true,
-          degradedReason,
+          degradedReason: backend.reason,
         };
       }
 
-      if (generateEmbedding) {
-        embeddingFn = generateEmbedding;
-        searchFn = vectorSearch;
-      } else {
-        // Create real embedding service from config
-        const { createEmbeddingServiceFromConfig } = await import(
-          "@minsky/domain/ai/embedding-service-factory"
-        );
-        const embeddingService = await createEmbeddingServiceFromConfig();
-        embeddingFn = embeddingService.generateEmbedding.bind(embeddingService);
-        searchFn = vectorSearch;
-      }
+      const embeddingFn: EmbeddingService["generateEmbedding"] = backend.generateEmbedding;
+      const searchFn: VectorStorage["search"] = backend.search;
 
       // Load reconciliation config for freshness + authority + conflict detection
       let reconciliationConfig:
@@ -196,7 +328,7 @@ export function registerKnowledgeCommands(
           }
         | undefined;
       try {
-        if (deps?.getConfig) {
+        if (deps.getConfig) {
           const cfg = await deps.getConfig();
           reconciliationConfig = cfg.knowledgeReconciliation;
         } else {
@@ -252,22 +384,16 @@ export function registerKnowledgeCommands(
         // Build redundancies from cluster metadata written by reconcileAfterSync
         const redundancies = buildRedundanciesFromMetadata(rawResults);
 
-        // Run pairwise NLI conflict detection over top-K chunks (K ≤ 10)
-        // - deps.nliClassifier === null  → explicitly disabled (test path)
-        // - deps.nliClassifier set       → use injected classifier (test path)
-        // - deps is undefined/no deps    → create real AnthropicNliClassifier (production)
-        // - deps provided but no nliClassifier → skip NLI (other test paths)
-        let nliClassifier: NliClassifier | null = null;
-        if (deps === undefined) {
-          // Production path: no deps injected, create real classifier
-          nliClassifier = new AnthropicNliClassifier({
-            model: reconciliationConfig?.conflictModel,
-          });
-        } else if (deps.nliClassifier !== undefined) {
-          // Explicitly injected (may be null to disable)
-          nliClassifier = deps.nliClassifier;
-        }
-        // Otherwise: deps provided but nliClassifier not set → skip NLI (test path)
+        // Run pairwise NLI conflict detection over top-K chunks (K ≤ 10).
+        // The factory decides: production returns a real AnthropicNliClassifier,
+        // a test returns a fake or null to disable. This replaced a `deps ===
+        // undefined` check that treated the ABSENCE of the deps object as the
+        // production signal — an idiom that would have silently stopped
+        // producing a classifier the moment mt#4946 made deps required, with a
+        // passing test suite and no error anywhere.
+        const nliClassifier: NliClassifier | null = deps.createNliClassifier(
+          reconciliationConfig?.conflictModel
+        );
 
         let conflicts: import("@minsky/domain/knowledge/types").ChunkConflict[] = [];
         if (nliClassifier && chunks.length >= 2) {
@@ -351,7 +477,7 @@ export function registerKnowledgeCommands(
         documentId: params.documentId,
       });
 
-      const getConfig = deps?.getConfig;
+      const getConfig = deps.getConfig;
 
       let config: { knowledgeBases: KnowledgeSourceConfig[] };
       if (getConfig) {
@@ -383,7 +509,7 @@ export function registerKnowledgeCommands(
       const noopVectorStorage = new MemoryVectorStorage(1);
 
       const createKnowledgeServiceFn =
-        deps?.createKnowledgeService ??
+        deps.createKnowledgeService ??
         ((d) =>
           new KnowledgeService({
             embeddingService: d.embeddingService,
@@ -456,7 +582,7 @@ export function registerKnowledgeCommands(
     execute: async (_params, _ctx?: CommandExecutionContext) => {
       log.debug("Executing knowledge.sources");
 
-      const getConfig = deps?.getConfig;
+      const getConfig = deps.getConfig;
 
       let config: { knowledgeBases: KnowledgeSourceConfig[] };
       if (getConfig) {
@@ -487,8 +613,8 @@ export function registerKnowledgeCommands(
     execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing knowledge.sync", { source: params.source, force: params.force });
 
-      const getConfig = deps?.getConfig;
-      const createKnowledgeServiceFn = deps?.createKnowledgeService;
+      const getConfig = deps.getConfig;
+      const createKnowledgeServiceFn = deps.createKnowledgeService;
 
       let config: { knowledgeBases: KnowledgeSourceConfig[] };
       if (getConfig) {
