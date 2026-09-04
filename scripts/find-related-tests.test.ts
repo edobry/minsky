@@ -21,6 +21,7 @@ import {
   extractImportSpecifiers,
   resolveIdentifierImports,
   hasUnresolvedIdentifierImport,
+  formatConservativeInclusionNotice,
   buildDataReadGraph,
   toRepoRelative,
   findRelatedTestFiles,
@@ -232,11 +233,6 @@ describe("dynamic import via an identifier specifier (mt#4945)", () => {
     expect(extractImportSpecifiers(`await import("@scope/pkg/mod")`)).toEqual(["@scope/pkg/mod"]);
   });
 
-  // NB: these test NAMES deliberately avoid writing the identifier-import call form as
-  // literal text. A string is not stripped the way a comment is (see
-  // `hasUnresolvedIdentifierImport`'s residual bound), so spelling it out here would
-  // flag THIS file as carrying an unresolvable dynamic import and pull it into every
-  // selection the gate ever makes. Measured: it did exactly that until this rename.
   test("resolves an identifier specifier through a same-module const binding", () => {
     const src = `const M = "@scope/pkg/mod";\nconst { X } = await import(M);`;
 
@@ -245,9 +241,26 @@ describe("dynamic import via an identifier specifier (mt#4945)", () => {
     expect(hasUnresolvedIdentifierImport(src)).toBe(false);
   });
 
-  test("resolves it through a TYPED const, and through let/var", () => {
+  test("resolves it through a TYPE-ANNOTATED const", () => {
     expect(extractImportSpecifiers(`const M: string = "a/b";\nimport(M);`)).toEqual(["a/b"]);
-    expect(extractImportSpecifiers(`let M = "c/d";\nimport(M);`)).toEqual(["c/d"]);
+  });
+
+  // PR #3605 R1 BLOCKING #2. `let`/`var` are reassignable and this scan is not
+  // flow-aware, so trusting the initializer can yield a CONFIDENT WRONG specifier —
+  // which is worse than none, because a non-null answer also suppresses the SC3
+  // conservative inclusion. Unresolved is the safe answer.
+  test("a reassignable binding is NOT trusted, even with a literal initializer", () => {
+    const reassigned = `let M = "a/b";\nM = "c/d";\nawait import(M);`;
+
+    expect(resolveIdentifierImports(reassigned)).toEqual([["M", null]]);
+    expect(hasUnresolvedIdentifierImport(reassigned)).toBe(true);
+    expect(extractImportSpecifiers(reassigned)).toEqual([]);
+  });
+
+  test("a destructured binding does not bind to an unrelated literal nearby", () => {
+    const destructured = `const { M } = foo;\nconst other = "x/y";\nawait import(M);`;
+
+    expect(resolveIdentifierImports(destructured)).toEqual([["M", null]]);
   });
 
   test("an identifier with no literal binding invents no specifier, and IS reported", () => {
@@ -260,20 +273,57 @@ describe("dynamic import via an identifier specifier (mt#4945)", () => {
     expect(hasUnresolvedIdentifierImport(src)).toBe(true);
   });
 
-  test("an identifier import written in a COMMENT does not force conservative inclusion", () => {
-    // Found by measurement, not foresight: the first draft flagged this very file,
-    // because its own prose explains the feature by writing the call form out. The
-    // predicate strips comments; extraction deliberately does not (opposite failure
-    // directions — see the function's docblock).
+  // The two false-POSITIVE cases. Both were real: the first draft flagged
+  // `find-related-tests.test.ts` itself, because this file's own prose and fixtures
+  // write the call form out. Documentation and example strings are not code.
+  test("the call form inside a COMMENT is not a dynamic import", () => {
     const commented = `// explains the feature: await import(NOPE)\nconst real = 1;`;
 
+    expect(resolveIdentifierImports(commented)).toEqual([]);
     expect(hasUnresolvedIdentifierImport(commented)).toBe(false);
-    // Extraction is unchanged — it still reads raw text, over-selecting by design.
-    expect(resolveIdentifierImports(commented)).toEqual([["NOPE", null]]);
   });
 
-  test("a block comment is stripped too", () => {
+  test("the call form inside a BLOCK comment is not a dynamic import", () => {
     expect(hasUnresolvedIdentifierImport(`/* await import(NOPE) */\nconst real = 1;`)).toBe(false);
+  });
+
+  test("the call form inside a STRING literal is not a dynamic import", () => {
+    // This is why the test names in this describe can once again say what they mean:
+    // a fixture holding example source no longer flags the file that holds it.
+    expect(hasUnresolvedIdentifierImport(`const sample = "await import(NOPE)";`)).toBe(false);
+  });
+
+  // PR #3605 R1 BLOCKING #1 — the regression this file exists to pin. Stripping `//`
+  // from RAW text erases the rest of the line whenever a string contains one, taking a
+  // real `import(M)` with it. That is a SILENT false negative: the file drops out of
+  // conservative inclusion, which is precisely what SC3 forbids.
+  test("a '//' inside a string does not erase the code after it", () => {
+    const withUrl = `const url = "http://example.com"; const { X } = await import(M);`;
+
+    expect(hasUnresolvedIdentifierImport(withUrl)).toBe(true);
+    expect(resolveIdentifierImports(withUrl)).toEqual([["M", null]]);
+  });
+
+  test("a block-comment delimiter inside a string does not open a comment", () => {
+    const withDelim = `const s = "a/*b*/c";\nawait import(M);`;
+
+    expect(hasUnresolvedIdentifierImport(withDelim)).toBe(true);
+  });
+
+  // PR #3605 R1 NON-BLOCKING #3: a widening nobody can see is its own problem.
+  test("conservative inclusion announces itself, naming the files and the cause", () => {
+    const notice = formatConservativeInclusionNotice(
+      new Set(["tests/b.test.ts", "tests/a.test.ts"])
+    );
+
+    expect(notice).toBe(
+      "find-related-tests: conservatively including 2 test file(s) whose dynamic import " +
+        "specifier could not be resolved: tests/a.test.ts, tests/b.test.ts"
+    );
+  });
+
+  test("nothing is announced when there is nothing to announce", () => {
+    expect(formatConservativeInclusionNotice(new Set())).toBeNull();
   });
 
   test("a computed specifier is reported unresolved rather than matched", () => {
