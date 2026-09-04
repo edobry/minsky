@@ -3114,3 +3114,87 @@ describe("batched submit_findings applies the resolution-note guard (mt#4979)", 
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// PR #3640 R1 — the forced pass dedupes across the batch and singular forms
+// ---------------------------------------------------------------------------
+
+describe("forced findings pass dedupes duplicate entries (PR #3640 R1)", () => {
+  const MODEL_ID = "gpt-4o";
+  const usage = () => ({
+    prompt_tokens: 10,
+    completion_tokens: 5,
+    total_tokens: 15,
+    completion_tokens_details: { reasoning_tokens: 0 },
+  });
+  const call = (id: string, name: string, args: unknown) => ({
+    id,
+    type: "function",
+    function: { name, arguments: JSON.stringify(args) },
+  });
+  const withCalls = (calls: unknown[]) => ({
+    choices: [{ message: { content: null, tool_calls: calls } }],
+    usage: usage(),
+  });
+  const DUPE = {
+    severity: "BLOCKING" as const,
+    file: "src/foo.ts",
+    line: 10,
+    summary: "Same issue",
+    details: "d",
+  };
+
+  test("the same finding arriving in BOTH the batch and the singular is recorded once", () => {
+    // The pin makes this shape unlikely, not impossible, and the pass accepts
+    // both names on purpose (dropping a well-formed finding for arriving under
+    // the other name would re-create the lossy channel). So the dedupe is what
+    // stops "accept both" from becoming "report twice".
+    const responses = [
+      withCalls([
+        call("s1", TOOL_SPEC_VERIFICATION, {
+          criterion: "c",
+          status: "Met",
+          evidence: "e",
+        }),
+      ]),
+      { choices: [{ message: { content: "Done.", tool_calls: undefined } }], usage: usage() },
+      withCalls([
+        call("d1", TOOL_DOC_IMPACT, {
+          kind: DOC_IMPACT_KIND_NO_UPDATE,
+          evidence: "none",
+        }),
+      ]),
+      withCalls([
+        call("c1", "conclude_review", {
+          event: "REQUEST_CHANGES",
+          summary: "Issues remain.",
+        }),
+      ]),
+      // The forced findings pass returns the batch AND a singular duplicate,
+      // plus one genuinely distinct finding.
+      withCalls([
+        call("f1", "submit_findings", {
+          findings: [DUPE, { ...DUPE, file: "src/bar.ts", summary: "Different issue" }],
+        }),
+        call("f2", "submit_finding", DUPE),
+      ]),
+    ];
+
+    let i = 0;
+    const client = {
+      chat: { completions: { create: async () => responses[i++] } },
+    } as unknown as OpenAI;
+    const tools: ReviewerToolContext = {
+      readFile: mock(async () => null),
+      listDirectory: mock(async () => null),
+    };
+
+    return callOpenAIWithClient(client, MODEL_ID, "system", "user", tools).then((result) => {
+      const findings = result.toolCalls.filter((tc) => tc.name === "submit_finding");
+      // Two distinct findings, not three — and the distinct one survives, which
+      // is what separates a dedupe from "kept only the first call".
+      expect(findings).toHaveLength(2);
+      expect(findings.map((f) => f.args.file)).toEqual(["src/foo.ts", "src/bar.ts"]);
+    });
+  });
+});

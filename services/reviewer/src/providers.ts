@@ -883,10 +883,14 @@ const CONCLUDE_REVIEW_REMINDER_USER_MSG =
   "Your review is incomplete. Emit conclude_review(event, summary) now as your final tool call.";
 
 /**
- * The submit_finding tool definition extracted from OUTPUT_TOOL_DEFINITIONS,
- * adapted to the OpenAI SDK's tool-shape. Used by the post-loop forced
- * findings pass (mt#2926) to constrain the model to emit submit_finding via
- * tool_choice. Same runtime-guard-not-module-throw pattern as its two
+ * The BATCHED `submit_findings` tool definition extracted from
+ * OUTPUT_TOOL_DEFINITIONS, adapted to the OpenAI SDK's tool-shape. Used by the
+ * post-loop forced findings pass (mt#2926) to constrain the model via
+ * tool_choice.
+ *
+ * Named for the batch, not the singular (PR #3640 R1): mt#4979 changed which
+ * tool this pins, and a `SUBMIT_FINDING_*` name would have kept asserting the
+ * old referent to every later reader. Same runtime-guard-not-module-throw pattern as its two
  * siblings above: if submit_finding is somehow absent (refactor slip), only
  * this pass is disabled and the mt#2685 recovery synthesis takes over.
  */
@@ -895,17 +899,17 @@ const CONCLUDE_REVIEW_REMINDER_USER_MSG =
 // mt#2926's smoke), so pinning `submit_finding` capped recovery at one finding
 // however many the conclusion named. One call carrying N findings lifts that
 // ceiling without loosening the pin that guarantees emission at all.
-const SUBMIT_FINDING_RAW_DEF = OUTPUT_TOOL_DEFINITIONS.find(
+const SUBMIT_FINDINGS_BATCH_RAW_DEF = OUTPUT_TOOL_DEFINITIONS.find(
   (t) => t.function.name === BATCHED_FINDINGS_TOOL
 );
-const SUBMIT_FINDING_TOOL_DEF: OpenAI.Chat.Completions.ChatCompletionTool | null =
-  SUBMIT_FINDING_RAW_DEF
+const SUBMIT_FINDINGS_BATCH_TOOL_DEF: OpenAI.Chat.Completions.ChatCompletionTool | null =
+  SUBMIT_FINDINGS_BATCH_RAW_DEF
     ? {
         type: "function" as const,
         function: {
-          name: SUBMIT_FINDING_RAW_DEF.function.name,
-          description: SUBMIT_FINDING_RAW_DEF.function.description,
-          parameters: SUBMIT_FINDING_RAW_DEF.function.parameters as Record<string, unknown>,
+          name: SUBMIT_FINDINGS_BATCH_RAW_DEF.function.name,
+          description: SUBMIT_FINDINGS_BATCH_RAW_DEF.function.description,
+          parameters: SUBMIT_FINDINGS_BATCH_RAW_DEF.function.parameters as Record<string, unknown>,
         },
       }
     : null;
@@ -1241,7 +1245,7 @@ async function forceFindings(
   attempted: boolean;
   emittedCount: number;
 }> {
-  if (!SUBMIT_FINDING_TOOL_DEF) {
+  if (!SUBMIT_FINDINGS_BATCH_TOOL_DEF) {
     log.info("reviewer.submit_finding_tool_def_missing", {
       event: "reviewer.submit_finding_tool_def_missing",
       provider: "openai",
@@ -1274,7 +1278,7 @@ async function forceFindings(
           tools: ALL_TOOL_DEFINITIONS,
           tool_choice: {
             type: "function",
-            function: { name: SUBMIT_FINDING_TOOL_DEF.function.name },
+            function: { name: SUBMIT_FINDINGS_BATCH_TOOL_DEF.function.name },
           },
         },
         { signal }
@@ -1296,6 +1300,7 @@ async function forceFindings(
   }
 
   let emittedCount = 0;
+  const seenFindingKeys = new Set<string>();
   for (const toolCall of rawToolCalls) {
     // mt#4979: the pinned tool is the BATCH form, so one returned call carries
     // N findings. The singular name is still accepted — the model may emit it
@@ -1310,6 +1315,31 @@ async function forceFindings(
         // The expansion of either accepted name yields only submit_finding
         // entries; the check keeps the discriminated union honest.
         if (parsed.name !== "submit_finding") continue;
+
+        // PR #3640 R1: accepting BOTH the batch and singular names means a
+        // response carrying both could append the same finding twice, which
+        // reaches the review body as a visible duplicate. The pin makes that
+        // shape unlikely, not impossible — and a dedupe is cheaper than the
+        // report. Keyed on the fields that identify a finding to a reader;
+        // `details` is excluded so a re-worded restatement of the same anchor
+        // still collapses.
+        const dedupeKey = [
+          parsed.args.severity,
+          parsed.args.file,
+          String(parsed.args.line),
+          parsed.args.summary,
+        ].join("\u0000");
+        if (seenFindingKeys.has(dedupeKey)) {
+          log.info("reviewer.forced_findings_duplicate_skipped", {
+            event: "reviewer.forced_findings_duplicate_skipped",
+            provider: "openai",
+            phase: "post_loop_forced_findings",
+            file: parsed.args.file,
+            line: parsed.args.line,
+          });
+          continue;
+        }
+        seenFindingKeys.add(dedupeKey);
 
         // mt#2863 / mt#3300 emission guard, applied on this path for the same
         // reason it is applied in the main loop: a BLOCKING finding whose text
