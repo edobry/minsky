@@ -53,6 +53,9 @@ import {
   getSharedProvider,
   PersistenceInitTimeoutError,
 } from "../../cockpit/shared-persistence";
+import { DriverTransportFailure } from "../../cockpit/driver-transport";
+import { markDrivenSessionCrashedByPid } from "../../cockpit/driven-session-host";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import {
   isDbConditionSqlStateClass,
   sqlStateClass,
@@ -281,7 +284,16 @@ function readErrorCode(reason: unknown): string | undefined {
  * Decides whether an unhandled rejection should degrade the DB, be survived
  * silently, or terminate the daemon.
  *
- * Two code spaces reach this, and they are matched separately:
+ * A `DriverTransportFailure` (mt#4943 SC2) always survives — it is a typed,
+ * transport-attributed failure of ONE drive (an ACP session/child-process
+ * failure that escaped the transport's own defenses), never a defect in
+ * daemon state, so it should no more kill the daemon than a survivable DB
+ * condition would. This is a narrow, scoped exception to "everything else
+ * exits" below: the classifier still exits on any UNattributed rejection,
+ * and this class is checked FIRST only because it needs no code-based
+ * matching, not because it takes priority over the DB classification.
+ *
+ * Two code spaces reach the DB classification, and they are matched separately:
  *
  *   - **Client-side** — postgres-js's own codes (`CLIENT_SIDE_DEGRADATION_CODES`)
  *     plus `PersistenceInitTimeoutError`. All connection-level → `"degrade"`.
@@ -301,6 +313,7 @@ function readErrorCode(reason: unknown): string | undefined {
  * @internal Exported for unit testing only.
  */
 export function classifyUnhandledRejection(reason: unknown): UnhandledRejectionDisposition {
+  if (reason instanceof DriverTransportFailure) return "survive";
   if (reason instanceof PersistenceInitTimeoutError) return "degrade";
 
   const code = readErrorCode(reason);
@@ -345,6 +358,13 @@ export interface UnhandledRejectionEffects {
   startRetryBackoff: () => () => void;
   cleanup: () => void;
   exit: () => void;
+  /**
+   * Attributes a `DriverTransportFailure` to its drive record (mt#4943 SC2)
+   * — called from the survive branch ONLY for that class, alongside (never
+   * instead of) `logSurvived`, so the survived-exception tally on
+   * `/api/health` still counts it.
+   */
+  markDriveCrashed: (failure: DriverTransportFailure) => void;
 }
 
 /**
@@ -362,6 +382,9 @@ export function createUnhandledRejectionHandler(
     switch (classifyUnhandledRejection(reason)) {
       case "survive":
         effects.logSurvived(reason);
+        if (reason instanceof DriverTransportFailure) {
+          effects.markDriveCrashed(reason);
+        }
         return;
       case "degrade": {
         const message = reason instanceof Error ? reason.message : String(reason);
@@ -989,6 +1012,11 @@ export function createStartCommand(): Command {
           startRetryBackoff: () => startDbRetryBackoff(),
           cleanup: cleanupSync,
           exit: () => process.exit(1),
+          // mt#4943 SC2 — the pid is the only identifying information a
+          // DriverTransportFailure carries; markDrivenSessionCrashedByPid is
+          // a no-op if no record's pid matches or it is already terminal.
+          markDriveCrashed: (failure) =>
+            markDrivenSessionCrashedByPid(failure.pid, getLoggableErrorSummary(failure)),
         })
       );
 

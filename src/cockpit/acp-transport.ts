@@ -85,6 +85,7 @@ import {
   classifyAcpPermissionResponse,
   type AcpPermissionOptionInput,
 } from "@minsky/domain/ask/acp-permission-request";
+import { DriverTransportFailure } from "./driver-transport";
 import type {
   DriverTransport,
   DriverTransportEvent,
@@ -184,6 +185,16 @@ function deferSessionId(): DeferredSessionId {
     resolve = res;
     reject = rej;
   });
+  // mt#4943 SC1 — `sendUserTurn` is the only place that ever installs a REAL
+  // handler on this promise, and it only runs on the FIRST turn. A failure
+  // before that (a proc error/exit, or a session-setup error) must never
+  // surface as a process-level `unhandledRejection` just because nothing had
+  // subscribed yet. A promise may carry any number of independent reaction
+  // handlers, so attaching this no-op here does not consume the rejection —
+  // `sendUserTurn`'s own later `.then`/`.catch` chain still observes it
+  // (or, post mt#4943, is skipped entirely once `setupFailure` is recorded —
+  // see `failSetup`).
+  promise.catch(() => {});
   return { promise, resolve, reject };
 }
 
@@ -214,6 +225,24 @@ interface AcpProcState {
    * rather than sending `session/prompt` on a session the agent has already
    * been told to release. */
   closed: boolean;
+  /**
+   * Set once by whichever of {@link AcpTransport.failSetup}'s call sites
+   * fires first (mt#4943 SC1) — the RECORDED transport-constructed failure
+   * for this process. `sendUserTurn` consults this to refuse a turn without
+   * ever touching the (already-rejected) `sessionIdDeferred` promise again,
+   * and `attach`'s `connection.closed` watcher consults it to avoid
+   * reporting a SECOND `processError` for a failure already reported
+   * through `processError`/`processExited`.
+   */
+  setupFailure: DriverTransportFailure | null;
+  /**
+   * The pending grace-window timer armed by the `connection.closed` watcher
+   * (mt#4943 PR #3612 R1) — non-null only while waiting to see whether
+   * `exit`/`error` arrives before `closedGraceMs` elapses. Cleared (and
+   * nulled) by the `exit`/`error` handlers and by `stop()`/teardown so a
+   * stray timer can never fire after the process is already accounted for.
+   */
+  closedGraceTimer: ReturnType<typeof setTimeout> | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -254,9 +283,24 @@ export interface AcpTransportOptions {
   /** Stable per-process identity for the `requestor` field on a created ask
    * (ADR-006 AgentId format). Defaults to a fixed cockpit-daemon identity. */
   requestorAgentId?: string;
+  /**
+   * How long, after the ACP `connection.closed` promise resolves, to wait
+   * for the child's OWN `exit`/`error` event before concluding the
+   * connection died with no such event ever coming (mt#4943 PR #3612 R1,
+   * test seam). A dying child closes its stdout — ending the SDK's receive
+   * loop and resolving `closed` — before Node fires the `ChildProcess`
+   * `exit` event, so without this grace window the `closed` watcher would
+   * routinely win the race and report a `processError` moments before the
+   * more specific, exit-code-carrying `processExited` arrives: two terminal
+   * events for one process death. Defaults to 500ms.
+   */
+  closedGraceMs?: number;
 }
 
 const DEFAULT_REQUESTOR_AGENT_ID = "minsky.cockpit:proc:acp-transport";
+
+/** Default {@link AcpTransportOptions.closedGraceMs} — see that option's doc comment. */
+const DEFAULT_CLOSED_GRACE_MS = 500;
 
 /**
  * Lazy, cached SQL handle for the production `createAskRepository` default —
@@ -290,6 +334,7 @@ export class AcpTransport implements DriverTransport {
   private readonly getAnthropicApiKey: () => string | null;
   private readonly createAskRepository: () => Promise<AskRepository | null>;
   private readonly requestorAgentId: string;
+  private readonly closedGraceMs: number;
   private readonly procState = new WeakMap<ProcessLike, AcpProcState>();
 
   constructor(opts: AcpTransportOptions = {}) {
@@ -299,6 +344,7 @@ export class AcpTransport implements DriverTransport {
     this.getAnthropicApiKey = opts.getAnthropicApiKey ?? readConfiguredAnthropicApiKey;
     this.createAskRepository = opts.createAskRepository ?? defaultCreateAskRepository;
     this.requestorAgentId = opts.requestorAgentId ?? DEFAULT_REQUESTOR_AGENT_ID;
+    this.closedGraceMs = opts.closedGraceMs ?? DEFAULT_CLOSED_GRACE_MS;
   }
 
   // -------------------------------------------------------------------------
@@ -406,6 +452,8 @@ export class AcpTransport implements DriverTransport {
       turnIndex: 0,
       attached: false,
       closed: false,
+      setupFailure: null,
+      closedGraceTimer: null,
     });
 
     return { ok: true, proc, argv: [agentCommand.command, ...agentCommand.args] };
@@ -470,23 +518,93 @@ export class AcpTransport implements DriverTransport {
     this.bindEventHandlers(state, proc, onEvent);
 
     proc.on("error", (err: Error) => {
+      this.clearClosedGraceTimer(state);
       const isEnoent = (err as NodeJS.ErrnoException).code === "ENOENT";
       const crashError = isEnoent
         ? `Failed to start ACP agent (${state.harnessKind}): not found — is it on PATH? (${err.message})`
         : `Failed to start ACP agent (${state.harnessKind}): ${err.message}`;
       onEvent({ kind: "processError", crashError });
-      state.sessionIdDeferred.reject(err);
+      this.failSetup(state, proc, crashError, err);
     });
 
     proc.on("exit", (code, signal) => {
+      this.clearClosedGraceTimer(state);
       const crashErrorBase = `ACP agent (${state.harnessKind}) exited with code=${
         code ?? "null"
       } signal=${signal ?? "null"}`;
       onEvent({ kind: "processExited", code, signal, crashErrorBase });
-      state.sessionIdDeferred.reject(new Error(crashErrorBase));
+      this.failSetup(state, proc, crashErrorBase);
     });
 
-    void this.runInitAndSession(state, onEvent);
+    // mt#4943 SC1/PR #3612 R1 — a connection can close (its underlying
+    // stream ending) without EITHER of the two process-level listeners
+    // above ever firing (see this module's `## Does NOT cover` sibling in
+    // the mt#4943 spec for the one theoretical `ndJsonStream` race this
+    // guards against). `closed` is documented by the SDK as a promise that
+    // only ever RESOLVES, never rejects (see the module docblock's `## Wire
+    // protocol` section) — the `.catch` below is defensive only, in case a
+    // future SDK version disagrees with its own current contract.
+    //
+    // A dying child closes its stdout (ending the SDK's receive loop and
+    // resolving `closed`) BEFORE Node fires the `exit` event — so reporting
+    // immediately on `closed` would routinely race ahead of the more
+    // specific, exit-code-carrying `processExited` and produce TWO terminal
+    // events for one process death (PR #3612 R1). Arm a `closedGraceMs`
+    // timer instead: if `exit`/`error`/`stop()` arrives first, it clears the
+    // timer and this watcher never fires at all; only if the window elapses
+    // with neither having arrived do we conclude the connection died with no
+    // process-level signal and report it ourselves.
+    state.connection.closed
+      .then(() => {
+        if (state.setupFailure || state.closed) return;
+        const timer = setTimeout(() => {
+          state.closedGraceTimer = null;
+          if (state.setupFailure || state.closed) return;
+          const crashError = `ACP connection closed unexpectedly (${state.harnessKind})`;
+          onEvent({ kind: "processError", crashError });
+          this.failSetup(state, proc, crashError);
+        }, this.closedGraceMs);
+        timer.unref?.();
+        state.closedGraceTimer = timer;
+      })
+      .catch(() => {
+        // Defensive only — see comment above.
+      });
+
+    void this.runInitAndSession(state, proc, onEvent);
+  }
+
+  /** Clears (and nulls) {@link AcpProcState.closedGraceTimer} — see that
+   * field's doc comment. Idempotent: a no-op when no timer is armed. */
+  private clearClosedGraceTimer(state: AcpProcState): void {
+    if (state.closedGraceTimer === null) return;
+    clearTimeout(state.closedGraceTimer);
+    state.closedGraceTimer = null;
+  }
+
+  /**
+   * Record (idempotently) the first transport-constructed failure for this
+   * process and reject {@link AcpProcState.sessionIdDeferred} with it — a
+   * no-op if the deferred already settled (mt#4943 SC1). The deferred's own
+   * `.catch(() => {})`, attached at creation by {@link deferSessionId}, is
+   * what actually keeps this rejection from ever reaching the process as an
+   * `unhandledRejection`; this method's job is only to CONSTRUCT the typed
+   * failure once and make it observable to `sendUserTurn` and the `closed`
+   * watcher above, so a failure recorded from one site (say, `proc.on("exit")`)
+   * is not overwritten by a later, less-specific one (say, `closed`).
+   */
+  private failSetup(
+    state: AcpProcState,
+    proc: ProcessLike,
+    message: string,
+    cause?: unknown
+  ): DriverTransportFailure {
+    const failure =
+      state.setupFailure ??
+      new DriverTransportFailure(message, { harnessKind: state.harnessKind, pid: proc.pid, cause });
+    state.setupFailure = failure;
+    state.sessionIdDeferred.reject(failure);
+    return failure;
   }
 
   /** Populated by {@link buildConnection} (during `spawn`/`spawnResume`,
@@ -620,6 +738,7 @@ export class AcpTransport implements DriverTransport {
 
   private async runInitAndSession(
     state: AcpProcState,
+    proc: ProcessLike,
     onEvent: (event: DriverTransportEvent) => void
   ): Promise<void> {
     try {
@@ -647,8 +766,9 @@ export class AcpTransport implements DriverTransport {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error(`[acp-transport] initialize/session setup failed: ${message}`);
-      onEvent({ kind: "processError", crashError: `ACP session setup failed: ${message}` });
-      state.sessionIdDeferred.reject(err);
+      const crashError = `ACP session setup failed: ${message}`;
+      onEvent({ kind: "processError", crashError });
+      this.failSetup(state, proc, crashError, err);
     }
   }
 
@@ -662,6 +782,18 @@ export class AcpTransport implements DriverTransport {
     // mt#4936 PR #3596 R1 — never send session/prompt on a session already
     // told to close; the agent may have freed its resources.
     if (state.closed) return false;
+    // mt#4943 SC1 — a failure recorded before this turn (proc error/exit, or
+    // a session-setup error) means `sessionIdDeferred` is already rejected;
+    // report it here, through the normal onEvent/log path, rather than
+    // touching that promise again.
+    if (state.setupFailure) {
+      log.error(
+        `[acp-transport] sendUserTurn refused — transport already failed: ${getLoggableErrorSummary(
+          state.setupFailure
+        )}`
+      );
+      return false;
+    }
 
     const prompt: ContentBlock[] = [];
     if (text.length > 0) prompt.push({ type: "text", text });
@@ -748,6 +880,10 @@ export class AcpTransport implements DriverTransport {
     const state = this.procState.get(proc);
     if (!state || state.closed) return;
     state.closed = true;
+    // mt#4943 PR #3612 R1 — a graceful stop is not a connection death worth
+    // reporting; cancel any pending `closed`-watcher grace timer so it can
+    // never fire (and emit a spurious `processError`) after this point.
+    this.clearClosedGraceTimer(state);
 
     const teardown = (): void => {
       try {

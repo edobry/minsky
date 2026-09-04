@@ -184,6 +184,54 @@ function scriptFakeAgent(proc: FakeAcpAgentProcess): { seen: JsonRpcFrame[] } {
   return { seen };
 }
 
+/**
+ * Scripts ONLY `initialize` (normally) then answers `session/new` with a
+ * JSON-RPC ERROR — the incident's own shape (mt#4943 `## Diagnosis` scenario
+ * A): `RequestError: Internal error`, code -32603, before any turn is sent.
+ */
+function scriptFakeAgentSessionNewError(proc: FakeAcpAgentProcess): void {
+  readFrames(proc, (frame) => {
+    if (frame.method === "initialize") {
+      writeFrame(proc, {
+        jsonrpc: "2.0",
+        id: frame.id,
+        result: { protocolVersion: 1, agentCapabilities: {} },
+      });
+      return;
+    }
+    if (frame.method === "session/new") {
+      writeFrame(proc, {
+        jsonrpc: "2.0",
+        id: frame.id,
+        error: { code: -32603, message: "Internal error" },
+      });
+      return;
+    }
+  });
+}
+
+/**
+ * Scripts ONLY `initialize` (normally) and never responds to `session/new` —
+ * used for mt#4943 `## Diagnosis` scenario B, where the TEST itself emits a
+ * child `exit` once it observes the `session/new` request go out, before any
+ * response ever arrives.
+ */
+function scriptFakeAgentInitOnly(proc: FakeAcpAgentProcess): { seen: JsonRpcFrame[] } {
+  const seen: JsonRpcFrame[] = [];
+  readFrames(proc, (frame) => {
+    seen.push(frame);
+    if (frame.method === "initialize") {
+      writeFrame(proc, {
+        jsonrpc: "2.0",
+        id: frame.id,
+        result: { protocolVersion: 1, agentCapabilities: {} },
+      });
+    }
+    // Deliberately no response to session/new — scenario B exits the child.
+  });
+  return { seen };
+}
+
 interface SpawnCapture {
   command: string;
   args: string[];
@@ -264,6 +312,7 @@ function makeFakeAskRepository(resolution: { optionValue: string } | { policyClo
 const TEST_CWD = mkdtempSync(join(tmpdir(), "acp-transport-"));
 const BYPASS_PERMISSIONS = "bypassPermissions" as const;
 const HARNESS_SESSION_DISCOVERED = "harnessSessionDiscovered" as const;
+const UNHANDLED_REJECTION_EVENT = "unhandledRejection" as const;
 afterAll(() => {
   rmSync(TEST_CWD, { recursive: true, force: true });
 });
@@ -452,6 +501,246 @@ describe("AcpTransport — recorded-fixture session (mt#4936 AT1)", () => {
   });
 });
 
+describe("AcpTransport — pre-turn failures never escape as an unhandledRejection (mt#4943 SC1/SC3a)", () => {
+  test("session/new answered with a JSON-RPC error before any turn — no unhandled rejection escapes, sendUserTurn stays quiet", async () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const transport = new AcpTransport({ spawnFn, getOpenAiApiKey: () => "sk-fake-openai" });
+
+    const spawnResult = transport.spawn({
+      cwd: TEST_CWD,
+      permissionMode: BYPASS_PERMISSIONS,
+      authMode: "api-key",
+      harnessKind: "codex",
+    });
+    expect(spawnResult.ok).toBe(true);
+    if (!spawnResult.ok) return;
+
+    const proc = first(calls).proc;
+    scriptFakeAgentSessionNewError(proc);
+
+    const unhandled: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    const procEmitter = processUnhandledRejectionEmitter();
+    procEmitter.on(UNHANDLED_REJECTION_EVENT, onUnhandledRejection);
+
+    try {
+      const events: DriverTransportEvent[] = [];
+      transport.attach(spawnResult.proc, TEST_CWD, (event) => events.push(event));
+
+      await waitFor(() => events.some((e) => e.kind === "processError"));
+      // Settle: an escaping rejection surfaces as `unhandledRejection` on a
+      // LATER microtask/macrotask checkpoint, not synchronously with the
+      // reject call — this window matches the `## Diagnosis` reproduction's
+      // own settle period.
+      await new Promise((r) => setTimeout(r, 350));
+
+      expect(() => transport.sendUserTurn(proc, "should be quiet")).not.toThrow();
+      await new Promise((r) => setTimeout(r, 350));
+
+      expect(unhandled).toHaveLength(0);
+    } finally {
+      procEmitter.off(UNHANDLED_REJECTION_EVENT, onUnhandledRejection);
+    }
+  });
+
+  test("child exit(1) before session/new is answered — no unhandled rejection escapes, sendUserTurn stays quiet", async () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const transport = new AcpTransport({ spawnFn, getOpenAiApiKey: () => "sk-fake-openai" });
+
+    const spawnResult = transport.spawn({
+      cwd: TEST_CWD,
+      permissionMode: BYPASS_PERMISSIONS,
+      authMode: "api-key",
+      harnessKind: "codex",
+    });
+    expect(spawnResult.ok).toBe(true);
+    if (!spawnResult.ok) return;
+
+    const proc = first(calls).proc;
+    const { seen } = scriptFakeAgentInitOnly(proc);
+
+    const unhandled: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    const procEmitter = processUnhandledRejectionEmitter();
+    procEmitter.on(UNHANDLED_REJECTION_EVENT, onUnhandledRejection);
+
+    try {
+      const events: DriverTransportEvent[] = [];
+      transport.attach(spawnResult.proc, TEST_CWD, (event) => events.push(event));
+
+      await waitFor(() => seen.some((f) => f.method === "session/new"));
+      proc.emit("exit", 1, null);
+
+      await waitFor(() => events.some((e) => e.kind === "processExited"));
+      await new Promise((r) => setTimeout(r, 350));
+
+      expect(() => transport.sendUserTurn(proc, "should be quiet")).not.toThrow();
+      await new Promise((r) => setTimeout(r, 350));
+
+      expect(unhandled).toHaveLength(0);
+    } finally {
+      procEmitter.off(UNHANDLED_REJECTION_EVENT, onUnhandledRejection);
+    }
+  });
+});
+
+describe("AcpTransport — connection.closed vs exit/error race (mt#4943 PR #3612 R1)", () => {
+  /** Kept small so these tests run fast; the transport's own default
+   * (`DEFAULT_CLOSED_GRACE_MS`) is production-sized, not test-sized. */
+  const GRACE_MS = 30;
+
+  test("exit() arriving within the grace window wins — exactly one processExited, zero processError", async () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const transport = new AcpTransport({
+      spawnFn,
+      getOpenAiApiKey: () => "sk-fake-openai",
+      closedGraceMs: GRACE_MS,
+    });
+
+    const spawnResult = transport.spawn({
+      cwd: TEST_CWD,
+      permissionMode: BYPASS_PERMISSIONS,
+      authMode: "api-key",
+      harnessKind: "codex",
+    });
+    expect(spawnResult.ok).toBe(true);
+    if (!spawnResult.ok) return;
+
+    const proc = first(calls).proc;
+    // The FULL script (answers session/new) — a request still PENDING when
+    // the connection closes rejects via the SDK's OWN pending-response
+    // cleanup (`close()` rejects every in-flight request), which reaches
+    // `runInitAndSession`'s catch directly and is a different path than the
+    // `connection.closed` watcher this test targets. Waiting for the
+    // session to be established first (below) leaves nothing pending, so
+    // closing stdout exercises ONLY the watcher.
+    scriptFakeAgent(proc);
+
+    const unhandled: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    const procEmitter = processUnhandledRejectionEmitter();
+    procEmitter.on(UNHANDLED_REJECTION_EVENT, onUnhandledRejection);
+
+    try {
+      const events: DriverTransportEvent[] = [];
+      transport.attach(spawnResult.proc, TEST_CWD, (event) => events.push(event));
+      await waitFor(() => events.some((e) => e.kind === HARNESS_SESSION_DISCOVERED));
+
+      // Ending stdout resolves the SDK's `connection.closed` (the receive
+      // loop sees EOF) — a dying child's own `exit` event typically arrives
+      // shortly after, well inside the grace window.
+      proc.stdout.end();
+      await new Promise((r) => setTimeout(r, 15));
+      proc.emit("exit", 1, null);
+
+      // Settle past the grace window — if the timer had wrongly fired
+      // anyway, this gives it time to have done so.
+      await new Promise((r) => setTimeout(r, 100));
+
+      expect(events.filter((e) => e.kind === "processExited")).toHaveLength(1);
+      expect(events.filter((e) => e.kind === "processError")).toHaveLength(0);
+      expect(unhandled).toHaveLength(0);
+    } finally {
+      procEmitter.off(UNHANDLED_REJECTION_EVENT, onUnhandledRejection);
+    }
+  });
+
+  test("no exit/error ever arrives — exactly one processError after the grace window, none before", async () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const transport = new AcpTransport({
+      spawnFn,
+      getOpenAiApiKey: () => "sk-fake-openai",
+      closedGraceMs: GRACE_MS,
+    });
+
+    const spawnResult = transport.spawn({
+      cwd: TEST_CWD,
+      permissionMode: BYPASS_PERMISSIONS,
+      authMode: "api-key",
+      harnessKind: "codex",
+    });
+    expect(spawnResult.ok).toBe(true);
+    if (!spawnResult.ok) return;
+
+    const proc = first(calls).proc;
+    // See the sibling test above for why this uses the FULL script (and
+    // waits for session discovery before closing) rather than
+    // scriptFakeAgentInitOnly.
+    scriptFakeAgent(proc);
+
+    const unhandled: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    const procEmitter = processUnhandledRejectionEmitter();
+    procEmitter.on(UNHANDLED_REJECTION_EVENT, onUnhandledRejection);
+
+    try {
+      const events: DriverTransportEvent[] = [];
+      transport.attach(spawnResult.proc, TEST_CWD, (event) => events.push(event));
+      await waitFor(() => events.some((e) => e.kind === HARNESS_SESSION_DISCOVERED));
+
+      proc.stdout.end();
+
+      // Still inside the grace window — nothing should have fired yet.
+      await new Promise((r) => setTimeout(r, 15));
+      expect(events.filter((e) => e.kind === "processError")).toHaveLength(0);
+
+      // Past the grace window: exactly one processError, and no exit event
+      // (none was ever emitted).
+      await new Promise((r) => setTimeout(r, 100));
+      expect(events.filter((e) => e.kind === "processError")).toHaveLength(1);
+      expect(events.filter((e) => e.kind === "processExited")).toHaveLength(0);
+      expect(unhandled).toHaveLength(0);
+    } finally {
+      procEmitter.off(UNHANDLED_REJECTION_EVENT, onUnhandledRejection);
+    }
+  });
+
+  test("stop() called after close but before the grace elapses — no processError", async () => {
+    const { spawnFn, calls } = makeFakeSpawnFn();
+    const transport = new AcpTransport({
+      spawnFn,
+      getOpenAiApiKey: () => "sk-fake-openai",
+      closedGraceMs: GRACE_MS,
+    });
+
+    const spawnResult = transport.spawn({
+      cwd: TEST_CWD,
+      permissionMode: BYPASS_PERMISSIONS,
+      authMode: "api-key",
+      harnessKind: "codex",
+    });
+    expect(spawnResult.ok).toBe(true);
+    if (!spawnResult.ok) return;
+
+    const proc = first(calls).proc;
+    // See the first test in this describe block for why this uses the FULL
+    // script (and waits for session discovery before closing) rather than
+    // scriptFakeAgentInitOnly.
+    scriptFakeAgent(proc);
+
+    const events: DriverTransportEvent[] = [];
+    transport.attach(spawnResult.proc, TEST_CWD, (event) => events.push(event));
+    await waitFor(() => events.some((e) => e.kind === HARNESS_SESSION_DISCOVERED));
+
+    proc.stdout.end();
+    await new Promise((r) => setTimeout(r, 15));
+    transport.stop(proc);
+
+    // Settle well past the grace window.
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(events.filter((e) => e.kind === "processError")).toHaveLength(0);
+  });
+});
+
 describe("AcpTransport.stop — session/close lifecycle (mt#4936 PR #3596 R1)", () => {
   test("stop() sends session/close exactly once, after cancel", async () => {
     const { spawnFn, calls } = makeFakeSpawnFn();
@@ -548,6 +837,21 @@ describe("AcpTransport.stop — session/close lifecycle (mt#4936 PR #3596 R1)", 
     expect(sent).toBe(false);
   });
 });
+
+/**
+ * The Minsky-narrowed `process` shape (`src/types/node.d.ts`) doesn't declare
+ * the EventEmitter `off` method, though `on` is present. At test runtime
+ * under Bun/Node both are present. Cast to access `off` safely — same
+ * pattern as `src/mt1751-defer-di.test.ts`'s identical need.
+ */
+interface UnhandledRejectionEmitter {
+  on(event: typeof UNHANDLED_REJECTION_EVENT, listener: (reason: unknown) => void): void;
+  off(event: typeof UNHANDLED_REJECTION_EVENT, listener: (reason: unknown) => void): void;
+}
+
+function processUnhandledRejectionEmitter(): UnhandledRejectionEmitter {
+  return process as unknown as UnhandledRejectionEmitter;
+}
 
 async function waitFor(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
