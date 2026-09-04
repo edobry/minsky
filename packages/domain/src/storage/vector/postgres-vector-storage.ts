@@ -325,10 +325,18 @@ export class PostgresVectorStorage implements VectorStorage {
         ? await this.searchFiltered(vectorLiteral, limit, conditions)
         : await this.searchUnfiltered(vectorLiteral, limit);
 
-    const results: SearchResult[] = (rows as Record<string, unknown>[]).map((r) => ({
-      id: String(r.id),
-      score: Number(r.score),
-    }));
+    const results: SearchResult[] = (rows as Record<string, unknown>[]).map((r) => {
+      const result: SearchResult = { id: String(r.id), score: Number(r.score) };
+      // A row whose metadata column is SQL NULL carries no metadata, which is
+      // `undefined` rather than `{}` — an empty object is a value someone
+      // stored (`storeInternal` writes `{}` when handed none), and conflating
+      // the two would make "never written" indistinguishable from "written
+      // empty". Rows predating mt#1930 are the NULL population.
+      if (this.config.metadataColumn && r.metadata != null) {
+        result.metadata = r.metadata as Record<string, unknown>;
+      }
+      return result;
+    });
 
     return results.filter((r) =>
       isFinite(threshold as number) ? r.score <= (threshold as number) : true
@@ -336,15 +344,43 @@ export class PostgresVectorStorage implements VectorStorage {
   }
 
   /**
-   * The UNFILTERED nearest-neighbour query. Unchanged since before mt#4937 and
-   * deliberately still on `this.sql.unsafe()`: with no `WHERE`, every row the
-   * HNSW scan yields is a row the caller wanted, so the recall hazard the
-   * filtered sibling below exists to fix cannot arise here. Keeping this path
-   * byte-identical is why mt#4937 is a low-risk change to a very hot code path.
+   * The metadata column's SELECT-list suffix, or `""` when the table has no
+   * metadata column configured.
+   *
+   * **One method feeds BOTH query builders on purpose (mt#4948).** The metadata
+   * column has been configured, written on `store`, and readable through
+   * `getMetadata` since mt#1930 — and was in NEITHER builder's SELECT list, so
+   * `SearchResult.metadata` came back empty for every caller of the shared
+   * search path. `knowledge search` was the first consumer to read it directly
+   * and rendered blank titles, blank urls, and an epoch `lastModified` that
+   * made `classifyFreshness` mark every chunk stale.
+   *
+   * The builders are separate functions using separate drivers (`sql.unsafe`
+   * vs drizzle inside a transaction), which is exactly the shape where a fix
+   * lands on one path and not the other — so the decision about WHETHER and HOW
+   * to project lives here, once, rather than being restated twice.
+   *
+   * Raw interpolation matches how every other identifier in these queries is
+   * rendered (`idColumn`, `tableName`, `embeddingColumn`): a column name cannot
+   * be a bind parameter, and this value comes from the construction config, not
+   * from a caller.
+   */
+  private metadataProjection(): string {
+    return this.config.metadataColumn ? `, ${this.config.metadataColumn} AS metadata` : "";
+  }
+
+  /**
+   * The UNFILTERED nearest-neighbour query, deliberately still on
+   * `this.sql.unsafe()`: with no `WHERE`, every row the HNSW scan yields is a
+   * row the caller wanted, so the recall hazard the filtered sibling below
+   * exists to fix cannot arise here. That property is why mt#4937 was a
+   * low-risk change to a very hot code path, and it is unaffected by mt#4948's
+   * addition of the metadata column to the projection — a wider SELECT list
+   * changes which columns come back, never which rows.
    */
   private async searchUnfiltered(vectorLiteral: string, limit: number): Promise<unknown> {
     const query = `
-      SELECT ${this.config.idColumn} AS id, (${this.config.embeddingColumn} <-> $1::vector) AS score
+      SELECT ${this.config.idColumn} AS id, (${this.config.embeddingColumn} <-> $1::vector) AS score${this.metadataProjection()}
       FROM ${this.config.tableName}
       ORDER BY ${this.config.embeddingColumn} <-> $1::vector
       LIMIT $2
@@ -440,7 +476,7 @@ export class PostgresVectorStorage implements VectorStorage {
     const query = dsql`
       SELECT
         ${dsql.raw(this.config.idColumn)} AS id,
-        (${dsql.raw(this.config.embeddingColumn)} <-> ${vectorLiteral}::vector) AS score
+        (${dsql.raw(this.config.embeddingColumn)} <-> ${vectorLiteral}::vector) AS score${dsql.raw(this.metadataProjection())}
       FROM ${dsql.raw(this.config.tableName)}
       WHERE ${dsql.join(conditions, dsql` AND `)}
       ORDER BY ${dsql.raw(this.config.embeddingColumn)} <-> ${vectorLiteral}::vector

@@ -25,7 +25,12 @@
 import { describe, test, expect } from "bun:test";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
-import { buildFilterConditions, PostgresVectorStorage } from "./postgres-vector-storage";
+import {
+  buildFilterConditions,
+  PostgresVectorStorage,
+  type PostgresVectorStorageConfig,
+} from "./postgres-vector-storage";
+import { MemoryVectorStorage } from "./memory-vector-storage";
 
 const dialect = new PgDialect();
 
@@ -237,11 +242,27 @@ function newRecorder(): Recorder {
   return { unsafeCalls: [], txStatements: [], transactionCount: 0 };
 }
 
-function makeStorage(recorder: Recorder) {
+function makeStorage(
+  recorder: Recorder,
+  options: {
+    /**
+     * Extra config, merged over the base. `metadataColumn` is the interesting
+     * one: production always sets it (`postgres-provider.ts` passes
+     * `metadataColumn: "metadata"` for every namespace), but the base config
+     * here deliberately omits it so the pre-mt#4948 tests keep asserting the
+     * no-metadata-column shape.
+     */
+    config?: Partial<PostgresVectorStorageConfig>;
+    /** The rows the fake driver returns, standing in for what Postgres sends back. */
+    rows?: Record<string, unknown>[];
+  } = {}
+) {
+  const rows = options.rows ?? [{ id: "row-1", score: 0.25 }];
+
   const fakeSql = {
     unsafe: (query: string, params: unknown[]) => {
       recorder.unsafeCalls.push({ query, params });
-      return Promise.resolve([{ id: "row-1", score: 0.25 }]);
+      return Promise.resolve(rows);
     },
   };
 
@@ -251,7 +272,7 @@ function makeStorage(recorder: Recorder) {
       const tx = {
         execute: (fragment: SQL) => {
           recorder.txStatements.push(render(fragment));
-          return Promise.resolve([{ id: "row-1", score: 0.25 }]);
+          return Promise.resolve(rows);
         },
       };
       return run(tx);
@@ -266,6 +287,7 @@ function makeStorage(recorder: Recorder) {
       tableName: "tasks_embeddings",
       idColumn: "task_id",
       embeddingColumn: "vector",
+      ...options.config,
     }
   );
 }
@@ -359,5 +381,182 @@ describe("PostgresVectorStorage.search — dispatch", () => {
     });
 
     expect(results).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Metadata projection (mt#4948)
+// ---------------------------------------------------------------------------
+
+/**
+ * What these tests DO establish: both query builders put the configured
+ * metadata column in their SELECT list, and the row→`SearchResult` mapping
+ * carries it through. Both halves are needed — the column was written on
+ * `store` and readable via `getMetadata` since mt#1930, and absent from both
+ * SELECT lists the whole time, so every caller of the shared search path got an
+ * empty `metadata`.
+ *
+ * What they do NOT establish: that Postgres hands back parsed JSONB rather than
+ * a string. The fake driver returns whatever object it is given, so the shape of
+ * a real JSONB read is out of its reach — that is settled by the live run
+ * recorded in the PR body, which exercises BOTH builders (`knowledge search`
+ * unfiltered, and `--sources` filtered). Same bound the file header already
+ * draws around HNSW recall, for the same reason.
+ */
+
+/** The config every production namespace is constructed with (`postgres-provider.ts`). */
+const PROD_CONFIG: Partial<PostgresVectorStorageConfig> = { metadataColumn: "metadata" };
+
+/** A metadata object shaped like a real `knowledge_embeddings` row's. */
+const STORED_METADATA = {
+  title: "Minsky architecture",
+  url: "https://example.invalid/minsky-architecture",
+  sourceName: "minsky-design",
+  lastModified: "2026-08-31T12:00:00.000Z",
+  chunkIndex: 0,
+};
+
+function rowWithMetadata(metadata: unknown): Record<string, unknown>[] {
+  return [{ id: "row-1", score: 0.25, metadata }];
+}
+
+describe("PostgresVectorStorage.search — metadata projection (mt#4948)", () => {
+  test("the UNFILTERED query selects the configured metadata column", async () => {
+    const recorder = newRecorder();
+    const storage = makeStorage(recorder, { config: PROD_CONFIG });
+
+    await storage.search([0.1, 0.2, 0.3], { limit: 5 });
+
+    expect(at(recorder.unsafeCalls, 0).query).toContain("metadata AS metadata");
+  });
+
+  test("the FILTERED query selects it too — separate builders, separate drivers", async () => {
+    // The two are different functions using different drivers, so a fix applied
+    // to one and not the other would leave half the callers broken and every
+    // unfiltered test green. That asymmetry is why this assertion is duplicated
+    // rather than parameterized away.
+    const recorder = newRecorder();
+    const storage = makeStorage(recorder, { config: PROD_CONFIG });
+
+    await storage.search([0.1, 0.2, 0.3], { limit: 5, filters: { status: "TODO" } });
+
+    expect(at(recorder.txStatements, 1).sql).toContain("metadata AS metadata");
+  });
+
+  test("an unfiltered search returns metadata deep-equal to the stored object", async () => {
+    const recorder = newRecorder();
+    const storage = makeStorage(recorder, {
+      config: PROD_CONFIG,
+      rows: rowWithMetadata(STORED_METADATA),
+    });
+
+    const results = await storage.search([0.1, 0.2, 0.3], { limit: 5 });
+
+    expect(at(results, 0).metadata).toEqual(STORED_METADATA);
+  });
+
+  test("a filtered search returns metadata deep-equal to the stored object", async () => {
+    const recorder = newRecorder();
+    const storage = makeStorage(recorder, {
+      config: PROD_CONFIG,
+      rows: rowWithMetadata(STORED_METADATA),
+    });
+
+    const results = await storage.search([0.1, 0.2, 0.3], {
+      limit: 5,
+      filters: { status: "TODO" },
+    });
+
+    expect(at(results, 0).metadata).toEqual(STORED_METADATA);
+  });
+
+  test("with no metadataColumn configured, nothing is projected and no metadata is set", async () => {
+    // A table without the column must not have `, undefined AS metadata`
+    // spliced into its SELECT list — the projection is conditional on the
+    // config, not on what the row happens to carry.
+    const recorder = newRecorder();
+    const storage = makeStorage(recorder, { rows: rowWithMetadata(STORED_METADATA) });
+
+    const results = await storage.search([0.1, 0.2, 0.3], { limit: 5 });
+
+    expect(at(recorder.unsafeCalls, 0).query).not.toContain("AS metadata");
+    expect(at(results, 0).metadata).toBeUndefined();
+  });
+
+  test("a row whose metadata column is SQL NULL carries no metadata", async () => {
+    // Rows predating mt#1930's write-side fix have NULL here. `undefined` and
+    // `{}` must stay distinguishable: the second is a value someone stored.
+    const recorder = newRecorder();
+    const storage = makeStorage(recorder, {
+      config: PROD_CONFIG,
+      rows: rowWithMetadata(null),
+    });
+
+    const results = await storage.search([0.1, 0.2, 0.3], { limit: 5 });
+
+    expect(at(results, 0).metadata).toBeUndefined();
+  });
+
+  test("an empty stored object survives as {}, not as absent", async () => {
+    const recorder = newRecorder();
+    const storage = makeStorage(recorder, { config: PROD_CONFIG, rows: rowWithMetadata({}) });
+
+    const results = await storage.search([0.1, 0.2, 0.3], { limit: 5 });
+
+    expect(at(results, 0).metadata).toEqual({});
+  });
+
+  test("the widened SELECT list leaves the distance expressions untouched", async () => {
+    // `operator-class-alignment.ts` (mt#4344) attributes a `<->` to a namespace
+    // by finding the embedding-column token within 16 characters before the
+    // operator, and FAILS on any distance expression no namespace claims. The
+    // metadata suffix is appended after `AS score`, so both distance
+    // expressions are unchanged — asserted here so a future reshuffle that
+    // hoists the projection between them trips this rather than the alignment
+    // check in a different file.
+    const recorder = newRecorder();
+    const storage = makeStorage(recorder, { config: PROD_CONFIG });
+
+    await storage.search([0.1, 0.2, 0.3], { limit: 5 });
+
+    const query = at(recorder.unsafeCalls, 0).query;
+    expect(query).toContain("(vector <-> $1::vector) AS score");
+    expect(query).toContain("ORDER BY vector <-> $1::vector");
+    // The projection lands after the score alias, not between the operand and
+    // its operator.
+    expect(query).toContain("AS score, metadata AS metadata");
+  });
+});
+
+describe("MemoryVectorStorage / PostgresVectorStorage — metadata parity (mt#4948)", () => {
+  test("both stores return the same metadata for the same stored object", async () => {
+    // ADR-018 §Shape 2 designates MemoryVectorStorage the faithful fake of
+    // PostgresVectorStorage. That argument is made about the DISTANCE metric,
+    // and for four months the two silently disagreed about `metadata`: the fake
+    // returned it, the real one never selected the column. A test written
+    // against the fake therefore asserted a round-trip that production did not
+    // perform — which is exactly how mt#4948 survived from mt#1930 until
+    // `knowledge search` read the field.
+    const memory = new MemoryVectorStorage(3);
+    await memory.store("row-1", [0.1, 0.2, 0.3], STORED_METADATA);
+    const memoryResults = await memory.search([0.1, 0.2, 0.3], { limit: 5 });
+
+    const recorder = newRecorder();
+    const postgres = makeStorage(recorder, {
+      config: PROD_CONFIG,
+      rows: rowWithMetadata(STORED_METADATA),
+    });
+    const postgresResults = await postgres.search([0.1, 0.2, 0.3], { limit: 5 });
+
+    const memoryMetadata = at(memoryResults, 0).metadata;
+    expect(memoryMetadata).toEqual(STORED_METADATA);
+    if (memoryMetadata === undefined) {
+      // Narrowing, not defence: `SearchResult.metadata` is optional, and the
+      // repo's zero-tolerance lint gate rules out a non-null assertion. The
+      // expect above has already failed if this is reachable.
+      throw new Error("MemoryVectorStorage returned no metadata — parity precondition failed");
+    }
+
+    expect(at(postgresResults, 0).metadata).toEqual(memoryMetadata);
   });
 });
