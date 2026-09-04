@@ -101,6 +101,8 @@ function readTextFile(fs: FsLike, p: string): string {
  *   - `import ... from "x"` / `export ... from "x"`
  *   - `require("x")`
  *   - dynamic `import("x")`
+ *   - dynamic `import(IDENT)` where IDENT is bound to a string literal in the
+ *     SAME module (mt#4945) — see {@link IDENTIFIER_IMPORT_RE}
  */
 export function extractImportSpecifiers(content: string): string[] {
   const specifiers = new Set<string>();
@@ -115,7 +117,226 @@ export function extractImportSpecifiers(content: string): string[] {
       if (spec) specifiers.add(spec);
     }
   }
+  for (const [, spec] of resolveIdentifierImports(content)) {
+    if (spec !== null) specifiers.add(spec);
+  }
   return [...specifiers];
+}
+
+/**
+ * `import(IDENT)` — a dynamic import whose specifier is a bare identifier rather
+ * than a literal.
+ *
+ * The literal form two patterns up already produces an edge; `\s*` spans
+ * newlines, so a wrapped `import(\n  "x"\n)` is covered too. This is the residue:
+ * the specifier is a NAME, so nothing in the call expression says what is imported.
+ */
+const IDENTIFIER_IMPORT_RE = /\bimport\(\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\)/g;
+
+/**
+ * Blank out comments and string CONTENTS, preserving length and quote characters.
+ *
+ * Returned string is the same length as the input, so an index into it is an index
+ * into the original — which is how {@link resolveIdentifierImports} finds a binding on
+ * the masked text and then reads the literal's VALUE back out of the source.
+ *
+ * ## Why this exists (PR #3605 R1, both BLOCKING findings)
+ *
+ * The first draft stripped line comments with a plain regex over raw source, and this
+ * is what that does. Reproduced:
+ *
+ *     const url = "http://example.com"; const { X } = await import(M);
+ *
+ * The `//` inside the URL opened a "comment" and erased the rest of the line —
+ * including the `import(M)` — so the file was NOT flagged as carrying an unresolved
+ * dynamic import. That is a silent false negative in exactly the direction SC3 exists
+ * to prevent: an edge that is invisible reads as an edge that is absent.
+ *
+ * A one-pass scanner is the root fix rather than a bigger regex, because the two
+ * failures the reviewer found (a comment delimiter inside a string, and a code-shaped
+ * form inside a string) are the same defect — regex has no notion of which characters
+ * are code. It also retires the residual this module previously documented and worked
+ * around by careful test naming.
+ *
+ * KNOWN BOUND, and it is small: a regex LITERAL containing a quote or a comment
+ * delimiter (`/["']/`) is not distinguished from division, because that needs real
+ * parsing. The failure direction is a mis-masked region, which yields either a missing
+ * binding (→ conservative inclusion, safe) or a missing import (→ the pre-existing
+ * behaviour before this PR). No such literal exists in the 6 files this feature reads
+ * today.
+ */
+export function maskNonCode(src: string): string {
+  const out = src.split("");
+  const n = src.length;
+  const blank = (i: number): void => {
+    if (out[i] !== "\n") out[i] = " ";
+  };
+  let i = 0;
+  while (i < n) {
+    const c = src[i];
+    const next = src[i + 1];
+    if (c === "/" && next === "/") {
+      while (i < n && src[i] !== "\n") blank(i++);
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      blank(i++);
+      blank(i++);
+      while (i < n && !(src[i] === "*" && src[i + 1] === "/")) blank(i++);
+      if (i < n) {
+        blank(i++);
+        blank(i++);
+      }
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      i++; // the opening quote stays, so a binding regex can still see it
+      while (i < n && src[i] !== c) {
+        if (src[i] === "\\") {
+          blank(i++);
+          if (i < n) blank(i++);
+          continue;
+        }
+        blank(i++);
+      }
+      i++; // the closing quote stays too
+      continue;
+    }
+    i++;
+  }
+  return out.join("");
+}
+
+/**
+ * Resolve each `import(IDENT)` against a same-module `const IDENT = "literal"`.
+ *
+ * Returns one entry per CALL SITE: `[identifier, specifier | null]`, where `null`
+ * means the binding was not found as a string literal in this module. Call sites
+ * rather than a deduped specifier set, because {@link findRelatedTestFiles} needs
+ * to know that an unresolved one EXISTS (mt#4945 SC3) — a dropped edge must not
+ * read as an absent one, which is the failure this whole task exists to remove.
+ *
+ * ## Why a module-scoped binding lookup is the right bound
+ *
+ * Measured on this tree at the time of writing: **16 `import(IDENT)` call sites
+ * across 6 test files, and 16 of 16 bind to a same-file string literal.** Zero are
+ * computed, imported from elsewhere, or parameterised. So this bound covers the
+ * entire real population while staying purely lexical — no AST, no scope analysis,
+ * and no new dependency on a fast gate whose partition budget is 60s.
+ *
+ * It is deliberately NOT scope-aware: a shadowed binding or a re-assignment would
+ * resolve to the first literal declaration found. That is acceptable here for the
+ * same reason the data-read edge accepts it — an edge only survives if
+ * `resolveSpecifier` maps it to a real file, so a wrong guess yields no edge
+ * rather than a wrong one. Over-selection is the failure direction this module
+ * already documents as accepted; under-selection is the one it does not.
+ */
+export function resolveIdentifierImports(content: string): Array<[string, string | null]> {
+  const code = maskNonCode(content);
+  const out: Array<[string, string | null]> = [];
+  for (const match of code.matchAll(IDENTIFIER_IMPORT_RE)) {
+    const name = match[1];
+    if (!name) continue;
+    out.push([name, resolveConstStringBinding(code, content, name)]);
+  }
+  return out;
+}
+
+/**
+ * Find `const NAME = "<literal>"` and return the literal, or null.
+ *
+ * `const` ONLY — deliberately, and this is a behaviour change from the first draft
+ * (PR #3605 R1 BLOCKING #2). A `let`/`var` can be reassigned after its initializer:
+ *
+ *     let M = "a/b";
+ *     M = "c/d";
+ *     await import(M);
+ *
+ * and this scan is not flow-aware, so it would confidently return the STALE `"a/b"`.
+ * A wrong specifier is worse than none: it can resolve to a real file and manufacture
+ * an edge to the wrong subject, and — the part that matters for SC3 — a non-null answer
+ * SUPPRESSES conservative inclusion, so a genuinely unresolvable case would be masked
+ * by a confident wrong one. Returning null for a reassignable binding routes it to
+ * conservative inclusion instead, which is the safe direction. All 16 real call sites
+ * use `const`, so this narrowing costs nothing measured.
+ *
+ * `code` is the masked projection and `src` the original; they are the same length, so
+ * the literal's VALUE is read back out of `src` at the offsets found in `code`.
+ */
+function resolveConstStringBinding(code: string, src: string, name: string): string | null {
+  // `$` is the only regex metacharacter the identifier charset admits, so escaping it
+  // is exact rather than approximate.
+  const escaped = name.replace(/\$/g, "\\$");
+  const binding = new RegExp(`\\bconst\\s+${escaped}\\s*(?::[^=\\n]+)?=\\s*["'\`]`);
+  const match = binding.exec(code);
+  if (!match) return null;
+
+  const quoteIndex = match.index + match[0].length - 1;
+  const quote = src[quoteIndex];
+  let value = "";
+  for (let j = quoteIndex + 1; j < src.length && src[j] !== quote; j++) {
+    // A module specifier never spans lines; an unterminated literal is a parse the
+    // scanner got wrong, and null routes it to conservative inclusion.
+    if (src[j] === "\n") return null;
+    // An escaped character is one character, and the escaped quote is NOT the
+    // terminator (PR #3605 R2 NON-BLOCKING). Without this, `"a\"b/mod"` truncated to
+    // `a\` — a wrong value, and a wrong value is worse than none because a non-null
+    // answer suppresses conservative inclusion.
+    if (src[j] === "\\" && j + 1 < src.length) {
+      value += src[j + 1];
+      j++;
+      continue;
+    }
+    value += src[j];
+  }
+  if (value.length === 0) return null;
+  // A template with an INTERPOLATION is computed, not static — the value is only
+  // known at runtime (PR #3605 R2 BLOCKING). Returning its raw text would hand back
+  // `${base}/mod` as though it were a specifier AND, worse, suppress the SC3
+  // conservative inclusion that a computed specifier is exactly what should trigger.
+  if (value.includes("${")) return null;
+  return value;
+}
+
+/**
+ * True when this module has an `import(IDENT)` whose specifier could not be recovered.
+ *
+ * Drives the conservative inclusion in {@link findRelatedTestFiles} (SC3): a file whose
+ * edge exists but is invisible must not be treated the same as a file with no edge.
+ *
+ * Both directions of error were observed while building this, and both are now handled
+ * by {@link maskNonCode} rather than by a second regex pass:
+ *
+ * - **False POSITIVE.** The first draft flagged `find-related-tests.test.ts` itself,
+ *   because that file's own prose writes the call form out to explain the feature —
+ *   documentation read as code. Cost: one wasted file in EVERY selection, forever.
+ * - **False NEGATIVE.** The fix for the above stripped `//` from raw text, so a `//`
+ *   inside a string (`"http://example.com"`) erased the rest of the line — including a
+ *   real `import(M)` after it. Cost: exactly the silent drop SC3 forbids
+ *   (PR #3605 R1 BLOCKING #1).
+ *
+ * They are one defect — a matcher with no notion of which characters are code — which
+ * is why the remedy is a single masking pass rather than another special case.
+ */
+export function hasUnresolvedIdentifierImport(content: string): boolean {
+  return resolveIdentifierImports(content).some(([, spec]) => spec === null);
+}
+
+/**
+ * The operator-facing line for SC3's conservative inclusion, or null when there is
+ * nothing to announce.
+ *
+ * A pure function returning the message rather than a `console.error` call inline,
+ * so the signal is assertable without patching a collaborator this module reaches
+ * itself (`testing-standards.mdc §Testable Design`; the emit stays in
+ * {@link findRelatedTestFiles}, which is the imperative shell).
+ */
+export function formatConservativeInclusionNotice(testFiles: Set<string>): string | null {
+  if (testFiles.size === 0) return null;
+  return (
+    `find-related-tests: conservatively including ${testFiles.size} test file(s) whose ` +
+    `dynamic import specifier could not be resolved: ${[...testFiles].sort().join(", ")}`
+  );
 }
 
 export interface PackageExportsInfo {
@@ -428,6 +649,19 @@ export function toRepoRelative(rawPath: string): string | null {
   return normalized.replace(/^\.\//, "");
 }
 
+/** What one pass over the test tree yields. */
+export interface DataReadScan {
+  /** referencedFile -> TEST files naming it as a literal (mt#4224). */
+  graph: Map<string, Set<string>>;
+  /**
+   * TEST files carrying an `import(IDENT)` whose specifier could not be recovered
+   * (mt#4945 SC3). These have an edge the selector knows it cannot see, which is a
+   * different thing from having no edge — {@link findRelatedTestFiles} includes them
+   * in EVERY selection rather than letting the gap read as absence.
+   */
+  unresolvedDynamicImportTests: Set<string>;
+}
+
 /**
  * Build the data-read graph: referencedFile -> Set of TEST files naming it (mt#4224).
  *
@@ -451,8 +685,9 @@ export function buildDataReadGraph(
   testFiles: string[],
   repoRoot: string,
   fs: FsLike = realFs
-): Map<string, Set<string>> {
+): DataReadScan {
   const graph = new Map<string, Set<string>>();
+  const unresolvedDynamicImportTests = new Set<string>();
   for (const testFile of testFiles) {
     let content: string;
     try {
@@ -460,6 +695,11 @@ export function buildDataReadGraph(
     } catch {
       continue;
     }
+    // mt#4945 SC3, collected HERE because this loop already holds every test
+    // file's content — the alternative was a second read pass over ~1,300 files
+    // on a gate whose partition budget is 60s. Nothing about the data-read edge
+    // needs it; it rides along on the I/O.
+    if (hasUnresolvedIdentifierImport(content)) unresolvedDynamicImportTests.add(testFile);
     // TWO idioms appear in this corpus, and both are fully static — the difference is
     // only what the literal is relative TO:
     //
@@ -488,7 +728,7 @@ export function buildDataReadGraph(
       }
     }
   }
-  return graph;
+  return { graph, unresolvedDynamicImportTests };
 }
 
 /**
@@ -640,12 +880,34 @@ export function findRelatedTestFiles(
     const testFiles = collectAllProjectFiles(repoRoot, fs, roots).filter((f) =>
       TEST_SUFFIX_RE.test(f)
     );
-    const dataReadGraph = buildDataReadGraph(testFiles, repoRoot, fs);
+    const { graph: dataReadGraph, unresolvedDynamicImportTests } = buildDataReadGraph(
+      testFiles,
+      repoRoot,
+      fs
+    );
     for (const file of allChanged) {
       const readers = dataReadGraph.get(file);
       if (!readers) continue;
       for (const reader of readers) related.add(reader);
     }
+    // mt#4945 SC3 — conservative inclusion. A test whose subject is reached through
+    // an `import(IDENT)` we could not resolve has an edge that exists and is
+    // invisible; dropping it silently is precisely the "clean pass that is not
+    // clean" this task exists to remove, so it joins EVERY selection instead.
+    //
+    // Measured at 0 files on this tree, so it costs nothing today and fails safe
+    // when the first genuinely-computed specifier lands.
+    //
+    // ANNOUNCED, not silent (PR #3605 R1 NON-BLOCKING #3). A widening nobody can see
+    // is its own version of the problem this branch exists to fix: the selection grows
+    // and the reason is invisible. One stderr line names the files and the cause, so a
+    // future "why did the gate get slower" question is answerable from the run itself.
+    // stderr rather than stdout because `run-related-tests.ts` parses neither, but a
+    // human reading a gate failure sees both — and it stays off the selection list that
+    // other tooling reads.
+    const notice = formatConservativeInclusionNotice(unresolvedDynamicImportTests);
+    if (notice !== null) console.error(notice);
+    for (const test of unresolvedDynamicImportTests) related.add(test);
   }
 
   // 0b. Directory-census edges (mt#4508): a test asserting over the whole population of
