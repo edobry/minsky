@@ -17,6 +17,7 @@ import {
   runMinskyCompile,
   probeMinskyCompileTargets,
   minskyCompileTargetsFromPresence,
+  minskyCompileTargetsWithGateReport,
 } from "./compile";
 import type { MinskyCompileFsDeps } from "./types";
 
@@ -221,6 +222,53 @@ describe("minskyCompileTargetsFromPresence (mt#2803)", () => {
           existingOutputs: NO_OUTPUTS,
         })
       ).toEqual(["claude-skills", "claude-agents", "claude-hooks"]);
+    });
+
+    // PR #3623 R1. A gated-out target simply vanishes from the list, which reads
+    // identically to one that was never applicable — so callers need to be able
+    // to tell the two apart and say so.
+    describe("gate report", () => {
+      it("names each gated-out target with a reason naming the escape", () => {
+        const { targets, gatedOut } = minskyCompileTargetsWithGateReport({
+          ...RULES_ONLY,
+          harness: "claude-code",
+          existingOutputs: NO_OUTPUTS,
+        });
+
+        expect(targets).toEqual(["claude.md", "claude-rules"]);
+        expect(gatedOut.map((g) => g.target)).toEqual(["cursor-rules-ts", "agents.md"]);
+        for (const entry of gatedOut) {
+          expect(entry.reason).toContain("--target");
+        }
+      });
+
+      it("reports nothing gated when the gate does not fire", () => {
+        expect(minskyCompileTargetsWithGateReport(RULES_ONLY).gatedOut).toEqual([]);
+        expect(
+          minskyCompileTargetsWithGateReport({
+            ...RULES_ONLY,
+            harness: "claude-code",
+            existingOutputs: { cursorRules: true, agentsMd: true },
+          }).gatedOut
+        ).toEqual([]);
+      });
+
+      // The two functions must never disagree; one delegates to the other, and
+      // this pins that so a future edit cannot fork them.
+      it("agrees with minskyCompileTargetsFromPresence on the target list", () => {
+        for (const harness of [undefined, "claude-code", "cursor"]) {
+          for (const existingOutputs of [
+            NO_OUTPUTS,
+            { cursorRules: true, agentsMd: false },
+            { cursorRules: true, agentsMd: true },
+          ]) {
+            const input = { ...RULES_ONLY, harness, existingOutputs };
+            expect(minskyCompileTargetsWithGateReport(input).targets).toEqual(
+              minskyCompileTargetsFromPresence(input)
+            );
+          }
+        }
+      });
     });
   });
 });

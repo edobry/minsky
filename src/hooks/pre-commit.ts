@@ -2392,7 +2392,7 @@ export class PreCommitHook {
         return false;
       }
     };
-    const targetsToCheck = compileCheckTargets({
+    const { targets: targetsToCheck, gatedOut } = compileCheckTargetsWithGateReport({
       skills: await dirExists(`${this.projectRoot}/.minsky/skills`),
       rules: await dirExists(`${this.projectRoot}/.minsky/rules`),
       agents: await dirExists(`${this.projectRoot}/.minsky/agents`),
@@ -2412,6 +2412,19 @@ export class PreCommitHook {
         agentsMd: await dirExists(`${this.projectRoot}/AGENTS.md`),
       },
     });
+
+    // PR #3623 R1: say so when the harness gate narrowed the set. Without this a
+    // gated-out target is indistinguishable from one that was never applicable,
+    // so a project reads "outputs are up-to-date" while two of them are not being
+    // maintained at all and nothing has said why.
+    if (gatedOut.length > 0) {
+      log.cli(
+        `ℹ️  Not checking ${gatedOut.join(", ")} — this project records ` +
+          `workspace.harness: claude-code and does not have those outputs on disk, so a ` +
+          `bare \`minsky compile\` does not produce them either (mt#4866). Run ` +
+          `\`minsky compile --target <name>\` to opt in.`
+      );
+    }
 
     if (targetsToCheck.length === 0) {
       log.cli("✅ No new-compile-system outputs detected — skipping compile check.");
@@ -2645,21 +2658,52 @@ export function compileCheckTargets(present: {
   /** Whether each harness-specific output already exists on disk. */
   existingOutputs?: { cursorRules: boolean; agentsMd: boolean };
 }): string[] {
+  return compileCheckTargetsWithGateReport(present).targets;
+}
+
+/**
+ * As {@link compileCheckTargets}, plus which targets the harness gate SKIPPED.
+ *
+ * Added for PR #3623 R1. A gated-out target simply vanishes from the checked set,
+ * which reads identically to a target that was never applicable — so a project
+ * could be silently told its outputs are current while two of them are not being
+ * maintained at all. `runCompileCheck` logs this so the narrowing is visible.
+ *
+ * Mirrors `minskyCompileTargetsWithGateReport`
+ * (packages/domain/src/compile/compile.ts), for the same import-graph reason
+ * `compileCheckTargets` mirrors its sibling rather than importing it.
+ */
+export function compileCheckTargetsWithGateReport(present: {
+  skills: boolean;
+  rules: boolean;
+  agents: boolean;
+  hooks: boolean;
+  harness?: string;
+  existingOutputs?: { cursorRules: boolean; agentsMd: boolean };
+}): { targets: string[]; gatedOut: string[] } {
   const claudeCodeOnly = present.harness === "claude-code";
   const cursorRulesExists = present.existingOutputs?.cursorRules ?? false;
   const agentsMdExists = present.existingOutputs?.agentsMd ?? false;
 
   const targets: string[] = [];
+  const gatedOut: string[] = [];
+
   if (present.skills) targets.push("claude-skills");
   if (present.rules) {
     if (!claudeCodeOnly || cursorRulesExists) targets.push("cursor-rules-ts");
+    else gatedOut.push("cursor-rules-ts");
+
     targets.push("claude.md");
+
     if (!claudeCodeOnly || agentsMdExists) targets.push("agents.md");
+    else gatedOut.push("agents.md");
+
     targets.push("claude-rules");
   }
   if (present.agents) targets.push("claude-agents");
   if (present.hooks) targets.push("claude-hooks");
-  return targets;
+
+  return { targets, gatedOut };
 }
 
 // The claude-hooks compile auto-regen helpers live in

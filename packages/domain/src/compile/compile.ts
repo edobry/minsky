@@ -99,21 +99,59 @@ export function minskyCompileTargetsFromPresence(present: {
   // Two escapes, both required by SC3 and both already exercised: an explicit
   // `--target` never reaches this function (`runMinskyCompile` returns early), and
   // an output that already exists stays maintained via `existingOutputs`.
+  const { targets } = minskyCompileTargetsWithGateReport(present);
+  return targets;
+}
+
+/**
+ * Which targets a bare invocation compiles, AND which the harness gate SKIPPED.
+ *
+ * The gate is otherwise invisible: a skipped target simply does not appear, which
+ * is indistinguishable from a target that was never applicable. That matters most
+ * for the pre-commit staleness check, where a silently-narrowed target set is the
+ * difference between "these outputs are current" and "these outputs are not being
+ * maintained and nothing will tell you" (PR #3623 R1).
+ *
+ * `gatedOut` names each skipped target with its reason, so callers can surface it.
+ * Returns the same `targets` array {@link minskyCompileTargetsFromPresence} does —
+ * that function delegates here, so the two can never disagree.
+ */
+export function minskyCompileTargetsWithGateReport(present: {
+  skills: boolean;
+  rules: boolean;
+  agents: boolean;
+  hooks: boolean;
+  harness?: string;
+  existingOutputs?: { cursorRules: boolean; agentsMd: boolean };
+}): { targets: string[]; gatedOut: { target: string; reason: string }[] } {
   const claudeCodeOnly = present.harness === "claude-code";
   const cursorRulesExists = present.existingOutputs?.cursorRules ?? false;
   const agentsMdExists = present.existingOutputs?.agentsMd ?? false;
 
   const targets: string[] = [];
+  const gatedOut: { target: string; reason: string }[] = [];
+
+  const gateReason = (output: string): string =>
+    `harness is "claude-code", which does not read ${output}, and ${output} does not ` +
+    `already exist. Compile it explicitly with --target to opt in, or create ${output} ` +
+    `once and it will be maintained from then on.`;
+
   if (present.skills) targets.push("claude-skills");
   if (present.rules) {
     if (!claudeCodeOnly || cursorRulesExists) targets.push("cursor-rules-ts");
+    else gatedOut.push({ target: "cursor-rules-ts", reason: gateReason(".cursor/rules") });
+
     targets.push("claude.md");
+
     if (!claudeCodeOnly || agentsMdExists) targets.push("agents.md");
+    else gatedOut.push({ target: "agents.md", reason: gateReason("AGENTS.md") });
+
     targets.push("claude-rules");
   }
   if (present.agents) targets.push("claude-agents");
   if (present.hooks) targets.push("claude-hooks");
-  return targets;
+
+  return { targets, gatedOut };
 }
 
 /**
