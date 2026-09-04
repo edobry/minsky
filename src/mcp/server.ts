@@ -482,6 +482,18 @@ export class MinskyMCPServer {
     | Promise<typeof import("./prod-state-boot-refresh")>
     | undefined;
   /**
+   * The RESOLVED module value, set once by the promise above's own continuation (mt#4938 PR
+   * #3615 R3). Reading this — rather than trying to synchronously unwrap
+   * `prodStateBootRefreshModule` — is what lets `getProdStateTouchRefresher()` stay
+   * synchronous: a `Promise` cannot be read without `await`, but a plain field can be checked
+   * on every call for free. Only ever set to a resolved module; never caches "not ready yet"
+   * or "failed" as a value here (both stay `undefined`, indistinguishable from "not attempted
+   * yet" — a later call always re-attempts).
+   */
+  private prodStateBootRefreshModuleResolved:
+    | typeof import("./prod-state-boot-refresh")
+    | undefined;
+  /**
    * Memory service for the mt#1588 spike enrichment middleware. Optional —
    * when absent, enrichment middleware is a no-op (the dispatcher behaves
    * identically to pre-mt#1588). Set via `setMemoryService` from the MCP
@@ -2198,34 +2210,32 @@ export class MinskyMCPServer {
    * Loads `./prod-state-boot-refresh` via a DYNAMIC import (mt#4938 PR #3615 R2) — see the
    * comment on the `ProdStateTouchRefresher` type import at the top of this file for why a
    * static one is a regression. This method itself stays SYNCHRONOUS (the hot dispatch path
-   * cannot await it): a call before the import resolves returns `null` and is silently a
-   * no-op, exactly like a call before `container.has("persistence")` is true — the same
-   * accepted gap this module's doc comment already names ("a daemon that receives no tool
-   * calls... the next tool call refreshes it"), just one tool call wider in the worst case.
+   * cannot await it): a call before the import resolves, or before persistence is available,
+   * returns `null` and is silently a no-op — the same accepted gap this module's doc comment
+   * already names ("a daemon that receives no tool calls... the next tool call refreshes it").
+   *
+   * mt#4938 PR #3615 R3 BLOCKING fix: the import is kicked off UNCONDITIONALLY on the first
+   * call — NOT gated behind `container.has("persistence")` — and only the import PROMISE is
+   * memoized (`prodStateBootRefreshModule`); the "is persistence available" question is
+   * re-asked, fresh, on every single call via `container.has("persistence")`, and a
+   * provider-less or failed construction attempt is never cached as a terminal outcome. R2's
+   * version gated starting the import behind an already-true `has()` check, and only attempted
+   * construction from inside the import's OWN `.then` — a single one-shot callback that ran
+   * once, at whatever moment the import happened to resolve. If persistence became available
+   * only AFTER that callback had already run (and found it unavailable), no later `touch()`
+   * ever got another chance to build the refresher: the memoized promise made
+   * `!this.prodStateBootRefreshModule` false forever, so no second `.then` was ever attached.
+   * Kicking the import off eagerly and re-checking `has()` on every call removes that single
+   * decision point entirely — there is no longer a moment whose outcome gets cached.
    */
   private getProdStateTouchRefresher(): ProdStateTouchRefresher | null {
     if (this.prodStateTouchRefresher) return this.prodStateTouchRefresher;
-    if (!this.container?.has("persistence")) {
-      log.debug("mcp: prod-state tool-path refresher skipped — persistence not yet available");
-      return null;
-    }
+
     if (!this.prodStateBootRefreshModule) {
       this.prodStateBootRefreshModule = import("./prod-state-boot-refresh");
       this.prodStateBootRefreshModule.then(
         (mod) => {
-          // A concurrent call may have already built it (or the container may have gone
-          // away) between kicking off the import and it resolving — check both, and never
-          // let this background continuation throw into an unhandled rejection.
-          if (this.prodStateTouchRefresher || !this.container?.has("persistence")) return;
-          try {
-            const persistence = this.container.get("persistence");
-            this.prodStateTouchRefresher =
-              mod.createProdStateTouchRefresherForProvider(persistence);
-          } catch (err) {
-            log.debug("mcp: prod-state tool-path refresher unavailable", {
-              error: getLoggableErrorSummary(err),
-            });
-          }
+          this.prodStateBootRefreshModuleResolved = mod;
         },
         (err) => {
           log.debug("mcp: prod-state-boot-refresh module load failed", {
@@ -2237,7 +2247,25 @@ export class MinskyMCPServer {
         }
       );
     }
-    return this.prodStateTouchRefresher ?? null;
+
+    const mod = this.prodStateBootRefreshModuleResolved;
+    if (!mod) return null; // import kicked off but not resolved yet — try again next call
+
+    if (!this.container?.has("persistence")) {
+      log.debug("mcp: prod-state tool-path refresher skipped — persistence not yet available");
+      return null; // NOT cached — the next call re-checks has(), it does not remember this
+    }
+
+    try {
+      const persistence = this.container.get("persistence");
+      this.prodStateTouchRefresher = mod.createProdStateTouchRefresherForProvider(persistence);
+      return this.prodStateTouchRefresher;
+    } catch (err) {
+      log.debug("mcp: prod-state tool-path refresher unavailable", {
+        error: getLoggableErrorSummary(err),
+      });
+      return null;
+    }
   }
 
   /**
