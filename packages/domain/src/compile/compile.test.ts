@@ -20,6 +20,9 @@ import {
   minskyCompileTargetsWithGateReport,
 } from "./compile";
 import type { MinskyCompileFsDeps } from "./types";
+// The banner the monolithic writers emit — imported so a fixture claiming to be
+// "a file Minsky generated" cannot drift from what Minsky actually writes.
+import { MONOLITHIC_GENERATED_BANNER } from "../rules/compile/banner-constants";
 
 const WS = "/workspace";
 
@@ -262,12 +265,103 @@ describe("minskyCompileTargetsFromPresence (mt#2803)", () => {
             { cursorRules: true, agentsMd: false },
             { cursorRules: true, agentsMd: true },
           ]) {
-            const input = { ...RULES_ONLY, harness, existingOutputs };
-            expect(minskyCompileTargetsWithGateReport(input).targets).toEqual(
-              minskyCompileTargetsFromPresence(input)
-            );
+            for (const foreignOutputs of [
+              undefined,
+              { claudeMd: false, agentsMd: false },
+              { claudeMd: true, agentsMd: false },
+              { claudeMd: false, agentsMd: true },
+              { claudeMd: true, agentsMd: true },
+            ]) {
+              const input = { ...RULES_ONLY, harness, existingOutputs, foreignOutputs };
+              expect(minskyCompileTargetsWithGateReport(input).targets).toEqual(
+                minskyCompileTargetsFromPresence(input)
+              );
+            }
           }
         }
+      });
+    });
+
+    // ─── Foreign-ownership gate (mt#4986 SC3) ───────────────────────────────
+    //
+    // The harness gate above reads a file's PRESENCE as evidence the user
+    // consumes our output. That is what this narrows: a file that is there but
+    // is the user's own is not consent, it is the thing to protect.
+    describe("foreign-ownership gate (mt#4986 SC3)", () => {
+      const OWNED = { claudeMd: false, agentsMd: false };
+
+      it("drops claude.md when CLAUDE.md is the user's", () => {
+        // CLAUDE.md had NO presence gate at all — it was pushed unconditionally
+        // — so this is an added gate, not a narrowed one. That distinction is
+        // why a literal reading of "narrow the presence rule" would have missed
+        // the file the task is named for.
+        expect(
+          minskyCompileTargetsFromPresence({
+            ...RULES_ONLY,
+            foreignOutputs: { claudeMd: true, agentsMd: false },
+          })
+        ).toEqual(["cursor-rules-ts", "agents.md", "claude-rules"]);
+      });
+
+      it("drops agents.md when AGENTS.md is the user's, on ANY harness", () => {
+        // Independent of the harness escape: `existingOutputs.agentsMd` is only
+        // ever consulted under claude-code, so narrowing it alone would leave a
+        // Cursor project's hand-written AGENTS.md unprotected.
+        for (const harness of [undefined, "cursor", "claude-code"]) {
+          expect(
+            minskyCompileTargetsFromPresence({
+              ...RULES_ONLY,
+              harness,
+              existingOutputs: { cursorRules: true, agentsMd: true },
+              foreignOutputs: { claudeMd: false, agentsMd: true },
+            })
+          ).not.toContain("agents.md");
+        }
+      });
+
+      it("leaves the per-file targets alone", () => {
+        // `.cursor/rules/` and `.claude/rules/` already coexist correctly with
+        // hand-authored files, so this gate must not touch them.
+        const targets = minskyCompileTargetsFromPresence({
+          ...RULES_ONLY,
+          foreignOutputs: { claudeMd: true, agentsMd: true },
+        });
+        expect(targets).toEqual(["cursor-rules-ts", "claude-rules"]);
+      });
+
+      it("changes nothing when both monolithic outputs are ours", () => {
+        expect(minskyCompileTargetsFromPresence({ ...RULES_ONLY, foreignOutputs: OWNED })).toEqual(
+          minskyCompileTargetsFromPresence(RULES_ONLY)
+        );
+      });
+
+      it("marks the skip kind foreign, so a caller does not offer --target as the fix", () => {
+        // The two gates have OPPOSITE remedies: `--target` opts into a harness
+        // skip and would overwrite the file a foreign skip is protecting.
+        const { gatedOut } = minskyCompileTargetsWithGateReport({
+          ...RULES_ONLY,
+          foreignOutputs: { claudeMd: true, agentsMd: false },
+        });
+
+        expect(gatedOut).toHaveLength(1);
+        expect(gatedOut[0]?.target).toBe("claude.md");
+        expect(gatedOut[0]?.kind).toBe("foreign");
+        expect(gatedOut[0]?.reason).toContain("banner");
+        expect(gatedOut[0]?.reason).not.toContain("--target");
+      });
+
+      it("keeps the harness kind distinguishable from the foreign kind", () => {
+        const { gatedOut } = minskyCompileTargetsWithGateReport({
+          ...RULES_ONLY,
+          harness: "claude-code",
+          existingOutputs: NO_OUTPUTS,
+          foreignOutputs: { claudeMd: true, agentsMd: false },
+        });
+
+        const byTarget = Object.fromEntries(gatedOut.map((g) => [g.target, g.kind]));
+        expect(byTarget["cursor-rules-ts"]).toBe("harness");
+        expect(byTarget["agents.md"]).toBe("harness");
+        expect(byTarget["claude.md"]).toBe("foreign");
       });
     });
   });
@@ -337,11 +431,17 @@ describe("probeMinskyCompileTargets (mt#2803)", () => {
     ]);
   });
 
-  it("mt#4866: an existing AGENTS.md keeps agents.md under claude-code", async () => {
+  // mt#4986 narrowed mt#4866's already-exists escape: the file must be OURS,
+  // not merely present. The fixture therefore carries the banner, which is what
+  // an AGENTS.md this escape was written for actually looks like — a previous
+  // `minsky compile` wrote it. A bare `"# Agents\n"` here would be a
+  // hand-written file, and asserting that it keeps the target would pin the
+  // exact behaviour mt#4986 exists to remove.
+  it("mt#4866: an existing GENERATED AGENTS.md keeps agents.md under claude-code", async () => {
     const { fs } = makeFakeFs({
       [`${WS}/.minsky/rules/.keep`]: "",
       [`${WS}/.minsky/config.local.yaml`]: CLAUDE_CODE_LOCAL_CONFIG,
-      [`${WS}/AGENTS.md`]: "# Agents\n",
+      [`${WS}/AGENTS.md`]: `${MONOLITHIC_GENERATED_BANNER}\n\n# Agents\n`,
     });
     expect(await probeMinskyCompileTargets(WS, fs)).toEqual([
       "claude.md",
@@ -350,15 +450,36 @@ describe("probeMinskyCompileTargets (mt#2803)", () => {
     ]);
   });
 
-  // The regression guard for this repository: both outputs exist here, so the
-  // gate must be inert. If this ever goes red, `minsky compile` has started
-  // skipping targets Minsky itself commits.
+  // The other side of the same narrowing (mt#4986 SC3), end-to-end through the
+  // probe rather than the pure mapping: presence alone no longer unlocks it.
+  it("mt#4986: a hand-written AGENTS.md does NOT keep agents.md", async () => {
+    const { fs } = makeFakeFs({
+      [`${WS}/.minsky/rules/.keep`]: "",
+      [`${WS}/.minsky/config.local.yaml`]: CLAUDE_CODE_LOCAL_CONFIG,
+      [`${WS}/AGENTS.md`]: "# Agents\n\nCodex reads this. Do not clobber.\n",
+    });
+    expect(await probeMinskyCompileTargets(WS, fs)).toEqual(["claude.md", "claude-rules"]);
+  });
+
+  it("mt#4986: a hand-written CLAUDE.md drops claude.md, which had no gate at all before", async () => {
+    const { fs } = makeFakeFs({
+      [`${WS}/.minsky/rules/.keep`]: "",
+      [`${WS}/.minsky/config.local.yaml`]: CLAUDE_CODE_LOCAL_CONFIG,
+      [`${WS}/CLAUDE.md`]: "# Widget house rules\n\n- We use tabs, not spaces.\n",
+    });
+    expect(await probeMinskyCompileTargets(WS, fs)).toEqual(["claude-rules"]);
+  });
+
+  // The regression guard for this repository: both outputs exist here AND both
+  // carry the banner, so both gates must be inert. If this ever goes red,
+  // `minsky compile` has started skipping targets Minsky itself commits.
   it("mt#4866: with BOTH outputs present the target set is unchanged", async () => {
     const { fs } = makeFakeFs({
       [`${WS}/.minsky/rules/.keep`]: "",
       [`${WS}/.minsky/config.local.yaml`]: CLAUDE_CODE_LOCAL_CONFIG,
       [`${WS}/.cursor/rules/existing.mdc`]: "---\nname: existing\n---\n",
-      [`${WS}/AGENTS.md`]: "# Agents\n",
+      [`${WS}/AGENTS.md`]: `${MONOLITHIC_GENERATED_BANNER}\n\n# Agents\n`,
+      [`${WS}/CLAUDE.md`]: `${MONOLITHIC_GENERATED_BANNER}\n\n# Project Instructions\n`,
     });
     expect(await probeMinskyCompileTargets(WS, fs)).toEqual([
       "cursor-rules-ts",

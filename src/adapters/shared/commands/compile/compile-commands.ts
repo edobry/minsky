@@ -104,6 +104,17 @@ export function registerCompileCommands(targetRegistry: {
         // classifyCompileCheckError encodes: a stale target's budget is not
         // evaluated (its dry-run content may not reflect what a regenerate
         // would produce).
+        // mt#4986 SC2: a monolithic output left alone because it is the user's
+        // own file. Rendered at the TOP level, before the per-target lines,
+        // because the target it concerns may never have run — a foreign file is
+        // gated out of the probe, so there is no per-target line to hang this
+        // off. Same reasoning as `skipReasons` for the sink: `log.warn` is
+        // discarded by a one-shot command, so the reason has to come back on
+        // the result and be printed here or the operator sees nothing.
+        for (const skipped of result.skippedForeignOutputs ?? []) {
+          log.cli(`[compile] ${skipped.reason}`);
+        }
+
         if (result.targets && result.targets.length > 0) {
           const staleTargets: string[] = [];
           const budgetFailures: string[] = [];

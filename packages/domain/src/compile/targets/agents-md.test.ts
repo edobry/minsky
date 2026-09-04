@@ -15,6 +15,10 @@ import {
 } from "./agents-md";
 import type { Rule } from "../../rules/types";
 import type { MinskyCompileFsDeps } from "../types";
+// Imported, not re-typed: a hand-written banner literal here could drift from
+// the one the target emits and the ownership predicate reads, and the test
+// would keep passing while the invariant broke (mt#1798, mt#4986).
+import { MONOLITHIC_GENERATED_BANNER as AGENTS_MD_BANNER_FOR_TEST } from "../../rules/compile/banner-constants";
 
 const ALWAYS_APPLY_CONTENT = "Always apply content";
 const MANUAL_RULE_CONTENT = "Manual rule content";
@@ -209,6 +213,10 @@ function ruleMdcPath(name: string): string {
   return `${WORKSPACE}/.minsky/rules/${name}.mdc`;
 }
 
+/** The stock always-apply `.mdc` fixture, and the body it compiles to. */
+const SOME_RULE_BODY = "Some rule body.";
+const SOME_RULE_MDC = `---\ndescription: Some always rule\nalwaysApply: true\n---\n${SOME_RULE_BODY}\n`;
+
 describe("agentsMdTarget (end-to-end via fake fs + .mdc sources)", () => {
   it("listOutputFiles returns single path at <workspace>/AGENTS.md", async () => {
     const target = makeAgentsMdTarget();
@@ -247,8 +255,7 @@ describe("agentsMdTarget (end-to-end via fake fs + .mdc sources)", () => {
 
   it("writes AGENTS.md when not a dry run", async () => {
     const fakeFs = makeFakeFs({
-      [ruleMdcPath("some-rule")]:
-        "---\ndescription: Some always rule\nalwaysApply: true\n---\nSome rule body.\n",
+      [ruleMdcPath("some-rule")]: SOME_RULE_MDC,
     });
     const target = makeAgentsMdTarget();
 
@@ -257,5 +264,71 @@ describe("agentsMdTarget (end-to-end via fake fs + .mdc sources)", () => {
 
     const written = await fakeFs.readFile(`${WORKSPACE}/AGENTS.md`, "utf-8");
     expect(written).toContain("Some rule body.");
+  });
+
+  // ─── Foreign-file protection (mt#4986 SC1/SC4/SC5) ──────────────────────
+  //
+  // A hand-written AGENTS.md is the Codex convention, and this target used to
+  // overwrite it on a bare `minsky compile` because the file's mere PRESENCE
+  // was read as evidence the user consumes our output (mt#4866 SC3).
+
+  const FOREIGN_AGENTS_MD = "# Widget agent notes\n\nCodex reads this. Do not clobber.\n";
+
+  const withForeignAgentsMd = (): MinskyCompileFsDeps =>
+    makeFakeFs({
+      [ruleMdcPath("some-rule")]: SOME_RULE_MDC,
+      [`${WORKSPACE}/AGENTS.md`]: FOREIGN_AGENTS_MD,
+    });
+
+  it("does not write a foreign AGENTS.md, and leaves it byte-identical", async () => {
+    const fakeFs = withForeignAgentsMd();
+    const target = makeAgentsMdTarget();
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+
+    expect(result.filesWritten).toEqual([]);
+    // The real assertion: read the file back. `filesWritten` is our own report
+    // and could be right while the write still happened.
+    expect(await fakeFs.readFile(`${WORKSPACE}/AGENTS.md`, "utf-8")).toBe(FOREIGN_AGENTS_MD);
+  });
+
+  it("reports the skip with a reason naming the file", async () => {
+    const target = makeAgentsMdTarget();
+    const result = await target.compile({}, WORKSPACE, withForeignAgentsMd());
+
+    expect(result.skippedForeignOutputs).toHaveLength(1);
+    expect(result.skippedForeignOutputs?.[0]?.path).toBe(`${WORKSPACE}/AGENTS.md`);
+    expect(result.skippedForeignOutputs?.[0]?.reason).toContain("AGENTS.md");
+  });
+
+  it("reports NO definitions as included when the output was not written", async () => {
+    // Otherwise `init`'s reachability accounting (mt#4770) is told the rule
+    // reached the agent when it reached nothing.
+    const target = makeAgentsMdTarget();
+    const result = await target.compile({}, WORKSPACE, withForeignAgentsMd());
+
+    expect(result.definitionsIncluded).toEqual([]);
+    expect(result.definitionsSkipped).toContain("some-rule");
+  });
+
+  it("reports no output files for a foreign AGENTS.md, so --check cannot call it stale", async () => {
+    const target = makeAgentsMdTarget();
+    expect(await target.listOutputFiles({}, WORKSPACE, withForeignAgentsMd())).toEqual([]);
+  });
+
+  it("still regenerates an AGENTS.md that carries the banner", async () => {
+    // The other half of the predicate: protecting the user's file must not cost
+    // us the ability to refresh our own.
+    const fakeFs = makeFakeFs({
+      [ruleMdcPath("some-rule")]: SOME_RULE_MDC,
+      [`${WORKSPACE}/AGENTS.md`]: `${AGENTS_MD_BANNER_FOR_TEST}\n\n# stale content\n`,
+    });
+    const target = makeAgentsMdTarget();
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+
+    expect(result.filesWritten).toEqual([`${WORKSPACE}/AGENTS.md`]);
+    expect(result.skippedForeignOutputs).toBeUndefined();
+    expect(await fakeFs.readFile(`${WORKSPACE}/AGENTS.md`, "utf-8")).toContain(SOME_RULE_BODY);
   });
 });

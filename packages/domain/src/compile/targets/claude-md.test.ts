@@ -16,6 +16,8 @@ import {
 } from "./claude-md";
 import type { Rule } from "../../rules/types";
 import type { MinskyCompileFsDeps } from "../types";
+// Imported, not re-typed — see the sibling note in `agents-md.test.ts`.
+import { MONOLITHIC_GENERATED_BANNER as CLAUDE_MD_BANNER_FOR_TEST } from "../../rules/compile/banner-constants";
 
 const ALWAYS_APPLY_CONTENT = "Always apply content";
 const MANUAL_RULE_CONTENT = "Manual rule content";
@@ -260,6 +262,10 @@ function ruleMdcPath(name: string): string {
   return `${WORKSPACE}/.minsky/rules/${name}.mdc`;
 }
 
+/** The stock always-apply `.mdc` fixture, and the body it compiles to. */
+const ALWAYS_RULE_BODY = "Always rule body.";
+const ALWAYS_RULE_MDC = `---\ndescription: An always rule\nalwaysApply: true\n---\n${ALWAYS_RULE_BODY}\n`;
+
 describe("claudeMdTarget (end-to-end via fake fs + .mdc sources)", () => {
   it("listOutputFiles returns single path at <workspace>/CLAUDE.md", async () => {
     const target = makeClaudeMdTarget();
@@ -269,8 +275,7 @@ describe("claudeMdTarget (end-to-end via fake fs + .mdc sources)", () => {
 
   it("compiles always-apply .mdc sources into CLAUDE.md content and reports size budget", async () => {
     const fakeFs = makeFakeFs({
-      [ruleMdcPath("always-rule")]:
-        "---\ndescription: An always rule\nalwaysApply: true\n---\nAlways rule body.\n",
+      [ruleMdcPath("always-rule")]: ALWAYS_RULE_MDC,
       [ruleMdcPath("manual-rule")]: "---\ndescription: A manual rule\n---\nManual rule body.\n",
     });
     const target = makeClaudeMdTarget();
@@ -279,7 +284,7 @@ describe("claudeMdTarget (end-to-end via fake fs + .mdc sources)", () => {
 
     expect(result.definitionsIncluded).toEqual(["always-rule"]);
     expect(result.definitionsSkipped).toEqual(["manual-rule"]);
-    expect(result.content).toContain("Always rule body.");
+    expect(result.content).toContain(ALWAYS_RULE_BODY);
     expect(result.content).not.toContain("Manual rule body.");
     const content = result.content;
     // Assert presence separately: `toBe(undefined)` would pass vacuously if the
@@ -291,8 +296,7 @@ describe("claudeMdTarget (end-to-end via fake fs + .mdc sources)", () => {
 
   it("writes CLAUDE.md when not a dry run", async () => {
     const fakeFs = makeFakeFs({
-      [ruleMdcPath("always-rule")]:
-        "---\ndescription: An always rule\nalwaysApply: true\n---\nAlways rule body.\n",
+      [ruleMdcPath("always-rule")]: ALWAYS_RULE_MDC,
     });
     const target = makeClaudeMdTarget();
 
@@ -301,7 +305,7 @@ describe("claudeMdTarget (end-to-end via fake fs + .mdc sources)", () => {
     expect(result.content).toBeUndefined();
 
     const written = await fakeFs.readFile(`${WORKSPACE}/CLAUDE.md`, "utf-8");
-    expect(written).toContain("Always rule body.");
+    expect(written).toContain(ALWAYS_RULE_BODY);
   });
 
   it("suppresses memory-usage under legacy memoryLoadingMode end-to-end", async () => {
@@ -338,5 +342,70 @@ describe("claudeMdTarget (end-to-end via fake fs + .mdc sources)", () => {
     };
     expect(withBudget.perRuleViolations).toHaveLength(1);
     expect(withBudget.perRuleViolations[0]?.id).toBe("over-ceiling");
+  });
+
+  // ─── Foreign-file protection (mt#4986 SC1/SC4/SC5) ──────────────────────
+  //
+  // Measured pre-fix, 2026-09-04 at `1c7a6366c`: a scratch repo with a
+  // hand-written 140-byte CLAUDE.md ran `minsky init` and got back 15,085 bytes
+  // with zero original lines surviving and no warning.
+
+  const FOREIGN_CLAUDE_MD =
+    "# Widget house rules\n\n- We use tabs, not spaces.\n- Never touch `legacy/` without asking.\n";
+
+  const withForeignClaudeMd = (): MinskyCompileFsDeps =>
+    makeFakeFs({
+      [ruleMdcPath("always-rule")]: ALWAYS_RULE_MDC,
+      [`${WORKSPACE}/CLAUDE.md`]: FOREIGN_CLAUDE_MD,
+    });
+
+  it("does not write a foreign CLAUDE.md, and leaves it byte-identical", async () => {
+    const fakeFs = withForeignClaudeMd();
+    const target = makeClaudeMdTarget();
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+
+    expect(result.filesWritten).toEqual([]);
+    // Read the file back rather than trusting `filesWritten`, which is our own
+    // report and could be right while the write still happened.
+    expect(await fakeFs.readFile(`${WORKSPACE}/CLAUDE.md`, "utf-8")).toBe(FOREIGN_CLAUDE_MD);
+  });
+
+  it("reports the skip with a reason naming the file", async () => {
+    const target = makeClaudeMdTarget();
+    const result = await target.compile({}, WORKSPACE, withForeignClaudeMd());
+
+    expect(result.skippedForeignOutputs).toHaveLength(1);
+    expect(result.skippedForeignOutputs?.[0]?.path).toBe(`${WORKSPACE}/CLAUDE.md`);
+    expect(result.skippedForeignOutputs?.[0]?.reason).toContain("CLAUDE.md");
+  });
+
+  it("reports NO definitions as included when the output was not written", async () => {
+    // Otherwise `init`'s reachability accounting (mt#4770) is told four base
+    // rules reached the agent when they reached nothing.
+    const target = makeClaudeMdTarget();
+    const result = await target.compile({}, WORKSPACE, withForeignClaudeMd());
+
+    expect(result.definitionsIncluded).toEqual([]);
+    expect(result.definitionsSkipped).toContain("always-rule");
+  });
+
+  it("reports no output files for a foreign CLAUDE.md, so --check cannot call it stale", async () => {
+    const target = makeClaudeMdTarget();
+    expect(await target.listOutputFiles({}, WORKSPACE, withForeignClaudeMd())).toEqual([]);
+  });
+
+  it("still regenerates a CLAUDE.md that carries the banner", async () => {
+    const fakeFs = makeFakeFs({
+      [ruleMdcPath("always-rule")]: ALWAYS_RULE_MDC,
+      [`${WORKSPACE}/CLAUDE.md`]: `${CLAUDE_MD_BANNER_FOR_TEST}\n\n# stale content\n`,
+    });
+    const target = makeClaudeMdTarget();
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+
+    expect(result.filesWritten).toEqual([`${WORKSPACE}/CLAUDE.md`]);
+    expect(result.skippedForeignOutputs).toBeUndefined();
+    expect(await fakeFs.readFile(`${WORKSPACE}/CLAUDE.md`, "utf-8")).toContain(ALWAYS_RULE_BODY);
   });
 });

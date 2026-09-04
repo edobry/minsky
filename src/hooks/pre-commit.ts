@@ -2411,18 +2411,35 @@ export class PreCommitHook {
         cursorRules: await dirExists(`${this.projectRoot}/.cursor/rules`),
         agentsMd: await dirExists(`${this.projectRoot}/AGENTS.md`),
       },
+      // mt#4986 SC3 — mirrors the probe's foreign-ownership read for the same
+      // lockstep reason the harness gate above is mirrored: a target the compile
+      // will not write must not be a target this check demands be fresh, or a
+      // project with its own CLAUDE.md is told it is stale forever with no
+      // invocation able to refresh it. No-op in Minsky's own repository, whose
+      // CLAUDE.md and AGENTS.md both carry the banner.
+      foreignOutputs: {
+        claudeMd: await isForeignMonolithForCheck(`${this.projectRoot}/CLAUDE.md`),
+        agentsMd: await isForeignMonolithForCheck(`${this.projectRoot}/AGENTS.md`),
+      },
     });
 
-    // PR #3623 R1: say so when the harness gate narrowed the set. Without this a
+    // PR #3623 R1: say so when the gate narrowed the set. Without this a
     // gated-out target is indistinguishable from one that was never applicable,
     // so a project reads "outputs are up-to-date" while two of them are not being
     // maintained at all and nothing has said why.
     if (gatedOut.length > 0) {
+      // Two different gates can land a target here and they have opposite
+      // remedies, so the message names both rather than asserting the harness
+      // one (mt#4986): opting in with `--target` is right for a harness skip and
+      // exactly wrong for a file that is the user's, where it would overwrite
+      // the thing the gate is protecting.
       log.cli(
-        `ℹ️  Not checking ${gatedOut.join(", ")} — this project records ` +
-          `workspace.harness: claude-code and does not have those outputs on disk, so a ` +
-          `bare \`minsky compile\` does not produce them either (mt#4866). Run ` +
-          `\`minsky compile --target <name>\` to opt in.`
+        `ℹ️  Not checking ${gatedOut.join(", ")} — either this project records ` +
+          `workspace.harness: claude-code and does not have those outputs on disk (mt#4866), ` +
+          `or the output exists without Minsky's generated-file banner and is treated as ` +
+          `yours (mt#4986). A bare \`minsky compile\` does not produce them either. For the ` +
+          `first case, \`minsky compile --target <name>\` opts in; for the second, move the ` +
+          `file aside first.`
       );
     }
 
@@ -2657,8 +2674,41 @@ export function compileCheckTargets(present: {
   harness?: string;
   /** Whether each harness-specific output already exists on disk. */
   existingOutputs?: { cursorRules: boolean; agentsMd: boolean };
+  /** Whether each monolithic output on disk is the user's own file (mt#4986 SC3). */
+  foreignOutputs?: { claudeMd: boolean; agentsMd: boolean };
 }): string[] {
   return compileCheckTargetsWithGateReport(present).targets;
+}
+
+/**
+ * Whether `filePath` is a monolithic output the USER owns — present, and not
+ * carrying a generation banner in its first five lines (mt#4986 SC3).
+ *
+ * Duplicated from `compile/monolithic-ownership.ts` for exactly the reason
+ * `readRecordedHarnessForCheck` above is duplicated: importing the domain module
+ * drags `createMinskyCompileService` and every compile target into a hook that
+ * runs on every commit. The banner PATTERNS are not duplicated — they are
+ * imported from the shared constants module, so the only thing local here is the
+ * five-line window.
+ *
+ * Fails OPEN (returns `false`, "we own it") on an unreadable file, matching the
+ * sibling read above and the domain predicate: the wrong direction here would
+ * silently drop `claude.md` from the staleness check in Minsky's own repository.
+ */
+async function isForeignMonolithForCheck(filePath: string): Promise<boolean> {
+  const fsp = await import("fs/promises");
+  const { GENERATION_BANNER_PATTERNS } = await import(
+    "../../packages/domain/src/rules/compile/banner-constants"
+  );
+  try {
+    const raw = String(await fsp.readFile(filePath, "utf-8"));
+    const head = raw.split("\n").slice(0, 5).join("\n");
+    return !GENERATION_BANNER_PATTERNS.some(({ re }) => re.test(head));
+  } catch {
+    // intentional-swallow: absent (the common case) is not foreign, and an
+    // unreadable file must not drop a target from the check.
+    return false;
+  }
 }
 
 /**
@@ -2680,10 +2730,14 @@ export function compileCheckTargetsWithGateReport(present: {
   hooks: boolean;
   harness?: string;
   existingOutputs?: { cursorRules: boolean; agentsMd: boolean };
+  /** Whether each monolithic output on disk is the user's own file (mt#4986 SC3). */
+  foreignOutputs?: { claudeMd: boolean; agentsMd: boolean };
 }): { targets: string[]; gatedOut: string[] } {
   const claudeCodeOnly = present.harness === "claude-code";
   const cursorRulesExists = present.existingOutputs?.cursorRules ?? false;
   const agentsMdExists = present.existingOutputs?.agentsMd ?? false;
+  const claudeMdIsForeign = present.foreignOutputs?.claudeMd ?? false;
+  const agentsMdIsForeign = present.foreignOutputs?.agentsMd ?? false;
 
   const targets: string[] = [];
   const gatedOut: string[] = [];
@@ -2693,10 +2747,16 @@ export function compileCheckTargetsWithGateReport(present: {
     if (!claudeCodeOnly || cursorRulesExists) targets.push("cursor-rules-ts");
     else gatedOut.push("cursor-rules-ts");
 
-    targets.push("claude.md");
+    if (!claudeMdIsForeign) targets.push("claude.md");
+    else gatedOut.push("claude.md");
 
-    if (!claudeCodeOnly || agentsMdExists) targets.push("agents.md");
-    else gatedOut.push("agents.md");
+    if (agentsMdIsForeign) {
+      gatedOut.push("agents.md");
+    } else if (!claudeCodeOnly || agentsMdExists) {
+      targets.push("agents.md");
+    } else {
+      gatedOut.push("agents.md");
+    }
 
     targets.push("claude-rules");
   }
