@@ -2171,10 +2171,33 @@ export function createStartCommand(
         // than one missed daemon sweep, so this server's ~100 restarts a day do not become
         // ~100 ledger reads a day. The cockpit daemon keeps its own sweep — this is
         // redundancy across two process lifetimes, not a relocation.
+        //
+        // mt#4938 SC2: this chain can settle before `container.initialize()`'s pass reaches
+        // the "persistence" key — the daemon log carried 8 `Service "persistence" is not
+        // available` failures against 8 successes. `triggerProdStateBootRefreshWhenReady`
+        // waits for `container.has("persistence")` (bounded, polling — never a second
+        // `container.initialize()` call, which could race the in-flight one) before
+        // resolving it, so this call site can no longer hit that race.
+        //
+        // PR #3615 R2: a dedicated AbortController rather than threading through the
+        // `cleanup()` closure below — a shutdown signal should stop THIS best-effort wait
+        // promptly (its own timer is already `unref()`'d, so it cannot hold the process open
+        // by itself, but there is no reason to let it keep polling once the process is on its
+        // way out). Scoped to this one wait; does not participate in `cleanup()`'s drain
+        // sequence or its `shutdownInFlight` guard.
+        const prodStateReadyAbort = new AbortController();
+        // `.once` is absent from this project's narrowed ambient `process` type (only `.on` is
+        // — see the sibling `process.on("SIGTERM", cleanup)` below); `.on` is fine here since
+        // `AbortController.abort()` is idempotent — a second signal delivery aborts a
+        // already-aborted controller harmlessly.
+        process.on("SIGTERM", () => prodStateReadyAbort.abort());
+        process.on("SIGINT", () => prodStateReadyAbort.abort());
         import("../../mcp/prod-state-boot-refresh")
-          .then(({ triggerProdStateBootRefresh }) => {
+          .then(({ triggerProdStateBootRefreshWhenReady }) => {
             if (!container) return;
-            return triggerProdStateBootRefresh(container.get("persistence"));
+            return triggerProdStateBootRefreshWhenReady(container, undefined, {
+              signal: prodStateReadyAbort.signal,
+            });
           })
           .catch((err) => {
             log.warn("Prod-state boot refresh failed (best-effort)", {
