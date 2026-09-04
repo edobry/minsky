@@ -20,7 +20,7 @@
  *
  * ## What it does
  *
- * For every `bare-short-id` fire in `.minsky/bare-entity-ref-calibration.jsonl`,
+ * For every `bare-short-id` fire in this checkout's `bare-entity-ref` calibration log,
  * recover the judged message from that session's transcript (the last assistant
  * text block at or before the fire timestamp), re-run the scan, and apply the
  * suppression using bindings harvested from the same transcript. Reports how
@@ -42,8 +42,18 @@ import {
   shortIdsNeedingResolution,
 } from "../.minsky/hooks/bare-entity-ref-scan";
 import { collectShortIdBindings, type TranscriptLine } from "../.minsky/hooks/transcript";
+import { calibrationLogPath } from "../.minsky/hooks/dispatcher";
+import { resolve } from "node:path";
 
-const CALIBRATION_LOG = ".minsky/bare-entity-ref-calibration.jsonl";
+/**
+ * mt#4971: resolved through the WRITER's own function rather than the pre-mt#4748
+ * repo path, which no longer exists — reading it produced a SKIP that looked like
+ * "no records" rather than "wrong location". `fallbackCwd` (not `projectDir`) keeps
+ * the resolver's `CLAUDE_PROJECT_DIR` tier ahead of this checkout.
+ */
+const CALIBRATION_LOG = calibrationLogPath("bare-entity-ref", {
+  fallbackCwd: resolve(import.meta.dir, ".."),
+});
 const PROJECTS_ROOT = join(homedir(), ".claude", "projects");
 
 interface CalibrationRecord {

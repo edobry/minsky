@@ -55,13 +55,22 @@ import {
   parseTranscript,
 } from "../.minsky/hooks/transcript";
 import type { TranscriptLine } from "../.minsky/hooks/transcript";
+import { calibrationLogPath } from "../.minsky/hooks/dispatcher";
 
 /**
  * Default resolves beside this script. Calibration logs are NOT tracked in git,
  * so a session workspace has none — pass `--log` pointing at the main checkout's
  * copy when running from a session.
  */
-const DEFAULT_LOG = resolve(import.meta.dir, "..", ".minsky", "pre-narration-calibration.jsonl");
+/**
+ * mt#4971: resolved through the WRITER's own function rather than the pre-mt#4748
+ * repo path, which no longer exists — reading it produced a SKIP that looked like
+ * "no records" rather than "wrong location". `fallbackCwd` (not `projectDir`) keeps
+ * the resolver's `CLAUDE_PROJECT_DIR` tier ahead of this checkout.
+ */
+const DEFAULT_LOG = calibrationLogPath("pre-narration", {
+  fallbackCwd: resolve(import.meta.dir, ".."),
+});
 const PROJECTS_DIR = join(homedir(), ".claude", "projects");
 
 interface CalibrationMatch {
@@ -470,7 +479,9 @@ function main(): void {
   if (!existsSync(logPath)) {
     console.log(`SKIP: no calibration log at ${logPath}`);
     console.log(
-      "(Calibration logs are untracked; from a session pass --log <main-checkout>/.minsky/pre-narration-calibration.jsonl)"
+      "(Since mt#4748 calibration logs live under the runtime state dir, keyed by checkout," +
+        " so a session workspace resolves its OWN key and finds nothing. From a session, pass" +
+        " --log <main-checkout's state-dir path>.)"
     );
     process.exit(0);
   }

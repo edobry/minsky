@@ -62,8 +62,18 @@
  */
 
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { resolve } from "node:path";
+import { calibrationLogPath } from "../.minsky/hooks/dispatcher";
 
-const DEFAULT_LOG = ".minsky/code-mechanism-assertion-calibration.jsonl";
+/**
+ * mt#4971: resolved through the WRITER's own function rather than the pre-mt#4748
+ * repo path, which no longer exists — reading it produced a SKIP that looked like
+ * "no records" rather than "wrong location". `fallbackCwd` (not `projectDir`) keeps
+ * the resolver's `CLAUDE_PROJECT_DIR` tier ahead of this checkout.
+ */
+const DEFAULT_LOG = calibrationLogPath("code-mechanism-assertion", {
+  fallbackCwd: resolve(import.meta.dir, ".."),
+});
 
 /**
  * Default window. These are the bounds the mt#4650 measurement was taken over, and
