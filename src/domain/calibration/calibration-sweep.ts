@@ -2515,6 +2515,18 @@ function toReviewDueLog(
  *      injected count, two because they require NO watermark — leaving it
  *      permanently unreviewable with no error raised anywhere.
  *
+ *   0b. all-suppressed — the detector detected at volume and the operator saw
+ *      NONE of it: zero injected fires with the SUPPRESSED count past
+ *      FIRES_THRESHOLD (mt#4049). Like leg 0 this is ungated on the watermark
+ *      and checked before the watermark split, because all four originals
+ *      decline it by design — leg 1's count bar reads the injected count
+ *      (pinned at 0), legs 2 and 3 carry explicit
+ *      `injectedFiresSinceLastReview <= 0` guards, and leg 4 requires zero
+ *      total fires while this log has records. Implements the
+ *      counter-consideration mt#3197 (PR #2300 R1) recorded and declined to
+ *      invent mid-review; its question is "is this gate too broad?", not
+ *      "review these fires", which is why it carries its own warning text.
+ *
  * The original four:
  *   1. past-threshold — fires-since-review >= FIRES_THRESHOLD AND
  *      distinctPhrases >= DIVERSITY_THRESHOLD (the diversity-aware count bar).

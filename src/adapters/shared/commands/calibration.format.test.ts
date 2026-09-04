@@ -172,3 +172,62 @@ describe("formatResult — watermark-stranded rendering (mt#4904)", () => {
     expect(text).not.toContain("0 new / 121 total fires");
   });
 });
+
+describe("formatResult — all-suppressed records are printed (mt#4049, PR #3630 R1)", () => {
+  /**
+   * An all-suppressed log has `atCountThreshold === false` by construction —
+   * that flag reads the injected count, which this leg requires to be zero. The
+   * producer widened its own gate to `atCountThreshold || allSuppressed`; this
+   * renderer was left on `atCountThreshold` alone, so the sweep surfaced the
+   * records and the text output silently dropped them. Reviewer-caught.
+   */
+  function allSuppressedResult(overrides: Partial<CalibrationLogResult> = {}) {
+    return {
+      entry: {
+        name: "knowledge-acquisition",
+        path: ".minsky/knowledge-acquisition-calibration.jsonl",
+      },
+      exists: true,
+      totalFires: 15,
+      watermarkCount: 0,
+      firesSinceLastReview: 15,
+      suppressedSinceLastReview: 13,
+      injectedFiresSinceLastReview: 0,
+      evaluatedOnlySinceLastReview: 0,
+      distinctPhrases: 13,
+      lowDiversity: false,
+      // Both false, as production computes them for this leg — that pairing is
+      // the whole point of the regression.
+      atCountThreshold: false,
+      pastThreshold: false,
+      allSuppressed: true,
+      newRecords: [
+        { timestamp: "2026-09-04T17:31:35.763Z", outcome: "suppressed", reason: "propagation" },
+      ],
+      classifiability: {
+        verdict: "classifiable",
+        evidenceFields: ["suppressionReasons"],
+        recordsAssessed: 15,
+        judgedText: {
+          recoverability: "unrecoverable",
+          capturedRecords: 0,
+          recoverableRecords: 0,
+          recordsAssessed: 15,
+        },
+      },
+      ...overrides,
+    } as unknown as CalibrationLogResult;
+  }
+
+  test("prints the New records block even though atCountThreshold is false", () => {
+    const out = formatResult([allSuppressedResult()], []);
+    expect(out).toContain("New records (1)");
+  });
+
+  test("still withholds records for a below-bar log that is NOT all-suppressed", () => {
+    // The negative control on the widening: this is the ordinary
+    // below-the-count-bar case, which must stay exactly as quiet as it was.
+    const out = formatResult([allSuppressedResult({ allSuppressed: false })], []);
+    expect(out).not.toContain("New records (");
+  });
+});

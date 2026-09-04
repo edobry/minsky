@@ -541,7 +541,14 @@ export function formatResult(results: CalibrationLogResult[], reviewDue: ReviewD
     } else {
       lines.push(`  Judged text:            n/a — no un-reviewed records to assess`);
     }
-    if (r.atCountThreshold && r.newRecords.length > 0) {
+    // mt#4049 (PR #3630 R1): mirrors the producer's gate in `computeLogResult`
+    // (`atCountThreshold || allSuppressed`). Guarding on `atCountThreshold`
+    // alone would print NO records for an all-suppressed log — which has
+    // `atCountThreshold === false` by construction — so the sweep would surface
+    // the records and this renderer would silently drop them, leaving the
+    // reviewer with a routed log and nothing to judge. Reviewer-caught: the
+    // producer-side gate was widened and this consumer was not.
+    if ((r.atCountThreshold || r.allSuppressed) && r.newRecords.length > 0) {
       lines.push(`  New records (${r.newRecords.length}):`);
       for (const rec of r.newRecords.slice(0, 5)) {
         if ("matchedPhrases" in rec) {
