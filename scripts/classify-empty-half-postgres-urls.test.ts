@@ -14,6 +14,7 @@ import { describe, test, expect } from "bun:test";
 import {
   classifySecret,
   decideOutcome,
+  scanText,
   entropy,
   caseMix,
 } from "./classify-empty-half-postgres-urls";
@@ -26,6 +27,9 @@ import {
  * being scored at all. Five tests failed for one fixture reason.
  */
 const CTX = "postgresql://:X@prod-db-7f2a.internal:5432/minsky";
+
+/** A credential-shaped fixture. Synthetic; reused so it is not a magic string. */
+const REAL_SHAPED = "aB3xK9mQ7pL2vN4t";
 
 describe("classifySecret", () => {
   describe("synthetic — placeholder vocabulary", () => {
@@ -62,7 +66,7 @@ describe("classifySecret", () => {
 
   describe("real-shaped — the population that warrants escalation", () => {
     test("mixed-case alphanumeric of credential length", () => {
-      expect(classifySecret("aB3xK9mQ7pL2vN4t", CTX)).toBe("real-shaped");
+      expect(classifySecret(REAL_SHAPED, CTX)).toBe("real-shaped");
     });
 
     test("high-entropy base64-ish string", () => {
@@ -73,7 +77,7 @@ describe("classifySecret", () => {
     // discriminators did not fire, which is weaker than proof. The test asserts
     // the classification, not a claim about the world.
     test("a real-shaped verdict is a classification, not a proof of realness", () => {
-      const v = classifySecret("aB3xK9mQ7pL2vN4t", CTX);
+      const v = classifySecret(REAL_SHAPED, CTX);
       expect(v).toBe("real-shaped");
       expect(["synthetic", "real-shaped", "undecidable"]).toContain(v);
     });
@@ -113,6 +117,58 @@ describe("classifySecret", () => {
     test("an unrecognized long mixed-case string never classifies as synthetic", () => {
       expect(classifySecret("Zq7Lm2Xv9Kd4Rt8w", CTX)).not.toBe("synthetic");
     });
+  });
+});
+
+/**
+ * PR #3621 R1 (BLOCKING) — the regression that matters most in this file.
+ *
+ * The `classifySecret` tests above pass a FULL URL as `surroundingContext`. The
+ * sweep did not: its regex stopped at the `@`, so it passed a fragment with no
+ * host, and the placeholder-host rule was unreachable in every real scan. Both
+ * sides were internally consistent and jointly wrong, and no amount of testing
+ * `classifySecret` could have found it — the disagreement was BETWEEN the test
+ * and the caller.
+ *
+ * So these exercise `scanText`, which is what the sweep actually calls, on the
+ * raw text it actually sees. A test that constructs the classifier's argument
+ * by hand cannot catch an argument-construction bug.
+ */
+describe("scanText — the caller's own path", () => {
+  test("an example-host URL classifies synthetic THROUGH the scan, not just the classifier", () => {
+    const matches = scanText('DATABASE_URL="postgresql://:aB3xK9mQ7pL2@db.example.com:5432/mydb"');
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.verdict).toBe("synthetic");
+  });
+
+  test("localhost too — the case the fragment bug silently misclassified", () => {
+    const matches = scanText("connect to postgresql://:aB3xK9mQ7pL2@localhost:5432/dev");
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.verdict).toBe("synthetic");
+  });
+
+  test("a real host still reaches real-shaped through the scan", () => {
+    const matches = scanText(`postgresql://:${REAL_SHAPED}@prod-db-7f2a.internal:5432/minsky`);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.verdict).toBe("real-shaped");
+  });
+
+  test("finds the empty-PASSWORD form as well as the empty-username one", () => {
+    const matches = scanText(
+      "a postgresql://:aB3xK9mQ7pL2@prod-a.internal/db b postgresql://someuser:@prod-b.internal/db"
+    );
+    expect(matches).toHaveLength(2);
+  });
+
+  test("a credential-less URL produces no match at all", () => {
+    expect(scanText("postgresql://prod-db.internal:5432/minsky")).toHaveLength(0);
+  });
+
+  test("every match carries a correlator and never the value", () => {
+    const secret = REAL_SHAPED;
+    const matches = scanText(`postgresql://:${secret}@prod-db-7f2a.internal:5432/minsky`);
+    expect(matches[0]?.correlator).toMatch(/^[0-9a-f]{12}$/);
+    expect(matches[0]?.correlator).not.toContain(secret);
   });
 });
 

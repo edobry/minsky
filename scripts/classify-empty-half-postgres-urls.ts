@@ -118,10 +118,48 @@ const excludeAfter =
  * Capture 1 is the password when the username is empty; capture 2 is the
  * username when the password is empty. Neither is ever printed.
  */
-const EMPTY_USERNAME = /postgres(?:ql)?:\/\/:([^@\s]+)@/g;
-const EMPTY_PASSWORD = /postgres(?:ql)?:\/\/([^:/@\s]+):@/g;
+/**
+ * The trailing `[^\s'"\\]*` is NOT decoration — it captures the HOST, and
+ * without it the placeholder-host check is dead code (PR #3621 R1, BLOCKING).
+ *
+ * The first version stopped the match at the `@`, so `m[0]` was
+ * `postgresql://:secret@` — a fragment with no host in it. `classifySecret` // gitleaks:allow
+ * then received that fragment as its `surroundingContext`, and `PLACEHOLDER_HOSTS`
+ * (which requires `@host…`) could never match. Every host-based `synthetic`
+ * verdict was unreachable in the real scan.
+ *
+ * The unit tests did not catch it because they pass `classifySecret` a FULL URL
+ * while the caller passed a fragment — **the tests and the call site disagreed
+ * about the argument**, so both were internally consistent and jointly wrong.
+ * That is why `scanText` is now exported and tested on the caller's own path.
+ */
+const EMPTY_USERNAME = /postgres(?:ql)?:\/\/:([^@\s]+)@([^\s'"\\]*)/g;
+const EMPTY_PASSWORD = /postgres(?:ql)?:\/\/([^:/@\s]+):@([^\s'"\\]*)/g;
 
 export type Verdict = "synthetic" | "real-shaped" | "undecidable";
+
+/**
+ * sha256 hashes of known-live credential values — mem#634's decisive
+ * discriminator, which had 0 misclassifications on the full corpus of that
+ * sweep (PR #3621 R1, BLOCKING: the spec names it and the first version omitted
+ * it entirely).
+ *
+ * Supplied as HASHES, never as values, via
+ * `MINSKY_CLASSIFY_KNOWN_SECRET_HASHES` (comma-separated hex). That is what
+ * lets this script have the discriminator without reading the credential store:
+ * the operator computes the hashes out-of-band — `printf %s "$V" | sha256sum` —
+ * and the script never holds, logs or compares a plaintext credential of its
+ * own. A hash is one-way, so the variable is not itself sensitive.
+ *
+ * Empty by default; when empty, the shape heuristics run alone and the verdict
+ * is correspondingly weaker, which is why `undecidable` exists as a class.
+ */
+const KNOWN_SECRET_HASHES = new Set(
+  (process.env["MINSKY_CLASSIFY_KNOWN_SECRET_HASHES"] ?? "")
+    .split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter((h) => /^[0-9a-f]{64}$/.test(h))
+);
 
 /**
  * Documentation/placeholder vocabulary. A secret half drawn from this set is
@@ -208,11 +246,26 @@ export function caseMix(s: string): boolean {
 export function classifySecret(secret: string, surroundingContext: string): Verdict {
   const lower = secret.toLowerCase();
 
+  // The hash-match runs FIRST and is decisive in the positive direction: a
+  // value whose sha256 equals a known live credential is real, whatever it
+  // looks like. mem#634 measured 0 misclassifications with this discriminator.
+  if (KNOWN_SECRET_HASHES.size > 0) {
+    const full = createHash("sha256").update(secret).digest("hex");
+    if (KNOWN_SECRET_HASHES.has(full)) return "real-shaped";
+  }
+
   if (PLACEHOLDER_WORDS.has(lower)) return "synthetic";
   // A placeholder host makes the whole URL an example regardless of the secret.
   if (PLACEHOLDER_HOSTS.test(surroundingContext)) return "synthetic";
-  // `<pw>`, `${PASSWORD}`, `***` and friends are templates, not values.
-  if (/^[<${*[]/.test(secret) || /[>}\]]$/.test(secret)) return "synthetic";
+  // A template is a WHOLE delimited form — `<pw>`, `${PASSWORD}`, `***`, `[x]`.
+  // Anchoring both ends is deliberate (PR #3621 R1, NON-BLOCKING): the first
+  // version tested only the FIRST character, so a real secret beginning with
+  // `$`, `*`, `<` or `[` — all legal password characters — classified as a
+  // template. That is the false-safe direction, so the check must be exact.
+  if (/^<.+>$/.test(secret)) return "synthetic";
+  if (/^\$\{.+\}$/.test(secret)) return "synthetic";
+  if (/^\*+$/.test(secret)) return "synthetic";
+  if (/^\[.+\]$/.test(secret)) return "synthetic";
 
   if (secret.length < 8) return "undecidable";
 
@@ -261,29 +314,48 @@ interface SurfaceReport {
   matches: number;
   tally: Tally;
   /** Correlators for `real-shaped` matches only — the population to escalate. */
-  realShapedCorrelators: string[];
+  realShapedCorrelators: Set<string>;
   excludedByDate: number;
 }
 
-function scanText(text: string, tally: Tally, realShaped: string[]): number {
-  let found = 0;
+/** One classified match. `correlator` is a sha256 prefix, never the value. */
+export interface ScanMatch {
+  verdict: Verdict;
+  correlator: string;
+}
+
+/**
+ * Scan one string and classify every empty-half match in it.
+ *
+ * Exported and returning a VALUE rather than mutating a tally, so a test can
+ * exercise the exact path the sweep uses. That is the structural fix for
+ * PR #3621 R1's third finding: previously this was reachable only through
+ * `main()`, so the only thing tests could reach was `classifySecret` — which
+ * they called with a different argument than this function passed it. A pure
+ * function returning its result closes the gap, because the test and the sweep
+ * now call the same thing the same way.
+ */
+export function scanText(text: string): ScanMatch[] {
+  const out: ScanMatch[] = [];
   for (const re of [EMPTY_USERNAME, EMPTY_PASSWORD]) {
     re.lastIndex = 0;
     for (const m of text.matchAll(re)) {
       const secret = m[1];
       if (!secret) continue;
-      found += 1;
-      const verdict = classifySecret(secret, m[0]);
-      tally[verdict] += 1;
-      if (verdict === "real-shaped") realShapedCorrelators_push(realShaped, secret);
+      // `m[0]` now spans scheme THROUGH HOST, so the host-based rule can fire.
+      out.push({ verdict: classifySecret(secret, m[0]), correlator: correlator(secret) });
     }
   }
-  return found;
+  return out;
 }
 
-function realShapedCorrelators_push(into: string[], secret: string): void {
-  const c = correlator(secret);
-  if (!into.includes(c)) into.push(c);
+/** Fold a scan's matches into a running tally + the real-shaped correlator set. */
+function accumulate(matches: ScanMatch[], tally: Tally, realShaped: Set<string>): number {
+  for (const m of matches) {
+    tally[m.verdict] += 1;
+    if (m.verdict === "real-shaped") realShaped.add(m.correlator);
+  }
+  return matches.length;
 }
 
 async function main(): Promise<void> {
@@ -316,18 +388,27 @@ async function main(): Promise<void> {
   const postgres = (await import("postgres")).default;
   const sql = postgres(connectionString, { prepare: false, max: 4 });
   const reports: SurfaceReport[] = [];
+  /**
+   * Every classified match across every surface, keyed for DEDUPLICATION.
+   *
+   * The surfaces overlap by construction — turns derive from lines, both derive
+   * from the blob — so a per-surface sum triple-counts the same content. This
+   * carries `sessionId` + `correlator` so the report can state a DISTINCT count
+   * alongside the per-surface ones (PR #3621 R1, BLOCKING).
+   */
+  const allMatches: (ScanMatch & { sessionId: string })[] = [];
 
   try {
     // ---- Surface 1: agent_transcript_turns (the extracted view) -------------
     {
       const tally = emptyTally();
-      const realShaped: string[] = [];
+      const realShaped = new Set<string>();
       let matches = 0;
       let excluded = 0;
-      const rows = await sql<{ t: string; started_at: Date | null }[]>`
+      const rows = await sql<{ t: string; started_at: Date | null; agent_session_id: string }[]>`
         SELECT coalesce(user_text, '') || ' ' || coalesce(assistant_text, '') || ' '
                || coalesce(tool_calls::text, '') AS t,
-               started_at
+               started_at, agent_session_id
         FROM agent_transcript_turns
         WHERE user_text LIKE '%postgres%'
            OR assistant_text LIKE '%postgres%'
@@ -338,7 +419,9 @@ async function main(): Promise<void> {
           excluded += 1;
           continue;
         }
-        matches += scanText(r.t, tally, realShaped);
+        const found = scanText(r.t);
+        matches += accumulate(found, tally, realShaped);
+        for (const f of found) allMatches.push({ ...f, sessionId: r.agent_session_id });
       }
       reports.push({
         surface: "agent_transcript_turns",
@@ -356,11 +439,11 @@ async function main(): Promise<void> {
     // out. Measured 2026-09-04 — it cuts the scan to ~10,908 rows.
     {
       const tally = emptyTally();
-      const realShaped: string[] = [];
+      const realShaped = new Set<string>();
       let matches = 0;
       let excluded = 0;
-      const rows = await sql<{ t: string; started_at: Date | null }[]>`
-        SELECT l.line::text AS t, a.started_at
+      const rows = await sql<{ t: string; started_at: Date | null; agent_session_id: string }[]>`
+        SELECT l.line::text AS t, a.started_at, l.agent_session_id
         FROM transcript_lines l
         LEFT JOIN agent_transcripts a ON a.agent_session_id = l.agent_session_id
         WHERE l.line::text LIKE '%postgres%'
@@ -370,7 +453,9 @@ async function main(): Promise<void> {
           excluded += 1;
           continue;
         }
-        matches += scanText(r.t, tally, realShaped);
+        const found = scanText(r.t);
+        matches += accumulate(found, tally, realShaped);
+        for (const f of found) allMatches.push({ ...f, sessionId: r.agent_session_id });
       }
       reports.push({
         surface: "transcript_lines",
@@ -388,7 +473,7 @@ async function main(): Promise<void> {
     // mem#634 documents for this table.
     {
       const tally = emptyTally();
-      const realShaped: string[] = [];
+      const realShaped = new Set<string>();
       let matches = 0;
       let excluded = 0;
       let scanned = 0;
@@ -406,14 +491,18 @@ async function main(): Promise<void> {
         });
         if (chunk.length === 0) continue;
         const chunkIds = chunk.map((r) => r.agent_session_id);
-        const blobs = await sql<{ t: string }[]>`
-          SELECT transcript::text AS t
+        const blobs = await sql<{ t: string; agent_session_id: string }[]>`
+          SELECT transcript::text AS t, agent_session_id
           FROM agent_transcripts
           WHERE agent_session_id IN ${sql(chunkIds)}
             AND transcript::text LIKE '%postgres%'
         `;
         scanned += blobs.length;
-        for (const b of blobs) matches += scanText(b.t, tally, realShaped);
+        for (const b of blobs) {
+          const found = scanText(b.t);
+          matches += accumulate(found, tally, realShaped);
+          for (const f of found) allMatches.push({ ...f, sessionId: b.agent_session_id });
+        }
       }
       reports.push({
         surface: "agent_transcripts.transcript",
@@ -451,7 +540,32 @@ async function main(): Promise<void> {
     console.log("These are per-surface counts, NOT a total to sum.");
     console.log("");
 
-    const allCorrelators = [...new Set(reports.flatMap((r) => r.realShapedCorrelators))];
+    // Cross-surface DEDUPLICATION (PR #3621 R1, BLOCKING). Keyed on
+    // sessionId + correlator: the same secret in the same conversation is one
+    // finding no matter how many surfaces carry it. The correlator is a sha256
+    // prefix, so this compares content identity WITHOUT holding the content.
+    const deduped = new Map<string, Verdict>();
+    for (const m of allMatches) {
+      const key = `${m.sessionId}|${m.correlator}`;
+      // A stricter verdict wins, so a secret classified real-shaped on any
+      // surface stays real-shaped in the deduped view.
+      const prior = deduped.get(key);
+      if (prior === "real-shaped") continue;
+      if (prior === undefined || m.verdict === "real-shaped") deduped.set(key, m.verdict);
+    }
+    const dedupTally = emptyTally();
+    for (const v of deduped.values()) dedupTally[v] += 1;
+    console.log(
+      `DISTINCT after dedup by session+content: ${deduped.size} ` +
+        `(${dedupTally.synthetic} synthetic, ${dedupTally["real-shaped"]} real-shaped, ` +
+        `${dedupTally.undecidable} undecidable)`
+    );
+    console.log(
+      `  vs ${allMatches.length} raw per-surface matches — the difference is the overlap.`
+    );
+    console.log("");
+
+    const allCorrelators = [...new Set(reports.flatMap((r) => [...r.realShapedCorrelators]))];
     const totalUndecidable = reports.reduce((n, r) => n + r.tally.undecidable, 0);
 
     const outcome = decideOutcome(totalRealShaped, totalUndecidable);
@@ -471,9 +585,26 @@ async function main(): Promise<void> {
         console.log("  not settle — typically a secret half under 8 characters, or one whose");
         console.log("  entropy and case-mix disagree. Treat it as `unknown`, not as safe.");
         console.log("");
-        console.log("  To settle it, run the sha256 hash-match against the live config values");
-        console.log("  (mem#634's method) — the discriminator this script deliberately omits");
-        console.log("  because it would require reading the credential store.");
+        if (KNOWN_SECRET_HASHES.size === 0) {
+          console.log(
+            `  To settle it, re-run with MINSKY_CLASSIFY_KNOWN_SECRET_HASHES set to the sha256`
+          );
+          console.log(
+            "  digests of the live credential values (mem#634's decisive discriminator). Compute"
+          );
+          console.log(
+            '  them out-of-band — `printf %s "$VALUE" | sha256sum` — so no plaintext reaches this'
+          );
+          console.log("  script, the shell, or this output.");
+        } else {
+          console.log(
+            `  ${KNOWN_SECRET_HASHES.size} known-secret hash(es) were supplied and none matched,`
+          );
+          console.log(
+            "  so these are not any credential you named. They remain unclassified against"
+          );
+          console.log("  values you did not supply.");
+        }
         await sql.end({ timeout: 5 });
         process.exit(0);
       }
@@ -538,7 +669,74 @@ async function main(): Promise<void> {
       `;
       rewritten += 1;
     }
-    console.log(`  ${rewritten} turn row(s) rewritten.`);
+    console.log(`  agent_transcript_turns: ${rewritten} row(s) rewritten.`);
+
+    // ALL THREE surfaces, not just turns (PR #3621 R1, BLOCKING). Scrubbing the
+    // derived view while leaving the landing zone and the blob intact would
+    // leave the credential in the corpus and make the re-query LOOK clean —
+    // the same "probe that cannot fail" shape this task exists to remediate.
+    let linesRewritten = 0;
+    const lineRows = await sql<{ agent_session_id: string; line_ordinal: number; t: string }[]>`
+      SELECT agent_session_id, line_ordinal, line::text AS t
+      FROM transcript_lines
+      WHERE line::text LIKE '%postgres%'
+    `;
+    for (const row of lineRows) {
+      const scrubbed = scrubText(row.t);
+      if (scrubbed.redactions.length === 0) continue;
+      // Re-parse rather than string-patching: the column is jsonb, and writing
+      // back a string that is no longer valid JSON would corrupt the row.
+      let asJson: unknown;
+      try {
+        asJson = JSON.parse(scrubbed.text);
+      } catch {
+        // intentional-swallow: a row whose scrubbed text no longer parses is
+        // reported and SKIPPED rather than written — a corrupt landing-zone row
+        // is worse than an unscrubbed one, and the count below surfaces it.
+        console.log(
+          `  WARN transcript_lines ${row.agent_session_id}#${row.line_ordinal}: scrubbed text is not valid JSON; skipped.`
+        );
+        continue;
+      }
+      await sql`
+        UPDATE transcript_lines SET line = ${sql.json(asJson as never)}
+        WHERE agent_session_id = ${row.agent_session_id} AND line_ordinal = ${row.line_ordinal}
+      `;
+      linesRewritten += 1;
+    }
+    console.log(`  transcript_lines: ${linesRewritten} row(s) rewritten.`);
+
+    let blobsRewritten = 0;
+    const blobRows = await sql<{ agent_session_id: string; t: string }[]>`
+      SELECT agent_session_id, transcript::text AS t
+      FROM agent_transcripts
+      WHERE transcript::text LIKE '%postgres%'
+    `;
+    for (const row of blobRows) {
+      const scrubbed = scrubText(row.t);
+      if (scrubbed.redactions.length === 0) continue;
+      let asJson: unknown;
+      try {
+        asJson = JSON.parse(scrubbed.text);
+      } catch {
+        // intentional-swallow: same reasoning as the lines loop above.
+        console.log(
+          `  WARN agent_transcripts ${row.agent_session_id}: scrubbed text is not valid JSON; skipped.`
+        );
+        continue;
+      }
+      await sql`
+        UPDATE agent_transcripts SET transcript = ${sql.json(asJson as never)}
+        WHERE agent_session_id = ${row.agent_session_id}
+      `;
+      blobsRewritten += 1;
+    }
+    console.log(`  agent_transcripts: ${blobsRewritten} row(s) rewritten.`);
+    console.log("");
+    console.log(
+      "  Idempotent: scrubText applied to its own output is a no-op, and rows producing zero"
+    );
+    console.log("  redactions are skipped, so a re-run rewrites nothing.");
     console.log("  Re-run without --execute to confirm the counts dropped.");
     await sql.end({ timeout: 5 });
     process.exit(0);
