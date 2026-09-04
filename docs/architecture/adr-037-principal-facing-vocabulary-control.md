@@ -245,7 +245,10 @@ The test this record has to pass: would it have stopped "scroll"?
   session), and the closest first-party precedent for a glossary-shaped control. Its enforcement
   tier is prose. Its containment is not cleanly measurable by grep, because all three senses are
   legitimate in-repo and the rule carries deliberate carve-outs — which is itself an argument for
-  part 3: a vocabulary control whose compliance cannot be measured cannot be calibrated.
+  part 3: a vocabulary control whose compliance cannot be measured cannot be calibrated. (Amended
+  2026-09-04 by mt#4838: the transport sense is now a frozen legacy artifact, not a live one, and
+  a fourth sense — the drive, working term — was added; the measurability point above is
+  unaffected.)
 - `/retrospective` §4 — the enforcement-tier table this decision's tier is named against. Note its
   stated scope is code-defect classes; the tier vocabulary applies here by analogy, not by
   definition.

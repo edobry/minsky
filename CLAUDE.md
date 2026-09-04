@@ -1385,17 +1385,21 @@ Recipes + leak-containment runbook: same doc, `§Secret-bearing output`.
 three-way overload of "session". Stage-1 convention — NEW code, docs, UI copy only; does NOT
 rename the existing `session_*` tool/API surface (stage 2, mt#2527, separately scheduled).
 
-## The three senses
+## The four senses
 
 | Term (use this) | What it names | Old/ecosystem name | Example surface |
 | --- | --- | --- | --- |
 | **workspace** | The Minsky per-task isolated git-clone + branch (`SessionRecord`, `~/.local/state/minsky/sessions/`, ~59 `session_*` tools) | "session" | cockpit `/agents/:id` detail page (workspace-session id-space) |
 | **conversation** | A harness chat (Claude Code conversation UUID, `agent_session_id`, transcripts, `claude --resume`) | "session" (ecosystem-dominant term) | cockpit `/conversation/:id`, `transcripts_*` MCP tools |
-| **transport session** | The MCP client↔server connection (`Mcp-Session-Id`) | "session" (MCP-spec term) | disconnect tracker, `processRole` |
+| **drive** (working term; noun pending ask#11428) | Cockpit subject-surface that spawns/reconnects a harness process across a series of conversations (`DrivenSessionRecord`) | none — working label only | driven-session host |
+| **transport session** — legacy artifact, do not propagate; frozen pending mt#4608 | The MCP client↔server connection (`Mcp-Session-Id`); spec referent retired 2026-07-28 | "session" (MCP-spec term, pre-2026-07-28) | disconnect tracker, `processRole` |
 
-Use **workspace** and **conversation** in new prose, comments, variable/type names, and UI copy.
-Reserve bare **session** for the MCP-transport sense only — the one place it's the authoritative
-external-spec term (`Mcp-Session-Id`) with no better word.
+Use **workspace**, **conversation**, and the working term **drive** in new prose, comments,
+variable/type names, and UI copy. Bare **session** is not a Minsky vocabulary word for any sense
+— it survives only as quoted foreign vocabulary, at four boundaries: harness field names
+(`agent_session_id`, stream-json `session_id`), the frozen `minsky://session/<uuid>` deeplink URI
+type, historical migrations, and the frozen MCP transport artifact (`mcp-session-id` header
+handling, the `McpSessionId` brand — disposition: mt#4608). See ADR-022 §Amendment (2026-09-04).
 
 ## What this rule does NOT change (stage 2 scope, mt#2527)
 
@@ -1425,7 +1429,9 @@ sense it shows, not blend the words.
 
 `docs/architecture/adr-022-session-vs-conversation-terminology.md` · `cockpit-deeplinks.mdc` (the
 `session` URI-type/route divergence this generalizes) · mt#2522 (epic) · mt#2686 (this rule's
-origin) · mt#2527 (stage 2). Full index: `docs/rules-rationale/terminology-workspace-conversation.md`.
+origin) · mt#2527 (stage 2) · mt#4838 (2026-09-04 amendment: transport row retired, drive row
+added) · ask#11428 (the drive's pending noun). Full index:
+`docs/rules-rationale/terminology-workspace-conversation.md`.
 
 # User Preferences
 
