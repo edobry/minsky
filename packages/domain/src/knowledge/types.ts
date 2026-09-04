@@ -201,6 +201,25 @@ export interface KnowledgeSearchResponse {
   conflicts: ChunkConflict[];
   /** Redundant chunk clusters — empty in Phase 2a; populated by mt#1027 */
   redundancies: ChunkRedundancy[];
+  /**
+   * Which backend served the search, or `"none"` when it could not run.
+   * Already returned by `knowledge.search`; declared here as of mt#4944 so the
+   * type matches what the command actually emits.
+   */
+  backend?: "embeddings" | "none";
+  /** True when the search did not run normally and `chunks` is not a real result. */
+  degraded?: boolean;
+  /**
+   * WHY the search degraded, when it did (mt#4944).
+   *
+   * Without this, a failed query and an empty corpus are the same payload —
+   * `chunks: []` — at every surface that reads the response, and the only
+   * record of the difference is a log line the caller never sees. That is how
+   * `knowledge search --sources` returned nothing for its entire life while
+   * raising 42703 on every call. A degraded response now carries its reason to
+   * the caller, so a broken binding is distinguishable from no matches.
+   */
+  degradedReason?: string;
 }
 
 /**
