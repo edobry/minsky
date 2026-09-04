@@ -18,6 +18,9 @@ import { describe, test, expect } from "bun:test";
 import { join } from "node:path";
 import {
   extractPathLiterals,
+  extractImportSpecifiers,
+  resolveIdentifierImports,
+  hasUnresolvedIdentifierImport,
   buildDataReadGraph,
   toRepoRelative,
   findRelatedTestFiles,
@@ -138,7 +141,7 @@ describe("buildDataReadGraph (mt#4224)", () => {
       "outside.md": "# above the repo, reachable only via traversal",
     });
 
-    const graph = buildDataReadGraph(["tests/domain/evil.test.ts"], REPO, fs);
+    const { graph } = buildDataReadGraph(["tests/domain/evil.test.ts"], REPO, fs);
 
     expect(graph.size).toBe(0);
   });
@@ -151,7 +154,7 @@ describe("buildDataReadGraph (mt#4224)", () => {
       [RULE]: "# rule",
     });
 
-    const graph = buildDataReadGraph(
+    const { graph } = buildDataReadGraph(
       ["tests/domain/manifest.test.ts", "tests/domain/rule.test.ts"],
       REPO,
       fs
@@ -169,7 +172,7 @@ describe("buildDataReadGraph (mt#4224)", () => {
       [RULE]: "# rule",
     });
 
-    const graph = buildDataReadGraph(["tests/domain/a.test.ts"], REPO, fs);
+    const { graph } = buildDataReadGraph(["tests/domain/a.test.ts"], REPO, fs);
 
     expect(graph.size).toBe(0);
   });
@@ -213,6 +216,109 @@ describe("findRelatedTestFiles selects on a data-read edge (mt#4224)", () => {
     });
 
     expect(related).toContain("tests/domain/sibling.test.ts");
+  });
+});
+
+// mt#4945: the selector's IDENTIFIER-SPECIFIER dynamic-import edge.
+//
+// The task was filed as "dynamic imports have no static edge". Measured, that is too
+// broad by one case: `extractImportSpecifiers` has always matched `import("literal")`,
+// and its `\s*` spans newlines so a wrapped literal is covered too. The real gap is
+// exactly `import(IDENT)` — 16 call sites across 6 test files on this tree, 16 of 16
+// binding to a same-file string literal. The first test below is the control that pins
+// the part which already worked, so a later reader does not "fix" it twice.
+describe("dynamic import via an identifier specifier (mt#4945)", () => {
+  test("CONTROL: a direct string-literal specifier was already resolved", () => {
+    expect(extractImportSpecifiers(`await import("@scope/pkg/mod")`)).toEqual(["@scope/pkg/mod"]);
+  });
+
+  // NB: these test NAMES deliberately avoid writing the identifier-import call form as
+  // literal text. A string is not stripped the way a comment is (see
+  // `hasUnresolvedIdentifierImport`'s residual bound), so spelling it out here would
+  // flag THIS file as carrying an unresolvable dynamic import and pull it into every
+  // selection the gate ever makes. Measured: it did exactly that until this rename.
+  test("resolves an identifier specifier through a same-module const binding", () => {
+    const src = `const M = "@scope/pkg/mod";\nconst { X } = await import(M);`;
+
+    expect(extractImportSpecifiers(src)).toEqual(["@scope/pkg/mod"]);
+    expect(resolveIdentifierImports(src)).toEqual([["M", "@scope/pkg/mod"]]);
+    expect(hasUnresolvedIdentifierImport(src)).toBe(false);
+  });
+
+  test("resolves it through a TYPED const, and through let/var", () => {
+    expect(extractImportSpecifiers(`const M: string = "a/b";\nimport(M);`)).toEqual(["a/b"]);
+    expect(extractImportSpecifiers(`let M = "c/d";\nimport(M);`)).toEqual(["c/d"]);
+  });
+
+  test("an identifier with no literal binding invents no specifier, and IS reported", () => {
+    // The specifier comes from somewhere this module cannot see. The bound must hold
+    // in the direction that matters: emit nothing rather than a guess.
+    const src = `import { M } from "./elsewhere";\nconst { X } = await import(M);`;
+
+    expect(extractImportSpecifiers(src)).toEqual(["./elsewhere"]);
+    expect(resolveIdentifierImports(src)).toEqual([["M", null]]);
+    expect(hasUnresolvedIdentifierImport(src)).toBe(true);
+  });
+
+  test("an identifier import written in a COMMENT does not force conservative inclusion", () => {
+    // Found by measurement, not foresight: the first draft flagged this very file,
+    // because its own prose explains the feature by writing the call form out. The
+    // predicate strips comments; extraction deliberately does not (opposite failure
+    // directions — see the function's docblock).
+    const commented = `// explains the feature: await import(NOPE)\nconst real = 1;`;
+
+    expect(hasUnresolvedIdentifierImport(commented)).toBe(false);
+    // Extraction is unchanged — it still reads raw text, over-selecting by design.
+    expect(resolveIdentifierImports(commented)).toEqual([["NOPE", null]]);
+  });
+
+  test("a block comment is stripped too", () => {
+    expect(hasUnresolvedIdentifierImport(`/* await import(NOPE) */\nconst real = 1;`)).toBe(false);
+  });
+
+  test("a computed specifier is reported unresolved rather than matched", () => {
+    // `import(`${base}/x`)` is not an identifier at all — the matcher must not
+    // half-match it into a bogus edge.
+    const src = 'const base = "a";\nawait import(`${base}/x`);';
+
+    expect(hasUnresolvedIdentifierImport(src)).toBe(false);
+    expect(resolveIdentifierImports(src)).toEqual([]);
+  });
+});
+
+describe("findRelatedTestFiles selects across an identifier-specifier import (mt#4945)", () => {
+  // `control.test.ts` must NOT be selected, so a pass cannot come from over-selection.
+  const files = {
+    "src/subject.ts": `export const subject = 1;`,
+    "tests/domain/dyn.test.ts": `const M = "../../src/subject";\ntest("x", async () => { await import(M); });`,
+    "tests/domain/control.test.ts": `describe("unrelated", () => {});`,
+  };
+
+  test("a change to the subject selects the test that imports it via an identifier", () => {
+    const related = findRelatedTestFiles(["src/subject.ts"], REPO, { fs: fakeFs(files) });
+
+    expect(related).toContain("tests/domain/dyn.test.ts");
+    expect(related).not.toContain("tests/domain/control.test.ts");
+  });
+
+  test("SC3: a test with an UNRESOLVABLE identifier import joins every selection", () => {
+    // The edge exists and the selector cannot see it, which is not the same as there
+    // being no edge — so the test is included conservatively rather than dropped.
+    // `orphan.md` is deliberately unrelated to it.
+    const withUnresolvable = {
+      ...files,
+      "docs/orphan.md": "# nobody reads me",
+      "tests/domain/opaque.test.ts": `import { M } from "./elsewhere";\ntest("x", async () => { await import(M); });`,
+    };
+
+    const related = findRelatedTestFiles(["docs/orphan.md"], REPO, {
+      fs: fakeFs(withUnresolvable),
+    });
+
+    expect(related).toContain("tests/domain/opaque.test.ts");
+    // The bound: conservative inclusion is for the UNRESOLVABLE case only. A test whose
+    // identifier import DID resolve is selected by its edge or not at all.
+    expect(related).not.toContain("tests/domain/dyn.test.ts");
   });
 });
 
