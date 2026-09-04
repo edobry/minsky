@@ -2972,9 +2972,9 @@ describe("post-loop forced findings pass (mt#2926)", () => {
     const fired = findLogEvent(events, EVENT_FORCED_FINDINGS_PASS);
     expect(fired?.["fired"]).toBe(true);
     expect(fired?.["emitted_count"]).toBe(0);
-    // Distinguishes "did not need to fire" from "fired and did not help" —
-    // the two produce the same downstream artifact (the synthesized
-    // placeholder) and must be separable on a dashboard.
+    // Distinguishes "did not need to fire" from "fired and did not help" — the
+    // two produce the same downstream artifact (mt#2685's synthesized finding)
+    // and must be separable on a dashboard.
     expect(fired?.["fell_back_to_recovery_synth"]).toBe(true);
   });
 
