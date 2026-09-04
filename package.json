@@ -77,6 +77,7 @@
     "test:eslint-rules": "bun test --timeout=15000 eslint-rules/",
     "audit:interceptors": "bun scripts/audit-settings-hook-coverage.ts && bun scripts/audit-interceptor-source-join.ts",
     "audit:interceptors:corpus": "bun scripts/audit-interceptor-descriptions.ts && bun scripts/audit-interceptor-coordinates.ts",
+    "audit:observer-roster": "bun scripts/audit-observer-roster.ts --report",
     "test:reviewer": "cd services/reviewer && bun run test",
     "smoke:gh-timeout": "bun scripts/smoke-mt2245-github-timeout.ts",
     "smoke:oauth-consent": "bun scripts/smoke-oauth-consent-https.ts",
