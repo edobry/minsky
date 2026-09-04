@@ -112,10 +112,14 @@ a false negative.
 2. **Trigger — once that holds, any same-slug rule whose CONTENT diverges** from this repo's
    version.
 
-**Why the two steps matter.** Checked 2026-09-04: `/Users/edobry/Projects/raycast` — the only other
-repo in this operator's working set — has **no `.minsky/rules` directory**. A reader who checks it
-for divergence finds none, and would be reading an absence as a clean signal. The directory is not
-undiverged; it does not exist.
+**Why the two steps matter.** Checked 2026-09-04: the one other repo in this operator's working set
+(`raycast`) has **no `.minsky/rules` directory** — `minsky init` has never been run there. A reader
+who checks it for divergence finds none, and would be reading an absence as a clean signal. The
+directory is not undiverged; it does not exist.
+
+Re-run that check against whatever repos are in the working set at the time, rather than against a
+path recorded here. An absolute path would pin this ADR to one machine and go stale the moment the
+working set changes — leaving the trigger unverifiable exactly when someone needs to verify it.
 
 **This ADR is the trigger's home.** The 2026-07-20 investigation proposed folding the check into
 mt#2929's dogfood gap list; mt#2929 went DONE on 2026-08-27, so that home is closed and a check
