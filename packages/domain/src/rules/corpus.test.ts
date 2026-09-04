@@ -169,6 +169,58 @@ describe("shipped rule corpus — fidelity", () => {
   });
 });
 
+describe("SC8 — the corpus and this repository's own rules must not drift apart", () => {
+  /**
+   * Why this test exists instead of the twin retirement SC8 describes.
+   *
+   * SC8 asks that each promoted rule's plant twin in `.minsky/rules/` be retired
+   * or reduced to a non-always-apply supplement. That is not reachable in this
+   * slice, and the reason is structural rather than effort: de-always-applying a
+   * twin drops the rule out of THIS repository's `CLAUDE.md`, and the only way to
+   * put it back is to have the compile pipeline read the package corpus as a
+   * source. Doing that unconditionally would emit all 17 shipped rules into every
+   * managed project regardless of what its user selected — the one invariant
+   * mt#4964 §Sequencing says every intermediate state must hold. Gating that read
+   * on selection IS Phase 2 (mt#573).
+   *
+   * So the corpus is a second copy until Phase 2, and a second copy that nothing
+   * checks is how the retired templates drifted from reality in the first place.
+   * This asserts the two cannot diverge silently: same BODY, byte for byte.
+   * Frontmatter deliberately differs — the corpus copies carry plane/tier/rung.
+   */
+  const REPO_RULES_DIR = path.join(CORPUS_DIR, "..", "..", "..", "..", "..", ".minsky", "rules");
+
+  /** Everything after the closing `---` of the frontmatter block. */
+  function body(raw: string): string {
+    const lines = raw.split("\n");
+    if (lines[0] !== "---") return raw;
+    const close = lines.indexOf("---", 1);
+    return close === -1 ? raw : lines.slice(close + 1).join("\n");
+  }
+
+  it("every promoted rule's body matches its twin in .minsky/rules", () => {
+    let repoRules: string[];
+    try {
+      repoRules = readdirSync(REPO_RULES_DIR);
+    } catch {
+      // Not running inside the Minsky checkout — nothing to compare against.
+      return;
+    }
+    const repoSet = new Set(repoRules);
+
+    const drifted: string[] = [];
+    for (const file of readdirSync(CORPUS_DIR).filter((f) => f.endsWith(".mdc"))) {
+      // `minsky-session-workflow` was authored for the corpus and has no twin.
+      if (!repoSet.has(file)) continue;
+      const shipped = body(readFileSync(path.join(CORPUS_DIR, file), "utf-8"));
+      const twin = body(readFileSync(path.join(REPO_RULES_DIR, file), "utf-8"));
+      if (shipped !== twin) drifted.push(file);
+    }
+
+    expect(drifted).toEqual([]);
+  });
+});
+
 describe("scaffolding a project from the corpus", () => {
   /** In-memory fs double: `files` is the initial disk contents. */
   function fakeFs(
