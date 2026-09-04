@@ -995,7 +995,7 @@ export function isAtCoverageSkipped(): boolean {
  * the bug through the migration". Demoting it lets `CLAUDE_PROJECT_DIR` outrank it.
  *
  * TIER only. With `CLAUDE_PROJECT_DIR` unset the ladder still falls through to this value and still
- * keys to the clone — a separate defect, tracked as mt#4885 SC3.
+ * keys to the clone — a separate defect, tracked as mt#4954.
  */
 export function appendAtCoverageCalibration(
   record: Record<string, unknown>,

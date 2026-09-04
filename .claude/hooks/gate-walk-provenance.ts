@@ -510,8 +510,8 @@ export function appendCalibrationRecord(
   //
   // This fixes the TIER only. When `CLAUDE_PROJECT_DIR` is unset the ladder still
   // falls through to this value and still keys to the clone — that is a separate
-  // defect (which root a session workspace SHOULD resolve to), tracked as mt#4885
-  // SC3 and deliberately not changed here.
+  // defect (which root a session workspace SHOULD resolve to), tracked as mt#4954
+  // and deliberately not changed here.
   //
   // The former third parameter (`logRelPath`, defaulted to the path literal) is
   // gone: both call sites used the default, and a path-taking parameter is the
