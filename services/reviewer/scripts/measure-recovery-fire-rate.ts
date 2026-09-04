@@ -5,8 +5,9 @@
  * Measures the mt#2685 empty-findings coherence recovery pass's fire rate
  * over a recent window, using the reviewer bot's OWN posted review bodies as
  * the durable record: `applyEmptyFindingsRecovery` (empty-findings-recovery.ts)
- * synthesizes a finding whose `details` field embeds the literal marker string
- * "Synthesized by the empty-findings coherence recovery pass (mt#2685)", and
+ * synthesizes a finding whose `details` field OPENS with the marker exported as
+ * `RECOVERY_FIRE_MARKER_PREFIX` (imported below rather than restated here, so
+ * this doc cannot go stale against the value it describes), and
  * `composeReviewBody` renders that `details` text verbatim into the "##
  * Findings" section of the posted GitHub review — so the recovery pass's
  * fire/no-fire outcome for every review round is durably observable via the
@@ -40,6 +41,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveGitHubToken, getAuthSource } from "./harness-auth";
 import { ALLOWED_REVIEWER_BOT_LOGINS, CHINESE_WALL_MARKER } from "../src/prior-review-summary";
+import { RECOVERY_FIRE_MARKER_PREFIX } from "../src/empty-findings-recovery";
 
 const OWNER = "edobry";
 const REPO = "minsky";
@@ -47,8 +49,16 @@ const REPO = "minsky";
 /** The mt#2685 recovery pass's ship date — the floor for the measurement window. */
 const RECOVERY_PASS_SHIP_DATE = "2026-07-08";
 
-/** Literal marker embedded in a synthesized finding's `details` field (empty-findings-recovery.ts). */
-const RECOVERY_FIRE_MARKER = "Synthesized by the empty-findings coherence recovery pass (mt#2685)";
+/**
+ * Marker embedded in a synthesized finding's `details` field.
+ *
+ * IMPORTED, not re-declared (mt#2926): this was a hard-coded copy of the same
+ * sentence, so any edit to the recovery pass's wording made this script report
+ * ZERO fires with no error — "marker absent" and "pass never fired" are the
+ * same observation here, which is a probe that cannot fail. The producing
+ * module now exports the prefix and builds its own text from it.
+ */
+const RECOVERY_FIRE_MARKER = RECOVERY_FIRE_MARKER_PREFIX;
 
 function resolveToken(): string {
   const fromEnv = resolveGitHubToken();
