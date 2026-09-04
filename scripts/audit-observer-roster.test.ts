@@ -80,13 +80,36 @@ describe("reconcile", () => {
 
   test("a label mapped to an EMPTY guard list is its own finding, not a silent pass", () => {
     // Without this class, mapping a label to [] satisfies unmappedLabels and the check
-    // passes for exactly the case it exists to catch.
-    // `Consumer-account` is a real roster entry the map carries with an empty guard list,
-    // so it must appear in the rule text for the class to see it.
-    const withEmptyMapped = `${ROSTER}- **${CONSUMER_ACCOUNT}** — a real entry with no catalog peer.\n`;
-    const result = reconcile(withEmptyMapped, []);
+    // passes for exactly the case it exists to catch. Exercised against a FIXTURE map: the
+    // shipped map has no undeclared empty mapping left, so the shipped map cannot reach it.
+    const withEmptyMapped = `${ROSTER}- **${CONSUMER_ACCOUNT}** — an entry with no catalog peer.\n`;
+    const result = reconcile(withEmptyMapped, [], {
+      toGuards: { [CONSUMER_ACCOUNT]: [] },
+      exempt: {},
+      noCatalogPeer: {},
+    });
     expect(result.labelsWithNoCatalogEntry).toContain(CONSUMER_ACCOUNT);
     expect(result.unmappedLabels).not.toContain(CONSUMER_ACCOUNT);
+  });
+
+  test("declaring a label peer-less suppresses the finding — and only when it really is", () => {
+    const withEmptyMapped = `${ROSTER}- **${CONSUMER_ACCOUNT}** — an entry with no catalog peer.\n`;
+    const declared = reconcile(withEmptyMapped, [], {
+      toGuards: { [CONSUMER_ACCOUNT]: [] },
+      exempt: {},
+      noCatalogPeer: { [CONSUMER_ACCOUNT]: "rides another gate" },
+    });
+    expect(declared.labelsWithNoCatalogEntry).toEqual([]);
+    expect(declared.contradictoryNoPeer).toEqual([]);
+
+    // A declaration that contradicts the map — the label DOES have a peer — is a finding,
+    // so the suppression cannot quietly outlive the reason for it.
+    const contradictory = reconcile(withEmptyMapped, [entry("some-guard")], {
+      toGuards: { [CONSUMER_ACCOUNT]: ["some-guard"] },
+      exempt: {},
+      noCatalogPeer: { [CONSUMER_ACCOUNT]: "stale claim" },
+    });
+    expect(contradictory.contradictoryNoPeer).toEqual([CONSUMER_ACCOUNT]);
   });
 
   test("a map label the roster no longer contains is reported", () => {
@@ -120,11 +143,11 @@ describe("parseRosterLabels frontmatter handling", () => {
 /**
  * mt#4393 SC3 — the mechanical check that stops the two artifacts silently re-diverging.
  *
- * The four INTEGRITY classes must be empty at all times: each is a defect in the join
- * itself and is fixable in the same edit that causes it. The two COVERAGE classes carry a
- * pinned baseline, because closing them is a per-entry judgment tracked at mt#4991 — but
- * the baseline is a ceiling, not an allowance: a NEW gap fails, and a gap that has been
- * closed must be removed from the baseline, so it can only shrink.
+ * Every class must be EMPTY. There is no baseline and no allowance: an earlier revision
+ * pinned the 20 + 2 known gaps so the check could ship without turning main red, but the
+ * gaps are now closed — 14 new roster entries, four many-to-one map corrections, and one
+ * exemption — so the honest assertion is the strict one. A check with a grandfathered set
+ * is one nobody can gate on; this one exits 0 and is wired into CI.
  */
 describe("SC3 — the shipped roster reconciles against the shipped catalog", () => {
   const REPO_ROOT = join(import.meta.dir, "..");
@@ -138,58 +161,28 @@ describe("SC3 — the shipped roster reconciles against the shipped catalog", ()
       ).entries
     );
 
-  /** Known coverage gaps as of 2026-09-04. Owned by mt#4991; remove as they are closed. */
-  const BASELINE_MISSING_FROM_ROSTER = [
-    "auto-session-title",
-    "bridge-memory-retirement",
-    "cross-turn-hedge-detector",
-    "deploy-verification-after-merge",
-    "inject-success-criteria",
-    "mcp-daemon-staleness-detector",
-    "memory-search",
-    "operator-deferral-artifact-surface-pr",
-    "operator-deferral-artifact-surface-spec",
-    "operator-deferral-ask-surface",
-    "post-merge-unasked-direction-scan",
-    "pre-narration-detector",
-    "record-agent-dispatch",
-    "record-conversation-run-state",
-    "record-turn-anchor",
-    "standalone-duplicate-matcher",
-    "turn-end-retro-scan",
-    "two-strikes-record",
-    "typecheck-on-edit",
-    "warn-main-workspace-mutation",
-  ];
-  const BASELINE_NO_CATALOG_ENTRY = [CONSUMER_ACCOUNT, "SubagentStop recording"];
+  test("every non-blocking interceptor has a roster entry or a reasoned exemption", () => {
+    expect(real().missingFromRoster).toEqual([]);
+  });
 
-  test("the four join-integrity classes are empty", () => {
+  test("every roster label is mapped, and none is stale", () => {
     const r = real();
     expect(r.unmappedLabels).toEqual([]);
     expect(r.staleMapLabels).toEqual([]);
-    expect(r.unknownGuardNames).toEqual([]);
-    expect(r.blockingInRoster).toEqual([]);
   });
 
-  test("no NEW interceptor has appeared without a roster entry or an exemption", () => {
-    const added = real().missingFromRoster.filter((g) => !BASELINE_MISSING_FROM_ROSTER.includes(g));
-    expect(added).toEqual([]);
+  test("no map or exemption entry names a guardName the catalog lacks", () => {
+    expect(real().unknownGuardNames).toEqual([]);
   });
 
-  test("no NEW roster entry documents something the catalog does not enumerate", () => {
-    const added = real().labelsWithNoCatalogEntry.filter(
-      (l) => !BASELINE_NO_CATALOG_ENTRY.includes(l)
-    );
-    expect(added).toEqual([]);
+  test("no roster entry documents a BLOCKING interceptor — that is hook-files' population", () => {
+    expect(real().blockingInRoster).toEqual([]);
   });
 
-  test("the baseline has no entry that is already closed — it may only shrink", () => {
+  test("a roster entry with no catalog peer is declared, not merely absent", () => {
     const r = real();
-    expect(BASELINE_MISSING_FROM_ROSTER.filter((g) => !r.missingFromRoster.includes(g))).toEqual(
-      []
-    );
-    expect(
-      BASELINE_NO_CATALOG_ENTRY.filter((l) => !r.labelsWithNoCatalogEntry.includes(l))
-    ).toEqual([]);
+    expect(r.labelsWithNoCatalogEntry).toEqual([]);
+    // ...and a declaration that contradicts the map is itself a finding.
+    expect(r.contradictoryNoPeer).toEqual([]);
   });
 });

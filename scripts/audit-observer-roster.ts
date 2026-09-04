@@ -25,7 +25,7 @@
  */
 import { readFileSync } from "fs";
 import { join } from "path";
-import { ROSTER_TO_GUARDS, ROSTER_EXEMPT } from "./observer-roster-map";
+import { ROSTER_TO_GUARDS, ROSTER_EXEMPT, ROSTER_NO_CATALOG_PEER } from "./observer-roster-map";
 
 interface CatalogEntry {
   guardName: string;
@@ -67,6 +67,11 @@ export interface ReconcileResult {
    * which is a check that cannot fail for exactly the case it should catch.
    */
   labelsWithNoCatalogEntry: string[];
+  /**
+   * A label declared in `ROSTER_NO_CATALOG_PEER` that nonetheless maps to a real guard —
+   * the declaration and the map contradict each other, so one of them is stale.
+   */
+  contradictoryNoPeer: string[];
   /** Map keys naming a label the rule no longer contains. */
   staleMapLabels: string[];
   /** Map or exemption entries naming a `guardName` the catalog does not contain. */
@@ -77,7 +82,30 @@ export interface ReconcileResult {
   rosterLabelCount: number;
 }
 
-export function reconcile(rosterSource: string, catalogEntries: CatalogEntry[]): ReconcileResult {
+/**
+ * The three authored declarations the reconciliation reads. Injected rather than closed over
+ * so a test can exercise a class against a FIXTURE: several classes are, by design, empty
+ * against the shipped maps, and a test that can only see the shipped maps cannot exercise
+ * them at all — it passes because the input is clean, not because the logic is right.
+ */
+export interface RosterMaps {
+  toGuards: Record<string, readonly string[]>;
+  exempt: Record<string, string>;
+  noCatalogPeer: Record<string, string>;
+}
+
+export const SHIPPED_MAPS: RosterMaps = {
+  toGuards: ROSTER_TO_GUARDS,
+  exempt: ROSTER_EXEMPT,
+  noCatalogPeer: ROSTER_NO_CATALOG_PEER,
+};
+
+export function reconcile(
+  rosterSource: string,
+  catalogEntries: CatalogEntry[],
+  maps: RosterMaps = SHIPPED_MAPS
+): ReconcileResult {
+  const { toGuards, exempt, noCatalogPeer } = maps;
   const labels = parseRosterLabels(rosterSource);
   const labelSet = new Set(labels);
   const allNames = new Set(catalogEntries.map((e) => e.guardName));
@@ -87,24 +115,27 @@ export function reconcile(rosterSource: string, catalogEntries: CatalogEntry[]):
   const mapped = new Set<string>();
   const unknownGuardNames: string[] = [];
   const blockingInRoster: string[] = [];
-  for (const [label, guards] of Object.entries(ROSTER_TO_GUARDS)) {
+  for (const [label, guards] of Object.entries(toGuards)) {
     for (const g of guards) {
       mapped.add(g);
       if (!allNames.has(g)) unknownGuardNames.push(`${label} -> ${g}`);
       else if (!nonBlockingSet.has(g)) blockingInRoster.push(`${label} -> ${g}`);
     }
   }
-  for (const g of Object.keys(ROSTER_EXEMPT)) {
+  for (const g of Object.keys(exempt)) {
     if (!allNames.has(g)) unknownGuardNames.push(`exempt -> ${g}`);
   }
 
   return {
-    missingFromRoster: nonBlocking.filter((g) => !mapped.has(g) && !(g in ROSTER_EXEMPT)).sort(),
-    unmappedLabels: labels.filter((l) => !(l in ROSTER_TO_GUARDS)).sort(),
+    missingFromRoster: nonBlocking.filter((g) => !mapped.has(g) && !(g in exempt)).sort(),
+    unmappedLabels: labels.filter((l) => !(l in toGuards)).sort(),
     labelsWithNoCatalogEntry: labels
-      .filter((l) => l in ROSTER_TO_GUARDS && (ROSTER_TO_GUARDS[l] ?? []).length === 0)
+      .filter((l) => l in toGuards && (toGuards[l] ?? []).length === 0 && !(l in noCatalogPeer))
       .sort(),
-    staleMapLabels: Object.keys(ROSTER_TO_GUARDS)
+    contradictoryNoPeer: Object.keys(noCatalogPeer)
+      .filter((l) => (toGuards[l] ?? []).length > 0)
+      .sort(),
+    staleMapLabels: Object.keys(toGuards)
       .filter((l) => !labelSet.has(l))
       .sort(),
     unknownGuardNames: unknownGuardNames.sort(),
@@ -135,6 +166,7 @@ function main(): void {
       "roster entries pointing at a BLOCKING interceptor (belongs in hook-files)",
       result.blockingInRoster,
     ],
+    ["labels declared to have no catalog peer that in fact map to one", result.contradictoryNoPeer],
   ];
 
   let failed = false;

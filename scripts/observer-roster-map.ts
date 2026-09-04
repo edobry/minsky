@@ -22,7 +22,8 @@ export const ROSTER_TO_GUARDS: Record<string, readonly string[]> = {
   "Warn-stale-forward-reference": ["warn-stale-forward-reference"],
   "Coverage-claim-path": ["coverage-claim-path-detector"],
   "Substrate-bypass": ["substrate-bypass-detector"],
-  "Retrospective-trigger": ["retrospective-trigger-scanner"],
+  // Many-to-one: the entry's own text names its Stop sibling, so it documents both.
+  "Retrospective-trigger": ["retrospective-trigger-scanner", "turn-end-retro-scan"],
   "Retrospective-completeness": ["retrospective-completeness-detector"],
   "Turn-end-untaken-action": ["turn-end-untaken-action-scan"],
   "Turn-end-unwalked-task": ["turn-end-unwalked-task-scan"],
@@ -34,7 +35,15 @@ export const ROSTER_TO_GUARDS: Record<string, readonly string[]> = {
   "Turn-end-stale-state-assertion": ["turn-end-stale-state-assertion-scan"],
   "Criterion reconciliation": ["criterion-reconciliation-scan"],
   "Ask-routing deferral": ["ask-routing-deferral-detector"],
-  "Operator deferral": ["operator-deferral-detector"],
+  // Many-to-one: the entry says "Six surfaces", and three of them are separately registered
+  // guards carved out of the same module because a matcher's tokens must be filed under the
+  // registry family that owns them.
+  "Operator deferral": [
+    "operator-deferral-detector",
+    "operator-deferral-artifact-surface-pr",
+    "operator-deferral-artifact-surface-spec",
+    "operator-deferral-ask-surface",
+  ],
   "Wall-of-text": ["wall-of-text-detector"],
   "Silent-stretch": ["silent-stretch-detector"],
   "Context-fill gauge": ["context-fill-gauge"],
@@ -70,8 +79,12 @@ export const ROSTER_TO_GUARDS: Record<string, readonly string[]> = {
   "Memory-capture notice": ["inject-memory-capture"],
   "Answered-ask notice": ["inject-ask-responses"],
   "Ask-conversation stamp": ["stamp-ask-conversation"],
-  "Agent-dispatch record": ["record-subagent-invocation"],
-  "SubagentStop recording": [],
+  // These two were swapped. `record-agent-dispatch` is the PreToolUse half that writes the
+  // pending row and stamps `(session_id, tool_use_id)`; `record-subagent-invocation` is the
+  // SubagentStop half that writes the Stop-time columns. The roster entries describe exactly
+  // that split, so the map was mis-attributing one and leaving the other empty.
+  "Agent-dispatch record": ["record-agent-dispatch"],
+  "SubagentStop recording": ["record-subagent-invocation"],
   "PR-author link": ["stamp-pr-author-link"],
   "Session-creator link": ["stamp-session-creator-link"],
   "Subagent model verification": ["verify-subagent-model"],
@@ -84,6 +97,32 @@ export const ROSTER_TO_GUARDS: Record<string, readonly string[]> = {
     "knowledge-acquisition-detector",
   ],
   "Guard-health tracker": ["guard-health-escalation-detector"],
+  "Cross-turn hedge": ["cross-turn-hedge-detector"],
+  "Pre-narration": ["pre-narration-detector"],
+  "Two-strikes record": ["two-strikes-record"],
+  "Warn main-workspace mutation": ["warn-main-workspace-mutation"],
+  "Standalone duplicate matcher": ["standalone-duplicate-matcher"],
+  "Post-merge unasked-direction scan": ["post-merge-unasked-direction-scan"],
+  "Bridge-memory retirement": ["bridge-memory-retirement"],
+  "Deploy-verification after merge": ["deploy-verification-after-merge"],
+  "Success-criteria injection": ["inject-success-criteria"],
+  "MCP daemon staleness": ["mcp-daemon-staleness-detector"],
+  "Memory search": ["memory-search"],
+  "Typecheck on edit": ["typecheck-on-edit"],
+  "Conversation run-state record": ["record-conversation-run-state"],
+  "Auto session title": ["auto-session-title"],
+};
+
+/**
+ * The INVERSE declaration: roster entries that deliberately have no catalog peer, with the
+ * reason. Without this, such an entry is a permanent finding, and a check that can never
+ * reach zero is one nobody can gate on. A label here MUST also map to an empty guard list —
+ * declaring a peer-less entry that in fact has a peer is its own contradiction, and the
+ * audit reports it.
+ */
+export const ROSTER_NO_CATALOG_PEER: Record<string, string> = {
+  "Consumer-account":
+    "not a registered guard — it rides `require-execution-evidence-before-merge` as that gate's fifth calibration surface (mt#4493), so the catalog enumerates the host, not this surface",
 };
 
 /** Non-blocking catalog entries deliberately absent from the roster, with the reason. */
@@ -105,6 +144,8 @@ export const ROSTER_EXEMPT: Record<string, string> = {
   "mt3612-live-rewrite": "one-shot migration hook, retired after its run",
   "overridden-guard": "test fixture \u2014 override-path test",
   "post-merge-pull": "lifecycle plumbing, not an observer",
+  "record-turn-anchor":
+    "framework state — writes the turn-anchor store at Stop and always returns null; its only effect is a file OTHER interceptors read",
   "post-session-start": "lifecycle plumbing, not an observer",
   "rationalization-review": "test fixture",
   "second-guard": "test fixture \u2014 dispatcher ordering test",
