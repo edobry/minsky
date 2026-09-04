@@ -10,6 +10,7 @@ import type { EmbeddingService } from "../../ai/embeddings/types";
 import type { VectorStorage } from "../../storage/vector/types";
 import type { KnowledgeSourceProvider, SyncReport } from "../types";
 import { chunkContent } from "./chunker";
+import { buildExcerpt, hasStoredExcerpt } from "./excerpt";
 import { log } from "@minsky/shared/logger";
 import { reconcileAfterSync } from "../reconciliation/sync-reconciler";
 
@@ -88,7 +89,14 @@ export async function runSync(
           if (typeof vectorStorage.getMetadata === "function") {
             // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
             const meta = await vectorStorage.getMetadata!(firstChunkId);
-            if (meta && meta["contentHash"] === hash) {
+            // The excerpt condition is what BACKFILLS rows indexed before
+            // mt#4953. The hash gate alone keys on document content, which did
+            // not change when the metadata SHAPE did — so without this, every
+            // already-indexed row would keep its excerpt-less metadata forever
+            // and the fix would have no invocation path short of an operator
+            // remembering `--force`. One ordinary sync re-indexes them; the sync
+            // after that skips normally again, so the extra cost is paid once.
+            if (meta && meta["contentHash"] === hash && hasStoredExcerpt(meta)) {
               // Reconstruct seen IDs for this document by reading total chunks from metadata
               const totalChunks = typeof meta["totalChunks"] === "number" ? meta["totalChunks"] : 1;
               for (let i = 0; i < totalChunks; i++) {
@@ -127,6 +135,10 @@ export async function runSync(
             totalChunks,
             contentHash: hash,
             stale: false,
+            // Bounded preview of THIS chunk, so a search result can show why it
+            // matched. Per-chunk by construction: two chunks of one document
+            // carry different excerpts (mt#4953).
+            excerpt: buildExcerpt(chunk),
           };
 
           await vectorStorage.store(id, vector, metadata);
