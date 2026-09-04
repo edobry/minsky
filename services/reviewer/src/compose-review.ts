@@ -9,7 +9,7 @@
 
 import type { ReviewToolCall, SubmitFindingArgs, SubmitInlineCommentArgs } from "./output-tools";
 import { isResolutionNoteText } from "./resolution-note-guard";
-import { SYNTHESIZED_FINDING_FILE } from "./empty-findings-recovery";
+import { SYNTHESIZED_FINDING_FILE, RECOVERY_FIRE_MARKER_PREFIX } from "./empty-findings-recovery";
 
 // ---------------------------------------------------------------------------
 // Severity ordering
@@ -337,10 +337,21 @@ export function composeReviewBody(
     // spec" — a real blocking demand the banner would have invited an operator
     // to dismiss. Pre-existing (the shipped pattern already matched it); fixed
     // here because the sweep surfaced it.
+    // PR #3633 R2 (non-blocking, adopted): identify the synthesized finding by
+    // EITHER of its two independent markers, not just the `file` sentinel. Two
+    // ways the single check fails — a real file pathologically named
+    // "(review summary)" would be excluded when it should be warned about, and
+    // a future synthesis that changes the sentinel while keeping the durable
+    // details prefix would silently stop being excluded. The prefix is the
+    // stronger identifier of the two (mt#2926 made it a cross-file contract the
+    // fire-rate script matches on), so checking both survives either changing.
+    const isSynthesized = (tc: Extract<ReviewToolCall, { name: "submit_finding" }>): boolean =>
+      tc.args.file === SYNTHESIZED_FINDING_FILE ||
+      tc.args.details.startsWith(RECOVERY_FIRE_MARKER_PREFIX);
     const resolutionNoteBlockers = findings.filter(
       (tc) =>
         tc.args.severity === "BLOCKING" &&
-        tc.args.file !== SYNTHESIZED_FINDING_FILE &&
+        !isSynthesized(tc) &&
         isResolutionNoteText(tc.args.summary, tc.args.details)
     );
     const resolutionNoteNote =

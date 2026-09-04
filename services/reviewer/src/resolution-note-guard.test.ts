@@ -366,6 +366,16 @@ describe("bare BLOCKING as the noun (mt#4977)", () => {
     expect(isResolutionNoteText("", "the original concern has now been handled")).toBe(true);
   });
 
+  test("the verbless BARE-severity noun also stays unmatched (PR #3633 R1)", () => {
+    // Sibling of the case below: that one pins the MULTI-WORD noun ("prior
+    // blocking finding addressed"), this one the bare severity token with no
+    // following noun. mt#4977 widened the noun set, so the bare form is the
+    // variant this change newly makes reachable if the linking verb were ever
+    // made optional — which is exactly the edit both pins exist to block.
+    expect(isResolutionNoteText("", "prior BLOCKING addressed")).toBe(false);
+    expect(isResolutionNoteText("", "previous blocking handled")).toBe(false);
+  });
+
   test("the verbless past-participle form stays UNMATCHED — deliberately", () => {
     // This is the widening NOT taken. Making the linking verb optional would
     // match this, and would also match the three defect phrasings pinned in the
@@ -392,5 +402,34 @@ describe("bare BLOCKING as the noun (mt#4977)", () => {
   test("the widened noun does not match `blocking` used as an adjective", () => {
     expect(isResolutionNoteText("", "this is blocking on the missing migration")).toBe(false);
     expect(isResolutionNoteText("", "a blocking call inside the loop is the defect")).toBe(false);
+  });
+});
+
+describe("word-boundary adjacency on the widened noun (PR #3633 R2)", () => {
+  // \b asserts a word/non-word transition, so trailing punctuation and
+  // em-dashes should not change a verdict. Asserted rather than assumed —
+  // the reviewer's point was that this is cheap to lock down and easy to
+  // get wrong under Unicode.
+  test("trailing and interior punctuation does not change a positive", () => {
+    expect(isResolutionNoteText("", "the prior BLOCKING is resolved.")).toBe(true);
+    expect(isResolutionNoteText("", "(the prior BLOCKING is resolved)")).toBe(true);
+    expect(isResolutionNoteText("", "the prior BLOCKING is resolved — see below")).toBe(true);
+    expect(isResolutionNoteText("", "…the original blocking has been addressed!")).toBe(true);
+  });
+
+  test("a non-ASCII summary does not change a verdict either way", () => {
+    // CJK carries no ASCII word characters, so it must neither create nor
+    // suppress a match on the ASCII clause beside it.
+    expect(isResolutionNoteText("レビュー", "the prior BLOCKING is resolved")).toBe(true);
+    expect(isResolutionNoteText("レビュー", "this is blocking on the missing migration")).toBe(
+      false
+    );
+  });
+
+  test("a word character glued to the noun still blocks the match", () => {
+    // The \b at the alternation's start is what keeps "nonblocking is resolved"
+    // and "unblocking is resolved" from matching the bare `blocking` noun.
+    expect(isResolutionNoteText("", "the prior nonblocking is resolved")).toBe(false);
+    expect(isResolutionNoteText("", "the prior unblocking is resolved")).toBe(false);
   });
 });
