@@ -32,9 +32,22 @@
  *
  * ## The masked-form problem, solved at the source
  *
- * `maskConnectionString` (./persistence/connection-string.ts) is the ONLY
- * function in this repo that produces a rendering shaped like
- * `scheme://user:pass@host` — it always emits exactly `://***:***@`. Because
+ * `maskConnectionString` (./persistence/connection-string.ts) is the only
+ * SANCTIONED producer of a rendering shaped like `scheme://user:pass@host` —
+ * it always emits exactly `://***:***@`.
+ *
+ * That sentence read "the ONLY function in this repo" until mt#4963, and it was
+ * false when written: six hand-rolled copies were emitting their own renderings
+ * (`://***@`, `:<REDACTED>@`), which mt#4910 converted. Two remain by decision
+ * rather than by oversight — `getConnectionInfo` (`://***@`) and
+ * `runPostgresSchemaMigrations`'s execute path (`host` + `pathname`, no scheme)
+ * — so "only sanctioned producer" is the accurate claim and "only function" is
+ * not. Read as an invariant this MATTERS: the masked-form exclusion below tests
+ * a match by re-masking it, so a rendering some other function produces is not
+ * recognized as a mask and is reported as a credential. That is not a bug in the
+ * exclusion; it is why the renderings should converge.
+ *
+ * Because
  * `postgres-url-credentials`'s regex is (correctly) shaped to match
  * `scheme://user:pass@host` in general, it also matches that masked
  * rendering — the exact mem#972 collision.
