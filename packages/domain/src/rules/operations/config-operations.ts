@@ -8,9 +8,12 @@
 import fs from "fs/promises";
 import { join } from "path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { log } from "@minsky/shared/logger";
 import { RuleService } from "../../rules";
 import { resolveActiveRules } from "../rule-selection";
 import { RULE_PRESETS } from "../../configuration/schemas/rules";
+import { DEFAULT_TEMPLATES } from "../default-templates";
+import { ValidationError, getErrorMessage } from "../../errors/index";
 import type { RulesSelectionConfig, RulesConfigResult, RulesPresetsResult } from "./types";
 
 // ─── Rules Selection Config ──────────────────────────────────────────────────
@@ -76,12 +79,70 @@ export async function writeRulesSelectionConfig(
 // ─── Enable / Disable ────────────────────────────────────────────────────────
 
 /**
+ * Every rule id this project could legitimately select: the `.minsky/rules/`
+ * sources present on disk, plus the ids `init` can scaffold.
+ *
+ * The template ids are included deliberately (mt#4866 SC1). A user may reasonably
+ * decline a rule `init` is about to write, or one they deleted by hand, and neither
+ * appears in `listRules`. Validating against on-disk sources alone would reject
+ * those as typos.
+ *
+ * Read from `DEFAULT_TEMPLATES` — the registry — rather than from the narrower
+ * hardcoded list `init` currently scaffolds, so the seventh template
+ * (`minsky-session-management`, omitted from that list per SC4) is still a
+ * selectable id.
+ */
+async function knownRuleIds(workspacePath: string): Promise<Set<string>> {
+  const ruleService = new RuleService(workspacePath);
+  const ids = new Set<string>();
+
+  try {
+    for (const rule of await ruleService.listRules({})) ids.add(rule.id);
+  } catch (error) {
+    // A workspace with no `.minsky/rules/` yet is the fresh-init case, not a
+    // failure: the template ids below still make validation meaningful. Surfaced
+    // rather than swallowed, so a genuinely broken rules directory is visible.
+    log.debug("rules selection: could not list on-disk rules while validating an id", {
+      workspacePath,
+      error: getErrorMessage(error),
+    });
+  }
+
+  for (const template of DEFAULT_TEMPLATES) ids.add(template.id);
+  return ids;
+}
+
+/**
+ * Throw unless `ruleId` names a rule this project could select.
+ *
+ * MUST run before any config read/write (mt#4866 SC1): the pre-fix behaviour was
+ * `rules disable --id no-such-rule` returning success and persisting the unknown
+ * id into the committed `.minsky/config.yaml`. Combined with the resolver defect
+ * fixed in the same task, that config then resolved to zero rules.
+ */
+async function assertKnownRuleId(workspacePath: string, ruleId: string): Promise<void> {
+  const known = await knownRuleIds(workspacePath);
+  if (known.has(ruleId)) return;
+
+  const suggestions = [...known].sort().slice(0, 8);
+  throw new ValidationError(
+    `Unknown rule id "${ruleId}" — it is neither a rule in .minsky/rules nor a rule ` +
+      `minsky init can scaffold, so nothing would be selected. The project config was ` +
+      `not written.\n\nKnown ids include: ${suggestions.join(", ")}${
+        known.size > suggestions.length ? `, … (${known.size} total)` : ""
+      }\n\nRun \`minsky rules list\` for the full set.`
+  );
+}
+
+/**
  * Enable a rule by adding it to the enabled list and removing from disabled.
  */
 export async function enableRule(
   workspacePath: string,
   ruleId: string
 ): Promise<{ enabled: string[]; disabled: string[] }> {
+  await assertKnownRuleId(workspacePath, ruleId);
+
   const config = await readRulesSelectionConfig(workspacePath);
 
   if (!config.enabled.includes(ruleId)) {
@@ -101,6 +162,8 @@ export async function disableRule(
   workspacePath: string,
   ruleId: string
 ): Promise<{ enabled: string[]; disabled: string[] }> {
+  await assertKnownRuleId(workspacePath, ruleId);
+
   const config = await readRulesSelectionConfig(workspacePath);
 
   if (!config.disabled.includes(ruleId)) {
