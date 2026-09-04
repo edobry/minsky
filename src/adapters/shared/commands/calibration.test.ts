@@ -801,6 +801,80 @@ describe("observability.calibration-review — lost-ack reporting edges (mt#4408
   });
 });
 
+describe("observability.calibration-review — a clamp is not an advance (mt#4941 AT3)", () => {
+  /**
+   * Quiet every review-due log EXCEPT `keepDuePath`, so an assertion about the
+   * process-global `watermarkAdvanced` is about the log under test.
+   *
+   * This is mt#3818's hazard handled rather than hoped past: the flag is
+   * process-global, and an unrelated registry entry's `never-fired` leg goes
+   * due purely by wall-clock (`liveSinceDate + reviewByDays`), which would make
+   * a `false` assertion here start failing on a date nobody changed. Setting a
+   * watermark at the log's own count makes `firesSinceLastReview` zero and puts
+   * `never-reviewed` / `never-fired` out of reach, without depending on which
+   * entries happen to be registered.
+   */
+  async function quietAllBut(workspace: string, keepDuePath: string): Promise<void> {
+    const sweep = (await getCommand().execute(
+      { ack: false, json: true },
+      { workspacePath: workspace }
+    )) as {
+      reviewDue: Array<{ path: string }>;
+      results: Array<{ path: string; totalFires: number }>;
+    };
+    const store: Record<string, LogWatermark> = {};
+    const now = new Date().toISOString();
+    for (const due of sweep.reviewDue) {
+      if (due.path === keepDuePath) continue;
+      const total = sweep.results.find((r) => r.path === due.path)?.totalFires ?? 0;
+      store[due.path] = { lastReviewedCount: total, lastReviewedAt: now };
+    }
+    writeWatermarks(workspace, store);
+  }
+
+  test("an ack whose every target is clamped reports watermarkAdvanced: false", async () => {
+    const workspace = makeWorkspace();
+    const silentStretchPath = `.minsky/${SILENT_STRETCH_LOG}`;
+
+    // 12 fires, no watermark -> due, and the token binds count 12.
+    await writeAcceptanceFixture(workspace);
+    await quietAllBut(workspace, silentStretchPath);
+    const staleToken = await readReviewToken(workspace);
+
+    // The log then grows and ANOTHER pass reviews further into it: watermark 40
+    // against 60 records. Not stranded (40 < 60), so the clamp is the correct
+    // disposition — this is the protection mt#4941 must not lose.
+    const lines = Array.from({ length: 60 }, (_, i) => makeSilentStretchRecord(`conv-${i % 4}`));
+    await writeCalibrationLog(workspace, SILENT_STRETCH_LOG, `${lines.join("\n")}\n`);
+    const quieted = readWatermarks(workspace);
+    writeWatermarks(workspace, {
+      ...quieted,
+      [silentStretchPath]: { lastReviewedCount: 40, lastReviewedAt: daysAgoIso(20) },
+    });
+
+    // Precondition: due again, and due on a leg that is NOT the stranded one.
+    const before = (await getCommand().execute(
+      { ack: false, json: true },
+      { workspacePath: workspace }
+    )) as { reviewDue: Array<{ path: string; reason: string }> };
+    expect(before.reviewDue.map((d) => d.path)).toEqual([silentStretchPath]);
+    expect(before.reviewDue[0]?.reason).not.toBe("watermark-stranded");
+
+    const acked = (await getCommand().execute(
+      { ack: true, json: true, reviewToken: staleToken },
+      { workspacePath: workspace }
+    )) as AckResult & { clampedPaths: string[]; repairedPaths: string[] };
+
+    expect(acked.clampedPaths).toEqual([silentStretchPath]);
+    expect(acked.repairedPaths).toEqual([]);
+    // The write LANDED — it just wrote the value that was already there. That
+    // is precisely why counting write attempts could not answer this.
+    expect(readWatermarks(workspace)[silentStretchPath]?.lastReviewedCount).toBe(40);
+    expect(acked.driftedPaths).toEqual([]);
+    expect(acked.watermarkAdvanced).toBe(false);
+  });
+});
+
 // mt#4748 R1: the write(via logCalibrationRecord)/read(via this command)
 // parity test lives in `.minsky/hooks/calibration-write-read-parity.test.ts`,
 // not here — importing `.minsky/hooks/dispatcher.ts` from this file pulls

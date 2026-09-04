@@ -2848,6 +2848,24 @@ export interface ReceiptReconciliation {
   midPassArrivals: { path: string; count: number }[];
   /** Paths whose receipt count sat BELOW the existing watermark, raised to it. */
   clampedPaths: string[];
+  /**
+   * Paths whose watermark was STRANDED above the log's record count and has
+   * been RESET to 0, restoring their records to the review queue (mt#4941).
+   *
+   * The counterpart to {@link clampedPaths}, and disjoint from it by
+   * construction: both describe a receipt count below the existing watermark,
+   * and `watermarkStranded` decides which one it is. A stale token is clamped
+   * UP to protect a prior pass's reviews; a stranded watermark is REPAIRED
+   * down, because the records it counts live in a file that no longer holds
+   * them and there are no prior-pass reviews left to protect.
+   *
+   * Named rather than left silent for the same reason `clampedPaths` is: a
+   * repair that reports nothing is byte-identical to an ack that had nothing
+   * to repair, and the strand this closes went a full day unnoticed precisely
+   * because `watermarkAdvanced: true` beside 13 clamped paths read as success
+   * (mt#4941 `## Measured, 2026-09-03`).
+   */
+  repairedPaths: string[];
   /** Ackable paths the receipt does not cover, so they cannot be advanced. */
   unreceiptedPaths: string[];
   /**
@@ -2903,11 +2921,30 @@ export interface ReceiptReconciliation {
  *     tree or the log was rotated. REJECTED outright: writing it would mark
  *     records reviewed that do not exist yet, and every future sweep would
  *     read them as already-seen the moment they land.
- *   - **Count BELOW the existing watermark** — a stale token from an earlier
- *     pass. CLAMPED UP to the watermark and named in `clampedPaths`: a
- *     watermark that moves backwards would re-open records a prior pass
- *     legitimately reviewed, which is the same data loss in the other
- *     direction.
+ *   - **Count BELOW the existing watermark, log NOT stranded** — a stale token
+ *     from an earlier pass. CLAMPED UP to the watermark and named in
+ *     `clampedPaths`: a watermark that moves backwards would re-open records a
+ *     prior pass legitimately reviewed, which is the same data loss in the
+ *     other direction.
+ *   - **Count BELOW the existing watermark, log STRANDED** (mt#4941) — the
+ *     watermark exceeds the log's own record count, so its basis is gone: the
+ *     records it claims were reviewed do not live in this file any more (it was
+ *     rotated, truncated, or re-rooted under it). RESET to 0 and named in
+ *     `repairedPaths`, which leaves the log's live records unreviewed so the
+ *     next sweep presents them normally — the receipt's count says what the
+ *     sweep OBSERVED, and a stranded sweep observes records it showed nobody.
+ *     Clamping here is exactly wrong —
+ *     there are no prior-pass reviews to protect, and raising the value back
+ *     preserves the strand, which leaves the log permanently review-due with
+ *     `firesSinceLastReview: 0` and nothing an in-tool action can clear.
+ *
+ *     The two cases are separated by `result.watermarkStranded`
+ *     (`watermarkCount > totalFires`, computed in `computeLogResult` from both
+ *     operands while they are still in hand) — NOT by the receipt, which looks
+ *     identical either way. Until mt#4941 only the first case existed, so every
+ *     stranded log's ack silently re-wrote the value that stranded it: measured
+ *     2026-09-03, an ack over 13 stranded logs returned `watermarkAdvanced:
+ *     true` with all 13 in `clampedPaths` and every stored count unchanged.
  *   - **Path absent from the receipt** — the read sweep never showed this log,
  *     so nothing is known about what was classified. NOT advanced, and named
  *     in `unreceiptedPaths`. Advancing on a guess is the defect.
@@ -2932,6 +2969,7 @@ export function reconcileReviewReceipt(
   const reviewedCounts: Record<string, number> = {};
   const midPassArrivals: { path: string; count: number }[] = [];
   const clampedPaths: string[] = [];
+  const repairedPaths: string[] = [];
   const unreceiptedPaths: string[] = [];
   const newlyDuePaths: string[] = [];
   const claimHeldPaths: string[] = [];
@@ -3007,13 +3045,40 @@ export function reconcileReviewReceipt(
 
     const watermarkCount = watermarks[path]?.lastReviewedCount ?? 0;
     if (receiptCount < watermarkCount) {
-      clampedPaths.push(path);
-      reviewedCounts[path] = watermarkCount;
+      // Both dispositions arrive on this ONE condition, and `watermarkStranded`
+      // is the whole difference between them (mt#4941).
+      if (result.watermarkStranded) {
+        repairedPaths.push(path);
+        // RESET, not the receipt count — and this is the load-bearing choice.
+        // A stranded log shows the reviewer nothing: `computeLogResult` sets
+        // `firesSinceLastReview = max(0, totalFires - watermarkCount)` and
+        // `newRecords = allRecords.slice(watermarkCount)`, both empty when the
+        // watermark exceeds the count. So the receipt's count records what the
+        // sweep OBSERVED, not what anyone classified, and writing it would mark
+        // every live record reviewed by nobody — precisely the defect the
+        // receipt exists to prevent (mt#3906). Zero leaves them unreviewed, so
+        // the next sweep presents them through the normal past-threshold leg.
+        //
+        // It is also the recoverable branch, which is why it is the default
+        // rather than a preference: an operator who would rather write the
+        // backlog off can ack normally once these are due again, whereas
+        // nothing can un-mark records reviewed — there is no set-watermark
+        // affordance (mt#3752 `## Recovery status`).
+        reviewedCounts[path] = 0;
+      } else {
+        clampedPaths.push(path);
+        reviewedCounts[path] = watermarkCount;
+      }
     } else {
       reviewedCounts[path] = receiptCount;
     }
 
-    const arrived = result.totalFires - (reviewedCounts[path] as number);
+    // A repaired log's whole corpus is now un-reviewed by design; calling that
+    // a mid-pass arrival would report a restored backlog as records that landed
+    // while the reviewer worked. `repairedPaths` already names it.
+    const arrived = repairedPaths.includes(path)
+      ? 0
+      : result.totalFires - (reviewedCounts[path] as number);
     if (arrived > 0) {
       midPassArrivals.push({ path, count: arrived });
     }
@@ -3023,6 +3088,7 @@ export function reconcileReviewReceipt(
     reviewedCounts,
     midPassArrivals,
     clampedPaths,
+    repairedPaths,
     unreceiptedPaths,
     newlyDuePaths,
     claimHeldPaths,
