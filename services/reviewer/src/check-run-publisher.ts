@@ -96,16 +96,36 @@ export interface BuildCheckRunPayloadParams {
   /**
    * When provided, the reviewer DECLINED to run — it did not fail (mt#4271).
    * Today the only reason is `concurrent_inflight`: another caller held the
-   * in-flight marker. The conclusion becomes `"skipped"`, which GitHub's
-   * protected-branches documentation lists alongside `successful` and `neutral`
-   * as satisfying a required status check, so the PR is not blocked:
+   * in-flight marker. The conclusion becomes `"skipped"`.
+   *
+   * WHY `skipped` — on SEMANTICS, not on merge-blocking. The state being
+   * reported is a skip: the reviewer declined to run, so a red X would tell a
+   * human reader the code was reviewed and rejected, which is false. `failure`
+   * is reserved for a review that RAN and did not complete (mt#4881).
+   *
+   * CORRECTION (mt#4897). This docblock previously asserted that
+   * `minsky-reviewer/findings` IS a required status check, and rested the
+   * choice above on it. **The premise was false**, and it propagated from here
+   * into mt#4271, mt#4895 and mt#4897 unchallenged — costing an investigation
+   * that went looking for a merge-blocking specimen that could not exist.
+   *
+   * Deliberately NOT restating which contexts are required. That is mutable
+   * repository configuration, and freezing a reading of it into a comment is
+   * exactly how the wrong claim got here — a snapshot that was true when
+   * written and silently stopped being so. The durable rule is the negative
+   * one: **this module must not assume the check is required.** mt#4897 records
+   * the reading and its date; if a decision depends on the current list, read
+   * branch protection rather than trusting any comment, including this one.
+   *
+   * The behaviour above is unchanged and still correct; only its justification
+   * was wrong. Do not "simplify" this to `failure` on the strength of the
+   * correction — the semantic argument is the one that was always load-bearing.
+   *
+   * The vendor sentence this once leaned on is still worth keeping, because it
+   * is what makes `skipped` safe IF the check is ever made required:
    *
    * > Required status checks must have a `successful`, `skipped`, or `neutral`
    * > status before collaborators can make changes to a protected branch.
-   *
-   * `minsky-reviewer/findings` IS a required check, so publishing `failure`
-   * here would turn a transient refusal into a merge blocker — worse than the
-   * silence this exists to end.
    *
    * Mutually exclusive with `failureSummary` in practice: a skip returns from
    * `runReview` before any failure path. `failureSummary` wins if both are set,

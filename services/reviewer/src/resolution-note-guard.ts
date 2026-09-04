@@ -16,11 +16,24 @@
  * That self-contradiction is expensive downstream: `composeReviewBody`'s
  * `reconcileEventWithBlockingCount` (mt#2655) correctly refuses to let an
  * APPROVE coexist with a BLOCKING finding and downgrades the event to
- * REQUEST_CHANGES — which also fails the `minsky-reviewer/findings` required
- * check. The result is an approved-in-substance PR blocked by its own reviewer's
- * bookkeeping, and `forceBypass` cannot clear a failing required check (only a
- * retrigger or `MINSKY_SKIP_REQUIRED_CHECKS` can) — so the bug is
- * disproportionately expensive for subagent-driven convergence.
+ * REQUEST_CHANGES. The result is an approved-in-substance PR carrying an
+ * outstanding CHANGES_REQUESTED review — so convergence cannot finish until
+ * another round clears it, which is disproportionately expensive for
+ * subagent-driven convergence.
+ *
+ * CORRECTION (mt#4897). This passage previously added "which also fails the
+ * `minsky-reviewer/findings` required check" and "`forceBypass` cannot clear a
+ * failing required check (only a retrigger or `MINSKY_SKIP_REQUIRED_CHECKS`
+ * can)." **Both rested on a false premise** — that check is not required — so
+ * the real cost is the outstanding REVIEW named above, not a failing check.
+ *
+ * The current required-check list is deliberately not restated here: it is
+ * mutable repository configuration, and a frozen copy of it is what made the
+ * original claim wrong. mt#4897 records the reading and its date.
+ *
+ * This guard's behaviour is unchanged and still correct on its own terms: it
+ * prevents the model emitting a finding whose severity contradicts its text,
+ * which is a defect regardless of what any check does downstream.
  *
  * ## Why this lives at emission, not in the aggregator
  *
