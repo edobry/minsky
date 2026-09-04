@@ -148,12 +148,25 @@ export const CREDENTIAL_SHAPES: readonly CredentialShape[] = [
   },
   {
     name: "postgres-url-credentials",
-    regex: /postgres(?:ql)?:\/\/[^:\s/@]+:[^@\s]+@[^\s/]+/g,
+    // Both userinfo halves are `*`, NOT `+` (mt#4963). Postgres accepts a URL with
+    // an empty half, and `+` made the shape match nothing on one — so
+    // `postgresql://:realpassword@host/db` passed through this scrubber verbatim, // gitleaks:allow
+    // with the password fully exposed. The `@` anchor, not the quantifiers, is
+    // what keeps a credential-less `host:port/db` from matching; widening to `*`
+    // leaves that anchor untouched. Measured before the change: 7 turns since the
+    // 2026-07-18 scrub cutoff carried an empty-half URL this shape did not see,
+    // against 0 unredacted both-halves-non-empty URLs in the same window.
+    regex: /postgres(?:ql)?:\/\/[^:\s/@]*:[^@\s]*@[^\s/]+/g,
     precisionBasis:
       "Mirrors this repo's existing `.gitleaks.toml` `database-url-credentials` custom rule " +
       "(scoped here to postgres/postgresql per the mt#2763 spec's enumerated shape list) — " +
       "reusing an already-vetted regex keeps the two independent secret-detection layers " +
-      "(pre-commit gitleaks, this ingest-time scrubber) aligned on the same precision bar.",
+      "(pre-commit gitleaks, this ingest-time scrubber) aligned on the same precision bar. " +
+      "mt#4963 widened BOTH layers together, on the same axis, so they stay aligned: the " +
+      "shared ancestor required a non-empty username AND password, which is a false negative " +
+      "on a URL Postgres itself accepts. Note the two layers had been hardened twice before " +
+      "(mem#808 scheme spelling, mem#972 masked-form collision) and neither pass touched the " +
+      "quantifiers — 'already-vetted' names the axes actually checked, not the whole regex.",
   },
   {
     // LAST deliberately: every shape above is anchored on a vendor sigil that identifies the

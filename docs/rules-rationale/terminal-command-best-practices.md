@@ -217,9 +217,20 @@ Two levels, in priority order:
    the result for the secret's shape and abort if it survived.
 
 Note the project already knew both spellings: `packages/domain/src/transcripts/credential-scrubber.ts`'s
-`postgres-url-credentials` shape is `/postgres(?:ql)?:\/\/…/`, written for exactly this threat. The
-hand-rolled regex did not inherit that care — reaching for an ad-hoc pattern when a vetted one
-exists in-repo is the deeper tell.
+`postgres-url-credentials` shape is `/postgres(?:ql)?:\/\/…/`, which is why reaching for an ad-hoc
+pattern when an in-repo one exists is the deeper tell.
+
+**"Vetted" names the axes actually checked, not the whole regex (mt#4963).** This paragraph read
+_"written for exactly this threat"_ and held the shape up as _"a vetted one"_ — and on a third axis
+it had the same defect as the hand-rolled pattern it was being contrasted with. Both userinfo halves
+used `+`, so an empty half made it match nothing: `postgresql://:realpassword@host/db` passed the
+ingest scrubber, `minsky security check-credentials` and the `secret-scanning` pre-commit step
+unredacted, with the password fully exposed. Measured on the live corpus, 7 turns since the
+2026-07-18 scrub cutoff carried that form. The shape had been hardened twice — mem#808 for the
+scheme spelling, mem#972 for the masked-form collision — and neither pass touched the quantifiers,
+which is exactly how the prose came to describe it as settled. The lesson survives; the endorsement
+does not. When you write that an in-repo primitive is vetted, name the axis: a regex checked for
+scheme coverage is not thereby checked for quantifier coverage.
 
 Enforced for the file-read half by the `block-secret-file-read` PreToolUse guard (mt#3282), which
 now carries four checks: the reader+secret-path pair (mt#3282), a fixed list of secret-EMITTING

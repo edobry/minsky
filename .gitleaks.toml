@@ -7,8 +7,39 @@ useDefault = true
 [[rules]]
 description = "Database URL with Credentials (PostgreSQL, MySQL, MongoDB, Redis)"
 id = "database-url-credentials"
-regex = '''(postgresql|postgres|mysql|mongodb|redis)://[^:\s]+:[^@\s]+@[^/\s]+'''
+# Both userinfo halves are `*`, NOT `+` (mt#4963). Postgres accepts a URL with an
+# empty half, and `+` made this rule match nothing on one — so
+# `postgresql://:realpassword@host/db` staged clean past the `secret-scanning`
+# pre-commit step with the password fully exposed. Measured against a fixture
+# before the change: the empty-username, empty-password and both-empty rows were
+# all unflagged. The trailing `@` is what keeps a credential-less `host:port/db`
+# from matching, so widening the quantifiers does not cost precision.
+# Kept deliberately in lockstep with `CREDENTIAL_SHAPES`'s `postgres-url-credentials`
+# (packages/domain/src/transcripts/credential-scrubber.ts) — that shape's
+# precisionBasis names this rule as the thing it mirrors, so the two must be
+# widened together or the "aligned on the same precision bar" claim goes stale.
+regex = '''(postgresql|postgres|mysql|mongodb|redis)://[^:\s]*:[^@\s]*@[^/\s]+'''
 keywords = ["://"]
+
+# The sanctioned redaction is not a finding (mt#4963). `maskConnectionString`
+# emits exactly `://***:***@`, and the rule above is correctly shaped to match
+# `scheme://user:pass@host` in general — so it also matches that mask, and
+# reports every correctly-redacted string as a leak. This is the mem#972
+# collision, which the in-repo checker already solves at
+# `credential-shape-check.ts` via MASKED_FORM_CHECKS (re-mask the match and
+# compare); the pre-commit layer had no equivalent.
+#
+# RULE-SCOPED, not global, and that placement is the point. Gitleaks documents
+# global allowlists as taking precedence over rule-scoped ones, so putting this
+# in the file's `[allowlist].regexes` — where every other exemption in this file
+# lives — would suppress the `***:***@` shape for EVERY rule, including rules
+# added later that nobody has considered. `regexTarget = "match"` tests against
+# the rule's whole match rather than the extracted secret, which is what makes
+# the anchored pattern below meaningful.
+[[rules.allowlists]]
+description = "maskConnectionString's own output — a redaction, not a credential"
+regexTarget = "match"
+regexes = ['''(postgresql|postgres|mysql|mongodb|redis)://\*\*\*:\*\*\*@''']
 
 # Allowlist patterns for documentation
 [allowlist]

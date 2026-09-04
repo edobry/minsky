@@ -31,6 +31,7 @@ const FAKE_PEM_KEY = [
 ].join("\n");
 const FAKE_JWT = [`eyJ${"a".repeat(10)}`, `eyJ${"b".repeat(10)}`, `${"c".repeat(10)}`].join(".");
 const FAKE_PG_URL = "postgresql://fakeuser:fakepassword@db.example.invalid:5432/mydb";
+const PG_SHAPE = "postgres-url-credentials";
 // mt#4159. The hex fixture mirrors the shape `.mcp.json` actually carried (64
 // hex chars, no vendor sigil); the b64 fixture exercises the rest of RFC 6750
 // §2.1's charset — `-`, `_`, `~`, `+`, `/`, `.` — so a body using the full
@@ -131,7 +132,7 @@ describe("credential-scrubber", () => {
     test("redacts a postgres URL carrying inline credentials", () => {
       const { text, redactions } = scrubText(`DATABASE_URL=${FAKE_PG_URL}`);
       expect(text).not.toContain("fakepassword");
-      expect(redactions[0]?.shape).toBe("postgres-url-credentials");
+      expect(redactions[0]?.shape).toBe(PG_SHAPE);
     });
 
     // mt#4017 criterion 4 / AT4 — the leak shape is JSON-EMBEDDED, not a bare
@@ -153,11 +154,51 @@ describe("credential-scrubber", () => {
       const { text, redactions } = scrubText(dbConfigJson);
       expect(text).not.toContain("fakepassword");
       expect(text).not.toContain(FAKE_PG_URL);
-      expect(redactions.some((r) => r.shape === "postgres-url-credentials")).toBe(true);
+      expect(redactions.some((r) => r.shape === PG_SHAPE)).toBe(true);
       // The surrounding JSON structure (quotes, indentation, sibling keys)
       // survives — only the matched credential span is replaced.
       expect(text).toContain('"connectionString": "[REDACTED:postgres-url-credentials:');
       expect(text).toContain('"backend": "postgres"');
+    });
+
+    // mt#4963. Postgres accepts a URL with an empty userinfo half, and the shape
+    // used `+` on both — so either half being empty made it match NOTHING, and a
+    // regex that matches nothing returns its input unchanged. The empty-USERNAME
+    // case is the severe one: the password is real and fully exposed.
+    //
+    // Measured on the live corpus before the fix: 7 turns since the 2026-07-18
+    // scrub cutoff carried an empty-half URL this shape did not see, against 0
+    // unredacted both-halves-non-empty URLs in the same window — i.e. the
+    // scrubber was working on exactly the inputs it could see, and only these.
+    test("redacts a postgres URL with an EMPTY USERNAME (the password is still real)", () => {
+      const url = "postgresql://:fakepassword@db.example.invalid:5432/mydb";
+      const { text, redactions } = scrubText(`DATABASE_URL=${url}`);
+      expect(text).not.toContain("fakepassword");
+      expect(redactions[0]?.shape).toBe(PG_SHAPE);
+    });
+
+    test("redacts a postgres URL with an EMPTY PASSWORD", () => {
+      const url = "postgresql://fakeuser:@db.example.invalid:5432/mydb";
+      const { text, redactions } = scrubText(`DATABASE_URL=${url}`);
+      expect(text).not.toContain(url);
+      expect(redactions[0]?.shape).toBe(PG_SHAPE);
+    });
+
+    test("redacts a postgres URL with BOTH halves empty", () => {
+      const url = "postgresql://:@db.example.invalid:5432/mydb";
+      const { text, redactions } = scrubText(`DATABASE_URL=${url}`);
+      expect(text).not.toContain(url);
+      expect(redactions[0]?.shape).toBe(PG_SHAPE);
+    });
+
+    // The false-positive direction, and the reason widening the quantifiers is
+    // safe: it is the trailing `@` that excludes a credential-less URL, not the
+    // `+`. Without this the widening would look like a precision regression.
+    test("does NOT redact a credential-less postgres URL (the @ anchor, not the quantifiers)", () => {
+      const url = "postgresql://db.example.invalid:5432/mydb";
+      const { text, redactions } = scrubText(`DATABASE_URL=${url}`);
+      expect(text).toContain(url);
+      expect(redactions).toHaveLength(0);
     });
 
     test("redacts multiple distinct credentials in one string", () => {
