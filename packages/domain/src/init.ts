@@ -5,6 +5,7 @@ import { createDirectoryIfNotExists, createFileIfNotExists } from "./init/file-s
 import type { FsLike } from "./interfaces/fs-like";
 import { createRealFs } from "./interfaces/real-fs";
 import { getMinskyConfigContentYaml } from "./init/config-content";
+import { mergeProjectConfigYaml, UnmergeableConfigError } from "./init/config-merge";
 import { generateRulesWithTemplateSystem } from "./init/rule-templates";
 import { RULE_FORMAT_OUTPUT_DIR } from "./rules/types";
 import { runMinskyCompile } from "./compile/compile";
@@ -337,7 +338,49 @@ export async function initializeProject(
   const configContent = getMinskyConfigContentYaml(backend, repository, {
     repoPath,
   });
-  await createFileIfNotExists(configPath, configContent, overwrite, fileSystem);
+
+  // mt#4866 SC2: `--overwrite` MERGES rather than replaces. `init` returns early
+  // when the config exists and `--overwrite` is absent, so this is the only
+  // re-init path — and it used to delete every top-level key `init` does not
+  // emit. Measured: a `rules:` block AND an unrelated key both vanished.
+  //
+  // The merge lives here, in `init`, rather than in `getMinskyConfigContentYaml`
+  // (SC2 is explicit about this): the generator's job is to say what the vendor
+  // owns, and teaching it about `rules:` would make it own a key it does not
+  // emit. It also must NOT change `createFileIfNotExists`, whose other callers
+  // (`setup.ts`, `mcp/registration.ts`, and every rule-file write in this
+  // function) rely on plain overwrite semantics.
+  // FAILS CLOSED on a config that exists but cannot be read or parsed (PR #3623
+  // R1). Warning and overwriting anyway would reintroduce exactly the data loss
+  // SC2 exists to stop, and would do it on the path where the user is LEAST able
+  // to notice — a non-interactive `--overwrite` in CI, where `warn` goes nowhere
+  // anyone reads and the command still reports success. SC2 requires every unowned
+  // key to survive; when the file cannot be read there is no way to honour that,
+  // so refusing and naming the file is the only faithful outcome. The user can
+  // repair the file or move it aside.
+  let existingConfigYaml: string | null = null;
+  if (overwrite && (await fileSystem.exists(configPath))) {
+    try {
+      existingConfigYaml = await fileSystem.readFile(configPath, "utf8");
+    } catch (error) {
+      throw new UnmergeableConfigError(configPath, error);
+    }
+  }
+
+  // Throws UnmergeableConfigError when the file is present but unparseable.
+  const { merged: mergedConfigContent, preservedKeys } = mergeProjectConfigYaml(
+    existingConfigYaml,
+    configContent,
+    configPath
+  );
+  if (preservedKeys.length > 0) {
+    log.debug("minsky init: preserved existing top-level config keys across --overwrite", {
+      configPath,
+      preserved: preservedKeys,
+    });
+  }
+
+  await createFileIfNotExists(configPath, mergedConfigContent, overwrite, fileSystem);
 
   // === Phase 2: Developer-local setup ===
   // Skipped when MCP is explicitly disabled (e.g. in tests or non-MCP workflows).
