@@ -174,6 +174,9 @@ describe("sessionPrWaitForReview — expectedHeadSha (mt#3877)", () => {
       expect(result.expectedHeadShaUnreached).toEqual({
         expected: PUSHED_SHA,
         lastObservedHeadSha: STALE_SHA,
+        // mt#4995: an unrelated head shares no prefix, so this stays the
+        // wait-it-out case — the behaviour these tests pin is unchanged.
+        classification: "push-pending",
       });
     }
   });
@@ -235,6 +238,7 @@ describe("sessionPrWaitForReview — abbreviated expectedHeadSha (mt#4039)", () 
       expect(result.expectedHeadShaUnreached).toEqual({
         expected: "deadbeef",
         lastObservedHeadSha: STALE_SHA,
+        classification: "push-pending",
       });
     }
   });
