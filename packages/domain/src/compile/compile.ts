@@ -15,7 +15,11 @@ import type { MinskyCompileFsDeps } from "./types";
 import type { SizeBudget } from "./size-budget";
 import type { MemoryLoadingMode } from "../configuration/schemas/memory";
 import { unknownCompileTargetMessage } from "../rules/compile/target-error-hint";
-import { isForeignMonolith, foreignOutputSkipReason } from "./monolithic-ownership";
+import {
+  isForeignMonolith,
+  monolithicSkipIfNotOurs,
+  monolithicOutputName,
+} from "./monolithic-ownership";
 
 /**
  * A target a bare invocation SKIPPED, with why.
@@ -382,15 +386,21 @@ export async function runMinskyCompile(
   // report from the gate instead. The `"harness"` kind is deliberately NOT
   // seeded here: that gate is normal narrowing, already documented, and not a
   // file anyone is protecting.
-  const gateSkippedForeign = gatedOut
-    .filter((entry) => entry.kind === "foreign")
-    .map((entry) => {
-      const outputPath = path.join(
-        workspacePath,
-        entry.target === "claude.md" ? "CLAUDE.md" : "AGENTS.md"
-      );
-      return { path: outputPath, reason: foreignOutputSkipReason(outputPath) };
-    });
+  const gateSkippedForeign: { path: string; reason: string }[] = [];
+  for (const entry of gatedOut) {
+    if (entry.kind !== "foreign") continue;
+    // Explicit lookup, not a ternary (PR #3643 R1): a third monolithic target
+    // would otherwise be silently reported against AGENTS.md — a wrong PATH in
+    // an operator-facing message, which nothing type-checks. An unknown target
+    // yields no entry rather than a fabricated one.
+    const outputName = monolithicOutputName(entry.target);
+    if (outputName === undefined) continue;
+    // Re-reads the file rather than reconstructing the reason from the gate's
+    // boolean: the reason has to name WHY (unreadable vs. hand-authored), and the
+    // helper is the one place that pairs the read with the wording it licenses.
+    const skip = await monolithicSkipIfNotOurs(path.join(workspacePath, outputName), fsDeps);
+    if (skip !== undefined) gateSkippedForeign.push(skip);
+  }
 
   const [onlyTargetId] = targetIds;
   if (targetIds.length === 1 && onlyTargetId) {

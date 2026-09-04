@@ -48,7 +48,7 @@ import type { MinskyMonolithicCompileResult } from "../size-budget-report";
 import { loadAdaptedRules, type SkipLogFn, type DynamicImportFn } from "./rule-loader";
 import { createSkipRecorder } from "./skip-recorder";
 import { MONOLITHIC_GENERATED_BANNER } from "../../rules/compile/banner-constants";
-import { isForeignMonolith, foreignOutputSkipReason } from "../monolithic-ownership";
+import { isForeignMonolith, monolithicSkipIfNotOurs } from "../monolithic-ownership";
 
 /** The canonical rule ID for the memory-usage directive. */
 const MEMORY_USAGE_RULE_ID = "memory-usage";
@@ -186,7 +186,8 @@ function makeClaudeMdTarget(
       // `--target claude.md` and never reaches the probe, so a selection-only
       // guard would leave the one invocation an operator reaches for by name
       // still destroying the file.
-      if (await isForeignMonolith(outputPath, fs)) {
+      const foreignSkip = await monolithicSkipIfNotOurs(outputPath, fs);
+      if (foreignSkip !== undefined) {
         return {
           target: "claude.md",
           filesWritten: [],
@@ -200,9 +201,7 @@ function makeClaudeMdTarget(
           definitionsIncluded: [],
           definitionsSkipped: [...rulesSkipped, ...rulesIncluded],
           skipReasons,
-          skippedForeignOutputs: [
-            { path: outputPath, reason: foreignOutputSkipReason(outputPath) },
-          ],
+          skippedForeignOutputs: [foreignSkip],
           // `content` still describes what WOULD have been emitted, so a
           // dry-run caller can show it; `contentsByPath` stays empty because it
           // is what `--check` compares against on-disk files, and there is no

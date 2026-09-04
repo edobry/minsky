@@ -2681,34 +2681,25 @@ export function compileCheckTargets(present: {
 }
 
 /**
- * Whether `filePath` is a monolithic output the USER owns — present, and not
- * carrying a generation banner in its first five lines (mt#4986 SC3).
+ * Whether `filePath` is a monolithic output this check must not demand be fresh
+ * — the user's own file, or one we cannot classify (mt#4986 SC3).
  *
- * Duplicated from `compile/monolithic-ownership.ts` for exactly the reason
- * `readRecordedHarnessForCheck` above is duplicated: importing the domain module
- * drags `createMinskyCompileService` and every compile target into a hook that
- * runs on every commit. The banner PATTERNS are not duplicated — they are
- * imported from the shared constants module, so the only thing local here is the
- * five-line window.
- *
- * Fails OPEN (returns `false`, "we own it") on an unreadable file, matching the
- * sibling read above and the domain predicate: the wrong direction here would
- * silently drop `claude.md` from the staleness check in Minsky's own repository.
+ * **Delegates to the domain predicate rather than re-implementing it**
+ * (PR #3643 R1). An earlier revision copied the banner scan here, citing the
+ * same import-graph argument that justifies duplicating
+ * `readRecordedHarnessForCheck` above — and that argument does not transfer:
+ * `readRecordedHarness` lives in `compile/compile.ts`, which pulls
+ * `createMinskyCompileService` and every compile target, whereas
+ * `compile/monolithic-ownership.ts` imports only `fs/promises`, a type-only
+ * module, and the banner constants this file already loads. There was nothing
+ * heavy to avoid, and the copy carried its own five-line window that could
+ * silently drift from `BANNER_SCAN_LINES`.
  */
 async function isForeignMonolithForCheck(filePath: string): Promise<boolean> {
-  const fsp = await import("fs/promises");
-  const { GENERATION_BANNER_PATTERNS } = await import(
-    "../../packages/domain/src/rules/compile/banner-constants"
+  const { isForeignMonolith } = await import(
+    "../../packages/domain/src/compile/monolithic-ownership"
   );
-  try {
-    const raw = String(await fsp.readFile(filePath, "utf-8"));
-    const head = raw.split("\n").slice(0, 5).join("\n");
-    return !GENERATION_BANNER_PATTERNS.some(({ re }) => re.test(head));
-  } catch {
-    // intentional-swallow: absent (the common case) is not foreign, and an
-    // unreadable file must not drop a target from the check.
-    return false;
-  }
+  return isForeignMonolith(filePath);
 }
 
 /**

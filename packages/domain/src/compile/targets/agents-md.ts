@@ -20,7 +20,7 @@ import type { MinskyMonolithicCompileResult } from "../size-budget-report";
 import { loadAdaptedRules, type SkipLogFn, type DynamicImportFn } from "./rule-loader";
 import { createSkipRecorder } from "./skip-recorder";
 import { MONOLITHIC_GENERATED_BANNER } from "../../rules/compile/banner-constants";
-import { isForeignMonolith, foreignOutputSkipReason } from "../monolithic-ownership";
+import { isForeignMonolith, monolithicSkipIfNotOurs } from "../monolithic-ownership";
 
 /**
  * Matches the legacy `rules/compile/targets/agents-md.ts` banner exactly (see claude-md.ts module doc).
@@ -196,7 +196,8 @@ function makeAgentsMdTarget(
 
       // mt#4986 SC1 — see `claude-md.ts`'s sibling guard for why this is the
       // floor rather than target selection alone.
-      if (await isForeignMonolith(outputPath, fs)) {
+      const foreignSkip = await monolithicSkipIfNotOurs(outputPath, fs);
+      if (foreignSkip !== undefined) {
         return {
           target: "agents.md",
           filesWritten: [],
@@ -204,9 +205,7 @@ function makeAgentsMdTarget(
           definitionsIncluded: [],
           definitionsSkipped: [...rulesSkipped, ...rulesIncluded],
           skipReasons,
-          skippedForeignOutputs: [
-            { path: outputPath, reason: foreignOutputSkipReason(outputPath) },
-          ],
+          skippedForeignOutputs: [foreignSkip],
           content: options.dryRun ? content : undefined,
           contentsByPath: options.dryRun ? new Map<string, string>() : undefined,
           sizeChars: sizeEvaluation.sizeChars,

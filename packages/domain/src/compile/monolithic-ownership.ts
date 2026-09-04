@@ -41,7 +41,28 @@ import { GENERATION_BANNER_PATTERNS } from "../rules/compile/banner-constants";
  * you edit) and this predicate calls foreign (so refuses to let the pipeline
  * regenerate) would be editable by nobody.
  */
-const BANNER_SCAN_LINES = 5;
+export const BANNER_SCAN_LINES = 5;
+
+/**
+ * The monolithic compile targets and the file each one owns.
+ *
+ * An explicit record rather than an inline conditional (PR #3643 R1): a
+ * `target === "claude.md" ? "CLAUDE.md" : "AGENTS.md"` ternary silently
+ * mis-maps any third monolithic target to `AGENTS.md`, and the failure is a
+ * WRONG PATH in an operator-facing message rather than a type error. Adding a
+ * target here forces the lookup to be updated deliberately.
+ */
+export const MONOLITHIC_TARGET_OUTPUTS = {
+  "claude.md": "CLAUDE.md",
+  "agents.md": "AGENTS.md",
+} as const satisfies Record<string, string>;
+
+export type MonolithicTargetId = keyof typeof MONOLITHIC_TARGET_OUTPUTS;
+
+/** The output filename for a monolithic target id, or `undefined` if it is not one. */
+export function monolithicOutputName(target: string): string | undefined {
+  return (MONOLITHIC_TARGET_OUTPUTS as Record<string, string>)[target];
+}
 
 /** What a monolithic output path holds right now. */
 export type MonolithicOwnership =
@@ -50,7 +71,13 @@ export type MonolithicOwnership =
   /** Carries the generation banner — Minsky's own output. Regenerate it. */
   | "generated"
   /** Present without a banner — the user authored it. Never write it. */
-  | "foreign";
+  | "foreign"
+  /**
+   * Present but unreadable — a permissions error, or any read failure that is
+   * not "no such file". Never write it either; see
+   * {@link readMonolithicOwnership} for why this is NOT folded into `"absent"`.
+   */
+  | "unreadable";
 
 /** True when the file's first {@link BANNER_SCAN_LINES} lines carry a generation banner. */
 export function hasGenerationBanner(content: string): boolean {
@@ -61,12 +88,20 @@ export function hasGenerationBanner(content: string): boolean {
 /**
  * Classify what sits at `outputPath`.
  *
- * A read that fails for ANY reason resolves to `"absent"`, not `"foreign"`. The
- * overwhelmingly common cause is ENOENT on a fresh project, and the failure
- * modes are asymmetric: treating an unreadable file as foreign would silently
- * stop maintaining a `CLAUDE.md` that IS ours — an inert pipeline with no error
- * — whereas the write that follows `"absent"` fails loudly on a file that
- * genuinely cannot be written.
+ * **Only ENOENT is `"absent"`.** Every other read failure is `"unreadable"`,
+ * and both `"unreadable"` and `"foreign"` mean "do not write". An earlier
+ * revision folded all read errors into `"absent"`, reasoning that the
+ * subsequent write would fail loudly on a file that cannot be written — and
+ * that reasoning does not hold for the case that matters: a file can be
+ * unreadable and still writable (mode `0200`), so a user's file would be
+ * silently destroyed, which is the exact defect this module exists to prevent
+ * (PR #3643 R1).
+ *
+ * The cost of the other direction is real but bounded and LOUD: a `CLAUDE.md`
+ * that is genuinely ours but momentarily unreadable stops being regenerated,
+ * and the operator is told which file and why rather than left with an inert
+ * pipeline. Loud-and-stalled beats silent-and-destructive on a question about
+ * overwriting someone's work.
  */
 export async function readMonolithicOwnership(
   outputPath: string,
@@ -76,18 +111,43 @@ export async function readMonolithicOwnership(
   let content: string;
   try {
     content = await fs.readFile(outputPath, "utf-8");
-  } catch {
-    return "absent";
+  } catch (error) {
+    return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT"
+      ? "absent"
+      : "unreadable";
   }
   return hasGenerationBanner(content) ? "generated" : "foreign";
 }
 
-/** Convenience: `true` only for a present, non-banner-carrying file. */
+/**
+ * `true` when the file must NOT be written — the user's own, or unverifiable.
+ *
+ * Named for the common case; the union is what callers actually need, since a
+ * file we cannot classify is not a file we may overwrite.
+ */
 export async function isForeignMonolith(
   outputPath: string,
   fsDeps?: MinskyCompileFsDeps
 ): Promise<boolean> {
-  return (await readMonolithicOwnership(outputPath, fsDeps)) === "foreign";
+  const ownership = await readMonolithicOwnership(outputPath, fsDeps);
+  return ownership === "foreign" || ownership === "unreadable";
+}
+
+/**
+ * The skip entry for a monolithic output we must not write, or `undefined` when
+ * writing it is fine (it is ours, or it is not there yet).
+ *
+ * The one place that pairs the ownership READ with the reason it produces, so a
+ * caller cannot report a cause the read did not establish. Every writer and the
+ * selection-gate report go through it.
+ */
+export async function monolithicSkipIfNotOurs(
+  outputPath: string,
+  fsDeps?: MinskyCompileFsDeps
+): Promise<{ path: string; reason: string } | undefined> {
+  const ownership = await readMonolithicOwnership(outputPath, fsDeps);
+  if (ownership === "generated" || ownership === "absent") return undefined;
+  return { path: outputPath, reason: foreignOutputSkipReason(outputPath, ownership) };
 }
 
 /**
@@ -102,12 +162,26 @@ export async function isForeignMonolith(
  * delivery-channel question (ask#11711, parent mt#4986) is answered. That is a
  * real interim gap and the message must not paper over it.
  */
-export function foreignOutputSkipReason(outputPath: string): string {
+export function foreignOutputSkipReason(
+  outputPath: string,
+  ownership: MonolithicOwnership = "foreign"
+): string {
+  // The two states have DIFFERENT causes and must not share a sentence: saying
+  // an unreadable file "does not carry the banner" asserts something this run
+  // could not check, which is the failure mode this whole task is about.
+  const cause =
+    ownership === "unreadable"
+      ? `it could not be read, leaving Minsky unable to confirm it generated it`
+      : `it does not carry Minsky's generated-file banner`;
+  const remedy =
+    ownership === "unreadable"
+      ? `Fix its permissions and re-run; if it is yours, no action is needed.`
+      : `To hand the file over to Minsky instead, move it aside and re-run.`;
+
   return (
-    `${outputPath} was left untouched — it does not carry Minsky's generated-file banner, ` +
-    `so it is treated as yours and is never overwritten. Minsky's rule sources are in ` +
-    `.minsky/rules/; nothing loads them into your agent automatically while this file is ` +
-    `yours, so an agent has to ask for one by name with \`rules_get <name>\`. To hand the ` +
-    `file over to Minsky instead, move it aside and re-run.`
+    `${outputPath} was left untouched — ${cause}, so it is treated as yours and is never ` +
+    `overwritten. Minsky's rule sources are in .minsky/rules/; nothing loads them into your ` +
+    `agent automatically while this file is yours, so an agent has to ask for one by name ` +
+    `with \`rules_get <name>\`. ${remedy}`
   );
 }

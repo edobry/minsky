@@ -13,6 +13,8 @@ import {
   isForeignMonolith,
   readMonolithicOwnership,
   foreignOutputSkipReason,
+  monolithicOutputName,
+  monolithicSkipIfNotOurs,
 } from "./monolithic-ownership";
 import { MONOLITHIC_GENERATED_BANNER } from "../rules/compile/banner-constants";
 import type { MinskyCompileFsDeps } from "./types";
@@ -83,27 +85,64 @@ describe("readMonolithicOwnership", () => {
     expect(await readMonolithicOwnership(CLAUDE_MD, fs)).toBe("foreign");
   });
 
-  it("resolves a read that throws to absent, so an unreadable file is never treated as the user's", async () => {
+  it("classifies a NON-ENOENT read failure as unreadable, not absent (PR #3643 R1)", async () => {
+    const throwing: MinskyCompileFsDeps = {
+      ...fsWith({}),
+      async readFile(): Promise<string> {
+        throw Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" });
+      },
+    };
+    // A file can be unreadable and still WRITABLE (mode 0200). Folding this into
+    // "absent" would let the writer overwrite a user's file it could not read —
+    // silent destruction, which is the defect this module exists to prevent.
+    expect(await readMonolithicOwnership(CLAUDE_MD, throwing)).toBe("unreadable");
+  });
+
+  it("classifies a read failure with no error code as unreadable", async () => {
+    const throwing: MinskyCompileFsDeps = {
+      ...fsWith({}),
+      async readFile(): Promise<string> {
+        throw new Error("something else went wrong");
+      },
+    };
+    // Only ENOENT earns "absent". Anything we cannot positively identify as
+    // "no such file" is a file we must not write.
+    expect(await readMonolithicOwnership(CLAUDE_MD, throwing)).toBe("unreadable");
+  });
+});
+
+describe("isForeignMonolith", () => {
+  it("is true for a foreign file and false for ours or an absent one", async () => {
+    const foreign = fsWith({ [CLAUDE_MD]: "# mine\n" });
+    const generated = fsWith({ [CLAUDE_MD]: `${MONOLITHIC_GENERATED_BANNER}\n` });
+    expect(await isForeignMonolith(CLAUDE_MD, foreign)).toBe(true);
+    expect(await isForeignMonolith(CLAUDE_MD, generated)).toBe(false);
+    expect(await isForeignMonolith(CLAUDE_MD, fsWith({}))).toBe(false);
+  });
+
+  it("is true for an unreadable file — do not write what you cannot verify is yours", async () => {
     const throwing: MinskyCompileFsDeps = {
       ...fsWith({}),
       async readFile(): Promise<string> {
         throw Object.assign(new Error("EACCES"), { code: "EACCES" });
       },
     };
-    // Deliberately asserting the FAIL-OPEN direction. The opposite would
-    // silently stop maintaining a CLAUDE.md that is genuinely ours, with no
-    // error anywhere — an inert pipeline is worse than a loud write failure.
-    expect(await readMonolithicOwnership(CLAUDE_MD, throwing)).toBe("absent");
+    expect(await isForeignMonolith(CLAUDE_MD, throwing)).toBe(true);
   });
 });
 
-describe("isForeignMonolith", () => {
-  it("is true only for the foreign case", async () => {
-    const foreign = fsWith({ [CLAUDE_MD]: "# mine\n" });
-    const generated = fsWith({ [CLAUDE_MD]: `${MONOLITHIC_GENERATED_BANNER}\n` });
-    expect(await isForeignMonolith(CLAUDE_MD, foreign)).toBe(true);
-    expect(await isForeignMonolith(CLAUDE_MD, generated)).toBe(false);
-    expect(await isForeignMonolith(CLAUDE_MD, fsWith({}))).toBe(false);
+describe("monolithicOutputName", () => {
+  it("maps each monolithic target to its file", () => {
+    expect(monolithicOutputName("claude.md")).toBe("CLAUDE.md");
+    expect(monolithicOutputName("agents.md")).toBe("AGENTS.md");
+  });
+
+  it("returns undefined for a non-monolithic target rather than guessing", () => {
+    // The ternary this replaced returned "AGENTS.md" for every non-claude.md
+    // input, which would have put a WRONG PATH in an operator-facing message
+    // with nothing to type-check it (PR #3643 R1).
+    expect(monolithicOutputName("claude-rules")).toBeUndefined();
+    expect(monolithicOutputName("cursor-rules-ts")).toBeUndefined();
   });
 });
 
@@ -117,5 +156,38 @@ describe("foreignOutputSkipReason", () => {
     // your agent" today.
     expect(reason).toContain(".minsky/rules/");
     expect(reason).toContain("rules_get");
+  });
+
+  it("does NOT claim a missing banner for a file it could not read", () => {
+    // The two states have different causes. Telling an operator their
+    // permission-denied file "does not carry the banner" asserts something the
+    // run could not check — the exact failure this task is about.
+    const reason = foreignOutputSkipReason(CLAUDE_MD, "unreadable");
+    expect(reason).toContain("could not be read");
+    expect(reason).not.toContain("does not carry");
+    expect(reason).toContain("permissions");
+  });
+});
+
+describe("monolithicSkipIfNotOurs", () => {
+  it("returns nothing for a file that is ours or absent", async () => {
+    const generated = fsWith({ [CLAUDE_MD]: `${MONOLITHIC_GENERATED_BANNER}\n` });
+    expect(await monolithicSkipIfNotOurs(CLAUDE_MD, generated)).toBeUndefined();
+    expect(await monolithicSkipIfNotOurs(CLAUDE_MD, fsWith({}))).toBeUndefined();
+  });
+
+  it("pairs the read with the wording it licenses", async () => {
+    const foreign = fsWith({ [CLAUDE_MD]: "# mine\n" });
+    expect((await monolithicSkipIfNotOurs(CLAUDE_MD, foreign))?.reason).toContain("does not carry");
+
+    const unreadable: MinskyCompileFsDeps = {
+      ...fsWith({}),
+      async readFile(): Promise<string> {
+        throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+      },
+    };
+    expect((await monolithicSkipIfNotOurs(CLAUDE_MD, unreadable))?.reason).toContain(
+      "could not be read"
+    );
   });
 });
