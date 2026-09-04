@@ -276,6 +276,35 @@ export type DriverTransportSpawnResult =
   | { ok: false; reason: string };
 
 /**
+ * A transport-attributed failure of ONE drive (mt#4943 SC1/SC2) — carries
+ * enough for the daemon's `unhandledRejection` classifier
+ * (`src/commands/cockpit/start-command.ts`) to recognize it as scoped to a
+ * single session driver rather than a defect in daemon state, and enough for
+ * the supervisor (`./driven-session-host.ts`'s `markDrivenSessionCrashedByPid`)
+ * to attribute it to the right record by `pid`. Every failure a transport
+ * constructs for a process it manages — a spawn/child error, a child exit,
+ * a session-setup error — is wrapped in this class, with the original
+ * preserved as `cause`.
+ *
+ * This is an ADDED export only: `DriverTransport` and `DriverTransportEvent`
+ * are unchanged by mt#4943.
+ */
+export class DriverTransportFailure extends Error {
+  readonly harnessKind: string;
+  readonly pid: number | undefined;
+
+  constructor(
+    message: string,
+    opts: { harnessKind: string; pid: number | undefined; cause?: unknown }
+  ) {
+    super(message, opts.cause === undefined ? undefined : { cause: opts.cause });
+    this.name = "DriverTransportFailure";
+    this.harnessKind = opts.harnessKind;
+    this.pid = opts.pid;
+  }
+}
+
+/**
  * The contract itself. `spawn`/`spawnResume` return synchronously (matching
  * the supervisor's own non-blocking contract — see `startDrivenSession`'s doc
  * comment) without wiring the event stream; the caller builds its own record

@@ -85,6 +85,7 @@ import {
   classifyAcpPermissionResponse,
   type AcpPermissionOptionInput,
 } from "@minsky/domain/ask/acp-permission-request";
+import { DriverTransportFailure } from "./driver-transport";
 import type {
   DriverTransport,
   DriverTransportEvent,
@@ -184,6 +185,16 @@ function deferSessionId(): DeferredSessionId {
     resolve = res;
     reject = rej;
   });
+  // mt#4943 SC1 — `sendUserTurn` is the only place that ever installs a REAL
+  // handler on this promise, and it only runs on the FIRST turn. A failure
+  // before that (a proc error/exit, or a session-setup error) must never
+  // surface as a process-level `unhandledRejection` just because nothing had
+  // subscribed yet. A promise may carry any number of independent reaction
+  // handlers, so attaching this no-op here does not consume the rejection —
+  // `sendUserTurn`'s own later `.then`/`.catch` chain still observes it
+  // (or, post mt#4943, is skipped entirely once `setupFailure` is recorded —
+  // see `failSetup`).
+  promise.catch(() => {});
   return { promise, resolve, reject };
 }
 
@@ -214,6 +225,16 @@ interface AcpProcState {
    * rather than sending `session/prompt` on a session the agent has already
    * been told to release. */
   closed: boolean;
+  /**
+   * Set once by whichever of {@link AcpTransport.failSetup}'s call sites
+   * fires first (mt#4943 SC1) — the RECORDED transport-constructed failure
+   * for this process. `sendUserTurn` consults this to refuse a turn without
+   * ever touching the (already-rejected) `sessionIdDeferred` promise again,
+   * and `attach`'s `connection.closed` watcher consults it to avoid
+   * reporting a SECOND `processError` for a failure already reported
+   * through `processError`/`processExited`.
+   */
+  setupFailure: DriverTransportFailure | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -406,6 +427,7 @@ export class AcpTransport implements DriverTransport {
       turnIndex: 0,
       attached: false,
       closed: false,
+      setupFailure: null,
     });
 
     return { ok: true, proc, argv: [agentCommand.command, ...agentCommand.args] };
@@ -475,7 +497,7 @@ export class AcpTransport implements DriverTransport {
         ? `Failed to start ACP agent (${state.harnessKind}): not found — is it on PATH? (${err.message})`
         : `Failed to start ACP agent (${state.harnessKind}): ${err.message}`;
       onEvent({ kind: "processError", crashError });
-      state.sessionIdDeferred.reject(err);
+      this.failSetup(state, proc, crashError, err);
     });
 
     proc.on("exit", (code, signal) => {
@@ -483,10 +505,54 @@ export class AcpTransport implements DriverTransport {
         code ?? "null"
       } signal=${signal ?? "null"}`;
       onEvent({ kind: "processExited", code, signal, crashErrorBase });
-      state.sessionIdDeferred.reject(new Error(crashErrorBase));
+      this.failSetup(state, proc, crashErrorBase);
     });
 
-    void this.runInitAndSession(state, onEvent);
+    // mt#4943 SC1 — a connection can close (its underlying stream ending)
+    // without EITHER of the two process-level listeners above ever firing
+    // (see this module's `## Does NOT cover` sibling in the mt#4943 spec for
+    // the one theoretical `ndJsonStream` race this guards against). `closed`
+    // is documented by the SDK as a promise that only ever RESOLVES, never
+    // rejects (see the module docblock's `## Wire protocol` section) — the
+    // `.catch` below is defensive only, in case a future SDK version
+    // disagrees with its own current contract.
+    state.connection.closed
+      .then(() => {
+        if (state.setupFailure || state.closed) return;
+        const crashError = `ACP connection closed unexpectedly (${state.harnessKind})`;
+        onEvent({ kind: "processError", crashError });
+        this.failSetup(state, proc, crashError);
+      })
+      .catch(() => {
+        // Defensive only — see comment above.
+      });
+
+    void this.runInitAndSession(state, proc, onEvent);
+  }
+
+  /**
+   * Record (idempotently) the first transport-constructed failure for this
+   * process and reject {@link AcpProcState.sessionIdDeferred} with it — a
+   * no-op if the deferred already settled (mt#4943 SC1). The deferred's own
+   * `.catch(() => {})`, attached at creation by {@link deferSessionId}, is
+   * what actually keeps this rejection from ever reaching the process as an
+   * `unhandledRejection`; this method's job is only to CONSTRUCT the typed
+   * failure once and make it observable to `sendUserTurn` and the `closed`
+   * watcher above, so a failure recorded from one site (say, `proc.on("exit")`)
+   * is not overwritten by a later, less-specific one (say, `closed`).
+   */
+  private failSetup(
+    state: AcpProcState,
+    proc: ProcessLike,
+    message: string,
+    cause?: unknown
+  ): DriverTransportFailure {
+    const failure =
+      state.setupFailure ??
+      new DriverTransportFailure(message, { harnessKind: state.harnessKind, pid: proc.pid, cause });
+    state.setupFailure = failure;
+    state.sessionIdDeferred.reject(failure);
+    return failure;
   }
 
   /** Populated by {@link buildConnection} (during `spawn`/`spawnResume`,
@@ -620,6 +686,7 @@ export class AcpTransport implements DriverTransport {
 
   private async runInitAndSession(
     state: AcpProcState,
+    proc: ProcessLike,
     onEvent: (event: DriverTransportEvent) => void
   ): Promise<void> {
     try {
@@ -647,8 +714,9 @@ export class AcpTransport implements DriverTransport {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error(`[acp-transport] initialize/session setup failed: ${message}`);
-      onEvent({ kind: "processError", crashError: `ACP session setup failed: ${message}` });
-      state.sessionIdDeferred.reject(err);
+      const crashError = `ACP session setup failed: ${message}`;
+      onEvent({ kind: "processError", crashError });
+      this.failSetup(state, proc, crashError, err);
     }
   }
 
@@ -662,6 +730,18 @@ export class AcpTransport implements DriverTransport {
     // mt#4936 PR #3596 R1 — never send session/prompt on a session already
     // told to close; the agent may have freed its resources.
     if (state.closed) return false;
+    // mt#4943 SC1 — a failure recorded before this turn (proc error/exit, or
+    // a session-setup error) means `sessionIdDeferred` is already rejected;
+    // report it here, through the normal onEvent/log path, rather than
+    // touching that promise again.
+    if (state.setupFailure) {
+      log.error(
+        `[acp-transport] sendUserTurn refused — transport already failed: ${getLoggableErrorSummary(
+          state.setupFailure
+        )}`
+      );
+      return false;
+    }
 
     const prompt: ContentBlock[] = [];
     if (text.length > 0) prompt.push({ type: "text", text });
