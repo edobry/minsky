@@ -11,7 +11,11 @@ const SYNC_CMD = "knowledge.sync";
 const FETCH_CMD = "knowledge.fetch";
 const REGISTERED_MSG = "is registered with correct metadata";
 import { createSharedCommandRegistry } from "../../command-registry";
-import { registerKnowledgeCommands, type KnowledgeCommandsDeps } from "./index";
+import {
+  registerKnowledgeCommands,
+  createRealKnowledgeCommandsDeps,
+  type KnowledgeCommandsDeps,
+} from "./index";
 import type {
   KnowledgeSourceConfig,
   SyncReport,
@@ -412,6 +416,56 @@ describe("Knowledge Commands", () => {
       expect(result?.backend).toBe("embeddings");
       expect(result?.degraded).toBe(false);
       expect(result?.chunks).toHaveLength(1);
+    });
+  });
+
+  // ── the production resolver (mt#4946 criterion 6) ───────────────────────────
+  //
+  // These exercise `createRealKnowledgeCommandsDeps()` itself — the composition
+  // root's actual member — rather than a fake, because criterion 6 is a claim
+  // about what the REAL resolver does when storage cannot be had. Neither case
+  // touches a database.
+  describe("createRealKnowledgeCommandsDeps().resolveSearchBackend", () => {
+    /** A context whose DI container yields the given persistence provider. */
+    function ctxWithProvider(provider: unknown) {
+      return {
+        container: {
+          has: (key: string) => key === "persistence",
+          get: () => provider,
+        },
+      } as unknown as Parameters<KnowledgeCommandsDeps["resolveSearchBackend"]>[0];
+    }
+
+    test("refuses with a reason when no persistence provider is on the context", async () => {
+      const backend = await createRealKnowledgeCommandsDeps().resolveSearchBackend({} as never);
+      expect(backend.ok).toBe(false);
+      if (backend.ok) return;
+      expect(backend.reason).toContain("no persistence provider");
+    });
+
+    test("refuses with a reason when the provider has no vectorStorage capability", async () => {
+      const backend = await createRealKnowledgeCommandsDeps().resolveSearchBackend(
+        ctxWithProvider({ capabilities: { vectorStorage: false } })
+      );
+      expect(backend.ok).toBe(false);
+      if (backend.ok) return;
+      expect(backend.reason).toContain("does not support vector storage");
+    });
+
+    test("refuses rather than returning an empty in-memory store when resolution falls back", async () => {
+      // The capability flag says yes; the provider then has no
+      // getVectorStorageForDomain, which is one of the conditions under which
+      // createVectorStorageForDomain hands back an empty MemoryVectorStorage
+      // with only a log line. Accepting it would report `backend: "embeddings",
+      // degraded: false` over no corpus — a search that looks successful and
+      // finds nothing, which is strictly worse than the honest degrade this
+      // task replaced.
+      const backend = await createRealKnowledgeCommandsDeps().resolveSearchBackend(
+        ctxWithProvider({ capabilities: { vectorStorage: true } })
+      );
+      expect(backend.ok).toBe(false);
+      if (backend.ok) return;
+      expect(backend.reason).toContain("empty in-memory store");
     });
   });
 
