@@ -2171,10 +2171,17 @@ export function createStartCommand(
         // than one missed daemon sweep, so this server's ~100 restarts a day do not become
         // ~100 ledger reads a day. The cockpit daemon keeps its own sweep — this is
         // redundancy across two process lifetimes, not a relocation.
+        //
+        // mt#4938 SC2: this chain can settle before `container.initialize()`'s pass reaches
+        // the "persistence" key — the daemon log carried 8 `Service "persistence" is not
+        // available` failures against 8 successes. `triggerProdStateBootRefreshWhenReady`
+        // waits for `container.has("persistence")` (bounded, polling — never a second
+        // `container.initialize()` call, which could race the in-flight one) before
+        // resolving it, so this call site can no longer hit that race.
         import("../../mcp/prod-state-boot-refresh")
-          .then(({ triggerProdStateBootRefresh }) => {
+          .then(({ triggerProdStateBootRefreshWhenReady }) => {
             if (!container) return;
-            return triggerProdStateBootRefresh(container.get("persistence"));
+            return triggerProdStateBootRefreshWhenReady(container);
           })
           .catch((err) => {
             log.warn("Prod-state boot refresh failed (best-effort)", {

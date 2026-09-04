@@ -5,8 +5,16 @@ import type { ServerNotification } from "@modelcontextprotocol/server";
 import { log } from "@minsky/shared/logger";
 import type { ProjectContext } from "../types/project";
 import { createProjectContextFromCwd } from "../types/project";
-import { getErrorMessage, getErrorMessageWithCause } from "@minsky/domain/errors/index";
+import {
+  getErrorMessage,
+  getErrorMessageWithCause,
+  getLoggableErrorSummary,
+} from "@minsky/domain/errors/index";
 import { StalenessDetector } from "./staleness-detector";
+import {
+  createProdStateTouchRefresherForProvider,
+  type ProdStateTouchRefresher,
+} from "./prod-state-boot-refresh";
 import { createDiagnosticCapture, type DiagnosticCapture } from "./diagnostic-capture";
 import { toClaudeDesktopName, shouldEmitDesktopAliases } from "./tool-name";
 import type { Request, Response } from "express";
@@ -449,6 +457,13 @@ export class MinskyMCPServer {
   private stalenessDetector: StalenessDetector;
   private diag: DiagnosticCapture;
   private container: AppContainerInterface | undefined;
+  /**
+   * mt#4938 SC1: the tool-path prod-state refresh trigger. Lazily built (and cached) by
+   * {@link getProdStateTouchRefresher} once the container exposes a persistence provider — see
+   * that method's doc comment for why this MUST be a single long-lived instance rather than
+   * rebuilt per call.
+   */
+  private prodStateTouchRefresher: ProdStateTouchRefresher | undefined;
   /**
    * Memory service for the mt#1588 spike enrichment middleware. Optional —
    * when absent, enrichment middleware is a no-op (the dispatcher behaves
@@ -1574,6 +1589,14 @@ export class MinskyMCPServer {
             this.triggerStaleSignal(server);
           }
 
+          // mt#4938 SC1: request-driven prod-state cache refresh trigger — the second
+          // writer's tool-path leg, sitting beside the staleness check above. Debounced
+          // (60s) and single-flight internally, so this call is cheap on every tool
+          // dispatch: no file read unless the debounce window has elapsed, and no DB
+          // round trip unless that read finds the cache stale. Never awaited — a broken
+          // or slow refresh must never delay the tool response it rides along on.
+          this.getProdStateTouchRefresher()?.touch();
+
           // mt#1588 spike: memory enrichment middleware. For allowlisted tools,
           // append a second `{type:"text"}` content block carrying top-K
           // memory_search results. No-op for non-allowlisted tools, when the
@@ -2137,6 +2160,40 @@ export class MinskyMCPServer {
     }
 
     return resolvePresenceConversationId(actorId, harnessValue ?? legacyValue);
+  }
+
+  /**
+   * mt#4938 SC1: lazily build (and cache) the tool-path prod-state refresh trigger once the
+   * container exposes a persistence provider.
+   *
+   * Unlike {@link getPresenceClaimRepo} below — rebuilt per call, resilient to a mid-life
+   * container swap — this one MUST memoize: {@link ProdStateTouchRefresher} holds
+   * `lastDecisionAtMs` and an in-flight-refresh guard as closure state, so a fresh instance
+   * per tool call would silently reset the debounce and single-flight guards on every call,
+   * defeating both.
+   *
+   * Guarded with `container.has("persistence")` rather than a bare `.get()` — a boot that
+   * races persistence initialization and throws `Service "persistence" is not available` is
+   * exactly the SC2 defect this task fixes on the boot-time call site
+   * (`start-command.ts`); repeating that race here, on the per-tool-call path, would
+   * reintroduce it under a different name.
+   */
+  private getProdStateTouchRefresher(): ProdStateTouchRefresher | null {
+    if (this.prodStateTouchRefresher) return this.prodStateTouchRefresher;
+    if (!this.container?.has("persistence")) {
+      log.debug("mcp: prod-state tool-path refresher skipped — persistence not yet available");
+      return null;
+    }
+    try {
+      const persistence = this.container.get("persistence");
+      this.prodStateTouchRefresher = createProdStateTouchRefresherForProvider(persistence);
+      return this.prodStateTouchRefresher;
+    } catch (err) {
+      log.debug("mcp: prod-state tool-path refresher unavailable", {
+        error: getLoggableErrorSummary(err),
+      });
+      return null;
+    }
   }
 
   /**
