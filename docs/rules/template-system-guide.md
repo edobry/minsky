@@ -172,10 +172,20 @@ The `minsky init` command automatically uses the template system:
 
 ```bash
 # Generates rules based on project configuration
-minsky init --interface=cli    # CLI-optimized rules
-minsky init --interface=mcp    # MCP-optimized rules
-minsky init --mcp             # Equivalent to --interface=mcp
+minsky init --mcp true     # MCP-optimized rules (interface: hybrid)
+minsky init --mcp false    # CLI-optimized rules (interface: cli)
 ```
+
+`init` has **no interface flag** (mt#4866 SC5). It derives the interface mode from
+`--mcp`: `hybrid` when MCP is enabled, `cli` when it is not
+(`packages/domain/src/init/rule-templates.ts`). This section previously showed two
+examples passing an interface flag to `init`, which has never been a parameter of
+that command — `src/adapters/shared/commands/init.ts` declares `repo`, `session`,
+`backend`, `overwrite`, `workspacePath`, `githubOwner`, `githubRepo`, `ruleFormat`,
+`mcp`, `mcpTransport`, `mcpPort` and `mcpHost`, and nothing else.
+
+`--interface` **is** a real flag on `minsky rules generate`, which is what the rest
+of this guide documents; only the `init` examples were wrong.
 
 ## Troubleshooting
 

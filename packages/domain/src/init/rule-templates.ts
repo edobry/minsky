@@ -3,6 +3,41 @@ import { createRuleTemplateService } from "../rules/rule-template-service";
 import type { RuleFormat } from "../rules";
 
 /**
+ * The rule ids `minsky init` scaffolds into a new project.
+ *
+ * SIX of the seven registered templates, deliberately (mt#4866 SC4). The seventh,
+ * `minsky-session-management` (`DEFAULT_TEMPLATES` in
+ * `../rules/default-templates.ts`), is OMITTED. Until mt#4866 this list simply
+ * disagreed with the registry with no comment and no test, so the omission was
+ * indistinguishable from an oversight — which is what SC4 exists to settle.
+ *
+ * **Why omitted rather than added.** Every scaffolded template is currently
+ * unreachable under Claude Code (mt#4735 — they carry neither `alwaysApply` nor
+ * `globs`, so they land in neither `CLAUDE.md` nor `.claude/rules`), and three of
+ * the six carry confirmed-wrong instructions that mt#1230 owns: a `git approve`
+ * command that does not exist, IN-REVIEW set before the PR is created, and DONE
+ * set by hand — which this repository's own rule forbids in capital letters.
+ * Under Cursor these files ARE read, so scaffolding a seventh un-audited template
+ * writes more wrong prose into real projects. RFC "The rules Minsky ships" Phase 1
+ * retires this whole scaffold set in favour of the package-resident product
+ * corpus, so growing it now only enlarges that migration.
+ *
+ * `minsky-session-management` remains a SELECTABLE id: `rules enable|disable`
+ * validate against `DEFAULT_TEMPLATES`, not against this list (SC1).
+ *
+ * Exported so `rule-templates.test.ts` can pin it — a change to this set should be
+ * a deliberate edit with a failing test, not silent drift from the registry.
+ */
+export const INIT_SCAFFOLDED_RULE_IDS: readonly string[] = [
+  "minsky-workflow",
+  "index",
+  "minsky-workflow-orchestrator",
+  "task-implementation-workflow",
+  "task-status-protocol",
+  "pr-preparation-workflow",
+];
+
+/**
  * Generate rules using the template system
  */
 export async function generateRulesWithTemplateSystem(
@@ -27,15 +62,9 @@ export async function generateRulesWithTemplateSystem(
     outputDir: rulesDirPath,
   };
 
-  // Generate the comprehensive core workflow rules
-  const selectedRules = [
-    "minsky-workflow",
-    "index",
-    "minsky-workflow-orchestrator",
-    "task-implementation-workflow",
-    "task-status-protocol",
-    "pr-preparation-workflow",
-  ];
+  // Six of the seven registered templates, deliberately — see
+  // INIT_SCAFFOLDED_RULE_IDS above for which one is omitted and why (mt#4866 SC4).
+  const selectedRules = [...INIT_SCAFFOLDED_RULE_IDS];
 
   const result = await service.generateRules({
     config,
