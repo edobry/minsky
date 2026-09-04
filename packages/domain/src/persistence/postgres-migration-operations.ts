@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from "fs";
 import { createHash } from "crypto";
 import { log } from "@minsky/shared/logger";
 import { logPostgresNotice } from "./postgres-notice-handler";
+import { maskConnectionString } from "./connection-string";
 // mt#4515: the drain budget for every teardown. These `end()` calls sit in
 // `finally` blocks on the migration path, which runs at boot under auto-migrate
 // and in the deploy-keyed runner — an unbounded one there stalls startup rather
@@ -610,7 +611,7 @@ export async function getPostgresMigrationsStatus(connectionString: string): Pro
   const journal: Journal = JSON.parse(journalRaw);
   validateJournalTimestamps(journal);
 
-  const maskedConn = connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@");
+  const maskedConn = maskConnectionString(connectionString);
 
   const postgres = (await import("postgres")).default;
   const sql = postgres(connectionString, { prepare: false, onnotice: logPostgresNotice, max: 5 });

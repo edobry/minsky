@@ -102,6 +102,19 @@ describe("maskConnectionString", () => {
       'connection refused for "postgresql://***:***@db:5432/x" — retry'
     );
   });
+
+  // mt#4910. The `g` flag is the one property ALL SIX inline copies dropped, and
+  // the case above cannot catch it — a single embedded string is masked by a
+  // non-global regex too. A driver error can name more than one connection
+  // (a failover retry, a pool reporting several members), and the second one
+  // survived every hand-rolled copy.
+  test("masks EVERY occurrence, not just the first", () => {
+    const msg =
+      'failed for "postgresql://a:secret1@h1/db1"; retrying "postgresql://b:secret2@h2/db2"';
+    expect(maskConnectionString(msg)).toBe(
+      'failed for "postgresql://***:***@h1/db1"; retrying "postgresql://***:***@h2/db2"'
+    );
+  });
 });
 
 describe("buildDockerPostgresOneLiner / dockerLocalConnectionString", () => {
