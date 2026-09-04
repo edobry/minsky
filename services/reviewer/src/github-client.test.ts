@@ -1555,8 +1555,11 @@ describe("fetchPullRequestContext — too-large diff (mt#4434)", () => {
       throw tooLargeError();
     }, []);
 
+    // The message must START with "too large" so `sanitizeReason` allowlists it
+    // rather than collapsing it into "an internal error occurred. Use `/review`
+    // to retry." — retry advice that cannot work for a deterministic size cap.
     await expect(fetchPullRequestContext(octokit, "edobry", "minsky", 3412)).rejects.toThrow(
-      /too large to review through either path/
+      /^too large to review — split the PR or review it locally/
     );
   });
 });

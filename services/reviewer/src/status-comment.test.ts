@@ -11,6 +11,14 @@ import type { ReviewResult } from "./review-worker";
 
 const MARKER = "<!-- minsky-reviewer-status -->";
 
+/**
+ * The text `sanitizeReason` falls back to for any reason its allowlist does not
+ * recognise. Named once because several tests assert both its presence (the
+ * fallback fired) and its absence (a recognised reason passed through), and the
+ * two readings must refer to the same string to mean anything.
+ */
+const GENERIC_FALLBACK = "an internal error occurred";
+
 describe("status-comment body builders", () => {
   test("buildPendingBody includes marker and pending message", () => {
     const body = buildPendingBody();
@@ -96,8 +104,37 @@ describe("status-comment body builders", () => {
   test("buildErrorBody sanitizes unsafe error messages", () => {
     const body = buildErrorBody("ECONNREFUSED 127.0.0.1:5432 password=secret");
     expect(body).toContain(MARKER);
-    expect(body).toContain("an internal error occurred");
+    expect(body).toContain(GENERIC_FALLBACK);
     expect(body).not.toContain("ECONNREFUSED");
+    expect(body).not.toContain("secret");
+  });
+
+  test("a size refusal names its real reason instead of collapsing (mt#4434)", () => {
+    // Before mt#4434 this reason hit the generic fallback, so an operator saw
+    // "an internal error occurred. Use `/review` to retry." — advice that
+    // cannot work, because the cap is deterministic in the PR's size. Four
+    // delivery paths retried PR #3253 and all four failed identically.
+    // Reason text matches what github-client.ts throws, actionable part FIRST:
+    // sanitizeReason truncates to 200 chars head-first, so advice placed after
+    // the diagnostic detail is cut out of the rendered comment. This test
+    // caught exactly that on the first draft.
+    const body = buildErrorBody(
+      "too large to review — split the PR or review it locally; retrying will not help. " +
+        "GitHub refused the whole-PR diff for edobry/minsky#3253 and no per-file patches are " +
+        "available (0 file entries)."
+    );
+    expect(body).toContain("too large to review");
+    // The actionable sentence must SURVIVE truncation, not merely be present in
+    // the input string.
+    expect(body).toContain("split the PR or review it locally");
+    expect(body).not.toContain(GENERIC_FALLBACK);
+  });
+
+  test("the size allowlist does NOT swallow an unrelated reason — control", () => {
+    // Without this, the assertion above would pass for an allowlist that had
+    // been widened to accept everything.
+    const body = buildErrorBody("ECONNREFUSED 127.0.0.1:5432 password=secret");
+    expect(body).toContain(GENERIC_FALLBACK);
     expect(body).not.toContain("secret");
   });
 
@@ -109,7 +146,7 @@ describe("status-comment body builders", () => {
 
   test("buildSkippedBody sanitizes unsafe reasons", () => {
     const body = buildSkippedBody("unexpected stack trace at Object.foo");
-    expect(body).toContain("an internal error occurred");
+    expect(body).toContain(GENERIC_FALLBACK);
     expect(body).not.toContain("stack trace");
   });
 

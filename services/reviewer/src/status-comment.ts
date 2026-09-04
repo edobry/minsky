@@ -209,6 +209,11 @@ const SAFE_REASON_PATTERNS = [
   /^Posted/,
   /^skipped/i,
   /^concurrent/i,
+  // mt#4434: a size refusal is deterministic in the PR's dimensions, so the
+  // generic fallback's "Use `/review` to retry" is advice that cannot work —
+  // four delivery paths retried PR #3253 and all four failed identically. The
+  // real reason names what to do instead (split the PR, or review locally).
+  /^too large/i,
 ];
 
 function sanitizeReason(reason: string): string {

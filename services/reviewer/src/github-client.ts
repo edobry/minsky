@@ -287,10 +287,19 @@ export async function fetchPullRequestContext(
       // bound. Failing loudly is the honest outcome — an empty diff would reach
       // the model as a PR with no changes, which reads as "nothing to review"
       // rather than "I was shown nothing".
+      // Message starts with "too large" deliberately: `sanitizeReason`
+      // (status-comment.ts) allowlists reason PREFIXES and collapses anything
+      // unrecognised into "an internal error occurred. Use `/review` to retry."
+      // That collapse is the diagnostic opacity mt#4434 exists to remove, so
+      // the reason has to be one the allowlist recognises.
+      // The ACTIONABLE part leads. `sanitizeReason` truncates to 200 chars
+      // head-first, so advice placed after the diagnostic detail is cut off in
+      // the rendered comment — which is how the operator loses exactly the
+      // sentence this criterion exists to give them.
       throw new Error(
-        `Cannot assemble a diff for ${owner}/${repo}#${prNumber}: GitHub refused the whole-PR ` +
-          `diff as too large, and no per-file patches are available ` +
-          `(${fileEntries.length} file entries). This PR is too large to review through either path.`
+        `too large to review — split the PR or review it locally; retrying will not help. ` +
+          `GitHub refused the whole-PR diff for ${owner}/${repo}#${prNumber} and no per-file ` +
+          `patches are available (${fileEntries.length} file entries).`
       );
     }
 
