@@ -30,6 +30,31 @@ export interface SkillDefinition {
  * A rule definition — declarative constraint (always-on or file-triggered).
  * Compiles to: .cursor/rules/<name>.mdc, AGENTS.md sections, CLAUDE.md
  */
+/**
+ * Which plane a rule belongs to (mt#4744's corpus audit).
+ *
+ * `product` is true and useful in a project that is not Minsky; `plant` is
+ * about this repository's own code, hooks, tests, deploy or process; `mixed`
+ * is a product core wrapped in repo incidents/paths; `template` ships its
+ * structure while its content is per-project (`principal-context`).
+ */
+export type RulePlane = "product" | "plant" | "mixed" | "template";
+
+/**
+ * Adoption tier (ask#11286, 2026-09-04).
+ *
+ * `base` is on and NOT declinable — declining it breaks Minsky. `opinionated`
+ * is on and declinable. `style` is off and opt-in.
+ *
+ * A tier is not an enforcement level. It says whether a rule ships and whether
+ * the user may decline it, never how strongly it binds once present — so do not
+ * read `base` as "stricter than" `opinionated` (RFC `3ce937f0`).
+ */
+export type RuleTier = "base" | "opinionated" | "style";
+
+/** Lowest adoption rung at which a rule is proposed (mem#340's ladder). */
+export type RuleRung = "T0" | "T1" | "T2" | "T3" | "T4";
+
 export interface RuleDefinition {
   /** Rule display name. */
   name?: string;
@@ -41,6 +66,27 @@ export interface RuleDefinition {
   tags?: string[];
   /** File glob patterns that trigger this rule. */
   globs?: string | string[];
+  /**
+   * Plane classification (mt#4974 SC1). Optional: the 54 rules this repo
+   * authored before the plane split carry none, and absence means unclassified
+   * rather than `plant`.
+   */
+  plane?: RulePlane;
+  /** Adoption tier (mt#4974 SC1). Optional; absence means untiered. */
+  tier?: RuleTier;
+  /** Lowest rung at which this rule is proposed (mt#4974 SC1). */
+  minimumRung?: RuleRung;
+  /**
+   * Declares that reaching this rule ONLY through an explicit `rules_get <name>`
+   * is deliberate (mt#3107).
+   *
+   * A rule carrying neither `alwaysApply: true` nor `globs` lands in neither
+   * `CLAUDE.md` nor `.claude/rules`, and until this marker existed that state was
+   * indistinguishable from a misconfiguration — the classifier bucketed the
+   * intentional operational-reference rules with the broken ones. This makes the
+   * intent declared rather than inferred from two absent keys.
+   */
+  onDemand?: boolean;
   /** The markdown body — the rule content. */
   content: string;
 }

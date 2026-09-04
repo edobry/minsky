@@ -177,6 +177,22 @@ export function extractRuleDefinitionFromMdc(
   if (fm["globs"] !== undefined) candidate["globs"] = fm["globs"];
   if (fm["alwaysApply"] !== undefined) candidate["alwaysApply"] = fm["alwaysApply"];
   if (fm["tags"] !== undefined) candidate["tags"] = normalizeToStringArray(fm["tags"]);
+  // mt#4974 SC1 — plane/tier/rung + the on-demand marker.
+  //
+  // This block is an ALLOW-LIST, not a spread: a frontmatter key absent from it
+  // is dropped at parse, which is why the plane split needed a code change here
+  // rather than only a frontmatter convention. Adding a key to a rule's `.mdc`
+  // is not enough; it has to be named here too.
+  //
+  // These do NOT reach `.cursor/rules/*.mdc` (SC2): `buildRuleMdc`
+  // (`targets/cursor-rules-ts.ts`) builds its frontmatter from its own
+  // five-key allow-list, so the byte-parity contract holds by construction
+  // rather than by a filter anyone has to remember. `rule-sources.test.ts`
+  // asserts that rather than leaving it to inspection.
+  if (fm["plane"] !== undefined) candidate["plane"] = fm["plane"];
+  if (fm["tier"] !== undefined) candidate["tier"] = fm["tier"];
+  if (fm["minimumRung"] !== undefined) candidate["minimumRung"] = fm["minimumRung"];
+  if (fm["onDemand"] !== undefined) candidate["onDemand"] = fm["onDemand"];
 
   const parsed = ruleDefinitionSchema.safeParse(candidate);
   if (!parsed.success) {

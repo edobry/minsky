@@ -30,12 +30,33 @@ export const skillDefinitionSchema = z.object({
   content: z.string().min(1),
 });
 
+/** Plane classification — see `RulePlane` in `./types`. */
+export const rulePlaneSchema = z.enum(["product", "plant", "mixed", "template"]);
+
+/** Adoption tier — see `RuleTier` in `./types`. Values fixed by ask#11286. */
+export const ruleTierSchema = z.enum(["base", "opinionated", "style"]);
+
+/** Adoption rung — see `RuleRung` in `./types`. */
+export const ruleRungSchema = z.enum(["T0", "T1", "T2", "T3", "T4"]);
+
 export const ruleDefinitionSchema = z.object({
   name: z.string().optional(),
   description: z.string().min(1),
   alwaysApply: z.boolean().optional().default(false),
   tags: z.array(z.string()).optional(),
   globs: z.union([z.string(), z.array(z.string())]).optional(),
+  // mt#4974 SC1 — plane/tier/rung metadata and the on-demand marker.
+  //
+  // Deliberately `.optional()` with NO `.default()`, unlike `alwaysApply` above.
+  // A default would materialize the key on EVERY parsed rule, including the 54
+  // that predate the plane split, and `extractRuleDefinitionFromMdc` already
+  // carries a hand-written strip for exactly that problem on `alwaysApply`.
+  // Leaving them undefined-when-absent keeps "unclassified" distinguishable
+  // from a real value and needs no second strip.
+  plane: rulePlaneSchema.optional(),
+  tier: ruleTierSchema.optional(),
+  minimumRung: ruleRungSchema.optional(),
+  onDemand: z.boolean().optional(),
   content: z.string().min(1),
 });
 
