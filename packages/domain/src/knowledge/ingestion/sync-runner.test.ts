@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 import { runSync } from "./sync-runner";
+import { EXCERPT_MAX_CHARS } from "./excerpt";
 import type { KnowledgeSourceProvider, KnowledgeDocument } from "../types";
 import type { EmbeddingService } from "../../ai/embeddings/types";
 import type { VectorStorage, SearchResult, SearchOptions } from "../../storage/vector/types";
@@ -305,6 +306,85 @@ describe("runSync", () => {
       expect(meta0).not.toBeNull();
       expect(typeof meta0?.["totalChunks"]).toBe("number");
       expect(meta0?.["totalChunks"] as number).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  // mt#4953: the indexer wrote no chunk text, so `knowledge search` rendered
+  // `excerpt: ""` on every row regardless of the query.
+  describe("chunk excerpt", () => {
+    it("stores an excerpt drawn from the chunk's own text", async () => {
+      const doc = makeDocument(
+        "doc1",
+        "## Overview\n\nThe reconciler elects a representative chunk."
+      );
+      const provider = makeProvider([doc], "notion", "my-notion");
+
+      await runSync(provider, { embeddingService, vectorStorage });
+
+      const meta = await vectorStorage.getMetadata("my-notion:doc1:0");
+      expect(meta?.["excerpt"]).toBe("## Overview The reconciler elects a representative chunk.");
+    });
+
+    it("caps the excerpt rather than storing the whole chunk", async () => {
+      const doc = makeDocument("doc1", "sentence. ".repeat(500));
+      const provider = makeProvider([doc]);
+
+      await runSync(provider, { embeddingService, vectorStorage });
+
+      const excerpt = (await vectorStorage.getMetadata("test-source:doc1:0"))?.["excerpt"];
+      expect(typeof excerpt).toBe("string");
+      expect((excerpt as string).length).toBeLessThanOrEqual(EXCERPT_MAX_CHARS);
+      expect((excerpt as string).length).toBeLessThan(doc.content.length);
+    });
+
+    it("gives two chunks of the SAME document different excerpts", async () => {
+      // Two ## sections, each under the per-chunk token limit but together over
+      // it, so the chunker splits on headings and each chunk has its own text.
+      const sectionA = `## Alpha section\n\n${"alpha ".repeat(3400)}`;
+      const sectionB = `## Bravo section\n\n${"bravo ".repeat(3400)}`;
+      const provider = makeProvider([makeDocument("split", `${sectionA}\n\n${sectionB}`)]);
+
+      await runSync(provider, { embeddingService, vectorStorage });
+
+      const first = (await vectorStorage.getMetadata("test-source:split:0"))?.["excerpt"] as string;
+      const second = (await vectorStorage.getMetadata("test-source:split:1"))?.[
+        "excerpt"
+      ] as string;
+
+      expect(first).toBeTruthy();
+      expect(second).toBeTruthy();
+      expect(first).not.toBe(second);
+      expect(first.startsWith("## Alpha section")).toBe(true);
+      expect(second.startsWith("## Bravo section")).toBe(true);
+    });
+
+    it("re-indexes a row stored before excerpts existed, then skips it again", async () => {
+      const doc = makeDocument("doc1", "Stable content");
+      const provider = makeProvider([doc]);
+
+      await runSync(provider, { embeddingService, vectorStorage });
+
+      // Simulate a pre-mt#4953 row: same content hash, no excerpt key.
+      const id = "test-source:doc1:0";
+      const entry = vectorStorage.getEntry(id);
+      expect(entry).toBeDefined();
+      const { excerpt: _dropped, ...withoutExcerpt } = entry?.metadata ?? {};
+      await vectorStorage.store(id, entry?.vector ?? [], withoutExcerpt);
+
+      const callsBefore = embeddingService.calls.length;
+      const backfill = await runSync(provider, { embeddingService, vectorStorage });
+
+      // The hash still matches, so only the missing excerpt can have forced this.
+      expect(backfill.skipped).toBe(0);
+      expect(embeddingService.calls.length).toBeGreaterThan(callsBefore);
+      expect(await vectorStorage.getMetadata(id)).toHaveProperty("excerpt");
+
+      // Backfill is paid once: the next ordinary sync skips normally again.
+      const callsAfterBackfill = embeddingService.calls.length;
+      const steady = await runSync(provider, { embeddingService, vectorStorage });
+
+      expect(steady.skipped).toBe(1);
+      expect(embeddingService.calls.length).toBe(callsAfterBackfill);
     });
   });
 });

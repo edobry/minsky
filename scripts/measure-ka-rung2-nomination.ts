@@ -32,8 +32,18 @@ import {
   type NominationDeps,
 } from "../packages/domain/src/detectors/embedding-nomination";
 import { extractFrontmatterDescription } from "../.minsky/hooks/knowledge-acquisition-detector";
+import { calibrationLogPath } from "../.minsky/hooks/dispatcher";
+import { resolve } from "node:path";
 
-const CALIBRATION_LOG = ".minsky/knowledge-acquisition-calibration.jsonl";
+/**
+ * mt#4971: resolved through the WRITER's own function rather than the pre-mt#4748
+ * repo path, which no longer exists — reading it produced a SKIP that looked like
+ * "no records" rather than "wrong location". `fallbackCwd` (not `projectDir`) keeps
+ * the resolver's `CLAUDE_PROJECT_DIR` tier ahead of this checkout.
+ */
+const CALIBRATION_LOG = calibrationLogPath("knowledge-acquisition", {
+  fallbackCwd: resolve(import.meta.dir, ".."),
+});
 const SKILL_ROOT = ".claude/skills";
 
 interface Record_ {
