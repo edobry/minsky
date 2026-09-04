@@ -265,6 +265,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_TWO_STRIKES_STATE_DIR: "tunable", // .claude/hooks/two-strikes-record.ts
   MINSKY_TWO_STRIKES_MODE: "tunable", // .claude/hooks/two-strikes-record.ts
   MINSKY_SKIP_BUNDLE_SMOKE: "operator-override", // .claude/hooks/require-review-before-merge.ts (mt#1787)
+  MINSKY_SKIP_TYPECHECK_INFRA: "operator-override", // .claude/hooks/require-review-before-merge.ts (mt#4950)
   MINSKY_SKIP_REQUIRED_CHECKS: "operator-override", // .claude/hooks/require-review-before-merge.ts (mt#1938)
   MINSKY_SKIP_SMOKE_CHECK: "operator-override", // .claude/hooks/require-review-before-merge.ts (mt#2060)
   MINSKY_SKIP_DEPLOY_VERIFY: "operator-override", // .claude/hooks/require-deploy-verification-before-merge.ts (mt#2353)
