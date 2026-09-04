@@ -23,20 +23,14 @@ const KNOWLEDGE_SEARCH_COMMAND = "knowledge.search";
 const KNOWLEDGE_SEARCH_NOT_REGISTERED = "knowledge.search command not registered";
 
 /**
- * The Node-runner spelling of `dev`, composed rather than written literally.
+ * A dev command that is NOT Bun's, for the documentation-conflict fixtures.
  *
- * These fixtures exist to describe a documentation conflict between Bun's
- * `bun dev` and the Node runner's form of the same command — that disagreement
- * IS the thing under test, and the last assertion in this file checks for it by
- * name. Writing the literal out trips the pre-commit node-shim guard
- * (`runNodeShimCheck`, `src/hooks/pre-commit.ts`), which scans staged text for
- * that token and has neither a string-literal exemption nor an override env var.
- * Composing it keeps every fixture's RUNTIME text byte-identical while leaving
- * no literal for the scanner to match. Do not "simplify" this back to a plain
- * string — the tests would still pass and the file would stop being committable.
- * Guard tuning is tracked separately.
+ * These fixtures need two contradictory dev commands so `detectConflicts` has a
+ * real disagreement to classify; WHICH non-Bun runner is arbitrary, and naming
+ * it here keeps the pair consistent across the six fixtures and the assertion
+ * that reads the rationale back.
  */
-const NODE_RUN_DEV = `${"npm"} run dev`;
+const ALTERNATE_RUNNER_DEV = "yarn dev";
 
 // ─── Fake classifier helper ───────────────────────────────────────────────────
 
@@ -79,12 +73,12 @@ describe("detectConflicts", () => {
   test("returns conflict when NLI verdict is contradicts", async () => {
     const classifier = makeFixedClassifier({
       verdict: "contradicts",
-      rationale: "chunk A says bun, chunk B says npm",
+      rationale: "chunk A says bun, chunk B says yarn",
     });
 
     const chunks: ClassifiableChunk[] = [
       { id: "chunk-1", text: "Use bun to run the dev server" },
-      { id: "chunk-2", text: `Use ${NODE_RUN_DEV} to start the server` },
+      { id: "chunk-2", text: `Use ${ALTERNATE_RUNNER_DEV} to start the server` },
     ];
 
     const conflicts = await detectConflicts(chunks, classifier);
@@ -92,7 +86,7 @@ describe("detectConflicts", () => {
     expect(conflicts).toHaveLength(1);
     expect(conflicts[0]?.chunkAId).toBe("chunk-1");
     expect(conflicts[0]?.chunkBId).toBe("chunk-2");
-    expect(conflicts[0]?.disagreement).toBe("chunk A says bun, chunk B says npm");
+    expect(conflicts[0]?.disagreement).toBe("chunk A says bun, chunk B says yarn");
   });
 
   test("returns no conflict when NLI verdict is entails", async () => {
@@ -129,7 +123,7 @@ describe("detectConflicts", () => {
 
     const chunks: ClassifiableChunk[] = [
       { id: "A", text: "bun dev" },
-      { id: "B", text: NODE_RUN_DEV },
+      { id: "B", text: ALTERNATE_RUNNER_DEV },
       { id: "C", text: "unrelated topic" },
     ];
 
@@ -190,7 +184,7 @@ describe("AnthropicNliClassifier", () => {
   test("returns contradicts verdict from generateObject structured output", async () => {
     const fakeResult = {
       verdict: "contradicts" as const,
-      rationale: "One says bun, the other says npm",
+      rationale: "One says bun, the other says yarn",
     };
 
     const mockGenerateObject = mock(async () => ({ object: fakeResult }));
@@ -205,11 +199,11 @@ describe("AnthropicNliClassifier", () => {
 
     const result = await classifier.classify(
       "Run bun dev to start the dev server",
-      `Run ${NODE_RUN_DEV} to start the dev server`
+      `Run ${ALTERNATE_RUNNER_DEV} to start the dev server`
     );
 
     expect(result.verdict).toBe("contradicts");
-    expect(result.rationale).toBe("One says bun, the other says npm");
+    expect(result.rationale).toBe("One says bun, the other says yarn");
     expect(mockGenerateObject).toHaveBeenCalledTimes(1);
   });
 
@@ -313,8 +307,8 @@ describe("knowledge.search integration: conflict detection", () => {
         score: 0.9,
         metadata: {
           title: "NPM Dev Guide",
-          excerpt: `Run ${NODE_RUN_DEV} to start the development server`,
-          url: "https://notion.so/npm-guide",
+          excerpt: `Run ${ALTERNATE_RUNNER_DEV} to start the development server`,
+          url: "https://notion.so/yarn-guide",
           sourceName: "source-b",
           lastModified: new Date().toISOString(),
         },
@@ -328,7 +322,7 @@ describe("knowledge.search integration: conflict detection", () => {
     const conflictingClassifier: NliClassifier = {
       classify: async () => ({
         verdict: "contradicts",
-        rationale: `bun dev vs ${NODE_RUN_DEV} — incompatible commands`,
+        rationale: `bun dev vs ${ALTERNATE_RUNNER_DEV} — incompatible commands`,
       }),
     };
 
@@ -355,7 +349,7 @@ describe("knowledge.search integration: conflict detection", () => {
     expect(response.conflicts).toHaveLength(1);
     expect(response.conflicts[0]?.chunkA).toBe(CHUNK_A);
     expect(response.conflicts[0]?.chunkB).toBe(CHUNK_B);
-    expect(response.conflicts[0]?.disagreement).toContain(`bun dev vs ${NODE_RUN_DEV}`);
+    expect(response.conflicts[0]?.disagreement).toContain(`bun dev vs ${ALTERNATE_RUNNER_DEV}`);
 
     // Verify the warning field is present
     expect(response._conflictWarning).toBeDefined();
