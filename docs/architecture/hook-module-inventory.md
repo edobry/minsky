@@ -64,7 +64,7 @@ larger than a subtraction from 60 suggests.
 | immovable      | 83      |
 | **total**      | **184** |
 
-Of the 89 movable, **18** land in ADR-026 tier 1 (they reach persistence, so the
+Of the 88 movable, **18** land in ADR-026 tier 1 (they reach persistence, so the
 `ensureHookDomainBootstrap` requirement attaches); the other 71 are tier 2 —
 leaf functions with an explicit required `deps` parameter, no container, no import-time side effect.
 mt#4374 SC7 asks for a first wave that avoids tier 1; that is the tier-2 column below.
