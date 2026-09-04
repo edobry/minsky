@@ -27,7 +27,7 @@
  * defaulting to this checkout's `.minsky/operator-deferral-calibration.jsonl`.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   CAPABILITY_DEFERRAL_PATTERNS,
@@ -38,10 +38,17 @@ import {
 } from "../.minsky/hooks/operator-deferral-detector";
 import { findKillVerb } from "../.minsky/hooks/block-bulk-process-kill";
 import type { TranscriptLine } from "../.minsky/hooks/transcript";
+import { calibrationLogPath } from "../.minsky/hooks/dispatcher";
 
+/**
+ * mt#4971: resolved through the WRITER's own function rather than the pre-mt#4748
+ * repo path, which no longer exists — reading it produced a SKIP that looked like
+ * "no records" rather than "wrong location". `fallbackCwd` (not `projectDir`) keeps
+ * the resolver's `CLAUDE_PROJECT_DIR` tier ahead of this checkout.
+ */
 const LOG =
   process.argv[2] ??
-  resolve(import.meta.dir, "..", ".minsky", "operator-deferral-calibration.jsonl");
+  calibrationLogPath("operator-deferral", { fallbackCwd: resolve(import.meta.dir, "..") });
 
 interface LoggedMatch {
   category?: string;
@@ -102,6 +109,17 @@ function phrasePresent(match: LoggedMatch, context: string): boolean {
 }
 
 function main(): void {
+  // mt#4971: SKIP rather than throwing ENOENT. The default now resolves a
+  // project-KEYED state-dir path, so a run from a checkout that has produced no
+  // fires (a session workspace, or a fresh clone) legitimately finds no file —
+  // and an unhandled stack trace reads as a broken script rather than an empty
+  // corpus. Every sibling replay harness already skips this way.
+  if (!existsSync(LOG)) {
+    console.log(`SKIP: calibration log not found at ${LOG}`);
+    console.log("(Pass a path as the first argument to read another checkout's log.)");
+    process.exit(0);
+  }
+
   const lines = readFileSync(LOG, "utf8").split("\n").filter(Boolean);
 
   let total = 0;

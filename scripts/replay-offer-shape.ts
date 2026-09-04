@@ -40,7 +40,8 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { calibrationLogPath } from "../.minsky/hooks/dispatcher";
 import {
   findOfferShape,
   hasMenuShape,
@@ -59,10 +60,15 @@ interface Record_ {
   timestamp?: string;
 }
 
-const DEFAULT_LOGS = [
-  ".minsky/ask-routing-deferral-calibration.jsonl",
-  ".minsky/operator-deferral-calibration.jsonl",
-];
+/**
+ * mt#4971: resolved through the WRITER's own function rather than the pre-mt#4748
+ * repo paths, which no longer exist — reading them produced a SKIP that looked like
+ * "no records" rather than "wrong location". `fallbackCwd` (not `projectDir`) keeps
+ * the resolver's `CLAUDE_PROJECT_DIR` tier ahead of this checkout.
+ */
+const DEFAULT_LOGS = ["ask-routing-deferral", "operator-deferral"].map((name) =>
+  calibrationLogPath(name, { fallbackCwd: resolve(import.meta.dir, "..") })
+);
 
 const argv = process.argv.slice(2);
 const verbose = argv.includes("--verbose");

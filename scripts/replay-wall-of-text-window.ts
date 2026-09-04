@@ -42,7 +42,8 @@
 
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { calibrationLogPath } from "../.minsky/hooks/dispatcher";
 import {
   findRealPromptIndices,
   resolveCompletedTurn,
@@ -63,7 +64,15 @@ import {
   SUPPRESSION_QUESTION_ANSWER,
 } from "../.minsky/hooks/wall-of-text-detector";
 
-const CALIBRATION_LOG = ".minsky/wall-of-text-calibration.jsonl";
+const REPO_ROOT = resolve(import.meta.dir, "..");
+
+/**
+ * mt#4971: resolved through the WRITER's own function rather than the pre-mt#4748
+ * repo path, which no longer exists — reading it produced a SKIP that looked like
+ * "no records" rather than "wrong location". `fallbackCwd` (not `projectDir`) keeps
+ * the resolver's `CLAUDE_PROJECT_DIR` tier ahead of this checkout.
+ */
+const CALIBRATION_LOG = calibrationLogPath("wall-of-text", { fallbackCwd: REPO_ROOT });
 
 /**
  * Where Claude Code writes a project's transcripts: `~/.claude/projects/<slug>`,
@@ -247,8 +256,9 @@ function sessionIdsFromCalibrationLog(logPath: string): string[] {
   if (!existsSync(logPath)) {
     process.stderr.write(
       `FAIL: calibration log not found: ${logPath}\n` +
-        `      It is a gitignored runtime file, so a session workspace does not carry one.\n` +
-        `      Pass --calibration-log <path-to-main-checkout>/${CALIBRATION_LOG}\n`
+        `      Since mt#4748 it lives under the runtime state dir, keyed by checkout, so a\n` +
+        `      session workspace resolves its OWN key and finds nothing.\n` +
+        `      Pass --calibration-log <main-checkout's state-dir path> to read another checkout's.\n`
     );
     process.exit(2);
   }
@@ -276,11 +286,15 @@ function main(): void {
   const jsonArg = args.indexOf("--json");
   const jsonPath = jsonArg >= 0 ? args[jsonArg + 1] : undefined;
   const logArg = args.indexOf("--calibration-log");
-  const logPath =
-    logArg >= 0 ? resolve(args[logArg + 1] ?? "") : resolve(process.cwd(), CALIBRATION_LOG);
+  const logPath = logArg >= 0 ? resolve(args[logArg + 1] ?? "") : CALIBRATION_LOG;
 
-  // <root>/.minsky/wall-of-text-calibration.jsonl -> <root>
-  const repoRoot = dirname(dirname(logPath));
+  // mt#4971: the repo root used to be DERIVED from the log path
+  // (`<root>/.minsky/wall-of-text-calibration.jsonl` -> `<root>`). That derivation
+  // died with mt#4748 — the log now lives at `<state dir>/projects/<key>/`, whose
+  // grandparent is the state dir, not a checkout. Deriving it from this file's own
+  // location is what the path used to encode; `--transcript-dir` stays the override
+  // for reading another checkout's transcripts.
+  const repoRoot = REPO_ROOT;
   const dirArg = args.indexOf("--transcript-dir");
   const dir = dirArg >= 0 ? resolve(args[dirArg + 1] ?? "") : transcriptDirFor(repoRoot);
   if (!existsSync(dir)) {

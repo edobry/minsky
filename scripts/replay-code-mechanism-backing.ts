@@ -58,6 +58,7 @@ import {
   elideBlocksAndQuotes,
 } from "../.minsky/hooks/code-mechanism-assertion-detector";
 import { hashJudgedText, hasJudgedInputCapture } from "../.minsky/hooks/judged-input-capture";
+import { calibrationLogPath } from "../.minsky/hooks/dispatcher";
 import {
   parseTranscript,
   findRealPromptIndices,
@@ -66,7 +67,19 @@ import {
 } from "../.minsky/hooks/transcript";
 
 const REPO_ROOT = join(import.meta.dir, "..");
-const DEFAULT_LOG = ".minsky/code-mechanism-assertion-calibration.jsonl";
+
+/**
+ * mt#4971: resolved through the WRITER's own function rather than the pre-mt#4748
+ * repo path, which no longer exists — reading it produced a SKIP that looked like
+ * "no records" rather than "wrong location". `fallbackCwd` (not `projectDir`) keeps
+ * the resolver's `CLAUDE_PROJECT_DIR` tier ahead of this checkout.
+ *
+ * `LOG_PATH` below still `resolve(REPO_ROOT, ...)`s this, which is a no-op for the
+ * absolute default and remains correct for a relative `--log`.
+ */
+const DEFAULT_LOG = calibrationLogPath("code-mechanism-assertion", {
+  fallbackCwd: REPO_ROOT,
+});
 
 function flag(argv: readonly string[], name: string): string | undefined {
   const at = argv.indexOf(name);
