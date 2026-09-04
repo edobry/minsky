@@ -271,13 +271,20 @@ export interface ProdStateTouchRefresher {
  *    to say "at boot", and SC3 requires this path's lines say "(tool-path)" instead — see the
  *    vocabulary comment below.)
  *
+ * A THROWN `readCache()` (permissions, a torn file, an ENOENT race with the cockpit's atomic
+ * rename) is routed through step 3 as `unreadable` — the same response a cache that parses but
+ * carries no usable `checkedAt` already gets — rather than being swallowed outright (PR #3615
+ * R1 BLOCKING). The debounce clock in step 2 is advanced only once a decision — real or this
+ * synthesized one — actually exists; advancing it before the read was attempted let a single
+ * throw suppress every touch for a full debounce window with nothing having been decided.
+ *
  * Logging (mt#4938 SC3): `info` on a refresh that wrote, `warn` on one that did not (mirroring
- * the boot path's own success/failure split), `debug` on a debounced-or-fresh skip. An
- * exception from the synchronous decide step or an unexpected rejection from the tick itself
- * (neither of which `runProdStateRefreshTick` is designed to produce — it catches internally —
- * but this is a hot per-tool-call path, so a defensive net stays in) is `warn`-logged via
- * {@link getLoggableErrorSummary} and swallowed; a broken cache read must never break the tool
- * call it rides along on.
+ * the boot path's own success/failure split) or on a thrown read (logged, then treated as
+ * `unreadable` per the paragraph above), `debug` on a debounced-or-fresh skip. An unexpected
+ * rejection from the tick itself (which `runProdStateRefreshTick` is not designed to produce —
+ * it catches internally — but this is a hot per-tool-call path, so a defensive net stays in) is
+ * also `warn`-logged via {@link getLoggableErrorSummary} and swallowed; nothing on this path may
+ * throw into the tool call it rides along on.
  */
 export function createProdStateTouchRefresher(
   deps: ProdStateBootRefreshDeps
@@ -295,17 +302,25 @@ export function createProdStateTouchRefresher(
       if (lastDecisionAtMs !== null && nowMs - lastDecisionAtMs < PROD_STATE_TOUCH_DEBOUNCE_MS) {
         return;
       }
-      lastDecisionAtMs = nowMs;
 
+      // PR #3615 R1 BLOCKING: `lastDecisionAtMs` used to be advanced HERE, before the read
+      // was even attempted — so a thrown `readCache()` (permissions, a torn file, an ENOENT
+      // race with the cockpit's atomic rename) suppressed every touch for a full debounce
+      // window without a decision ever having been made, a silent blind spot where a stale
+      // cache could not be refreshed. Fixed by routing a thrown read through the SAME
+      // decision path `decideProdStateBootRefresh` already uses for a cache it can parse but
+      // finds malformed ("unreadable" -> refresh warranted) and only advancing the debounce
+      // clock once a decision — real or synthesized — actually exists.
       let decision: ProdStateBootRefreshDecision;
       try {
         decision = decideProdStateBootRefresh(deps.readCache(), nowMs, deps.stalenessMs);
       } catch (err) {
-        warn("mcp: prod-state tool-path refresh failed", {
+        warn("mcp: prod-state tool-path cache read failed; treating as unreadable", {
           error: getLoggableErrorSummary(err),
         });
-        return;
+        decision = { refresh: true, reason: "unreadable", ageMs: null };
       }
+      lastDecisionAtMs = nowMs;
 
       if (!decision.refresh) {
         skip("mcp: prod-state cache is fresh; skipping tool-path refresh", {

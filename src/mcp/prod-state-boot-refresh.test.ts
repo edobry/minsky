@@ -370,6 +370,7 @@ describe("createProdStateTouchRefresher", () => {
       readCache: () => {
         throw new Error("disk on fire");
       },
+      // Never reached in this test — asserting only the synchronous read-failure path.
       resolveRawSql: async () => async () => ({ sql: "stub" }),
       refresh: async () => true,
       logInfo: () => {},
@@ -378,7 +379,73 @@ describe("createProdStateTouchRefresher", () => {
     });
 
     expect(() => refresher.touch(NOW_MS)).not.toThrow();
-    expect(warns.some((w) => w.includes("prod-state tool-path refresh failed"))).toBe(true);
+    expect(warns.some((w) => w.includes("cache read failed"))).toBe(true);
+  });
+
+  test("PR #3615 R1 BLOCKING: a throwing readCache is treated as unreadable (refresh), not a 60s suppression", async () => {
+    // Reviewer finding on review 5110643884: `lastDecisionAtMs` was advanced BEFORE the
+    // decision was produced, so a thrown `readCache()` (permissions, a torn file, an ENOENT
+    // race with the cockpit's atomic rename) suppressed every touch for a full debounce
+    // window without ever having decided anything — a silent blind spot where a stale cache
+    // could not be refreshed. Fix: treat the thrown read the same way
+    // `decideProdStateBootRefresh` already treats a parse failure — "unreadable" -> refresh —
+    // and only advance the debounce clock once a decision (real or synthesized) exists.
+    let readCalls = 0;
+    let cacheContents: string | null = null;
+    let refreshCount = 0;
+    const warns: Array<{ message: string; meta?: Record<string, unknown> }> = [];
+    const infos: string[] = [];
+
+    const refresher = createProdStateTouchRefresher({
+      readCache: () => {
+        readCalls += 1;
+        if (readCalls === 1) {
+          throw new Error("EACCES: permission denied, open '/tmp/prod-state-cache.json'");
+        }
+        return cacheContents;
+      },
+      resolveRawSql: async () => async () => ({ sql: "stub" }),
+      refresh: async (_sql, nowIso) => {
+        refreshCount += 1;
+        cacheContents = JSON.stringify({
+          ledgerRows: 1,
+          latestAppliedAtMs: Date.parse(nowIso) - 60_000,
+          checkedAt: nowIso,
+        });
+        return true;
+      },
+      logInfo: (message) => infos.push(message),
+      logWarn: (message, meta) => warns.push({ message, meta }),
+      logSkip: () => {},
+    });
+
+    // First touch: readCache() throws. Must not throw out of touch(), must be routed
+    // through the decision path as "unreadable" (a refresh is warranted, not a suppressed
+    // debounce window), and the read failure must be logged at warn via
+    // getLoggableErrorSummary (the error text lands in the log META, not the message —
+    // matching every other warn call in this module).
+    expect(() => refresher.touch(NOW_MS)).not.toThrow();
+    await flush();
+    expect(refreshCount).toBe(1);
+    expect(infos.some((m) => m.includes("refreshed prod-state cache (tool-path)"))).toBe(true);
+    expect(
+      warns.some(
+        (w) => w.message.includes("cache read failed") && String(w.meta?.error).includes("EACCES")
+      )
+    ).toBe(true);
+
+    // One second later: the cache the first refresh just wrote is fresh. This must NOT
+    // refresh again — confirming the normal freshness rule governs once a decision exists,
+    // not a blanket 60s block that was never actually earned by a real decision.
+    refresher.touch(NOW_MS + 1_000);
+    await flush();
+    expect(refreshCount).toBe(1);
+
+    // 21 minutes after the write, the cache is genuinely stale again — a normal refresh,
+    // confirming the trigger recovered fully rather than being permanently wedged.
+    refresher.touch(NOW_MS + 21 * 60_000);
+    await flush();
+    expect(refreshCount).toBe(2);
   });
 });
 
