@@ -17,6 +17,11 @@ import {
   run,
   sessionRanASearch,
 } from "./duplicate-check-search-provenance";
+import {
+  extractNamedQueries,
+  queryTokenCoverage,
+  sessionSearchQueries,
+} from "./evidence-provenance-table";
 
 const CLAIMING_SPEC = `## Summary
 
@@ -167,5 +172,114 @@ describe("run", () => {
   test("a spec with no duplicate-check record at all is left to the deny gate", () => {
     const outcome = run(inputWith("## Summary\n\nNothing.\n"), ctxWith([toolCallLine("Bash")]));
     expect(outcome?.calibration?.outcome).toBe("clean");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4975 — the discharge compares the NAMED query, not merely that a search ran
+// ---------------------------------------------------------------------------
+
+/** A tool_use line carrying an `input`, so a query can be asserted on. */
+function searchCallLine(name: string, query: string): TranscriptLine {
+  return {
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "tool_use", name, input: { query } }] },
+  } as unknown as TranscriptLine;
+}
+
+/** A record naming `query` as the search the author claims to have run. */
+function specNaming(query: string): string {
+  return (
+    "## Summary\n\nSomething.\n\n## Context\n\n" +
+    `Duplicate check: searched \`tasks_search\` for "${query}". Candidates: mt#1 (orthogonal).\n`
+  );
+}
+
+/** A claimed query and a strict subset of it, for the coverage-asymmetry checks. */
+const FOUR_TERMS = "alpha beta gamma delta";
+const TWO_TERMS = "alpha beta";
+
+describe("mt#4975 — named-query discharge", () => {
+  test("AT1: a named query with no matching call FLAGS, even though a search ran", () => {
+    // The whole defect: the session searched, so the old presence check cleared
+    // this. The named query has nothing behind it.
+    const outcome = run(
+      inputWith(specNaming("foo bar baz")),
+      ctxWith([searchCallLine(SEARCH_TOOL, "completely unrelated subject matter")])
+    );
+    expect(outcome?.calibration?.outcome).toBe("matched");
+    expect(outcome?.calibration?.reason).toBe(
+      "named query not found among this session's searches"
+    );
+    expect(outcome?.additionalContext).toContain("foo bar baz");
+    expect(outcome?.deny).toBeUndefined();
+  });
+
+  test("AT2: a refined query still DISCHARGES — the direction of error that matters", () => {
+    // The author quoted the query they started from; the call added a term.
+    // Flagging this would fire at someone who did the work.
+    const outcome = run(
+      inputWith(specNaming("foo bar baz")),
+      ctxWith([searchCallLine(SEARCH_TOOL, "foo bar baz qux")])
+    );
+    expect(outcome?.calibration?.outcome).toBe("clean");
+    expect(outcome?.calibration?.reason).toBe("named query matched a call");
+    expect(outcome?.additionalContext).toBeUndefined();
+  });
+
+  test("AT6 (negative control): queries are read through the MCP-PREFIXED name", () => {
+    // The trap this guards: `findToolUseInputs(lines, "tasks_search")` matches
+    // names EXACTLY, while live transcripts carry `mcp__minsky__tasks_search`.
+    // An implementation using it returns zero queries and flags every record —
+    // and every synthetic fixture written with bare names still passes. So this
+    // asserts the prefixed spelling specifically; it is the only test here that
+    // fails on that mistake.
+    expect(sessionSearchQueries([searchCallLine(SEARCH_TOOL, "prefixed name query")])).toEqual([
+      "prefixed name query",
+    ]);
+    expect(sessionSearchQueries([searchCallLine("tasks_search", "bare name query")])).toEqual([
+      "bare name query",
+    ]);
+  });
+
+  test("a quoted span that no search verb introduces is not read as a query", () => {
+    // Records quote task titles and verdict prose. Treating every quoted span as
+    // a claimed query manufactured a false positive on exactly this shape in the
+    // live log (a quoted description of a guarantee trade, 2026-09-04).
+    const spec =
+      `## Summary\n\nSomething.\n\n## Context\n\n` +
+      `Duplicate check: candidates considered. mt#1 is "a Class B guarantee trade owned by ` +
+      `mt#2718, needing a measured before/after and principal sign-off" — orthogonal.\n`;
+    expect(extractNamedQueries(extractDuplicateCheckRecord(spec) ?? "")).toEqual([]);
+  });
+
+  test("a record claiming a search but quoting none falls back to presence, unchanged", () => {
+    // "Searched for calibration coverage." — a legitimate form with nothing to
+    // compare. This is also the branch a `refs_status` cross-reference takes.
+    const spec =
+      `## Summary\n\nSomething.\n\n## Context\n\n` +
+      `Duplicate check: searched for calibration telemetry migration coverage.\n`;
+    expect(extractNamedQueries(extractDuplicateCheckRecord(spec) ?? "")).toEqual([]);
+    const outcome = run(inputWith(spec), ctxWith([toolCallLine("mcp__minsky__refs_status")]));
+    expect(outcome?.calibration?.outcome).toBe("clean");
+    expect(outcome?.calibration?.reason).toBe("search claim matched a call");
+  });
+
+  test("the tool name inside the claim is not mistaken for the query", () => {
+    // `tasks_search` is backticked right before the real query; a 1-2 word span
+    // is never a query.
+    expect(extractNamedQueries(`searched \`tasks_search\` for "${FOUR_TERMS}"`)).toEqual([
+      FOUR_TERMS,
+    ]);
+  });
+
+  test("coverage is asymmetric: extra terms in the ACTUAL query do not penalize", () => {
+    expect(queryTokenCoverage(TWO_TERMS, FOUR_TERMS)).toBe(1);
+    expect(queryTokenCoverage(FOUR_TERMS, TWO_TERMS)).toBeLessThan(1);
+  });
+
+  test("a named query with NO search at all in the session still flags", () => {
+    const outcome = run(inputWith(specNaming("foo bar baz")), ctxWith([toolCallLine("Bash")]));
+    expect(outcome?.calibration?.outcome).toBe("matched");
   });
 });

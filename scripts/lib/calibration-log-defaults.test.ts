@@ -51,6 +51,9 @@ export const LIVE_CORPUS_READERS = [
   "scripts/replay-wall-of-text-window.ts",
   "scripts/diagnose-pre-narration-window.ts",
   "scripts/replay-operator-deferral-calibration.ts",
+  // mt#4975. Reads the `duplicate-check-search-provenance` corpus to measure the
+  // named-query discharge against the records the presence-only one cleared.
+  "scripts/replay-duplicate-check-search-provenance.ts",
 ] as const;
 
 /**

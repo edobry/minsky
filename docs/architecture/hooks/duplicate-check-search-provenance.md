@@ -37,9 +37,42 @@ The `assertion-without-verification` anchor (mt#2544) has repeatedly recorded _"
 deliberately"_, because its members turn on whether a claim about the **world** is true — not
 something a hook can judge.
 
-This claim is about the **session**: the call is in the transcript's tool list or it is not. The
-author is the only witness to a provenance claim, which is what makes it both uncheckable by a
-reader and trivially checkable by a guard.
+This claim is about the **session**: the call is in the transcript or it is not. The author is the
+only witness to a provenance claim, which is what makes it both uncheckable by a reader and
+trivially checkable by a guard.
+
+## The discharge compares the QUERY, not just the tool (mt#4975)
+
+Until mt#4975 the discharge was `sessionRanASearch` — a membership test over the session's tool
+NAMES. **Any search discharged any claimed search**, so a record naming queries that were never
+issued cleared as long as the session had searched for something else. The guard's own header had
+always argued for the stronger form (_"the CORRESPONDING call either appears in the transcript's
+tool list or it does not"_); the implementation checked whether **a** call appeared.
+
+It now branches on whether the record NAMES a query:
+
+| The record…                         | Discharge                                                       | Calibration `reason`          |
+| ----------------------------------- | --------------------------------------------------------------- | ----------------------------- |
+| quotes a query after a search verb  | that query must be covered by an actual `tasks_search` argument | `named query matched a call`  |
+| claims a search without quoting one | any search tool discharges it (unchanged)                       | `search claim matched a call` |
+
+**Coverage is asymmetric and the threshold is measured.** `queryTokenCoverage` asks what fraction of
+the NAMED query's discriminating tokens appear in an actual one, so refining a query by ADDING terms
+still discharges at 1.0 — a missed match fires at someone who did the work, which is the dangerous
+direction. Replaying the live corpus on 2026-09-04, the 25 branch records naming a query scored
+23 at 1.00, one at 0.67, one at 0.33, with nothing in between; `NAMED_QUERY_COVERAGE_THRESHOLD` is
+**0.75**, at the permissive end of that empty band.
+
+Both records the new discharge flags were hand-checked and are true positives: the 19:02:20
+incident mt#4975 was filed for, and a second, independently found fabrication.
+
+**Only `tasks_search` participates.** `refs_status` takes `refs` and `tasks_similar` takes `taskId`
+— neither carries a query, so neither can be compared against one. A record whose claim is a
+cross-reference names no quoted query either, so it lands on the presence branch.
+
+Replay: `bun scripts/replay-duplicate-check-search-provenance.ts`. From a session workspace it needs
+`--log` and `--transcript-dir`, because `calibrationLogPath` resolves the clone's own project key
+(mt#4954 / mt#4976).
 
 ## What it deliberately does not fire on
 
@@ -52,7 +85,12 @@ reader and trivially checkable by a guard.
 - **Prose outside the record.** Only the duplicate-check paragraph is read, so a `## Summary` saying
   "searched the corpus for X" cannot reach the pattern.
 - **`refs_status`.** Counts as a search: cross-referencing candidate ids is a search of the task
-  graph by another route.
+  graph by another route. It carries no query, so it discharges on presence only — see the
+  named-query section above.
+- **Quoted prose that no search verb introduces.** Records quote task titles, verdicts and criteria,
+  and none of those is a claimed query. A quoted span counts only within 250 characters after a
+  search verb; treating every quoted span as a query manufactured a false positive on exactly this
+  shape while mt#4975 was being measured.
 
 An unavailable transcript records `skipped`, never `clean` — a claim that cannot be adjudicated must
 not read as a pass.
@@ -87,6 +125,10 @@ directly. `registry.test.ts` now asserts the coupling for every guard whose sour
 
 ## Cross-references
 
-mt#4004 (this guard) · mt#4003 (the incident) · mem#966 (the general rule: a compliance record can
-assert a check that never ran) · mt#2544 (family anchor) · mt#3673 / mt#3722 (the sibling tiers) ·
-ADR-024 (detection-mechanism ladder) · ADR-028 D6 (transcript resolution).
+mt#4004 (this guard) · mt#4003 (the incident) · **mt#4975 (the named-query discharge)** · mem#966
+(the general rule: a compliance record can assert a check that never ran) · mt#2544 (family anchor)
+· mt#3673 / mt#3722 (the sibling tiers) · mt#4190 (the same presence-to-subject repair on
+`claim-provenance-scan`'s ownership half — the precedent this extends) · mt#4529 (the orthogonal
+axis: whether the search could have REACHED the owner, as distinct from whether it ran) · ADR-024
+(detection-mechanism ladder; its mt#4595 amendment scopes the ladder to the prose trigger, which
+mt#4975 does not touch) · ADR-028 D6 (transcript resolution).

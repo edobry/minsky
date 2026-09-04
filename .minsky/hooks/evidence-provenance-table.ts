@@ -30,7 +30,8 @@
 // @see .minsky/hooks/duplicate-check-search-provenance.ts — the tasks_create guard
 // @see mem#966 — the incident and the general rule
 
-import type { ToolCallWithResult } from "./transcript";
+import type { ToolCallWithResult, TranscriptLine } from "./transcript";
+import { findToolUseInputsMatching } from "./transcript";
 import { nonFlagOperands, suppliesPattern } from "./command-shape";
 
 // ---------------------------------------------------------------------------
@@ -77,6 +78,186 @@ export const SEARCH_TOOL_NAMES: readonly string[] = [
 /** True when any search tool was invoked in the transcript given. */
 export function sessionRanASearch(toolNames: readonly string[]): boolean {
   return toolNames.some((raw) => SEARCH_TOOL_NAMES.includes(normalizeToolName(raw)));
+}
+
+// ---------------------------------------------------------------------------
+// Discharge: the claimed search's QUERY, not merely its occurrence (mt#4975)
+// ---------------------------------------------------------------------------
+
+/**
+ * The subset of {@link SEARCH_TOOL_NAMES} that carries a natural-language
+ * `query` argument.
+ *
+ * Two of {@link SEARCH_TOOL_NAMES}'s three members are deliberately absent,
+ * for the same reason: they take no query, so there is nothing for a query
+ * comparison to read.
+ *
+ *  - `refs_status` takes `refs`, an id array. A record whose claim is a
+ *    cross-reference rather than a query names no quoted query either, so it
+ *    takes the presence branch — exactly today's behavior, preserved on purpose.
+ *  - `tasks_similar` takes `taskId`: it finds tasks similar to a GIVEN TASK,
+ *    and its schema has no `query` parameter at all. Listing it here would be
+ *    dead weight that reads as coverage — PR #3642 R1 caught it. Verified
+ *    against the tool schema and against 19 live calls in the transcript
+ *    corpus: 16 pass `taskId`, none passes a `query` the boundary would accept.
+ *
+ * So this list is `tasks_search` alone today. It stays a list because the
+ * question is per-tool ("does this one carry a query?"), not a special case.
+ *
+ * See {@link namedQueryWasRun}.
+ */
+export const QUERY_BEARING_SEARCH_TOOLS: readonly string[] = ["tasks_search"];
+
+/**
+ * Verbs that introduce a claimed query, and the window after one in which a
+ * quoted span is read AS that query.
+ *
+ * The window is what makes this a query extractor rather than a quote
+ * extractor, and it is load-bearing. Duplicate-check records quote plenty of
+ * things that are not queries — task titles, verdict prose, criteria. Measured
+ * over the live log (2026-09-04), taking EVERY quoted span misread a record
+ * whose only quote was the prose `"a Class B guarantee trade owned by mt#2718 /
+ * mt#3526, needing a measured before/after and principal sign-off"` as a query
+ * that had never been run, i.e. it manufactured the exact false positive this
+ * guard's stated direction of error forbids.
+ */
+const NAMED_QUERY_VERB_RE =
+  /\b(?:searched|queried|grepped|cross-referenced|ran\s+(?:a\s+)?(?:`?tasks[_.]s(?:earch|imilar)`?|search))\b/gi;
+const QUOTED_SPAN_RE = /"([^"]{10,300})"|“([^”]{10,300})”|`([^`]{10,300})`/g;
+const NAMED_QUERY_WINDOW = 250;
+
+/** Words carrying no discriminating power in a task-search query. */
+const QUERY_STOPWORDS = new Set([
+  "the",
+  "a",
+  "an",
+  "and",
+  "or",
+  "for",
+  "to",
+  "of",
+  "in",
+  "on",
+  "is",
+  "it",
+  "that",
+  "this",
+  "with",
+  "as",
+  "at",
+  "by",
+  "from",
+  "not",
+]);
+
+/**
+ * The record's claimed queries: quoted spans of 3+ words that a search verb
+ * introduces within {@link NAMED_QUERY_WINDOW} characters.
+ *
+ * Returns empty when the record claims a search without quoting one — a common
+ * and legitimate form ("Searched for calibration/telemetry migration
+ * coverage."). An empty result means "nothing to compare", never "no search
+ * was claimed"; the caller falls back to presence rather than flagging.
+ *
+ * **Short spans are deliberately ignored** (PR #3642 R1 asked): a span under 10
+ * characters or 3 words is far more often the tool name — `` `tasks_search` ``
+ * sits immediately before the real query in the sanctioned form — than a query.
+ * Dropping one costs a fallback to the presence branch, which is this guard's
+ * pre-mt#4975 behavior; mis-reading one as a query would flag an author whose
+ * real query ran. Both errors resolve in the safe direction, and the cheaper of
+ * the two is chosen deliberately.
+ */
+export function extractNamedQueries(record: string): string[] {
+  const out: string[] = [];
+  NAMED_QUERY_VERB_RE.lastIndex = 0;
+  let verb: RegExpExecArray | null;
+  while ((verb = NAMED_QUERY_VERB_RE.exec(record)) !== null) {
+    const window = record.slice(verb.index, verb.index + NAMED_QUERY_WINDOW);
+    QUOTED_SPAN_RE.lastIndex = 0;
+    let quoted: RegExpExecArray | null;
+    while ((quoted = QUOTED_SPAN_RE.exec(window)) !== null) {
+      const span = (quoted[1] ?? quoted[2] ?? quoted[3] ?? "").replace(/\s+/g, " ").trim();
+      // A 1-2 word span is the tool name itself (`tasks_search`), not a query.
+      if (span.split(/\s+/).length >= 3 && !out.includes(span)) out.push(span);
+    }
+  }
+  return out;
+}
+
+/** Normalize a query to its discriminating tokens (case, punctuation, stopwords). */
+function queryTokens(query: string): Set<string> {
+  return new Set(
+    query
+      .toLowerCase()
+      .replace(/[^a-z0-9\s#_-]/g, " ")
+      .split(/\s+/)
+      .filter((t) => t.length > 2 && !QUERY_STOPWORDS.has(t))
+  );
+}
+
+/**
+ * Fraction of the NAMED query's tokens present in an actual one.
+ *
+ * Deliberately asymmetric — it asks whether the claim is COVERED by a real
+ * call, so an author who refined a query by ADDING terms still discharges at
+ * 1.0. That is the direction that matters: a missed match fires at someone who
+ * did the work.
+ */
+export function queryTokenCoverage(named: string, actual: string): number {
+  const a = queryTokens(named);
+  if (a.size === 0) return 0;
+  const b = queryTokens(actual);
+  let hit = 0;
+  for (const t of a) if (b.has(t)) hit++;
+  return hit / a.size;
+}
+
+/**
+ * Coverage at or above which a named query counts as having been run.
+ *
+ * **Measured, not chosen round** (`decision-defaults.mdc §Thresholds`). Replaying
+ * all 30 `search claim matched a call` records in the live log on 2026-09-04,
+ * 23 named a query and their best-coverage scores were strongly bimodal:
+ *
+ *   21 records at 1.00 — the author quoted the query verbatim
+ *    1 record  at 0.67 — the 19:02:20 incident (queries composed, never run)
+ *    1 record  at 0.33 — a second, independently verified fabrication
+ *
+ * Nothing landed between 0.67 and 1.00, so every threshold in that open band
+ * yields the identical split (2 flagged / 21 cleared) and the value is not
+ * knife-edge. 0.75 is taken at the PERMISSIVE end of the empty band rather than
+ * its midpoint, so that dropping one token from a four-token query still
+ * discharges — again the safe direction.
+ */
+export const NAMED_QUERY_COVERAGE_THRESHOLD = 0.75;
+
+/** Every `query` argument passed to a query-bearing search tool this session. */
+export function sessionSearchQueries(lines: readonly TranscriptLine[]): string[] {
+  const inputs = findToolUseInputsMatching(lines as TranscriptLine[], (raw) =>
+    QUERY_BEARING_SEARCH_TOOLS.includes(normalizeToolName(raw))
+  );
+  return inputs
+    .map((input) => input["query"])
+    .filter((q): q is string => typeof q === "string" && q.trim() !== "");
+}
+
+/**
+ * True when at least one claimed query is covered by at least one actual one.
+ *
+ * A record naming several queries discharges on ANY of them matching: partial
+ * provenance is a record-quality issue, not the fabrication this guard exists
+ * to catch, and flagging it would fire at authors who ran most of what they
+ * wrote.
+ */
+export function namedQueryWasRun(
+  namedQueries: readonly string[],
+  actualQueries: readonly string[]
+): boolean {
+  return namedQueries.some((named) =>
+    actualQueries.some(
+      (actual) => queryTokenCoverage(named, actual) >= NAMED_QUERY_COVERAGE_THRESHOLD
+    )
+  );
 }
 
 // ---------------------------------------------------------------------------
