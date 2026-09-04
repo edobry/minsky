@@ -5,6 +5,7 @@ import { createDirectoryIfNotExists, createFileIfNotExists } from "./init/file-s
 import type { FsLike } from "./interfaces/fs-like";
 import { createRealFs } from "./interfaces/real-fs";
 import { getMinskyConfigContentYaml } from "./init/config-content";
+import { mergeProjectConfigYaml, preservedTopLevelKeys } from "./init/config-merge";
 import { generateRulesWithTemplateSystem } from "./init/rule-templates";
 import { RULE_FORMAT_OUTPUT_DIR } from "./rules/types";
 import { runMinskyCompile } from "./compile/compile";
@@ -337,7 +338,45 @@ export async function initializeProject(
   const configContent = getMinskyConfigContentYaml(backend, repository, {
     repoPath,
   });
-  await createFileIfNotExists(configPath, configContent, overwrite, fileSystem);
+
+  // mt#4866 SC2: `--overwrite` MERGES rather than replaces. `init` returns early
+  // when the config exists and `--overwrite` is absent, so this is the only
+  // re-init path — and it used to delete every top-level key `init` does not
+  // emit. Measured: a `rules:` block AND an unrelated key both vanished.
+  //
+  // The merge lives here, in `init`, rather than in `getMinskyConfigContentYaml`
+  // (SC2 is explicit about this): the generator's job is to say what the vendor
+  // owns, and teaching it about `rules:` would make it own a key it does not
+  // emit. It also must NOT change `createFileIfNotExists`, whose other callers
+  // (`setup.ts`, `mcp/registration.ts`, and every rule-file write in this
+  // function) rely on plain overwrite semantics.
+  let existingConfigYaml: string | null = null;
+  if (overwrite && (await fileSystem.exists(configPath))) {
+    try {
+      existingConfigYaml = await fileSystem.readFile(configPath, "utf8");
+    } catch (error) {
+      // Readable-but-not-readable is not a reason to abort a re-init, but it IS
+      // a reason to say so: merging is what preserves the user's keys, and
+      // falling back to a plain overwrite silently would reintroduce the exact
+      // data loss this block exists to prevent.
+      warn(
+        `minsky init: could not read the existing ${configPath} to merge into, so ` +
+          `--overwrite will replace it and any keys minsky init does not emit will be ` +
+          `lost. Cause: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  const mergedConfigContent = mergeProjectConfigYaml(existingConfigYaml, configContent);
+  const preserved = preservedTopLevelKeys(existingConfigYaml, configContent);
+  if (preserved.length > 0) {
+    log.debug("minsky init: preserved existing top-level config keys across --overwrite", {
+      configPath,
+      preserved,
+    });
+  }
+
+  await createFileIfNotExists(configPath, mergedConfigContent, overwrite, fileSystem);
 
   // === Phase 2: Developer-local setup ===
   // Skipped when MCP is explicitly disabled (e.g. in tests or non-MCP workflows).
