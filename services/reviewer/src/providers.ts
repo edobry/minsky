@@ -2162,10 +2162,36 @@ function describeFetchTarget(input: unknown): string {
  * `chat.completions.create()` call, emitting nothing this service logs. So a
  * 429 storm and one genuinely slow model call are indistinguishable from
  * outside: both present as the 120s wrapper firing, with no error in between.
- * That is the specific ambiguity mt#1897 has been unable to resolve for three
- * months — its latency percentiles show the failures sit at ~2x p99, off the
- * distribution rather than in its tail, which is the shape a hidden retry chain
- * produces.
+ * Disambiguating those two is what this wrapper is for.
+ *
+ * ANSWERED 2026-09-04, and it is NOT the retry chain. On the first timeout
+ * burst since this shipped (6 timeouts / 82 reviews, plus the first
+ * `timeout-unrecovered` row ever written), `openai.sdk_retryable_response`
+ * fired ZERO times across all five deployments that covered those timeouts
+ * (matched on each review's START time, not its end — the service redeployed
+ * 15 times that day, so a review can span a redeploy) — while `toolloop.timeout_retry`,
+ * a `log.warn` from this same file, fired in every one of them, so the channel
+ * was demonstrably live rather than silently blind. No retryable HTTP status
+ * was returned. What the failures look like instead: four consecutive attempts
+ * each burning the full 120s at round 0, on a day whose 1,090 completing rounds
+ * ran p50 12.6s / p99 104.4s / max 117.7s — a request that returns nothing,
+ * not one that returns slowly.
+ *
+ * This docblock previously argued the opposite ("the failures sit at ~2x p99 …
+ * which is the shape a hidden retry chain produces"). That reasoning was
+ * retired by mt#4284 — it pooled a healthy and a degraded regime — and the
+ * conclusion it supported is now falsified by measurement. Do not reinstate it.
+ * Note the percentiles it rested on could not have supported it either way: a
+ * round that hits the cap is recorded at `120000 + retry`, an artifact of the
+ * cap rather than a latency, so any percentile computed over timing-out rounds
+ * is pulled toward the cap by construction.
+ *
+ * The wrapper stays. Ruling the hypothesis out IS its job, and it can only keep
+ * doing that if it is still installed the next time someone asks. Its blind
+ * spot is the standing one below: it observes RESPONSES, so a request that
+ * never yields one — which is what the 2026-09-04 failures were — is invisible
+ * to it, and our `withTimeout` aborts before any response arrives. Full
+ * measurement: mt#1897 §BURST 2026-09-04.
  *
  * Observes only; the response is passed through untouched, so retry semantics
  * are unchanged. Logs the status and the request target — never headers, which
