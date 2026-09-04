@@ -2403,6 +2403,14 @@ export class PreCommitHook {
       // review). For a hooks-source commit Step 3f already regenerated the
       // output, so this check then passes on the fresh output.
       hooks: await dirExists(`${this.projectRoot}/.minsky/hooks`),
+      // mt#4866 SC3 — mirrors probeMinskyCompileTargets so this check verifies
+      // exactly the targets a bare `minsky compile` would regenerate. In this
+      // repository both outputs exist, so nothing changes here.
+      harness: await readRecordedHarnessForCheck(this.projectRoot),
+      existingOutputs: {
+        cursorRules: await dirExists(`${this.projectRoot}/.cursor/rules`),
+        agentsMd: await dirExists(`${this.projectRoot}/AGENTS.md`),
+      },
     });
 
     if (targetsToCheck.length === 0) {
@@ -2583,19 +2591,70 @@ export function classifyDockerfileWorkspaceCopyRegenError(error: unknown): {
  * the legacy `runRulesCompileCheck`. All three are sourced from `.minsky/rules/`,
  * so they gate on `present.rules` alongside `cursor-rules-ts`. Kept in sync with
  * `minskyCompileTargetsFromPresence` (packages/domain/src/compile/compile.ts).
+ *
+ * mt#4866 SC3: that sibling now gates `cursor-rules-ts` and `agents.md` on the
+ * recorded harness, so this mirror gates them the same way. Keeping only one side
+ * would make the pre-commit check demand outputs the compile no longer produces —
+ * a claude-code project would be told its `.cursor/rules/` and `AGENTS.md` are
+ * stale forever, with no invocation able to refresh them.
+ *
+ * This is a NO-OP in Minsky's own repository, which has both `.cursor/rules/` and
+ * `AGENTS.md` on disk and therefore takes the already-exists escape.
  */
+/**
+ * The project's recorded `workspace.harness`, or `undefined`.
+ *
+ * Duplicated from `readRecordedHarness` (packages/domain/src/compile/compile.ts)
+ * for the same reason `compileCheckTargets` duplicates its sibling mapping: the
+ * domain module pulls in `createMinskyCompileService` and every compile target,
+ * which is a large import graph to drag into a hook that runs on every commit.
+ * The read itself is ten lines and has no behaviour to drift — but if the LOCATION
+ * of the harness field ever moves, both copies change.
+ *
+ * Fails open (returns `undefined`), matching the sibling: an unreadable config
+ * must not silently drop targets from the staleness check.
+ */
+export async function readRecordedHarnessForCheck(
+  projectRoot: string
+): Promise<string | undefined> {
+  const fsp = await import("fs/promises");
+  const { parse: parseYaml } = await import("yaml");
+
+  for (const fileName of ["config.local.yaml", "config.yaml"]) {
+    try {
+      const raw = String(await fsp.readFile(`${projectRoot}/.minsky/${fileName}`, "utf-8"));
+      const parsed = parseYaml(raw) as { workspace?: { harness?: unknown } } | null;
+      const harness = parsed?.workspace?.harness;
+      if (typeof harness === "string" && harness.length > 0) return harness;
+    } catch {
+      // intentional-swallow: a missing or unparseable config is the common case,
+      // and `undefined` — "gate nothing" — is the safe direction. The next
+      // candidate file is still tried.
+    }
+  }
+  return undefined;
+}
+
 export function compileCheckTargets(present: {
   skills: boolean;
   rules: boolean;
   agents: boolean;
   hooks: boolean;
+  /** Recorded `workspace.harness`; absent means "gate nothing" (pre-mt#4866). */
+  harness?: string;
+  /** Whether each harness-specific output already exists on disk. */
+  existingOutputs?: { cursorRules: boolean; agentsMd: boolean };
 }): string[] {
+  const claudeCodeOnly = present.harness === "claude-code";
+  const cursorRulesExists = present.existingOutputs?.cursorRules ?? false;
+  const agentsMdExists = present.existingOutputs?.agentsMd ?? false;
+
   const targets: string[] = [];
   if (present.skills) targets.push("claude-skills");
   if (present.rules) {
-    targets.push("cursor-rules-ts");
+    if (!claudeCodeOnly || cursorRulesExists) targets.push("cursor-rules-ts");
     targets.push("claude.md");
-    targets.push("agents.md");
+    if (!claudeCodeOnly || agentsMdExists) targets.push("agents.md");
     targets.push("claude-rules");
   }
   if (present.agents) targets.push("claude-agents");

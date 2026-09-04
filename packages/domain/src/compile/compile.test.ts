@@ -133,6 +133,96 @@ describe("minskyCompileTargetsFromPresence (mt#2803)", () => {
       minskyCompileTargetsFromPresence({ skills: true, rules: false, agents: true, hooks: false })
     ).toEqual(["claude-skills", "claude-agents"]);
   });
+
+  // ─── mt#4866 SC3: the harness gate ────────────────────────────────────────
+  //
+  // Pre-fix control, measured live 2026-09-04 at `d667c9634`: in a scratch
+  // project recording `workspace.harness: claude-code`, with only
+  // `.minsky/rules/` present and no `.cursor/` and no `AGENTS.md`,
+  // `probeMinskyCompileTargets` returned
+  //   ["cursor-rules-ts", "claude.md", "agents.md", "claude-rules"]
+  // — two of which Claude Code does not read. Every case above passes unchanged
+  // because `harness` is absent there, which is the additive-by-design property.
+  describe("harness gate (mt#4866 SC3)", () => {
+    const RULES_ONLY = { skills: false, rules: true, agents: false, hooks: false };
+    const NO_OUTPUTS = { cursorRules: false, agentsMd: false };
+
+    it("drops cursor-rules-ts and agents.md under claude-code with no existing outputs", () => {
+      expect(
+        minskyCompileTargetsFromPresence({
+          ...RULES_ONLY,
+          harness: "claude-code",
+          existingOutputs: NO_OUTPUTS,
+        })
+      ).toEqual(["claude.md", "claude-rules"]);
+    });
+
+    // The two channels Claude Code actually implements (mt#3107) must survive —
+    // a gate that dropped these would leave the harness with nothing.
+    it("keeps claude.md and claude-rules under claude-code", () => {
+      const targets = minskyCompileTargetsFromPresence({
+        ...RULES_ONLY,
+        harness: "claude-code",
+        existingOutputs: NO_OUTPUTS,
+      });
+      expect(targets).toContain("claude.md");
+      expect(targets).toContain("claude-rules");
+    });
+
+    // SC3 escape (b). This is also what makes the change a no-op in Minsky's own
+    // repository, which has both outputs on disk.
+    it("keeps an output that already exists, per-target", () => {
+      expect(
+        minskyCompileTargetsFromPresence({
+          ...RULES_ONLY,
+          harness: "claude-code",
+          existingOutputs: { cursorRules: true, agentsMd: false },
+        })
+      ).toEqual(["cursor-rules-ts", "claude.md", "claude-rules"]);
+
+      expect(
+        minskyCompileTargetsFromPresence({
+          ...RULES_ONLY,
+          harness: "claude-code",
+          existingOutputs: { cursorRules: false, agentsMd: true },
+        })
+      ).toEqual(["claude.md", "agents.md", "claude-rules"]);
+    });
+
+    it("gates nothing for a different harness", () => {
+      expect(
+        minskyCompileTargetsFromPresence({
+          ...RULES_ONLY,
+          harness: "cursor",
+          existingOutputs: NO_OUTPUTS,
+        })
+      ).toEqual(["cursor-rules-ts", "claude.md", "agents.md", "claude-rules"]);
+    });
+
+    // The additive property, stated as a test: an existing caller that passes
+    // neither new field gets exactly the pre-mt#4866 set.
+    it("gates nothing when no harness is recorded", () => {
+      expect(minskyCompileTargetsFromPresence(RULES_ONLY)).toEqual([
+        "cursor-rules-ts",
+        "claude.md",
+        "agents.md",
+        "claude-rules",
+      ]);
+    });
+
+    it("does not affect non-rules targets", () => {
+      expect(
+        minskyCompileTargetsFromPresence({
+          skills: true,
+          rules: false,
+          agents: true,
+          hooks: true,
+          harness: "claude-code",
+          existingOutputs: NO_OUTPUTS,
+        })
+      ).toEqual(["claude-skills", "claude-agents", "claude-hooks"]);
+    });
+  });
 });
 
 describe("probeMinskyCompileTargets (mt#2803)", () => {
@@ -167,6 +257,99 @@ describe("probeMinskyCompileTargets (mt#2803)", () => {
       "claude-rules",
       "claude-agents",
       "claude-hooks",
+    ]);
+  });
+
+  // ─── mt#4866 SC3, through the probe ───────────────────────────────────────
+  //
+  // The block above covers the pure mapping; these cover the probe actually
+  // READING the recorded harness and the on-disk outputs. That read is the half
+  // the live pre-fix measurement exercised, and the half a mapping-only test
+  // would leave unverified.
+  const CLAUDE_CODE_LOCAL_CONFIG = "workspace:\n  mainPath: /workspace\n  harness: claude-code\n";
+
+  it("mt#4866: claude-code with no existing outputs drops cursor-rules-ts and agents.md", async () => {
+    const { fs } = makeFakeFs({
+      [`${WS}/.minsky/rules/.keep`]: "",
+      [`${WS}/.minsky/config.local.yaml`]: CLAUDE_CODE_LOCAL_CONFIG,
+    });
+    expect(await probeMinskyCompileTargets(WS, fs)).toEqual(["claude.md", "claude-rules"]);
+  });
+
+  it("mt#4866: an existing .cursor/rules keeps cursor-rules-ts under claude-code", async () => {
+    const { fs } = makeFakeFs({
+      [`${WS}/.minsky/rules/.keep`]: "",
+      [`${WS}/.minsky/config.local.yaml`]: CLAUDE_CODE_LOCAL_CONFIG,
+      [`${WS}/.cursor/rules/existing.mdc`]: "---\nname: existing\n---\n",
+    });
+    expect(await probeMinskyCompileTargets(WS, fs)).toEqual([
+      "cursor-rules-ts",
+      "claude.md",
+      "claude-rules",
+    ]);
+  });
+
+  it("mt#4866: an existing AGENTS.md keeps agents.md under claude-code", async () => {
+    const { fs } = makeFakeFs({
+      [`${WS}/.minsky/rules/.keep`]: "",
+      [`${WS}/.minsky/config.local.yaml`]: CLAUDE_CODE_LOCAL_CONFIG,
+      [`${WS}/AGENTS.md`]: "# Agents\n",
+    });
+    expect(await probeMinskyCompileTargets(WS, fs)).toEqual([
+      "claude.md",
+      "agents.md",
+      "claude-rules",
+    ]);
+  });
+
+  // The regression guard for this repository: both outputs exist here, so the
+  // gate must be inert. If this ever goes red, `minsky compile` has started
+  // skipping targets Minsky itself commits.
+  it("mt#4866: with BOTH outputs present the target set is unchanged", async () => {
+    const { fs } = makeFakeFs({
+      [`${WS}/.minsky/rules/.keep`]: "",
+      [`${WS}/.minsky/config.local.yaml`]: CLAUDE_CODE_LOCAL_CONFIG,
+      [`${WS}/.cursor/rules/existing.mdc`]: "---\nname: existing\n---\n",
+      [`${WS}/AGENTS.md`]: "# Agents\n",
+    });
+    expect(await probeMinskyCompileTargets(WS, fs)).toEqual([
+      "cursor-rules-ts",
+      "claude.md",
+      "agents.md",
+      "claude-rules",
+    ]);
+  });
+
+  it("mt#4866: no recorded harness leaves the target set unchanged", async () => {
+    const { fs } = makeFakeFs({ [`${WS}/.minsky/rules/.keep`]: "" });
+    expect(await probeMinskyCompileTargets(WS, fs)).toEqual([
+      "cursor-rules-ts",
+      "claude.md",
+      "agents.md",
+      "claude-rules",
+    ]);
+  });
+
+  it("mt#4866: reads the harness from the committed config when there is no local overlay", async () => {
+    const { fs } = makeFakeFs({
+      [`${WS}/.minsky/rules/.keep`]: "",
+      [`${WS}/.minsky/config.yaml`]: "workspace:\n  harness: claude-code\n",
+    });
+    expect(await probeMinskyCompileTargets(WS, fs)).toEqual(["claude.md", "claude-rules"]);
+  });
+
+  // Fails OPEN. An unparseable config must not silently stop writing outputs a
+  // project depends on — the failure direction is toward writing more, not less.
+  it("mt#4866: an unparseable config gates nothing", async () => {
+    const { fs } = makeFakeFs({
+      [`${WS}/.minsky/rules/.keep`]: "",
+      [`${WS}/.minsky/config.local.yaml`]: "{{ not: valid: yaml: [",
+    });
+    expect(await probeMinskyCompileTargets(WS, fs)).toEqual([
+      "cursor-rules-ts",
+      "claude.md",
+      "agents.md",
+      "claude-rules",
     ]);
   });
 });
