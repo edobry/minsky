@@ -3774,34 +3774,6 @@
       "sourceFile": "parallel-work-guard-standalone"
     },
     {
-      "guardName": "stop-at-decision-scan",
-      "description": "Records the silent stop at a ripe decision: a turn whose mutations are all evidence-writes, ending having minted nothing and said nothing. Log-only.",
-      "failureClasses": ["lost-signal"],
-      "provenance": [".minsky/hooks/stop-at-decision-scan.ts", ".minsky/rules/hook-observers.mdc"],
-      "stratum": "registry",
-      "subject": "trajectory",
-      "provenanceStatus": "implementation",
-      "coverageGaps": ["attentionCost", "canary"],
-      "registered": true,
-      "undescribed": false,
-      "point": "Stop",
-      "pointSource": "registry",
-      "trajectory": null,
-      "interventions": [
-        {
-          "type": "record",
-          "audience": "review"
-        }
-      ],
-      "mechanism": "structural",
-      "role": "judge",
-      "coordinateGaps": [],
-      "families": ["detector"],
-      "familyState": "classified",
-      "deliberatelyUnauthored": false,
-      "sourceFile": "stop-at-decision-scan"
-    },
-    {
       "guardName": "substrate-bypass-detector",
       "description": "Injects when a turn makes a commitment, writes retrospective prose, or reaches around the substrate instead of encoding the result in it; the post-merge-instruction leg is log-only.",
       "failureClasses": ["unrecorded-learning", "lost-signal"],
