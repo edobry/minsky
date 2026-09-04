@@ -51,7 +51,12 @@ import type { DispatchContext, GuardOutcome } from "./registry";
 import { extractToolUseNames } from "./transcript";
 // Imported for local use as well as re-exported below: `export … from` re-exports
 // without binding the name in this module's scope, and `run()` calls it.
-import { sessionRanASearch } from "./evidence-provenance-table";
+import {
+  extractNamedQueries,
+  namedQueryWasRun,
+  sessionRanASearch,
+  sessionSearchQueries,
+} from "./evidence-provenance-table";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -158,6 +163,34 @@ export function buildProvenanceWarning(): string {
   );
 }
 
+/**
+ * The advisory for a record whose named query does not match any search this
+ * session actually ran (mt#4975).
+ *
+ * Distinct from {@link buildProvenanceWarning} because the situation is
+ * different and so is the fix: a search DID run here, so "run the search now"
+ * is not the whole instruction — the specific query the record names is the
+ * thing with no call behind it, and that is usually because the record was
+ * assembled from a SIBLING task's results and written up as if re-run.
+ */
+export function buildNamedQueryWarning(namedQueries: readonly string[]): string {
+  const quoted = namedQueries.map((q) => `  - "${q}"`).join("\n");
+  return (
+    `[duplicate-check-search-provenance] This spec's duplicate-check record names a ` +
+    `specific query, and no search in this session matches it:\n\n${quoted}\n\n` +
+    `Searches DID run this session — they just were not these. The usual cause is a ` +
+    `record assembled from an earlier task's results and written up as if re-run, which ` +
+    `reads exactly like a diligent record and is why nothing downstream catches it.\n\n` +
+    `Run the named query now and correct the record to match what it returned. If you ` +
+    `meant a query you actually ran, quote that one instead.\n\n` +
+    `This matters because the record's whole function is to be EVIDENCE that you looked, ` +
+    `and you are its only witness. mt#4975 was filed after exactly this cleared: the ` +
+    `named query, run afterwards, returned an open task owning half the new task's scope ` +
+    `as its top hit.\n` +
+    `Override: ${OVERRIDE_ENV_VAR}=1`
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Dispatcher entry point (ADR-028 D1/D2)
 // ---------------------------------------------------------------------------
@@ -207,6 +240,38 @@ export function run(input: ToolHookInput, ctx: DispatchContext): GuardOutcome | 
     };
   }
 
+  // mt#4975: when the record NAMES its queries, compare THEM — not merely that
+  // some search occurred. Presence alone cleared a record naming two queries
+  // that were never issued (2026-09-04T19:02:20Z), because the session had run
+  // unrelated searches for a sibling task.
+  const namedQueries = extractNamedQueries(record ?? "");
+  if (namedQueries.length > 0) {
+    const actualQueries = sessionSearchQueries(lines);
+    if (namedQueryWasRun(namedQueries, actualQueries)) {
+      return {
+        calibration: { ...base, outcome: "clean", reason: "named query matched a call" },
+      };
+    }
+    return {
+      additionalContext: buildNamedQueryWarning(namedQueries),
+      calibration: {
+        ...base,
+        outcome: "matched",
+        reason: "named query not found among this session's searches",
+        record: record?.slice(0, 300) ?? null,
+        // Recorded so this branch can be replayed from the log alone. mt#4665
+        // is the sibling finding: a record that drops the per-search detail its
+        // own discharge depends on can never be re-measured.
+        namedQueries,
+        actualQueryCount: actualQueries.length,
+      },
+    };
+  }
+
+  // The record claims a search without quoting one ("Searched for calibration
+  // coverage."). There is nothing to compare, so this stays on the presence
+  // check — unchanged behavior, and the branch `refs_status` claims take, since
+  // a cross-reference names ids rather than a query.
   if (sessionRanASearch(extractToolUseNames(lines))) {
     return { calibration: { ...base, outcome: "clean", reason: "search claim matched a call" } };
   }

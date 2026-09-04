@@ -933,6 +933,29 @@ export function findToolUseInputs(
   lines: TranscriptLine[],
   toolName: string
 ): Array<Record<string, unknown>> {
+  return findToolUseInputsMatching(lines, (name) => name === toolName);
+}
+
+/**
+ * {@link findToolUseInputs} with the name test supplied by the caller, so a
+ * caller that NORMALIZES names can reach the same inputs.
+ *
+ * This exists because the exact-match form above is a trap for exactly that
+ * caller. Live transcripts carry the MCP-prefixed spelling
+ * (`mcp__minsky__tasks_search`), so `findToolUseInputs(lines, "tasks_search")`
+ * returns ZERO on real data while returning the expected rows on a synthetic
+ * fixture written with bare names — the failure is invisible to a unit test and
+ * total in production. `normalizeToolName` in `./evidence-provenance-table`
+ * already owns that normalization for the membership tests; this lets the
+ * inputs be fetched through the same predicate rather than a second, divergent
+ * spelling rule.
+ *
+ * The predicate is passed the RAW name; normalize inside it.
+ */
+export function findToolUseInputsMatching(
+  lines: TranscriptLine[],
+  matches: (toolName: string) => boolean
+): Array<Record<string, unknown>> {
   const inputs: Array<Record<string, unknown>> = [];
   const pushInput = (raw: unknown): void => {
     inputs.push(raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {});
@@ -940,12 +963,13 @@ export function findToolUseInputs(
   for (const line of lines) {
     if (line.type === "tool_use") {
       const n = line.name ?? line.tool_name;
-      if (n === toolName) pushInput(line.input);
+      if (typeof n === "string" && matches(n)) pushInput(line.input);
     }
     const content = line.message?.content;
     if (Array.isArray(content)) {
       for (const block of content as Array<Record<string, unknown>>) {
-        if (block && block["type"] === "tool_use" && block["name"] === toolName) {
+        const n = block?.["name"];
+        if (block && block["type"] === "tool_use" && typeof n === "string" && matches(n)) {
           pushInput(block["input"]);
         }
       }

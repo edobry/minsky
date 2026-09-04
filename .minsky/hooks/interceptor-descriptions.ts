@@ -389,7 +389,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     "duplicate-check-search-provenance",
     {
       description:
-        "Records whether the search a `Duplicate check:` line claims to have run was actually run in the turn, and injects when it was not.",
+        "Records whether the search a `Duplicate check:` line claims to have run was actually run in the turn, and injects when it was not. When the record NAMES its query, that query is compared against the session's actual search arguments (mt#4975); when it only claims a search without quoting one, any search discharges it.",
       failureClasses: ["duplicate-work", "unfounded-claim"],
       provenance: [hook("duplicate-check-search-provenance")],
       stratum: "registry",
