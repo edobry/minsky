@@ -697,7 +697,27 @@ reviewing — loses the most.
   stay unreviewed and will be in the next sweep. This is expected, not an error;
   report the number rather than letting a later sweep reveal it.
 - **`clampedPaths`** — the token's count sat BELOW an existing watermark (a stale
-  token), so the watermark was left where it was rather than moved backwards.
+  token) on a log that is NOT stranded, so the watermark was left where it was
+  rather than moved backwards. Note this is a write that LANDS and changes
+  nothing, which is why it no longer counts toward `watermarkAdvanced` (mt#4941).
+- **`repairedPaths`** (mt#4941) — the counterpart to `clampedPaths`, on the same
+  starting condition and in the opposite direction. The watermark sat ABOVE the
+  log's own record count, so its basis was gone (the log was rotated, truncated,
+  or re-rooted under it). It is **reset to 0**, not to the count this sweep
+  observed: a stranded log renders `firesSinceLastReview: 0` and `newRecords:
+  []`, so you were shown nothing and classified nothing, and writing the observed
+  count would mark the whole live corpus reviewed by nobody. **Expect these logs
+  back in the next sweep with a real backlog** — that is the repair working, not
+  a failure. A repair does not count toward `watermarkAdvanced` either, so a
+  repair-only pass reads `watermarkAdvanced: false` beside a populated
+  `repairedPaths`: nothing reviewed, N strands cleared.
+
+  Until mt#4941 a stranded log was CLAMPED like a stale token, so its ack wrote
+  the stranding value straight back and the log stayed review-due forever with
+  nothing reviewable. If you see a log whose `watermarkStranded` is true and
+  whose ack reports it in `clampedPaths` rather than `repairedPaths`, you are
+  running a pre-mt#4941 build — including via a long-lived MCP daemon that
+  predates the merge.
 - **`unreceiptedPaths`** — review-due logs your token does not cover, so they were
   NOT advanced. Re-run read-only and ack again with the fresh token.
 - **`newlyDuePaths`** (mt#4391) — logs that crossed a threshold DURING your pass,
