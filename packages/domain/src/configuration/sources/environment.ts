@@ -258,6 +258,14 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   // set. Default-off switch for merge-time AI authorship-tier judging
   // (ask#5581).
   MINSKY_AUTHORSHIP_TIER_JUDGING: "tunable",
+  // scripts/classify-empty-half-postgres-urls.ts (mt#4965) — comma-separated
+  // sha256 hex digests of known-live credential VALUES, supplied by an operator
+  // so the classifier can run mem#634's decisive hash-match discriminator
+  // without the script reading the credential store. Hashes are one-way, so the
+  // variable itself carries no secret. `tunable` rather than
+  // `operator-override`: it supplies INPUT to a script, it does not bypass any
+  // guard or gate, so it needs no `known-override-env-vars.ts` entry.
+  MINSKY_CLASSIFY_KNOWN_SECRET_HASHES: "tunable",
   MINSKY_FORCE_PARALLEL: "operator-override", // .claude/hooks/parallel-work-guard.ts
   MINSKY_FORCE_DUPLICATE_OK: "operator-override", // .claude/hooks/parallel-work-guard.ts (mt#1435 — tasks_create dup guard)
   MINSKY_ALLOW_NESTED_FORK: "operator-override", // .claude/hooks/block-nested-fork-dispatch.ts (mt#3045) — launch-time-only override for an undeclared nested fork dispatch
