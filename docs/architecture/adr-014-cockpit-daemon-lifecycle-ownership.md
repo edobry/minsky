@@ -186,7 +186,10 @@ as part of gh#1761:
   gracefully for DB errors (staying up and retrying internally) rather than
   exiting, so `KeepAlive` restarts under normal circuit-breaker events should no
   longer occur — the raised ThrottleInterval is a defence-in-depth measure for
-  genuinely fatal crashes.
+  genuinely fatal crashes. A second survivable class was added by mt#4943: a
+  `DriverTransportFailure` — a typed, transport-attributed failure of one
+  ACP-driven session — is scoped to that class alone, so the classifier still
+  exits on everything else.
 
 ### Legacy-agent eviction: PID-verification safety guard
 

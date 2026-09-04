@@ -1343,3 +1343,54 @@ export function stopDrivenSession(
   record.stopRequested = true;
   record.transport.stop(record.proc, opts);
 }
+
+/**
+ * Attribute a DAEMON-observed failure (mt#4943 SC2c) — one the supervisor
+ * learned about from an escaped `unhandledRejection` reclassified by
+ * `classifyUnhandledRejection` (`src/commands/cockpit/start-command.ts`),
+ * rather than one a transport reported through its own `onEvent` stream —
+ * to whichever record's `pid` matches, and mark it `crashed`.
+ *
+ * The pid-keyed lookup exists because the daemon's `unhandledRejection`
+ * handler has no `DrivenSessionRecord` in hand, only the `DriverTransportFailure`
+ * itself (which carries `harnessKind` and `pid`) — this is the ONLY
+ * identifying information available at that call site.
+ *
+ * A no-op when no record's `pid` matches, or when the matching record is
+ * already TERMINAL (`isTerminalStatus`): an exit/crash the transport already
+ * reported through its own event stream (`handleTransportEvent`'s
+ * `processError`/`processExited` branches) must not be overwritten by a
+ * LATER-arriving daemon-level attribution describing the same failure —
+ * this mirrors the same idempotency `handleTransportEvent`'s branches
+ * themselves rely on (each mutates `record.status` unconditionally on the
+ * assumption it fires at most meaningfully once per terminal transition).
+ *
+ * Reuses `handleTransportEvent`'s `processError` conventions exactly:
+ * `crashed` + `crashError` + a `minsky_error` event + `notifyStateChange`.
+ */
+export function markDrivenSessionCrashedByPid(
+  pid: number | undefined,
+  reason: string,
+  opts: {
+    registry?: DrivenSessionRegistry;
+    onStateChange?: (record: DrivenSessionRecord) => void;
+  } = {}
+): DrivenSessionRecord | undefined {
+  if (pid === undefined) {
+    log.error(`[driven-session] cannot attribute a daemon-observed crash — no pid: ${reason}`);
+    return undefined;
+  }
+  const registry = opts.registry ?? drivenSessionRegistry;
+  const record = registry.list().find((candidate) => candidate.pid === pid);
+  if (!record) return undefined;
+  if (isTerminalStatus(record.status)) return record;
+
+  record.status = "crashed";
+  record.crashError = reason;
+  log.error(
+    `[driven-session] daemon-attributed crash for ${record.localId} (pid=${pid}): ${reason}`
+  );
+  appendEvent(record, { type: "minsky_error", message: reason });
+  notifyStateChange(record, opts.onStateChange);
+  return record;
+}

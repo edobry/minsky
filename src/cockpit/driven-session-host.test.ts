@@ -21,6 +21,7 @@ import {
   sendDrivenSessionInput,
   DRIVEN_OPERATOR_INPUT_EVENT_TYPE,
   stopDrivenSession,
+  markDrivenSessionCrashedByPid,
   buildDrivenSessionArgs,
   buildResumeSessionArgs,
   resumeDrivenSession,
@@ -75,6 +76,23 @@ class FakeClaudeProcess extends EventEmitter implements ProcessLike {
   /** Simulate the child process exiting. */
   exit(code: number | null, signal: NodeJS.Signals | null = null): void {
     this.emit("exit", code, signal);
+  }
+}
+
+/** A minimal fake process double with a CALLER-CHOSEN pid (mt#4943 SC3c) —
+ * `FakeClaudeProcess.pid` is a fixed literal, so distinguishing multiple
+ * records by pid needs a separate double. */
+class FakePidProcess extends EventEmitter implements ProcessLike {
+  readonly stdout = new PassThrough();
+  readonly stderr = new PassThrough();
+  readonly stdin = new PassThrough();
+
+  constructor(readonly pid: number) {
+    super();
+  }
+
+  kill(): boolean {
+    return true;
   }
 }
 
@@ -1602,6 +1620,98 @@ describe("harness-agnostic drive-record fields (mt#4935)", () => {
 
     expect(record.harnessConversationId).toBe("explicit-conversation-id");
     expect(record.authMode).toBe("api-key");
+  });
+});
+
+const CRASH_REASON_FIXTURE = "ACP session setup failed: boom";
+
+describe("markDrivenSessionCrashedByPid — daemon-attributed crash by pid (mt#4943 SC2c/SC3c)", () => {
+  test("marks the matching non-terminal record crashed with the given reason", () => {
+    const registry = new DrivenSessionRegistry();
+    const { record } = startDrivenSession({
+      cwd: TEST_CWD,
+      spawnFn: () => new FakePidProcess(50001),
+      registry,
+      mcpConfig: null,
+    });
+    expect(record.status).not.toBe("crashed");
+
+    const result = markDrivenSessionCrashedByPid(50001, CRASH_REASON_FIXTURE, { registry });
+
+    expect(result?.localId).toBe(record.localId);
+    expect(record.status).toBe("crashed");
+    expect(record.crashError).toBe(CRASH_REASON_FIXTURE);
+    expect(
+      record.eventLog.some(
+        (e) => e.payload["type"] === "minsky_error" && e.payload["message"] === CRASH_REASON_FIXTURE
+      )
+    ).toBe(true);
+  });
+
+  test("a second running record with a different pid is left untouched", () => {
+    const registry = new DrivenSessionRegistry();
+    const { record: target } = startDrivenSession({
+      cwd: TEST_CWD,
+      spawnFn: () => new FakePidProcess(50002),
+      registry,
+      mcpConfig: null,
+    });
+    const { record: other } = startDrivenSession({
+      cwd: TEST_CWD,
+      spawnFn: () => new FakePidProcess(50003),
+      registry,
+      mcpConfig: null,
+    });
+
+    markDrivenSessionCrashedByPid(50002, "boom", { registry });
+
+    expect(target.status).toBe("crashed");
+    expect(other.status).toBe("spawned");
+    expect(other.crashError).toBeNull();
+  });
+
+  test("an already-terminal record is left untouched", () => {
+    const registry = new DrivenSessionRegistry();
+    const { record } = startDrivenSession({
+      cwd: TEST_CWD,
+      spawnFn: () => new FakePidProcess(50004),
+      registry,
+      mcpConfig: null,
+    });
+    (record.proc as unknown as FakePidProcess).emit("exit", 0, null);
+    expect(record.status).toBe("exited");
+
+    const result = markDrivenSessionCrashedByPid(50004, "should not apply", { registry });
+
+    expect(result?.localId).toBe(record.localId);
+    expect(record.status).toBe("exited");
+    expect(record.crashError).toBeNull();
+  });
+
+  test("no matching pid is a no-op and returns undefined", () => {
+    const registry = new DrivenSessionRegistry();
+    startDrivenSession({
+      cwd: TEST_CWD,
+      spawnFn: () => new FakePidProcess(50005),
+      registry,
+      mcpConfig: null,
+    });
+
+    const result = markDrivenSessionCrashedByPid(999999, "boom", { registry });
+    expect(result).toBeUndefined();
+  });
+
+  test("an undefined pid is a no-op and returns undefined", () => {
+    const registry = new DrivenSessionRegistry();
+    startDrivenSession({
+      cwd: TEST_CWD,
+      spawnFn: () => new FakePidProcess(50006),
+      registry,
+      mcpConfig: null,
+    });
+
+    const result = markDrivenSessionCrashedByPid(undefined, "boom", { registry });
+    expect(result).toBeUndefined();
   });
 });
 
