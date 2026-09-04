@@ -482,16 +482,29 @@ jobs:
       # grew until ordinary variance started crossing a bound sized for a much
       # smaller operation.
       #
-      # 240s is ~2.75x the measured 87s. It is deliberately NOT derived from the
-      # timed-out attempt, whose true duration is unknown (`timeout` killed it,
-      # so all that is known is >120s). Backstop: 3 x 240s + 2 x 10s = 740s =
-      # 12.3 min, so 13; the job's own 25-min cap still leaves room for the ~4
-      # min the other steps take.
+      # 240s is ~2.2x a measured COLD install. Two figures, and the difference
+      # between them is the point:
+      #
+      #   run 33851833179, attempt 2:  87s, "added 3 packages in 1m"
+      #   run 33854882366, attempt 1: 109s, "added 228 packages ... in 2m"
+      #
+      # The 87s is NOT a cold install and must not be used to size this. That
+      # attempt ran after attempt 1 had been killed at 120s having already
+      # installed 225 of the 228 packages — it is a RESUME, and its own log line
+      # says so ("3 packages"). Sizing a cold-path bound on it would repeat this
+      # comment's own history: a correct measurement of the wrong population.
+      # The 109s figure is the first attempt on a run where BOTH caches above
+      # missed and were written, which is the condition this bound has to
+      # survive. Backstop: 3 x 240s + 2 x 10s = 740s = 12.3 min, so 13; the
+      # job's 25-min cap still leaves room for the ~4 min the other steps take.
+      #
+      # Note how little headroom the OLD bound had against the real figure: 120s
+      # against a 109s cold install is 1.1x, so roughly half of cold runs would
+      # cross it. That is the failure mt#4950 was filed on, quantified.
       #
       # What would falsify this bound: a cache-MISS run whose attempt still
-      # exceeds 240s. The caches above should make a miss rare, which also means
-      # a miss is the run that matters — read the duration on one before
-      # concluding this number is right.
+      # exceeds 240s. The caches make a miss rare, which also makes a miss the
+      # run that matters — read the duration on one before trusting this number.
       - name: Install infra dependencies + provider SDK
         working-directory: infra
         timeout-minutes: 13
