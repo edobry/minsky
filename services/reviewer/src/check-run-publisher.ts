@@ -103,14 +103,19 @@ export interface BuildCheckRunPayloadParams {
    * human reader the code was reviewed and rejected, which is false. `failure`
    * is reserved for a review that RAN and did not complete (mt#4881).
    *
-   * CORRECTION (mt#4897, verified 2026-09-04). This docblock previously said
-   * "`minsky-reviewer/findings` IS a required check, so publishing `failure`
-   * here would turn a transient refusal into a merge blocker." **That premise
-   * was false**, and it propagated from here into mt#4271, mt#4895 and mt#4897
-   * unchallenged. Branch protection on `main` requires exactly three contexts —
-   * `build`, `Prevent Placeholder Tests`, `cold-start-migrate` — read from
-   * `GET /repos/edobry/minsky/branches/main/protection` with an admin token.
-   * This check is not among them, so NO conclusion on it blocks a merge.
+   * CORRECTION (mt#4897). This docblock previously asserted that
+   * `minsky-reviewer/findings` IS a required status check, and rested the
+   * choice above on it. **The premise was false**, and it propagated from here
+   * into mt#4271, mt#4895 and mt#4897 unchallenged — costing an investigation
+   * that went looking for a merge-blocking specimen that could not exist.
+   *
+   * Deliberately NOT restating which contexts are required. That is mutable
+   * repository configuration, and freezing a reading of it into a comment is
+   * exactly how the wrong claim got here — a snapshot that was true when
+   * written and silently stopped being so. The durable rule is the negative
+   * one: **this module must not assume the check is required.** mt#4897 records
+   * the reading and its date; if a decision depends on the current list, read
+   * branch protection rather than trusting any comment, including this one.
    *
    * The behaviour above is unchanged and still correct; only its justification
    * was wrong. Do not "simplify" this to `failure` on the strength of the

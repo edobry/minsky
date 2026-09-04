@@ -21,14 +21,15 @@
  * another round clears it, which is disproportionately expensive for
  * subagent-driven convergence.
  *
- * CORRECTION (mt#4897, verified 2026-09-04). This passage previously added
- * "which also fails the `minsky-reviewer/findings` required check" and
- * "`forceBypass` cannot clear a failing required check (only a retrigger or
- * `MINSKY_SKIP_REQUIRED_CHECKS` can)." **Both rest on a false premise.** Branch
- * protection on `main` requires exactly `build`, `Prevent Placeholder Tests`
- * and `cold-start-migrate` (read from the branch-protection API with an admin
- * token); `minsky-reviewer/findings` is not required, so its conclusion blocks
- * nothing. The real cost is the outstanding REVIEW above, not a failing check.
+ * CORRECTION (mt#4897). This passage previously added "which also fails the
+ * `minsky-reviewer/findings` required check" and "`forceBypass` cannot clear a
+ * failing required check (only a retrigger or `MINSKY_SKIP_REQUIRED_CHECKS`
+ * can)." **Both rested on a false premise** — that check is not required — so
+ * the real cost is the outstanding REVIEW named above, not a failing check.
+ *
+ * The current required-check list is deliberately not restated here: it is
+ * mutable repository configuration, and a frozen copy of it is what made the
+ * original claim wrong. mt#4897 records the reading and its date.
  *
  * This guard's behaviour is unchanged and still correct on its own terms: it
  * prevents the model emitting a finding whose severity contradicts its text,
