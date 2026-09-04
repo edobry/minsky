@@ -31,7 +31,7 @@ import { registerReviewerRetriggerCommands } from "./reviewer-retrigger";
 import { registerChangesetCommands } from "./changeset";
 import { registerValidateCommands } from "./validate";
 import { registerMcpCommands } from "./mcp";
-import { registerKnowledgeCommands } from "./knowledge";
+import { registerKnowledgeCommands, createRealKnowledgeCommandsDeps } from "./knowledge";
 import { registerMemoryCommands } from "./memory";
 import { registerProvenanceCommands } from "./provenance";
 import { registerAuthorshipCommands } from "./authorship";
@@ -131,8 +131,15 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register MCP commands
   registerMcpCommands();
 
-  // Register knowledge commands
-  registerKnowledgeCommands();
+  // Register knowledge commands. The real embedding + vector-storage resolver
+  // is supplied HERE, in the composition root, rather than defaulted inside the
+  // command module (ADR-026, mt#3609 — the same shape as
+  // `registerPrincipalCommands(createRealPrincipalChannelDeps())` below).
+  // Before mt#4946 this line read `registerKnowledgeCommands()` with no
+  // arguments, which left `knowledge.search`'s optional `vectorSearch`
+  // permanently undefined: the command returned a degraded empty result for
+  // every query it ever served, indistinguishable from an empty corpus.
+  registerKnowledgeCommands(sharedCommandRegistry, createRealKnowledgeCommandsDeps());
 
   // Register memory commands
   registerMemoryCommands();

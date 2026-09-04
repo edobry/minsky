@@ -22,6 +22,16 @@ const KNOWLEDGE_COMMANDS_MODULE = "../../../../../src/adapters/shared/commands/k
 const KNOWLEDGE_SEARCH_COMMAND = "knowledge.search";
 const KNOWLEDGE_SEARCH_NOT_REGISTERED = "knowledge.search command not registered";
 
+/**
+ * A dev command that is NOT Bun's, for the documentation-conflict fixtures.
+ *
+ * These fixtures need two contradictory dev commands so `detectConflicts` has a
+ * real disagreement to classify; WHICH non-Bun runner is arbitrary, and naming
+ * it here keeps the pair consistent across the six fixtures and the assertion
+ * that reads the rationale back.
+ */
+const ALTERNATE_RUNNER_DEV = "yarn dev";
+
 // ─── Fake classifier helper ───────────────────────────────────────────────────
 
 /**
@@ -63,12 +73,12 @@ describe("detectConflicts", () => {
   test("returns conflict when NLI verdict is contradicts", async () => {
     const classifier = makeFixedClassifier({
       verdict: "contradicts",
-      rationale: "chunk A says bun, chunk B says npm",
+      rationale: "chunk A says bun, chunk B says yarn",
     });
 
     const chunks: ClassifiableChunk[] = [
       { id: "chunk-1", text: "Use bun to run the dev server" },
-      { id: "chunk-2", text: "Use npm run dev to start the server" },
+      { id: "chunk-2", text: `Use ${ALTERNATE_RUNNER_DEV} to start the server` },
     ];
 
     const conflicts = await detectConflicts(chunks, classifier);
@@ -76,7 +86,7 @@ describe("detectConflicts", () => {
     expect(conflicts).toHaveLength(1);
     expect(conflicts[0]?.chunkAId).toBe("chunk-1");
     expect(conflicts[0]?.chunkBId).toBe("chunk-2");
-    expect(conflicts[0]?.disagreement).toBe("chunk A says bun, chunk B says npm");
+    expect(conflicts[0]?.disagreement).toBe("chunk A says bun, chunk B says yarn");
   });
 
   test("returns no conflict when NLI verdict is entails", async () => {
@@ -113,7 +123,7 @@ describe("detectConflicts", () => {
 
     const chunks: ClassifiableChunk[] = [
       { id: "A", text: "bun dev" },
-      { id: "B", text: "npm run dev" },
+      { id: "B", text: ALTERNATE_RUNNER_DEV },
       { id: "C", text: "unrelated topic" },
     ];
 
@@ -174,7 +184,7 @@ describe("AnthropicNliClassifier", () => {
   test("returns contradicts verdict from generateObject structured output", async () => {
     const fakeResult = {
       verdict: "contradicts" as const,
-      rationale: "One says bun, the other says npm",
+      rationale: "One says bun, the other says yarn",
     };
 
     const mockGenerateObject = mock(async () => ({ object: fakeResult }));
@@ -189,11 +199,11 @@ describe("AnthropicNliClassifier", () => {
 
     const result = await classifier.classify(
       "Run bun dev to start the dev server",
-      "Run npm run dev to start the dev server"
+      `Run ${ALTERNATE_RUNNER_DEV} to start the dev server`
     );
 
     expect(result.verdict).toBe("contradicts");
-    expect(result.rationale).toBe("One says bun, the other says npm");
+    expect(result.rationale).toBe("One says bun, the other says yarn");
     expect(mockGenerateObject).toHaveBeenCalledTimes(1);
   });
 
@@ -297,8 +307,8 @@ describe("knowledge.search integration: conflict detection", () => {
         score: 0.9,
         metadata: {
           title: "NPM Dev Guide",
-          excerpt: "Run npm run dev to start the development server",
-          url: "https://notion.so/npm-guide",
+          excerpt: `Run ${ALTERNATE_RUNNER_DEV} to start the development server`,
+          url: "https://notion.so/yarn-guide",
           sourceName: "source-b",
           lastModified: new Date().toISOString(),
         },
@@ -312,15 +322,18 @@ describe("knowledge.search integration: conflict detection", () => {
     const conflictingClassifier: NliClassifier = {
       classify: async () => ({
         verdict: "contradicts",
-        rationale: "bun dev vs npm run dev — incompatible commands",
+        rationale: `bun dev vs ${ALTERNATE_RUNNER_DEV} — incompatible commands`,
       }),
     };
 
     const registry = createSharedCommandRegistry();
     registerKnowledgeCommands(registry, {
-      generateEmbedding: fakeEmbed,
-      vectorSearch: fakeSearch,
-      nliClassifier: conflictingClassifier,
+      resolveSearchBackend: async () => ({
+        ok: true,
+        generateEmbedding: fakeEmbed,
+        search: fakeSearch,
+      }),
+      createNliClassifier: () => conflictingClassifier,
     });
 
     const cmd = registry.getCommand(KNOWLEDGE_SEARCH_COMMAND);
@@ -336,7 +349,7 @@ describe("knowledge.search integration: conflict detection", () => {
     expect(response.conflicts).toHaveLength(1);
     expect(response.conflicts[0]?.chunkA).toBe(CHUNK_A);
     expect(response.conflicts[0]?.chunkB).toBe(CHUNK_B);
-    expect(response.conflicts[0]?.disagreement).toContain("bun dev vs npm run dev");
+    expect(response.conflicts[0]?.disagreement).toContain(`bun dev vs ${ALTERNATE_RUNNER_DEV}`);
 
     // Verify the warning field is present
     expect(response._conflictWarning).toBeDefined();
@@ -378,9 +391,12 @@ describe("knowledge.search integration: conflict detection", () => {
 
     const registry = createSharedCommandRegistry();
     registerKnowledgeCommands(registry, {
-      generateEmbedding: async () => [0.1, 0.2, 0.3],
-      vectorSearch: async () => fakeResults,
-      nliClassifier: entailingClassifier,
+      resolveSearchBackend: async () => ({
+        ok: true,
+        generateEmbedding: async () => [0.1, 0.2, 0.3],
+        search: async () => fakeResults,
+      }),
+      createNliClassifier: () => entailingClassifier,
     });
 
     const cmd = registry.getCommand(KNOWLEDGE_SEARCH_COMMAND);
@@ -416,8 +432,13 @@ describe("knowledge.search integration: conflict detection", () => {
     const registry = createSharedCommandRegistry();
     // No nliClassifier in deps → NLI skipped
     registerKnowledgeCommands(registry, {
-      generateEmbedding: async () => [0.1, 0.2, 0.3],
-      vectorSearch: async () => fakeResults,
+      resolveSearchBackend: async () => ({
+        ok: true,
+        generateEmbedding: async () => [0.1, 0.2, 0.3],
+        search: async () => fakeResults,
+      }),
+      // No classifier — conflict detection disabled, so `conflicts` stays empty.
+      createNliClassifier: () => null,
     });
 
     const cmd = registry.getCommand(KNOWLEDGE_SEARCH_COMMAND);
