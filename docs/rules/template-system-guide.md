@@ -172,10 +172,79 @@ The `minsky init` command automatically uses the template system:
 
 ```bash
 # Generates rules based on project configuration
-minsky init --interface=cli    # CLI-optimized rules
-minsky init --interface=mcp    # MCP-optimized rules
-minsky init --mcp             # Equivalent to --interface=mcp
+minsky init --mcp true     # MCP-optimized rules (interface: hybrid)
+minsky init --mcp false    # CLI-optimized rules (interface: cli)
 ```
+
+`init` has **no interface flag** (mt#4866 SC5). It derives the interface mode from
+`--mcp`: `hybrid` when MCP is enabled, `cli` when it is not
+(`packages/domain/src/init/rule-templates.ts`). This section previously showed two
+examples passing an interface flag to `init`, which has never been a parameter of
+that command — `src/adapters/shared/commands/init.ts` declares `repo`, `session`,
+`backend`, `overwrite`, `workspacePath`, `githubOwner`, `githubRepo`, `ruleFormat`,
+`mcp`, `mcpTransport`, `mcpPort` and `mcpHost`, and nothing else.
+
+`--interface` **is** a real flag on `minsky rules generate`, which is what the rest
+of this guide documents; only the `init` examples were wrong.
+
+### Re-running `init` on an existing project (mt#4866)
+
+`init` returns early when `.minsky/config.yaml` already exists, so `--overwrite` is
+the only way to re-run it. **`--overwrite` merges; it does not replace.** Every
+top-level key `init` does not itself emit — your `rules:` selection, and anything
+else you added — is preserved, while the keys `init` owns (`tasks`, `persistence`,
+`logger`, and `repository`/`project` when derivable) are refreshed.
+
+Two properties worth knowing:
+
+- **The merge is top-level only.** A section `init` owns is replaced wholesale
+  rather than deep-merged, so a sub-key `init` has stopped emitting does not
+  survive forever in your config.
+- **Values are preserved; formatting may be normalized.** The merge round-trips
+  through the YAML parser, so a config in the standard block style comes back
+  byte-identical, but hand-authored flow style (`disabled: [a, b]`) is rewritten to
+  block style and **comments are dropped**.
+
+If `.minsky/config.yaml` exists but is not valid YAML, `init --overwrite`
+**refuses and exits non-zero** rather than replacing it — the keys it cannot parse
+are keys it cannot preserve. Repair the file, or move it aside and re-run.
+
+### Which compile targets a bare `minsky compile` writes (mt#4866)
+
+A bare `minsky compile` regenerates every target whose `.minsky/` source directory
+exists. For a project that records `workspace.harness: claude-code` (written by
+`minsky setup` into `.minsky/config.local.yaml`), two targets are **skipped**:
+`cursor-rules-ts` (`.cursor/rules/`) and `agents.md` (`AGENTS.md`). Claude Code
+reads neither, and writing them produced files nothing in the project consumed.
+
+`claude.md` and `claude-rules` are never skipped — those are the two channels
+Claude Code actually reads.
+
+Two ways to get the skipped targets anyway:
+
+1. **Name it explicitly:** `minsky compile --target cursor-rules-ts`. An explicit
+   target always compiles.
+2. **Create the output once.** If `.cursor/rules/` or `AGENTS.md` already exists,
+   it is treated as wanted and kept up to date by every bare compile from then on.
+   The two are tracked independently.
+
+If no harness is recorded, nothing is skipped — behaviour is unchanged. The
+pre-commit compile-staleness check applies the same rule and prints a line naming
+any target it is not checking, so a skipped output is never silently unmaintained.
+
+### `rules enable` / `rules disable` validate the id (mt#4866)
+
+Both commands reject an id that is neither a rule in `.minsky/rules/` nor a rule
+`minsky init` can scaffold. The command exits non-zero, names the id, and **does
+not write the config** — previously an unknown id was accepted and persisted, and
+a config naming a rule that does not exist resolved to no rules at all.
+
+Selection semantics: the active set starts from the full rule corpus, `presets` and
+`enabled` **add** to it, and `disabled` **subtracts**. A config with only `disabled`
+set therefore narrows the corpus rather than emptying it. Note that because the
+starting set is currently the whole corpus, `presets` and `enabled` have nothing to
+add and are effectively inert; they become meaningful once rules carry tier
+metadata and the starting set is narrower.
 
 ## Troubleshooting
 
