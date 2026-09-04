@@ -92,13 +92,25 @@ export function sessionRanASearch(toolNames: readonly string[]): boolean {
  * The subset of {@link SEARCH_TOOL_NAMES} that carries a natural-language
  * `query` argument.
  *
- * `refs_status` is deliberately absent: it takes `refs` (an id array), not a
- * query, so there is nothing for a query comparison to read. A record whose
- * claim is a cross-reference rather than a query names no quoted query either,
- * and therefore takes the presence branch — which is exactly today's behavior
- * for it, preserved on purpose. See {@link namedQueryWasRun}.
+ * Two of {@link SEARCH_TOOL_NAMES}'s three members are deliberately absent,
+ * for the same reason: they take no query, so there is nothing for a query
+ * comparison to read.
+ *
+ *  - `refs_status` takes `refs`, an id array. A record whose claim is a
+ *    cross-reference rather than a query names no quoted query either, so it
+ *    takes the presence branch — exactly today's behavior, preserved on purpose.
+ *  - `tasks_similar` takes `taskId`: it finds tasks similar to a GIVEN TASK,
+ *    and its schema has no `query` parameter at all. Listing it here would be
+ *    dead weight that reads as coverage — PR #3642 R1 caught it. Verified
+ *    against the tool schema and against 19 live calls in the transcript
+ *    corpus: 16 pass `taskId`, none passes a `query` the boundary would accept.
+ *
+ * So this list is `tasks_search` alone today. It stays a list because the
+ * question is per-tool ("does this one carry a query?"), not a special case.
+ *
+ * See {@link namedQueryWasRun}.
  */
-export const QUERY_BEARING_SEARCH_TOOLS: readonly string[] = ["tasks_search", "tasks_similar"];
+export const QUERY_BEARING_SEARCH_TOOLS: readonly string[] = ["tasks_search"];
 
 /**
  * Verbs that introduce a claimed query, and the window after one in which a
@@ -150,6 +162,14 @@ const QUERY_STOPWORDS = new Set([
  * and legitimate form ("Searched for calibration/telemetry migration
  * coverage."). An empty result means "nothing to compare", never "no search
  * was claimed"; the caller falls back to presence rather than flagging.
+ *
+ * **Short spans are deliberately ignored** (PR #3642 R1 asked): a span under 10
+ * characters or 3 words is far more often the tool name — `` `tasks_search` ``
+ * sits immediately before the real query in the sanctioned form — than a query.
+ * Dropping one costs a fallback to the presence branch, which is this guard's
+ * pre-mt#4975 behavior; mis-reading one as a query would flag an author whose
+ * real query ran. Both errors resolve in the safe direction, and the cheaper of
+ * the two is chosen deliberately.
  */
 export function extractNamedQueries(record: string): string[] {
   const out: string[] = [];

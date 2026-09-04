@@ -210,6 +210,12 @@ function main(): void {
     // that is not a hypothetical, it silently cleared the 19:02:20 incident
     // here, because the query named in that fabricated record was in fact run
     // later, while investigating it (mem#1236: keep lines <= record.timestamp).
+    //
+    // The string compare is sound rather than lucky (PR #3642 R1 asked): both
+    // sides are ISO-8601 UTC with a `Z` suffix and fixed-width fields, which is
+    // the one format where lexicographic and chronological order coincide. A
+    // line with no parseable timestamp is KEPT — dropping it would silently
+    // shrink the evidence and bias the replay toward flagging.
     const asOfCreate = lines.filter(
       (l) => typeof l.timestamp !== "string" || l.timestamp <= rec.ts
     );

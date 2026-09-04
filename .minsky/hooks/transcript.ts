@@ -947,6 +947,12 @@ export function findToolUseInputs(
  * spelling rule.
  *
  * The predicate is passed the RAW name; normalize inside it.
+ *
+ * The `typeof n === "string"` guards are not a behavior change for
+ * {@link findToolUseInputs} (PR #3642 R1 asked): its predicate is `n === toolName`
+ * against a `string`, and no non-string value is ever `===` a string. The guards
+ * exist so an arbitrary caller predicate is handed a `string` rather than
+ * `unknown`.
  */
 export function findToolUseInputsMatching(
   lines: TranscriptLine[],
