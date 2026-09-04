@@ -73,8 +73,46 @@ describe("evaluateTypecheckInfraConclusion (mt#4950)", () => {
     expect(evaluateTypecheckInfraConclusion({ ok: true, runs: [] }, pr, headSha).deny).toBe(false);
   });
 
-  it("passes while the check is still in progress", () => {
+  it("passes while the check is in progress and nothing has completed yet", () => {
     expect(evaluateTypecheckInfraConclusion(run("in_progress", null), pr, headSha).deny).toBe(
+      false
+    );
+  });
+
+  // PR #3617 R3 (BLOCKING) — the rerun bypass. Reading `runs[0]` alone let an
+  // in-flight rerun hide a red terminal verdict, so the gate could be cleared by
+  // pressing re-run. It now reads the latest COMPLETED run.
+  const withRerunInFrontOf = (conclusion: string) => ({
+    ok: true as const,
+    runs: [
+      // Sorted latest-first, exactly as parseBundleBootSmokeResponse emits.
+      {
+        name: TYPECHECK_INFRA_CHECK_NAME,
+        status: "in_progress",
+        conclusion: null,
+        htmlUrl: null,
+        startedAt: "2026-09-04T09:00:00Z",
+        completedAt: null,
+      },
+      {
+        name: TYPECHECK_INFRA_CHECK_NAME,
+        status: "completed",
+        conclusion,
+        htmlUrl: null,
+        startedAt: "2026-09-04T08:00:00Z",
+        completedAt: "2026-09-04T08:05:00Z",
+      },
+    ],
+  });
+
+  it("DENIES when a rerun is in flight in front of a completed failure", () => {
+    const result = evaluateTypecheckInfraConclusion(withRerunInFrontOf("failure"), pr, headSha);
+    expect(result.deny).toBe(true);
+    expect(result.reason).toContain("failure");
+  });
+
+  it("passes when a rerun is in flight in front of a completed success", () => {
+    expect(evaluateTypecheckInfraConclusion(withRerunInFrontOf("success"), pr, headSha).deny).toBe(
       false
     );
   });

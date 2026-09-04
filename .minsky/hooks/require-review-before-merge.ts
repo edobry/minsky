@@ -438,10 +438,20 @@ export function evaluateTypecheckInfraConclusion(
   // response is not evidence the typecheck failed.
   if (!parseResult.ok) return { deny: false };
 
-  const latest = parseResult.runs[0];
-  // No run, or not finished yet — pass. See the docblock: absence is not the
-  // condition this gate exists for.
-  if (!latest || latest.status !== "completed") return { deny: false };
+  // PR #3617 R3 (BLOCKING): read the latest COMPLETED run, not `runs[0]`.
+  //
+  // `runs[0]` is the most recent run of any status, so a red run followed by a
+  // rerun leaves an `in_progress` run in front — and passing on "not completed"
+  // then let a merge through over a known-red terminal verdict, triggerable by
+  // anyone with a rerun button. That is a bypass of exactly the failure this
+  // gate exists to stop, and the reviewer found it.
+  //
+  // Falling back to the latest COMPLETED run fixes it without adopting the
+  // bundle gate's deny-on-pending posture: a rerun in flight no longer hides
+  // the last real verdict, and a check that has genuinely never completed still
+  // passes (see the docblock — absence is not this gate's condition).
+  const latest = parseResult.runs.find((r) => r.status === "completed");
+  if (!latest) return { deny: false };
 
   // `skipped` and `neutral` are not failures; GitHub uses them for jobs that
   // deliberately did not run.
