@@ -874,16 +874,6 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
-    "stop-at-decision-scan",
-    {
-      description:
-        "Records the silent stop at a ripe decision: a turn whose mutations are all evidence-writes, ending having minted nothing and said nothing. Log-only.",
-      failureClasses: ["lost-signal"],
-      provenance: [hook("stop-at-decision-scan"), HOOK_OBSERVERS_RULE],
-      stratum: "registry",
-    },
-  ],
-  [
     "turn-end-stale-state-assertion-scan",
     {
       description:

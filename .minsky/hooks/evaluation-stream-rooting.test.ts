@@ -13,7 +13,9 @@ import {
   appendEvaluationRecord as appendSilentStretch,
   readEvaluationLogText as readSilentStretch,
 } from "./silent-stretch-detector";
-import { appendEvaluationRecord as appendStopAtDecision } from "./stop-at-decision-scan";
+// mt#4978: `stop-at-decision-scan` was the third writer this test covered. It was
+// retired 2026-09-04 per ask#11629, so its row is gone from the table below —
+// the remaining four still assert the property (WHERE an evaluation stream lands).
 import { appendEvaluationRecord as appendOperatorDeferral } from "./operator-deferral-detector";
 import { appendEvaluationRecord as appendUntakenAction } from "./turn-end-untaken-action-scan";
 import { evaluationLogPath } from "./dispatcher";
@@ -78,11 +80,6 @@ const DETECTORS: ReadonlyArray<{
     label: "silent-stretch",
     streamFile: SILENT_STRETCH_STREAM_FILE,
     append: appendSilentStretch,
-  },
-  {
-    label: "stop-at-decision",
-    streamFile: "stop-at-decision-evaluations.jsonl",
-    append: appendStopAtDecision,
   },
   // mt#3782 — the fourth writer, missed by mt#3745's enumeration.
   {

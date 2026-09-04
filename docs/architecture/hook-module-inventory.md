@@ -60,11 +60,11 @@ larger than a subtraction from 60 suggests.
 | Bucket         | Count   |
 | -------------- | ------- |
 | already-domain | 13      |
-| movable        | 89      |
-| immovable      | 84      |
-| **total**      | **186** |
+| movable        | 88      |
+| immovable      | 83      |
+| **total**      | **184** |
 
-Of the 89 movable, **18** land in ADR-026 tier 1 (they reach persistence, so the
+Of the 88 movable, **18** land in ADR-026 tier 1 (they reach persistence, so the
 `ensureHookDomainBootstrap` requirement attaches); the other 71 are tier 2 —
 leaf functions with an explicit required `deps` parameter, no container, no import-time side effect.
 mt#4374 SC7 asks for a first wave that avoids tier 1; that is the tier-2 column below.
@@ -73,7 +73,7 @@ Immovable splits by reason class:
 
 | Reason class                    | Count |
 | ------------------------------- | ----- |
-| no-decision: library            | 44    |
+| no-decision: library            | 43    |
 | no-decision: store              | 11    |
 | host-lifecycle                  | 10    |
 | no-decision: registry           | 10    |
@@ -148,7 +148,7 @@ mt#4374 is extracting toward — `flakiness-control-detector.ts` calls itself "t
 | `tasks-status-set-guard.ts`            | standalone-hook  | `validateStatusTransition (tasks/status-transitions)`                | decides-only (derived: no fs write, no spawn) | plant |
 | `warn-bare-prohibition-dispatch.ts`    | standalone-hook  | `analyzeNegativeConstraints (validation/negative-constraint)`        | side-effecting (derived: writes fs / spawns)  | plant |
 
-## movable (89)
+## movable (88)
 
 Decision is inline in the hook module. `Extraction unit` names the function a wave lifts; where no
 `detect*`/`scan*`/`decide*` export exists the cell says so rather than guessing, and that module
@@ -217,7 +217,6 @@ bootstrap requirement.
 | `silent-stretch-detector.ts`                   | dispatcher-guard | measureSilentStretch, findTurnBoundaryTimestamps                                                | side-effecting (injector+recorder)                            | plant | preference |
 | `skill-staleness-detector.ts`                  | dispatcher-guard | detectStaleness, decideAndUpdate                                                                | decides-only (injector)                                       | plant | advisory   |
 | `stamp-ask-conversation.ts`                    | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | side-effecting (derived: writes fs / spawns)                  | plant | —          |
-| `stop-at-decision-scan.ts`                     | dispatcher-guard | detectDecisionStop                                                                              | side-effecting (recorder)                                     | plant | advisory   |
 | `substrate-bypass-detector.ts`                 | dispatcher-guard | detectVerbalCommitment, detectSkillBypass                                                       | side-effecting (injector+recorder)                            | plant | preference |
 | `truncated-outcome-read-detector.ts`           | dispatcher-guard | scanCommand                                                                                     | side-effecting (recorder)                                     | plant | advisory   |
 | `turn-end-bare-ref-scan.ts`                    | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | side-effecting (injector+recorder)                            | plant | advisory   |
@@ -259,7 +258,7 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `warn-stale-forward-reference.ts`          | standalone-hook  | findForwardReferences, decideStaleForwardReference                | side-effecting (injector+recorder)            | plant | advisory   |
 | `warn-unwired-task-relationship.ts`        | dispatcher-guard | findRelationshipAssertions, isDischarged                          | side-effecting (recorder)                     | plant | advisory   |
 
-## immovable (84)
+## immovable (83)
 
 | Module                                    | Role                | Reason                                                                                                                                                                                                                                                                                             | Effects                                       | Plane   |
 | ----------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ------- |
@@ -299,7 +298,6 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `guard-health-escalation-notify-store.ts` | store               | no decision to lift — local state store; its content is an effect, not a verdict.                                                                                                                                                                                                                  | side-effecting (derived: writes fs / spawns)  | plant   |
 | `guard-health.ts`                         | store               | no decision to lift — local state store; its content is an effect, not a verdict.                                                                                                                                                                                                                  | side-effecting (derived: writes fs / spawns)  | plant   |
 | `guard-tuning-store.ts`                   | store               | no decision to lift — local state store; its content is an effect, not a verdict.                                                                                                                                                                                                                  | side-effecting (derived: writes fs / spawns)  | plant   |
-| `handoff-status.ts`                       | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `hook-child-env.ts`                       | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `interceptor-coordinates.ts`              | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `interceptor-descriptions-settings.ts`    | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |

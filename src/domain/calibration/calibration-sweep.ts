@@ -591,29 +591,6 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     // the shared matched-phrase fallback branch.
     kind: "retrospective-completeness",
   },
-  {
-    path: ".minsky/stop-at-decision-calibration.jsonl",
-    name: "stop-at-decision",
-    // mt#3653 — turn-end stop-at-decision scan (family:stop-at-handoff R5):
-    // an evidence-write into a non-bound open task with no discharge call in
-    // the same turn. Record shape is its own (`targets: {taskId, status}[]`),
-    // parsed by a dedicated branch; diversity is measured over distinct
-    // target task ids.
-    kind: "stop-at-decision",
-    // mt#3078 pattern: the date the detector's full invocation path —
-    // dispatcher -> registry -> run() -> transcript parse -> detection ->
-    // calibration write — was PROVEN alive via a live synthetic
-    // positive/negative-control probe (positive wrote one record with a real
-    // CLI status read; negative — same turn plus an asks_create — wrote
-    // none). The trigger is a rare COMPOUND condition (evidence-write +
-    // non-bound + open target + no discharge + no marker), so zero real
-    // fires for a stretch is plausible without the detector being broken.
-    //
-    // Evidence artifact (cite the permanent record, not just this comment):
-    // the mt#3653 PR body's "Live verification" section carries the actual
-    // positive/negative-control transcript this date is derived from.
-    liveSinceDate: "2026-08-04",
-  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -909,6 +886,14 @@ export interface KnowledgeAcquisitionRecord {
 
 /**
  * Parsed stop-at-decision calibration record (mt#3653).
+ *
+ * **The DETECTOR is retired (mt#4978, 2026-09-04, per ask#11629); this PARSER is
+ * deliberately kept.** Its `CALIBRATION_LOG_REGISTRY` entry is gone, so nothing
+ * declares or sweeps the stream any more and no new records are written. But the
+ * two logs are RETAINED on disk as the retirement's evidence — three windows of
+ * false-positive measurements are what justified retiring it — and a retained log
+ * nothing can parse is a worse artifact than one that can still be read. Delete
+ * this block only alongside the logs themselves.
  *
  * NOT a matched-phrase record — a per-turn record of an evidence-write into a
  * non-bound open task with no discharge call in the same turn. `targets` is
@@ -2238,6 +2223,11 @@ export function assessClassifiability(
  * the exhaustiveness this object (and `KIND_FIXTURES`) exist to guarantee.
  */
 const KNOWN_KIND_MEMBERSHIP: Record<CalibrationLogEntry["kind"], true> = {
+  // mt#4978: the DETECTOR is retired and its `CALIBRATION_LOG_REGISTRY` entry is
+  // gone, but the `kind` stays in the union so the retained log can still be
+  // parsed — and this object is exhaustive over that union by construction, so
+  // the entry stays with it. Remove both together or neither.
+  "stop-at-decision": true,
   "causal-premise": true,
   "retrospective-trigger": true,
   "ask-routing-deferral": true,
@@ -2252,7 +2242,6 @@ const KNOWN_KIND_MEMBERSHIP: Record<CalibrationLogEntry["kind"], true> = {
   "operator-deferral": true,
   "untaken-action": true,
   "retrospective-completeness": true,
-  "stop-at-decision": true,
   "bare-entity-ref": true,
   "bare-prohibition": true,
   "execution-evidence-at-coverage": true,
@@ -3427,7 +3416,6 @@ const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
   "operator-deferral": "operator-deferral-detector",
   "untaken-action": "turn-end-untaken-action-scan",
   "retrospective-completeness": "retrospective-completeness-detector",
-  "stop-at-decision": "stop-at-decision-scan",
 };
 
 /**
