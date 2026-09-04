@@ -32,7 +32,7 @@ import {
  * exemption, that is a decision worth arguing for in a PR, which is exactly what
  * having to edit this number forces.
  */
-const GRANDFATHER_CEILING = 38; // 2026-09-04, all `reviewer`. Burn-down: mt#4990.
+const GRANDFATHER_CEILING = 37; // 2026-09-04, all `reviewer`. Burn-down: mt#4990.
 
 describe("extractors — the three read patterns", () => {
   test('pattern 1: process.env.X and process.env["X"]', () => {
@@ -100,6 +100,34 @@ describe("extractors — the three read patterns", () => {
     expect(extractEnvNames(code)).toEqual(["MINSKY_REAL_READ"]);
   });
 
+  test("stripComments preserves line numbering (PR #3638 R1, BLOCKING)", () => {
+    // The reported `file:line` is computed on the stripped source, so a strip
+    // that collapses a block comment shifts every line after it. Measured drift
+    // before the fix was 231 lines on services/reviewer/src/server.ts — a
+    // location that points at unrelated code while looking authoritative.
+    const code = [
+      "const before = 1;",
+      "/*",
+      " * three",
+      " * lines",
+      " */",
+      "const after = 2;",
+    ].join("\n");
+    const stripped = stripComments(code);
+    expect(stripped.split("\n").length).toBe(code.split("\n").length);
+    // And the name still lands on its real line.
+    expect(stripped.split("\n").findIndex((l) => l.includes("after"))).toBe(5);
+  });
+
+  test("a brace inside a string literal does not close a registry early", () => {
+    // The bracket walk is string-aware (PR #3638 R1, NON-BLOCKING). Without it
+    // the `}` in the first value ends the scan and MINSKY_SECOND is never seen —
+    // a silent under-read, which is this check's worst failure direction.
+    const code = `const TRICKY_ENV_VARS = { a: "MINSKY_FIRST_}", b: "MINSKY_SECOND" } as const;`;
+    const found = extractRegistryNames(code);
+    expect(found).toContain("MINSKY_SECOND");
+  });
+
   test("extractEnvNames unions all three patterns", () => {
     const code = `
       const DEMO_ENV_VARS = ["MINSKY_FROM_REGISTRY"] as const;
@@ -123,7 +151,11 @@ describe("census over the real services/ tree", () => {
     // assertion below pass vacuously — the check would report on nothing.
     expect(reports.length).toBeGreaterThan(0);
     expect(reports.some((r) => r.hasDeployDoc)).toBe(true);
-    expect(reports.some((r) => r.read.length > 10)).toBe(true);
+    // Any service reading anything is enough to prove the walk reached source.
+    // An earlier `> 10` coupled this to today's counts (PR #3638 R1,
+    // NON-BLOCKING) — it would fail on a legitimate cleanup that removed env
+    // vars, which is the direction this whole task is trying to encourage.
+    expect(reports.some((r) => r.read.length > 0)).toBe(true);
   });
 
   test("no service reads an env var that is undocumented and ungrandfathered", () => {

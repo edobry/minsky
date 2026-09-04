@@ -77,9 +77,20 @@ export const ENV_HELPER_NAMES = ["requireEnv", "optionalEnv", "parsePositiveIntE
 const REGISTRY_DECL =
   /(?:const|let|var)\s+[A-Z][A-Z0-9_]*_ENV_VARS?(?:_NAMES)?\s*(?::[^=]+)?=\s*([[{])/g;
 
-/** Strip comments so a name mentioned only in prose is not counted as a read. */
+/**
+ * Strip comments so a name mentioned only in prose is not counted as a read.
+ *
+ * LINE-PRESERVING: a block comment is replaced by its own newlines rather than
+ * by nothing (PR #3638 R1, BLOCKING). Collapsing them shifts every subsequent
+ * line, and the reported location is computed on this output — measured drift
+ * was 231 lines on `services/reviewer/src/server.ts`, i.e. a `file:line` that
+ * points at unrelated code. That is worse than omitting the line entirely,
+ * because it looks authoritative.
+ */
 export function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => "\n".repeat((m.match(/\n/g) ?? []).length))
+    .replace(/\/\/.*$/gm, "");
 }
 
 /** Pattern 1 — `process.env.X` and `process.env["X"]`. */
@@ -115,8 +126,21 @@ export function extractRegistryNames(code: string): string[] {
     const open = decl.index + decl[0].length - 1;
     let depth = 0;
     let end = open;
+    // String-aware (PR #3638 R1, NON-BLOCKING): a `"}"` or `"]"` inside a
+    // string literal would otherwise close the registry early and truncate the
+    // name set — a silent under-read, which is this check's worst direction.
+    let quote: string | null = null;
     for (let i = open; i < code.length; i++) {
       const ch = code[i];
+      if (quote) {
+        if (ch === "\\") i++;
+        else if (ch === quote) quote = null;
+        continue;
+      }
+      if (ch === '"' || ch === "'" || ch === "`") {
+        quote = ch;
+        continue;
+      }
       if (ch === "[" || ch === "{") depth++;
       else if (ch === "]" || ch === "}") {
         depth--;
@@ -171,7 +195,13 @@ function walkTs(dir: string): string[] {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) out.push(...walkTs(full));
-    else if (entry.endsWith(".ts")) out.push(full);
+    // Test files and ambient declarations are not the DEPLOYED service (PR
+    // #3638 R1, NON-BLOCKING). A var read only by `*.test.ts` under `src/` is
+    // read by the harness, not by the container an operator deploys, so
+    // demanding a runbook entry for it is a false positive — and counting it
+    // inflates the debt. `.d.ts` declares types and reads nothing.
+    else if (entry.endsWith(".ts") && !entry.endsWith(".test.ts") && !entry.endsWith(".d.ts"))
+      out.push(full);
   }
   return out;
 }
