@@ -42,7 +42,7 @@ import OpenAI from "openai";
 import { writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseToolCall } from "../src/output-tools";
+import { BATCHED_FINDINGS_TOOL, parseToolCallExpanded } from "../src/output-tools";
 import { ALL_TOOL_DEFINITIONS } from "../src/providers";
 import { buildForcedFindingsUserMessage } from "../src/forced-findings-guard";
 
@@ -108,7 +108,7 @@ async function runAttempt(client: OpenAI, attempt: number): Promise<AttemptResul
         { role: "user", content: buildForcedFindingsUserMessage(CONCLUSION_SUMMARY) },
       ],
       tools: ALL_TOOL_DEFINITIONS,
-      tool_choice: { type: "function", function: { name: "submit_finding" } },
+      tool_choice: { type: "function", function: { name: BATCHED_FINDINGS_TOOL } },
     });
 
     const toolCalls = response.choices[0]?.message?.tool_calls ?? [];
@@ -116,21 +116,28 @@ async function runAttempt(client: OpenAI, attempt: number): Promise<AttemptResul
 
     for (const toolCall of toolCalls) {
       if (toolCall.type !== "function") continue;
-      if (toolCall.function.name !== "submit_finding") continue;
+      const fnName = toolCall.function.name;
+      if (fnName !== BATCHED_FINDINGS_TOOL && fnName !== "submit_finding") continue;
       try {
-        const parsed = parseToolCall("submit_finding", toolCall.function.arguments);
-        if (parsed.name !== "submit_finding") continue;
-        result.findingsParsed += 1;
-        result.locations.push({
-          file: parsed.args.file,
-          line: parsed.args.line,
-          severity: parsed.args.severity,
-        });
-        // The whole point of the pass is a REAL location rather than the
-        // mt#2685 placeholder's "(review summary)" sentinel. Counted so a
-        // regression to sentinel-shaped output is visible in the artifact
-        // rather than hiding inside a passing findingsParsed count.
-        if (parsed.args.file === "(review summary)") result.sentinelLocations += 1;
+        // mt#4979: the pinned tool is the BATCH form, so ONE returned call can
+        // carry N findings. Counting CALLS would report 1 no matter how many
+        // the model filled in — the exact measurement error this task exists to
+        // correct — so count expanded ENTRIES.
+        const expanded = parseToolCallExpanded(fnName, toolCall.function.arguments);
+        for (const parsed of expanded) {
+          if (parsed.name !== "submit_finding") continue;
+          result.findingsParsed += 1;
+          result.locations.push({
+            file: parsed.args.file,
+            line: parsed.args.line,
+            severity: parsed.args.severity,
+          });
+          // The whole point of the pass is a REAL location rather than the
+          // mt#2685 placeholder's "(review summary)" sentinel. Counted so a
+          // regression to sentinel-shaped output is visible in the artifact
+          // rather than hiding inside a passing findingsParsed count.
+          if (parsed.args.file === "(review summary)") result.sentinelLocations += 1;
+        }
       } catch (err: unknown) {
         result.error = `parse_error: ${err instanceof Error ? err.message : String(err)}`;
       }

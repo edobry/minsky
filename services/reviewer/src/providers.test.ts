@@ -2814,22 +2814,28 @@ describe("post-loop forced findings pass (mt#2926)", () => {
       withText("Done reviewing."),
       withToolCalls([toolCall("d1", TOOL_DOC_IMPACT, DOC_IMPACT)]),
       withToolCalls([toolCall("c1", "conclude_review", REQUEST_CHANGES)]),
-      // The forced findings pass: the model files the two issues its own
-      // conclusion named, each anchored to a real file and line.
+      // The forced findings pass. mt#4979 pins the BATCHED tool, so ONE call
+      // carries both issues the conclusion named — which is the whole point:
+      // a pinned tool_choice returns exactly one call, so the singular form
+      // capped recovery at one finding.
       withToolCalls([
-        toolCall("f1", "submit_finding", {
-          severity: "BLOCKING",
-          file: "src/hooks/pre-commit.ts",
-          line: 2403,
-          summary: "Gate diverges silently when no harness is recorded",
-          details: "Add an explicit warning so teams are not told to refresh outputs.",
-        }),
-        toolCall("f2", "submit_finding", {
-          severity: "BLOCKING",
-          file: "packages/domain/src/init.ts",
-          line: 165,
-          summary: "Unreadable config is overwritten with only a log warning",
-          details: "Fail closed or require a flag; silent data loss in CI otherwise.",
+        toolCall("f1", "submit_findings", {
+          findings: [
+            {
+              severity: "BLOCKING",
+              file: "src/hooks/pre-commit.ts",
+              line: 2403,
+              summary: "Gate diverges silently when no harness is recorded",
+              details: "Add an explicit warning so teams are not told to refresh outputs.",
+            },
+            {
+              severity: "BLOCKING",
+              file: "packages/domain/src/init.ts",
+              line: 165,
+              summary: "Unreadable config is overwritten with only a log warning",
+              details: "Fail closed or require a flag; silent data loss in CI otherwise.",
+            },
+          ],
         }),
       ]),
     ]);
@@ -2859,7 +2865,7 @@ describe("post-loop forced findings pass (mt#2926)", () => {
     expect(calls).toHaveLength(5);
     expect(calls[4]?.tool_choice).toEqual({
       type: "function",
-      function: { name: "submit_finding" },
+      function: { name: "submit_findings" },
     });
   });
 
@@ -2917,12 +2923,10 @@ describe("post-loop forced findings pass (mt#2926)", () => {
       withToolCalls([toolCall("d1", TOOL_DOC_IMPACT, DOC_IMPACT)]),
       withToolCalls([toolCall("c1", "conclude_review", REQUEST_CHANGES)]),
       withToolCalls([
-        toolCall("f1", "submit_finding", {
-          severity: "BLOCKING",
-          file: "src/foo.ts",
-          line: 1,
-          summary: "s",
-          details: "d",
+        toolCall("f1", "submit_findings", {
+          findings: [
+            { severity: "BLOCKING", file: "src/foo.ts", line: 1, summary: "s", details: "d" },
+          ],
         }),
       ]),
     ]);
@@ -2988,12 +2992,16 @@ describe("post-loop forced findings pass (mt#2926)", () => {
       withToolCalls([toolCall("d1", TOOL_DOC_IMPACT, DOC_IMPACT)]),
       withToolCalls([toolCall("c1", "conclude_review", REQUEST_CHANGES)]),
       withToolCalls([
-        toolCall("f1", "submit_finding", {
-          severity: "BLOCKING",
-          file: "src/foo.ts",
-          line: 42,
-          summary: "Follow-up to the R1 block",
-          details: "No action required — resolved in the current diff.",
+        toolCall("f1", "submit_findings", {
+          findings: [
+            {
+              severity: "BLOCKING",
+              file: "src/foo.ts",
+              line: 42,
+              summary: "Follow-up to the R1 block",
+              details: "No action required — resolved in the current diff.",
+            },
+          ],
         }),
       ]),
     ]);
@@ -3005,5 +3013,188 @@ describe("post-loop forced findings pass (mt#2926)", () => {
     const findings = result.toolCalls.filter((tc) => tc.name === "submit_finding");
     expect(findings).toHaveLength(1);
     expect(findings[0]?.args.severity).toBe("NON-BLOCKING");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4979 — the resolution-note guard must run on the BATCH path too
+// ---------------------------------------------------------------------------
+
+describe("batched submit_findings applies the resolution-note guard (mt#4979)", () => {
+  const MODEL_ID = "gpt-4o";
+
+  const usage = () => ({
+    prompt_tokens: 10,
+    completion_tokens: 5,
+    total_tokens: 15,
+    completion_tokens_details: { reasoning_tokens: 0 },
+  });
+
+  const call = (id: string, name: string, args: unknown) => ({
+    id,
+    type: "function",
+    function: { name, arguments: JSON.stringify(args) },
+  });
+
+  test("a resolution note inside a batch is reclassified, exactly as on the singular path", () => {
+    // mt#3545's batch branch deliberately bypassed the singular path's guards,
+    // on the reasoning that none applied to spec verifications. That reasoning
+    // does NOT carry to findings — without the per-entry guard, `submit_findings`
+    // would be a third emission route around mt#2863, which is precisely the gap
+    // class mt#2926 exists to close.
+    const responses = [
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                call("b1", "submit_findings", {
+                  findings: [
+                    {
+                      severity: "BLOCKING",
+                      file: "src/foo.ts",
+                      line: 1,
+                      summary: "Follow-up to the R1 block",
+                      details: "No action required — resolved in the current diff.",
+                    },
+                    {
+                      severity: "BLOCKING",
+                      file: "src/bar.ts",
+                      line: 2,
+                      summary: "Genuine defect",
+                      details: "This must be fixed before merge.",
+                    },
+                  ],
+                }),
+                call("c1", "conclude_review", { event: "REQUEST_CHANGES", summary: "Issues." }),
+              ],
+            },
+          },
+        ],
+        usage: usage(),
+      },
+      { choices: [{ message: { content: "Done.", tool_calls: undefined } }], usage: usage() },
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                call("d1", TOOL_DOC_IMPACT, {
+                  kind: DOC_IMPACT_KIND_NO_UPDATE,
+                  evidence: "none",
+                }),
+              ],
+            },
+          },
+        ],
+        usage: usage(),
+      },
+    ];
+
+    let i = 0;
+    const client = {
+      chat: { completions: { create: async () => responses[i++] } },
+    } as unknown as OpenAI;
+
+    const tools: ReviewerToolContext = {
+      readFile: mock(async () => null),
+      listDirectory: mock(async () => null),
+    };
+
+    return callOpenAIWithClient(client, MODEL_ID, "system", "user", tools).then((result) => {
+      const findings = result.toolCalls.filter((tc) => tc.name === "submit_finding");
+      expect(findings).toHaveLength(2);
+      // Entry 1 reads as a completed resolution note -> downgraded.
+      expect(findings[0]?.args.severity).toBe("NON-BLOCKING");
+      // Entry 2 is a genuine defect -> untouched. Without this the test would
+      // pass just as well if the guard downgraded everything.
+      expect(findings[1]?.args.severity).toBe("BLOCKING");
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PR #3640 R1 — the forced pass dedupes across the batch and singular forms
+// ---------------------------------------------------------------------------
+
+describe("forced findings pass dedupes duplicate entries (PR #3640 R1)", () => {
+  const MODEL_ID = "gpt-4o";
+  const usage = () => ({
+    prompt_tokens: 10,
+    completion_tokens: 5,
+    total_tokens: 15,
+    completion_tokens_details: { reasoning_tokens: 0 },
+  });
+  const call = (id: string, name: string, args: unknown) => ({
+    id,
+    type: "function",
+    function: { name, arguments: JSON.stringify(args) },
+  });
+  const withCalls = (calls: unknown[]) => ({
+    choices: [{ message: { content: null, tool_calls: calls } }],
+    usage: usage(),
+  });
+  const DUPE = {
+    severity: "BLOCKING" as const,
+    file: "src/foo.ts",
+    line: 10,
+    summary: "Same issue",
+    details: "d",
+  };
+
+  test("the same finding arriving in BOTH the batch and the singular is recorded once", () => {
+    // The pin makes this shape unlikely, not impossible, and the pass accepts
+    // both names on purpose (dropping a well-formed finding for arriving under
+    // the other name would re-create the lossy channel). So the dedupe is what
+    // stops "accept both" from becoming "report twice".
+    const responses = [
+      withCalls([
+        call("s1", TOOL_SPEC_VERIFICATION, {
+          criterion: "c",
+          status: "Met",
+          evidence: "e",
+        }),
+      ]),
+      { choices: [{ message: { content: "Done.", tool_calls: undefined } }], usage: usage() },
+      withCalls([
+        call("d1", TOOL_DOC_IMPACT, {
+          kind: DOC_IMPACT_KIND_NO_UPDATE,
+          evidence: "none",
+        }),
+      ]),
+      withCalls([
+        call("c1", "conclude_review", {
+          event: "REQUEST_CHANGES",
+          summary: "Issues remain.",
+        }),
+      ]),
+      // The forced findings pass returns the batch AND a singular duplicate,
+      // plus one genuinely distinct finding.
+      withCalls([
+        call("f1", "submit_findings", {
+          findings: [DUPE, { ...DUPE, file: "src/bar.ts", summary: "Different issue" }],
+        }),
+        call("f2", "submit_finding", DUPE),
+      ]),
+    ];
+
+    let i = 0;
+    const client = {
+      chat: { completions: { create: async () => responses[i++] } },
+    } as unknown as OpenAI;
+    const tools: ReviewerToolContext = {
+      readFile: mock(async () => null),
+      listDirectory: mock(async () => null),
+    };
+
+    return callOpenAIWithClient(client, MODEL_ID, "system", "user", tools).then((result) => {
+      const findings = result.toolCalls.filter((tc) => tc.name === "submit_finding");
+      // Two distinct findings, not three — and the distinct one survives, which
+      // is what separates a dedupe from "kept only the first call".
+      expect(findings).toHaveLength(2);
+      expect(findings.map((f) => f.args.file)).toEqual(["src/foo.ts", "src/bar.ts"]);
+    });
   });
 });

@@ -237,9 +237,12 @@ export function buildForcedFindingsUserMessage(conclusionSummary: string): strin
   return (
     'Your review is incoherent as it stands: you concluded `event="REQUEST_CHANGES"` but ' +
     'emitted no `submit_finding` call with `severity="BLOCKING"`, so the structured findings ' +
-    "channel is empty and the issues you described exist only as prose. Emit a `submit_finding` " +
-    "call for each blocking issue named in your conclusion below.\n\n" +
-    'Each call takes: `severity` (use "BLOCKING" for an issue that must be fixed before merge), ' +
+    "channel is empty and the issues you described exist only as prose. Emit ONE " +
+    "`submit_findings` call carrying an entry for EACH blocking issue named in your conclusion " +
+    "below — if your conclusion names two issues, that call must contain two entries. (The " +
+    "singular `submit_finding` is also accepted if you emit it, but the batch is what lets you " +
+    "report every issue in one call.)\n\n" +
+    'Each entry takes: `severity` (use "BLOCKING" for an issue that must be fixed before merge), ' +
     "`file` (repo-relative path), `line` (1-based, the new-file line number for an addition), " +
     "optional `lineEnd` and `side`, `summary` (one sentence), and `details` (the rationale and " +
     "suggested fix).\n\n" +

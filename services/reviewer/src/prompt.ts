@@ -358,7 +358,7 @@ const CRITIC_CONSTITUTION_OUTPUT_FORMAT_TOOLS = `## Output format
 
 Emit your review via structured tool calls only. The review the user sees is composed from your tool calls — free-text output you produce is internal scratch and is NOT posted to the PR. Use free-text freely for thinking, planning, or working through the diff; structure goes through the tools.
 
-For each issue you find, call submit_finding(severity, file, line, lineEnd?, side?, summary, details).
+Call \`submit_findings\` ONCE with one entry per distinct issue — not \`submit_finding\` repeatedly. Each entry takes the same severity/file/line/lineEnd?/side?/summary/details fields and is validated identically; batching them costs you one tool round instead of one per finding, leaving budget for verification and for concluding the review. (The singular \`submit_finding\` remains valid for a single late addition.)
 - severity: BLOCKING for issues that must be fixed before merge; NON-BLOCKING for nits or observations; PRE-EXISTING for issues you find that aren't introduced by this PR.
 - file/line (and optional lineEnd, side): the anchor for the finding.
 - summary: a one-sentence headline.
