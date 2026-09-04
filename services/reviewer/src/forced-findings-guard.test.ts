@@ -13,6 +13,7 @@ import { describe, test, expect } from "bun:test";
 import {
   evaluateForcedFindingsPass,
   buildForcedFindingsUserMessage,
+  describeForcedFindingsOutcome,
 } from "./forced-findings-guard";
 import { MAX_SYNTHESIZED_SUMMARY_CHARS } from "./empty-findings-recovery";
 import type { ReviewToolCall } from "./output-tools";
@@ -203,5 +204,54 @@ describe("buildForcedFindingsUserMessage", () => {
 
     expect(msg).toContain("truncated — original summary was");
     expect(msg).not.toContain(oversized);
+  });
+});
+
+describe("describeForcedFindingsOutcome (PR #3627 R1)", () => {
+  test("a not-attempted outcome is NOT a fire", () => {
+    // The finding this covers: forceFindings returns before making any
+    // provider call when SUBMIT_FINDING_TOOL_DEF is missing, and the call site
+    // used to log `fired: true` for it anyway. That inflates the numerator
+    // mt#4980 measures against mt#2828's 6.1% baseline, and inflates the
+    // "fired and did not help" bucket specifically — the bucket whose growth
+    // would argue for redesigning the pass.
+    expect(
+      describeForcedFindingsOutcome({ kind: "not-attempted", reason: "tool-def-missing" })
+    ).toEqual({
+      fired: false,
+      emittedCount: 0,
+      fellBackToRecoverySynth: true,
+      skipReason: "tool-def-missing",
+    });
+  });
+
+  test("an attempted outcome that emitted findings is a fire that did not fall back", () => {
+    expect(describeForcedFindingsOutcome({ kind: "attempted", emittedCount: 2 })).toEqual({
+      fired: true,
+      emittedCount: 2,
+      fellBackToRecoverySynth: false,
+    });
+  });
+
+  test("an attempted outcome that emitted nothing is a fire that DID fall back", () => {
+    // Distinct from the not-attempted case above and deliberately so: the call
+    // happened and the model returned nothing usable. Same downstream artifact,
+    // different cause, different remedy.
+    expect(describeForcedFindingsOutcome({ kind: "attempted", emittedCount: 0 })).toEqual({
+      fired: true,
+      emittedCount: 0,
+      fellBackToRecoverySynth: true,
+    });
+  });
+
+  test("a failed outcome is a fire, and carries the error", () => {
+    // An API error means a call WAS attempted — it reached the provider and
+    // came back as a failure, which is a different signal from never trying.
+    expect(describeForcedFindingsOutcome({ kind: "failed", error: "rate limit" })).toEqual({
+      fired: true,
+      emittedCount: 0,
+      fellBackToRecoverySynth: true,
+      error: "rate limit",
+    });
   });
 });

@@ -154,6 +154,72 @@ export function evaluateForcedFindingsPass(
 }
 
 /**
+ * What the forced pass actually did, as distinct from what was asked of it.
+ *
+ * `not-attempted` is NOT a variant for tidiness: `forceFindings` returns before
+ * making any provider call when `SUBMIT_FINDING_TOOL_DEF` is missing, and the
+ * caller cannot tell that apart from "called and got nothing back" if all it
+ * receives is a count of zero.
+ */
+export type ForcedFindingsOutcome =
+  | { kind: "not-attempted"; reason: "tool-def-missing" }
+  | { kind: "attempted"; emittedCount: number }
+  | { kind: "failed"; error: string };
+
+/** The `reviewer.forced_findings_pass` fields that describe one outcome. */
+export interface ForcedFindingsLogFields {
+  fired: boolean;
+  emittedCount: number;
+  fellBackToRecoverySynth: boolean;
+  skipReason?: string;
+  error?: string;
+}
+
+/**
+ * Map an outcome to its log fields (PR #3627 R1).
+ *
+ * Extracted as a pure function rather than written inline at the call site
+ * because `fired` is a CLAIM, and the branch that gets it wrong is the one no
+ * integration test can reach: `SUBMIT_FINDING_TOOL_DEF` is a module-level
+ * constant derived from `OUTPUT_TOOL_DEFINITIONS`, so a test cannot make it
+ * null without patching the module. Putting the decision here makes it
+ * testable by construction, which is what `testing-standards.mdc §Testable
+ * Design` asks for when the alternative is patching a collaborator the code
+ * reaches itself.
+ *
+ * Why it matters beyond tidiness: `fired` is the numerator mt#4980 will use to
+ * measure this pass's production fire rate against mt#2828's 6.1%
+ * REQUEST_CHANGES-denominated baseline. Counting a disabled path as a fire
+ * inflates that numerator, and — because the disabled path also emits nothing —
+ * inflates the "fired and did not help" bucket specifically, which is the one
+ * that would trigger a redesign.
+ */
+export function describeForcedFindingsOutcome(
+  outcome: ForcedFindingsOutcome
+): ForcedFindingsLogFields {
+  switch (outcome.kind) {
+    case "not-attempted":
+      // No provider call happened, so this is not a fire. Reported with a
+      // skip_reason so it lands in the same bucket as the predicate's skips
+      // rather than in a third shape a dashboard has to learn.
+      return {
+        fired: false,
+        emittedCount: 0,
+        fellBackToRecoverySynth: true,
+        skipReason: outcome.reason,
+      };
+    case "failed":
+      return { fired: true, emittedCount: 0, fellBackToRecoverySynth: true, error: outcome.error };
+    case "attempted":
+      return {
+        fired: true,
+        emittedCount: outcome.emittedCount,
+        fellBackToRecoverySynth: outcome.emittedCount === 0,
+      };
+  }
+}
+
+/**
  * Build the user message injected before the forced `submit_finding` pass.
  *
  * Mirrors `DOC_IMPACT_REMINDER_USER_MSG`'s shape in `providers.ts`: name the

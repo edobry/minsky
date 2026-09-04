@@ -35,6 +35,7 @@ import { evaluateSubmitFindingCall, markUntrackedDeferral } from "./resolution-n
 import {
   evaluateForcedFindingsPass,
   buildForcedFindingsUserMessage,
+  describeForcedFindingsOutcome,
 } from "./forced-findings-guard";
 
 /**
@@ -1158,7 +1159,11 @@ async function forceDocumentationImpact(
  * Conversation history is NOT mutated: a shallow-copied `forcedMessages`
  * array is passed to the API, so the caller's `messages` array is unaffected.
  *
- * @returns Token usage plus how many findings were actually appended.
+ * @returns Token usage, whether a provider call was actually ATTEMPTED, and how
+ *          many findings were appended. `attempted` is separate from a zero
+ *          count on purpose (PR #3627 R1): the missing-tool-def branch returns
+ *          before any call, and a caller that sees only `emittedCount: 0`
+ *          cannot tell that apart from a call that came back empty.
  */
 async function forceFindings(
   client: OpenAI,
@@ -1173,6 +1178,7 @@ async function forceFindings(
   completionTokens: number;
   reasoningTokens: number;
   cachedTokens: number;
+  attempted: boolean;
   emittedCount: number;
 }> {
   if (!SUBMIT_FINDING_TOOL_DEF) {
@@ -1186,6 +1192,7 @@ async function forceFindings(
       completionTokens: 0,
       reasoningTokens: 0,
       cachedTokens: 0,
+      attempted: false,
       emittedCount: 0,
     };
   }
@@ -1225,7 +1232,7 @@ async function forceFindings(
   const message = response.choices[0]?.message;
   const rawToolCalls = message?.tool_calls;
   if (!rawToolCalls || rawToolCalls.length === 0) {
-    return { ...tokenUsage, emittedCount: 0 };
+    return { ...tokenUsage, attempted: true, emittedCount: 0 };
   }
 
   let emittedCount = 0;
@@ -1292,7 +1299,7 @@ async function forceFindings(
     }
   }
 
-  return { ...tokenUsage, emittedCount };
+  return { ...tokenUsage, attempted: true, emittedCount };
 }
 
 /**
@@ -1993,30 +2000,45 @@ export async function callOpenAIWithClient(
       totalReasoningTokens += forcedFindings.reasoningTokens;
       totalCachedTokens += forcedFindings.cachedTokens;
 
+      // PR #3627 R1: `fired` is derived from whether a provider call was
+      // actually ATTEMPTED, not from having reached this branch. The
+      // missing-tool-def path returns here having called nothing, and counting
+      // it as a fire would inflate exactly the numerator mt#4980 measures —
+      // and inflate the "fired and did not help" bucket specifically, since
+      // that path also emits nothing.
+      const fields = describeForcedFindingsOutcome(
+        forcedFindings.attempted
+          ? { kind: "attempted", emittedCount: forcedFindings.emittedCount }
+          : { kind: "not-attempted", reason: "tool-def-missing" }
+      );
       log.info("reviewer.forced_findings_pass", {
         event: "reviewer.forced_findings_pass",
         provider: "openai",
-        fired: true,
+        fired: fields.fired,
         fired_at_turn: totalRoundsUsed,
-        emitted_count: forcedFindings.emittedCount,
-        // The pass ran and produced nothing parseable — the mt#2685 recovery
-        // synthesis is what the review falls back to. Surfaced as its own
-        // field so a dashboard can separate "did not need to fire" from
-        // "fired and did not help", which have the same downstream artifact.
-        fell_back_to_recovery_synth: forcedFindings.emittedCount === 0,
+        emitted_count: fields.emittedCount,
+        // Separates "did not need to fire" from "fired and did not help" —
+        // the two produce the same downstream artifact (mt#2685's synthesized
+        // finding) and must be distinguishable on a dashboard.
+        fell_back_to_recovery_synth: fields.fellBackToRecoverySynth,
+        ...(fields.skipReason ? { skip_reason: fields.skipReason } : {}),
       });
     } catch (err: unknown) {
       // API error (network, rate limit, timeout) on the forced call. Log and
       // fall through; the mt#2685 recovery pass supplies the placeholder
       // finding downstream exactly as it does today.
+      const failedFields = describeForcedFindingsOutcome({
+        kind: "failed",
+        error: err instanceof Error ? err.message : String(err),
+      });
       log.info("reviewer.forced_findings_pass", {
         event: "reviewer.forced_findings_pass",
         provider: "openai",
-        fired: true,
+        fired: failedFields.fired,
         fired_at_turn: totalRoundsUsed,
-        emitted_count: 0,
-        fell_back_to_recovery_synth: true,
-        error: err instanceof Error ? err.message : String(err),
+        emitted_count: failedFields.emittedCount,
+        fell_back_to_recovery_synth: failedFields.fellBackToRecoverySynth,
+        error: failedFields.error,
       });
     }
   } else {
