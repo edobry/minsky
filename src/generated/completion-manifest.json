@@ -6256,7 +6256,7 @@
             },
             {
               "flags": ["--review-token"],
-              "description": "The `reviewToken` returned by the READ-ONLY sweep whose records you classified (mt#3906). REQUIRED with ack:true. It carries the per-log fire counts as of that read, so the watermark records what was actually reviewed instead of whatever the log has grown to by ack time — records that arrive mid-pass stay unreviewed and are reported as `midPassArrivals` rather than silently marked seen. A token that is malformed, or that claims more records than the log holds, is REJECTED (no watermark moves); one whose count sits below an existing watermark is raised to it.",
+              "description": "The `reviewToken` returned by the READ-ONLY sweep whose records you classified (mt#3906). REQUIRED with ack:true. It carries the per-log fire counts as of that read, so the watermark records what was actually reviewed instead of whatever the log has grown to by ack time — records that arrive mid-pass stay unreviewed and are reported as `midPassArrivals` rather than silently marked seen. A token that is malformed, or that claims more records than the log holds, is REJECTED (no watermark moves); one whose count sits below an existing watermark is raised to it — UNLESS that watermark is stranded above the log's own record count, in which case it is reset to 0 and the log's records go back in the review queue (mt#4941).",
               "takesValue": true
             },
             {

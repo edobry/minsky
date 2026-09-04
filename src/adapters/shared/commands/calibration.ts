@@ -672,7 +672,9 @@ export function registerCalibrationCommands(): void {
           "log has grown to by ack time — records that arrive mid-pass stay unreviewed and " +
           "are reported as `midPassArrivals` rather than silently marked seen. A token that " +
           "is malformed, or that claims more records than the log holds, is REJECTED (no " +
-          "watermark moves); one whose count sits below an existing watermark is raised to it.",
+          "watermark moves); one whose count sits below an existing watermark is raised to it " +
+          "— UNLESS that watermark is stranded above the log's own record count, in which case " +
+          "it is reset to 0 and the log's records go back in the review queue (mt#4941).",
         required: false,
       },
       askId: {
