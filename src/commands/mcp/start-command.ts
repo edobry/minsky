@@ -2178,10 +2178,26 @@ export function createStartCommand(
         // waits for `container.has("persistence")` (bounded, polling — never a second
         // `container.initialize()` call, which could race the in-flight one) before
         // resolving it, so this call site can no longer hit that race.
+        //
+        // PR #3615 R2: a dedicated AbortController rather than threading through the
+        // `cleanup()` closure below — a shutdown signal should stop THIS best-effort wait
+        // promptly (its own timer is already `unref()`'d, so it cannot hold the process open
+        // by itself, but there is no reason to let it keep polling once the process is on its
+        // way out). Scoped to this one wait; does not participate in `cleanup()`'s drain
+        // sequence or its `shutdownInFlight` guard.
+        const prodStateReadyAbort = new AbortController();
+        // `.once` is absent from this project's narrowed ambient `process` type (only `.on` is
+        // — see the sibling `process.on("SIGTERM", cleanup)` below); `.on` is fine here since
+        // `AbortController.abort()` is idempotent — a second signal delivery aborts a
+        // already-aborted controller harmlessly.
+        process.on("SIGTERM", () => prodStateReadyAbort.abort());
+        process.on("SIGINT", () => prodStateReadyAbort.abort());
         import("../../mcp/prod-state-boot-refresh")
           .then(({ triggerProdStateBootRefreshWhenReady }) => {
             if (!container) return;
-            return triggerProdStateBootRefreshWhenReady(container);
+            return triggerProdStateBootRefreshWhenReady(container, undefined, {
+              signal: prodStateReadyAbort.signal,
+            });
           })
           .catch((err) => {
             log.warn("Prod-state boot refresh failed (best-effort)", {

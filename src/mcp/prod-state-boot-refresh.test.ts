@@ -500,6 +500,75 @@ describe("waitForPersistenceReady", () => {
     expect(ready).toBe(false);
     expect(sleepCalls).toBeGreaterThan(0);
   });
+
+  test("PR #3615 R2: an already-aborted signal returns false promptly, without exhausting the timeout", async () => {
+    // The shutdown/abort path (mt#4938 PR #3615 R2): a process on its way out should not make
+    // this best-effort wait run to its full budget. A LONG timeoutMs (10s) proves the early
+    // return is the abort check, not the timeout — the timeout is never actually reached
+    // (sleepCalls stays 0, since the FIRST loop iteration's has()-then-abort check exits
+    // before ever calling sleep).
+    const container = fakeContainer({ neverReady: true });
+    const controller = new AbortController();
+    controller.abort();
+    let sleepCalls = 0;
+    const ready = await waitForPersistenceReady(container, {
+      timeoutMs: 10_000,
+      signal: controller.signal,
+      sleep: async () => {
+        sleepCalls += 1;
+      },
+    });
+    expect(ready).toBe(false);
+    expect(sleepCalls).toBe(0);
+  });
+
+  test("PR #3615 R2: aborting mid-poll stops the wait on the NEXT loop check, without reaching the timeout", async () => {
+    const container = fakeContainer({ neverReady: true });
+    const controller = new AbortController();
+    let sleepCalls = 0;
+    const ready = await waitForPersistenceReady(container, {
+      timeoutMs: 10_000,
+      signal: controller.signal,
+      sleep: async () => {
+        sleepCalls += 1;
+        // Abort partway through — the wait must notice on its NEXT iteration rather than
+        // running out the full (10s) timeout.
+        if (sleepCalls === 3) controller.abort();
+      },
+    });
+    expect(ready).toBe(false);
+    // Exactly the sleeps needed to reach the abort, plus none after — proves the loop checks
+    // `signal.aborted` on every iteration rather than only once at entry.
+    expect(sleepCalls).toBe(3);
+  });
+
+  test("PR #3615 R2: the default sleep's timer is unref()'d, so a pending wait cannot hold the process open", async () => {
+    // Cannot observe "does the process exit" from inside the SAME process's test — instead
+    // assert the CONTRACT this relies on: the timer handle returned by the real (non-injected)
+    // sleep path has `unref` called on it. A fake global `setTimeout` captures the handle and
+    // reports whether `.unref()` was invoked, without needing a real timer to fire.
+    const realSetTimeout = globalThis.setTimeout;
+    let unrefCalled = false;
+    // @ts-expect-error -- intentionally narrowing the global for one call, restored in finally.
+    globalThis.setTimeout = (fn: () => void, ms?: number) => {
+      const handle = realSetTimeout(fn, ms);
+      const originalUnref = handle.unref?.bind(handle);
+      // Wrap rather than replace outright, so the real timer behavior (still fires) is
+      // preserved — this test only needs to know unref() was CALLED, not stub it out.
+      (handle as unknown as { unref: () => void }).unref = () => {
+        unrefCalled = true;
+        originalUnref?.();
+      };
+      return handle;
+    };
+    try {
+      const container = fakeContainer({ readyAfterCalls: 1 });
+      await waitForPersistenceReady(container, { pollIntervalMs: 1 });
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+    expect(unrefCalled).toBe(true);
+  });
 });
 
 describe("triggerProdStateBootRefreshWhenReady (mt#4938 SC2)", () => {

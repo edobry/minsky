@@ -478,6 +478,19 @@ const PERSISTENCE_READY_WAIT_TIMEOUT_MS = 15_000;
  * Returns `false` on timeout — "persistence never became available in this window" — rather
  * than throwing, so a caller can treat it as one more best-effort outcome among the several
  * this module already returns (`absent`/`unreadable`/`wrote: null`/…).
+ *
+ * Two hardenings added in mt#4938 PR #3615 R2 (CI round), neither of which was the cause of
+ * that round's actual failure (see the R2 note on the `ProdStateTouchRefresher` type import in
+ * `server.ts` for what was) but both worth having regardless, since this wait genuinely can run
+ * for real seconds on the STDIO boot path, where `container.initialize()` runs in the
+ * background rather than being awaited before this call site runs:
+ *
+ * - The default `sleep`'s timer is `unref()`'d, so a pending poll can never by itself hold the
+ *   process open — an un-unref'd timer keeps Node/Bun's event loop alive, which is exactly the
+ *   property a BEST-EFFORT background sweep must not have.
+ * - An optional `signal` lets a caller abort the wait early (e.g. on SIGTERM/SIGINT), so a
+ *   graceful-shutdown path is not made to wait out the full timeout for a sweep it no longer
+ *   cares about the result of.
  */
 export async function waitForPersistenceReady(
   container: Pick<PersistenceAwareContainer, "has">,
@@ -485,15 +498,27 @@ export async function waitForPersistenceReady(
     timeoutMs?: number;
     pollIntervalMs?: number;
     sleep?: (ms: number) => Promise<void>;
+    signal?: AbortSignal;
   } = {}
 ): Promise<boolean> {
   const timeoutMs = opts.timeoutMs ?? PERSISTENCE_READY_WAIT_TIMEOUT_MS;
   const pollIntervalMs = opts.pollIntervalMs ?? PERSISTENCE_READY_POLL_INTERVAL_MS;
   const sleep =
-    opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    opts.sleep ??
+    ((ms: number) =>
+      new Promise<void>((resolve) => {
+        const t = setTimeout(resolve, ms);
+        // `unref` is absent from this project's narrowed ambient `Timeout` type in some
+        // tsconfig scopes even though it exists at runtime on both Node's and Bun's timer
+        // handle — optional-call rather than a cast, so an environment that genuinely lacks
+        // it (a browser-shaped `number` handle, never actually reachable here) degrades to
+        // "still works, just holds the loop" instead of throwing.
+        t.unref?.();
+      }));
 
   const deadlineMs = Date.now() + timeoutMs;
   while (!container.has("persistence")) {
+    if (opts.signal?.aborted) return false;
     if (Date.now() >= deadlineMs) return false;
     await sleep(pollIntervalMs);
   }
