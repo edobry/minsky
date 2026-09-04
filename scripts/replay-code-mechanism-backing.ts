@@ -50,7 +50,7 @@
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import {
   detectCodeMechanismAssertion,
@@ -59,6 +59,10 @@ import {
 } from "../.minsky/hooks/code-mechanism-assertion-detector";
 import { hashJudgedText, hasJudgedInputCapture } from "../.minsky/hooks/judged-input-capture";
 import { calibrationLogPath } from "../.minsky/hooks/dispatcher";
+import {
+  checkoutForLegacyLogPath,
+  transcriptRootFallbackNotice,
+} from "./lib/calibration-log-checkout";
 import {
   parseTranscript,
   findRealPromptIndices,
@@ -101,7 +105,19 @@ function resolveTranscriptDir(): string | null {
   if (explicit !== undefined && explicit !== "") return explicit;
 
   const projects = join(homedir(), ".claude", "projects");
-  for (const checkout of [dirname(dirname(LOG_PATH)), REPO_ROOT]) {
+
+  // mt#4971 / PR #3624 R1: this used to lead with `dirname(dirname(LOG_PATH))`, which
+  // recovered the checkout from the pre-mt#4748 `<checkout>/.minsky/<file>` layout and
+  // is why `--log <other-checkout>/…` steered transcript selection. A state-dir path
+  // cannot carry that — `projects/<key>/` is a one-way hash — so that expression now
+  // yields `<state dir>`, a directory that is not a checkout and whose slug will never
+  // match. Ask for the legacy shape explicitly instead of computing a confident wrong
+  // answer, and tell the caller when an explicit `--log` could not steer.
+  const derivedCheckout = checkoutForLegacyLogPath(LOG_PATH);
+  if (flag(ARGV, "--log") !== undefined && derivedCheckout === null) {
+    process.stderr.write(`${transcriptRootFallbackNotice(LOG_PATH, REPO_ROOT)}\n`);
+  }
+  for (const checkout of derivedCheckout === null ? [REPO_ROOT] : [derivedCheckout, REPO_ROOT]) {
     const candidate = join(projects, checkout.replace(/[\\/]/g, "-"));
     if (existsSync(candidate)) return candidate;
   }

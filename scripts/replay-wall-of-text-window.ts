@@ -45,6 +45,10 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { calibrationLogPath } from "../.minsky/hooks/dispatcher";
 import {
+  checkoutForLegacyLogPath,
+  transcriptRootFallbackNotice,
+} from "./lib/calibration-log-checkout";
+import {
   findRealPromptIndices,
   resolveCompletedTurn,
   extractAssistantText,
@@ -288,14 +292,19 @@ function main(): void {
   const logArg = args.indexOf("--calibration-log");
   const logPath = logArg >= 0 ? resolve(args[logArg + 1] ?? "") : CALIBRATION_LOG;
 
-  // mt#4971: the repo root used to be DERIVED from the log path
-  // (`<root>/.minsky/wall-of-text-calibration.jsonl` -> `<root>`). That derivation
-  // died with mt#4748 — the log now lives at `<state dir>/projects/<key>/`, whose
-  // grandparent is the state dir, not a checkout. Deriving it from this file's own
-  // location is what the path used to encode; `--transcript-dir` stays the override
-  // for reading another checkout's transcripts.
-  const repoRoot = REPO_ROOT;
+  // mt#4971 / PR #3624 R1: the repo root used to be DERIVED from the log path
+  // (`<root>/.minsky/wall-of-text-calibration.jsonl` -> `<root>`), so
+  // `--calibration-log <other-checkout>/…` steered transcript selection too. A
+  // state-dir path cannot carry that — `projects/<key>/` is a one-way hash of the
+  // checkout — so the legacy shape keeps the old coupling and everything else falls
+  // back to THIS checkout with a notice. Falling back is fine; doing it silently was
+  // the finding.
+  const derivedCheckout = checkoutForLegacyLogPath(logPath);
+  const repoRoot = derivedCheckout ?? REPO_ROOT;
   const dirArg = args.indexOf("--transcript-dir");
+  if (logArg >= 0 && derivedCheckout === null && dirArg < 0) {
+    process.stderr.write(`${transcriptRootFallbackNotice(logPath, repoRoot)}\n`);
+  }
   const dir = dirArg >= 0 ? resolve(args[dirArg + 1] ?? "") : transcriptDirFor(repoRoot);
   if (!existsSync(dir)) {
     process.stderr.write(
