@@ -24,6 +24,9 @@ import type { DispatchContext, GuardOutcome } from "./registry";
 /** The `windowSource` discriminant, named once so the assertions cannot drift. */
 const FALLBACK_SOURCE = "fallback-default";
 
+/** The model id from mt#4968's originating incident — a dotted release of a listed family. */
+const INCIDENT_MODEL = "claude-fable-5-1";
+
 function assistantLine(
   model: string | undefined,
   usage: Record<string, number> | undefined
@@ -145,6 +148,7 @@ describe("resolveWindow", () => {
     expect(resolveWindow("claude-opus-5")).toEqual({
       tokens: 1_000_000,
       source: "known-model",
+      matchedKey: "claude-opus-5",
     });
   });
 
@@ -169,9 +173,12 @@ describe("resolveWindow", () => {
   // -------------------------------------------------------------------------
 
   test("a dotted release id resolves to its family's window", () => {
+    // `matchedKey` is the family, not the id — which is how a later reader of
+    // the calibration stream can tell a stripped resolution from an exact hit.
     expect(resolveWindow("claude-opus-5-1")).toEqual({
       tokens: 1_000_000,
       source: "known-model",
+      matchedKey: "claude-opus-5",
     });
   });
 
@@ -179,12 +186,28 @@ describe("resolveWindow", () => {
     expect(resolveWindow("claude-opus-5-20260101")).toEqual({
       tokens: 1_000_000,
       source: "known-model",
+      matchedKey: "claude-opus-5",
     });
   });
 
   test("a dotted release that ALSO carries a date strips in two hops", () => {
     // Why the retry is a loop rather than a single strip.
-    expect(resolveWindow("claude-opus-5-1-20260101").tokens).toBe(1_000_000);
+    expect(resolveWindow("claude-opus-5-1-20260101")).toEqual({
+      tokens: 1_000_000,
+      source: "known-model",
+      matchedKey: "claude-opus-5",
+    });
+  });
+
+  test("an EXACT table hit reports itself as the matched key", () => {
+    // `claude-fable-5-1` is in the table outright, so nothing is stripped.
+    expect(resolveWindow(INCIDENT_MODEL).matchedKey).toBe(INCIDENT_MODEL);
+  });
+
+  test("a fallback carries NO matched key", () => {
+    // Nothing resolved, so there is no key to report — the absence is the
+    // signal, not an empty string.
+    expect(resolveWindow("claude-zeta-9").matchedKey).toBeUndefined();
   });
 
   test("a family deliberately absent from the table stays absent through stripping", () => {
@@ -221,7 +244,7 @@ describe("resolveWindow", () => {
 
 describe("measureFill on a release-suffixed model (mt#4968)", () => {
   test("claude-fable-5-1 at 257,693 tokens reads ~25.8% against a known window", () => {
-    const measurement = mustMeasure([assistantLine("claude-fable-5-1", usageSummingTo(257_693))]);
+    const measurement = mustMeasure([assistantLine(INCIDENT_MODEL, usageSummingTo(257_693))]);
     expect(measurement.windowSource).toBe("known-model");
     expect(measurement.windowTokens).toBe(1_000_000);
     expect(measurement.fillRatioPct).toBe(25.8);
@@ -330,10 +353,12 @@ describe("buildGaugeLine", () => {
   test("a fallback reading marks the percentage itself as estimated", () => {
     const unknown = mustMeasure([assistantLine("mystery-model", usageSummingTo(190_000))]);
     const line = buildGaugeLine(unknown);
-    const pct = `${unknown.fillRatioPct}%`;
-    expect(line).toContain(`${pct} ESTIMATED`);
-    // The marker is adjacent to the number, not merely present somewhere.
-    expect(line.indexOf("ESTIMATED")).toBe(line.indexOf(pct) + pct.length + 1);
+    // Adjacency is the property — the marker rides ON the figure rather than
+    // appearing somewhere in the sentence. Matched with a whitespace-tolerant
+    // pattern rather than index arithmetic, so re-wrapping the line does not
+    // fail a test about WHERE the marker sits (PR #3622 R1, non-blocking).
+    const pct = String(unknown.fillRatioPct).replace(".", "\\.");
+    expect(line).toMatch(new RegExp(`${pct}%\\s+ESTIMATED`));
   });
 
   test("a known-model reading carries NO estimate marker", () => {
@@ -354,6 +379,20 @@ describe("buildGaugeLine", () => {
   test("the fallback line still says no action is required", () => {
     const unknown = mustMeasure([assistantLine("mystery-model", usageSummingTo(190_000))]);
     expect(buildGaugeLine(unknown).toLowerCase()).toContain("no action is required");
+  });
+
+  test("a record with NO model id says so, rather than blaming the table", () => {
+    // Two different causes: a named model missing from the table is a gap in
+    // the TABLE; a record with no model id is a gap in the TRANSCRIPT, where
+    // no lookup happened at all. Saying "unknown is not in the window table"
+    // asserts a check that was never run (PR #3622 R1, non-blocking).
+    const noModel = mustMeasure([assistantLine(undefined, usageSummingTo(190_000))]);
+    const line = buildGaugeLine(noModel);
+    expect(noModel.windowSource).toBe(FALLBACK_SOURCE);
+    expect(line).toContain("the transcript records no model id");
+    expect(line).not.toContain("unknown is not in the window table");
+    // Still an estimate, and still marked as one.
+    expect(line).toContain("ESTIMATED");
   });
 
   test("an over-long model id is capped in the render", () => {

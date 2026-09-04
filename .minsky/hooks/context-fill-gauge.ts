@@ -175,6 +175,8 @@ export interface FillMeasurement {
   fillTokens: number;
   windowTokens: number;
   windowSource: "known-model" | "fallback-default";
+  /** The table key the window resolved THROUGH — the family id when a release suffix was stripped. */
+  windowMatchedKey?: string;
   fillRatioPct: number;
   model?: string;
   assistantTurnCount: number;
@@ -271,10 +273,17 @@ export function computeFill(reading: UsageReading): number {
 export function resolveWindow(model: string | undefined): {
   tokens: number;
   source: "known-model" | "fallback-default";
+  matchedKey?: string;
 } {
   for (let id = model; id !== undefined; id = stripTrailingNumericSegment(id)) {
     const known = KNOWN_MODEL_WINDOWS[id];
-    if (known !== undefined) return { tokens: known, source: "known-model" };
+    // `matchedKey` is what the id resolved THROUGH — equal to the model on an
+    // exact hit, and the shorter family id when the retry stripped a suffix.
+    // Without it the calibration stream cannot tell those two apart after the
+    // fact: both record `known-model` against the full id, so a later reader
+    // measuring how often the retry actually fires has nothing to count
+    // (PR #3622 R1, non-blocking).
+    if (known !== undefined) return { tokens: known, source: "known-model", matchedKey: id };
   }
   return { tokens: FALLBACK_WINDOW_TOKENS, source: "fallback-default" };
 }
@@ -314,6 +323,7 @@ export function measureFill(lines: readonly TranscriptLine[]): FillMeasurement |
     fillTokens,
     windowTokens: window.tokens,
     windowSource: window.source,
+    ...(window.matchedKey !== undefined ? { windowMatchedKey: window.matchedKey } : {}),
     fillRatioPct: Math.round(fillRatioPct * 10) / 10,
     model: reading.model,
     assistantTurnCount: countAssistantTurns(lines),
@@ -357,11 +367,26 @@ export function measureFill(lines: readonly TranscriptLine[]): FillMeasurement |
  */
 export const MAX_RENDERED_MODEL_ID_CHARS = 40;
 
-function capModelId(model: string | undefined): string {
-  if (model === undefined) return "unknown";
+function capModelId(model: string): string {
   return model.length <= MAX_RENDERED_MODEL_ID_CHARS
     ? model
     : `${model.slice(0, MAX_RENDERED_MODEL_ID_CHARS - 1)}…`;
+}
+
+/**
+ * The two reasons a window can be assumed are DIFFERENT, and saying so matters.
+ *
+ * A named model that is absent from the table is a gap in the table. A record
+ * carrying no `model` field at all is a gap in the TRANSCRIPT — nothing was
+ * looked up, so "unknown is not in the window table" states something that was
+ * never checked and points a reader at the wrong fix (PR #3622 R1,
+ * non-blocking). `findLastUsage` leaves `model` undefined whenever the record's
+ * `message.model` is absent or not a string, so this branch is reachable.
+ */
+function describeWhyAssumed(model: string | undefined): string {
+  return model === undefined
+    ? "the transcript records no model id for this turn"
+    : `${capModelId(model)} is not in the window table`;
 }
 
 export function buildGaugeLine(measurement: FillMeasurement): string {
@@ -380,10 +405,10 @@ export function buildGaugeLine(measurement: FillMeasurement): string {
   // no hedge, and hedging it would train the marker to be ignored.
   const reading =
     measurement.windowSource === "fallback-default"
-      ? `${measurement.fillRatioPct}% ESTIMATED — ${capModelId(measurement.model)} is not in the ` +
-        `window table, so this is ${measurement.fillTokens.toLocaleString()} tokens over an ` +
-        `assumed ${measurement.windowTokens.toLocaleString()}; the real window may be several ` +
-        `times larger (${measurement.assistantTurnCount} assistant turns)`
+      ? `${measurement.fillRatioPct}% ESTIMATED — ${describeWhyAssumed(measurement.model)}, so ` +
+        `this is ${measurement.fillTokens.toLocaleString()} tokens over an assumed ` +
+        `${measurement.windowTokens.toLocaleString()}; the real window may be several times ` +
+        `larger (${measurement.assistantTurnCount} assistant turns)`
       : `${measurement.fillRatioPct}% (${measurement.fillTokens.toLocaleString()} of ` +
         `${measurement.windowTokens.toLocaleString()} tokens, ` +
         `${measurement.assistantTurnCount} assistant turns)`;
@@ -509,6 +534,9 @@ export function run(
       fillTokens: measurement.fillTokens,
       windowTokens: measurement.windowTokens,
       windowSource: measurement.windowSource,
+      ...(measurement.windowMatchedKey !== undefined
+        ? { windowMatchedKey: measurement.windowMatchedKey }
+        : {}),
       fillRatioPct: measurement.fillRatioPct,
       assistantTurnCount: measurement.assistantTurnCount,
       ...(measurement.model !== undefined ? { model: measurement.model } : {}),
@@ -527,6 +555,9 @@ export function run(
       fillTokens: measurement.fillTokens,
       windowTokens: measurement.windowTokens,
       windowSource: measurement.windowSource,
+      ...(measurement.windowMatchedKey !== undefined
+        ? { windowMatchedKey: measurement.windowMatchedKey }
+        : {}),
       fillRatioPct: measurement.fillRatioPct,
       assistantTurnCount: measurement.assistantTurnCount,
       ...(measurement.model !== undefined ? { model: measurement.model } : {}),
