@@ -384,7 +384,7 @@
             "_comment": "ADR-028 guard-dispatcher Stop entrypoint (mt#2357): the SOLE settings.json entry for every Stop-event guard registered in .minsky/hooks/registry.ts's GUARD_REGISTRY. Do not add new individual Stop hook commands here; register them in GUARD_REGISTRY instead. Timeout is DERIVED (mt#3981, absorbing mt#3675) from .minsky/hooks/dispatch-timeout-budget.ts's deriveDispatchTimeoutMs over the registered Stop guards' timeoutMs — see .minsky/hooks/registry.test.ts's dispatcher-parity block for the check that keeps this value honest; it replaces the hand-recomputed-comment convention that let this entry sit stale at 49 against a live 58s sum (mt#3536/mt#3593 pattern) until this task's negative control caught it. typecheck-on-stop.ts above stays deliberately standalone (predates the framework; emits its own block decisions on its own 60s budget).",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-stop.ts",
-            "timeout": 71,
+            "timeout": 63,
             "statusMessage": "Running guard dispatcher (Stop)..."
           }
         ]

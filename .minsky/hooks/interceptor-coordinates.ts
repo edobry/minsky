@@ -629,7 +629,6 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     { interventions: [injectAgent, recordReview], mechanism: "structural", role: "judge" },
   ],
   ["skill-staleness-detector", structuralInjector],
-  ["stop-at-decision-scan", structuralRecorder],
   ["substrate-bypass-detector", lexicalDetector],
   ["turn-end-bare-ref-scan", lexicalDetector],
   ["turn-end-retro-scan", lexicalDetector],

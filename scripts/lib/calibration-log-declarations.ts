@@ -105,6 +105,8 @@ export const NON_GUARD_CALIBRATION_PRODUCERS: Record<string, string> = {
  * @see scripts/check-coverage-receipts.ts — the consumer
  */
 export const RETIRED_CALIBRATION_PRODUCERS: Record<string, string> = {
+  "stop-at-decision":
+    "stop-at-decision-scan (mt#3653), retired 2026-09-04 by mt#4978 per ask#11629 — hook, its shared handoff-status predicate, the generated copies and four replay harnesses deleted. Three calibration windows and two corpus-derived marker widenings did not converge (82% -> 92% -> ~85% false; the last suppressed zero of ten), because the discharge check was a phrase list over an open-vocabulary closing sentence. Both logs are retained on disk as the retirement's evidence — they ARE the justification",
   "policy-coverage":
     "policy-coverage-detector (Surface 1), retired 2026-08-16 by mt#4197 — hook, domain modules and canary deleted; the 1,760-record log is retained on disk as the retirement's evidence",
 };

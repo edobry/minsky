@@ -438,40 +438,26 @@ export const TURN_END_GUARDS: readonly GuardRegistration[] = [
       },
     },
   },
-  {
-    // mt#3653 — LOG-ONLY fourth Stop-event sibling: R5 of
-    // family:stop-at-handoff. `untaken-action` keys on a sign-off phrase,
-    // `unwalked-task` on a tasks_create MINT; this one keys on an
-    // evidence-WRITE — a `tasks_spec_patch` into a non-bound open task — with
-    // no discharge call in the same turn: the silent stop at a ripe decision,
-    // which mints nothing and says nothing, so both siblings are blind to it.
-    //
-    // Calibration-first: never emits `additionalContext`, so no attentionCost
-    // and no canary (the retrospective-completeness-detector precedent — a
-    // nominal attentionCost would distort the merged-context budget, which is
-    // derived by summing these annotations). Returns only a calibration
-    // record, plus a separate evaluation stream
-    // (.minsky/stop-at-decision-evaluations.jsonl, mt#3583 pattern). Full
-    // rationale, including the recorded ADR-031 deviation for the Stop-side
-    // tool-call read: the guard module's header.
-    name: "stop-at-decision-scan",
-    effects: [recorderEffect()],
-    tuningOwnership: "advisory",
-    event: "Stop",
-    module: () => import("./stop-at-decision-scan").then((m) => ({ run: m.run })),
-    // 8s, not the sibling 5s: this guard makes up to MAX_STATUS_READS (2)
-    // `minsky` CLI status reads at 2.5s timeout each (measured 1.64s live),
-    // and the reads must fit inside the guard budget with the transcript
-    // scan's share left over.
-    timeoutMs: 8000,
-    calibrationLog: "stop-at-decision",
-    denyCapable: false,
-    // TRUE: both the trigger (spec-patch tool calls) and the discharge check
-    // (asks_create/status-set/dispatch/Skill absence) live only in the
-    // transcript; only the recommendation-marker leg reads
-    // last_assistant_message.
-    needsTranscript: true,
-  },
+  // -------------------------------------------------------------------------
+  // mt#4978 — `stop-at-decision-scan` (mt#3653) was RETIRED here on 2026-09-04
+  // per ask#11629. It keyed on an evidence-WRITE (`tasks_spec_patch` into a
+  // non-bound open task) with no discharge call in the same turn — the third
+  // Stop-event sibling, blind spots of `untaken-action` (sign-off phrase) and
+  // `unwalked-task` (tasks_create mint).
+  //
+  // WHY IT WENT, so nobody re-derives the idea and rebuilds it. Its discharge
+  // check was a phrase list (`RECOMMENDATION_MARKERS`) over the turn's CLOSING
+  // MESSAGE. Three calibration windows and two corpus-derived widenings:
+  // 82% → 92% → ~85% false, and the last window suppressed ZERO of ten. A
+  // closing sentence's phrasing is open-vocabulary, so a marker list has
+  // nothing to converge on — the arms-race shape ADR-024 §Context names for a
+  // different detector family.
+  //
+  // The trigger half (an evidence-write into a decision-owning task) was never
+  // the problem and remains a real signal; anyone rebuilding this should key
+  // the DISCHARGE on structure rather than phrases, and read mt#4539's three
+  // windows first.
+  // -------------------------------------------------------------------------
   // -------------------------------------------------------------------------
   // mt#2708 — knowledge-acquisition detector (mt#2707 RFC's B proactive-
   // trigger half of the learn-capture primitive). Fires on in-task research
