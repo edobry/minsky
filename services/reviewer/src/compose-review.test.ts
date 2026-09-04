@@ -1360,3 +1360,62 @@ describe("composeReviewBody — COMMENT-with-zero-blocking resolution (mt#3202 /
     expect(result.postRecoveryBlockingCount).toBeGreaterThan(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// mt#4977: the mt#2863 diagnostic banner must not accuse a SYNTHESIZED finding
+// ---------------------------------------------------------------------------
+
+describe("resolution-note banner excludes the mt#2685 synthesized placeholder (mt#4977)", () => {
+  // The placeholder's `details` embeds the model's whole conclusion summary, so
+  // a resolution-flavoured sentence anywhere in that prose satisfies
+  // isResolutionNoteText. Text below is the real PR #2448 r2 placeholder,
+  // trimmed: it opens with a resolution acknowledgment and then states a
+  // genuine blocking demand.
+  const SYNTHESIZED_DETAILS =
+    "Synthesized by the empty-findings coherence recovery pass (mt#2685): the reviewer model " +
+    "called conclude_review with event=REQUEST_CHANGES but zero submit_finding calls. " +
+    "Original conclusion summary:\n\nThe prior BLOCKING issue was addressed: the comparator is " +
+    "now total. However, Success Criterion 6 remains unmet per the current spec: stale driven " +
+    "tabs do not degrade via markTabError. Please either wire the driven-view error path or " +
+    "update the spec to formally defer SC6.";
+
+  function bodyFor(file: string): string {
+    // An APPROVE conclusion plus a BLOCKING finding is the mt#2655
+    // reconciliation shape, which is the only path that renders the banner.
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_FINDING,
+        args: {
+          severity: "BLOCKING",
+          file,
+          line: 1,
+          summary: "Reviewer concluded REQUEST_CHANGES but emitted no structured findings",
+          details: SYNTHESIZED_DETAILS,
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Looks good." },
+      },
+    ];
+    return composeReviewBody(toolCalls).body;
+  }
+
+  test("a synthesized finding is NOT called out as a likely mis-tagged resolution note", () => {
+    const body = bodyFor("(review summary)");
+    expect(body).toContain(RECONCILIATION_APPROVE_TO_REQUEST_CHANGES);
+    // The banner still fires; it just must not accuse this finding. Telling the
+    // operator a synthesized placeholder is "likely mis-tagged rather than a
+    // genuine blocker" invites dismissing the blocking demand it quotes.
+    expect(body).not.toContain("NOTE (mt#2863)");
+  });
+
+  test("an ordinary finding with the same text IS still called out", () => {
+    // The exclusion is keyed on the synthesized sentinel, not on the text —
+    // without this, the test above would pass just as well if the whole
+    // diagnostic had been deleted.
+    const body = bodyFor("src/foo.ts");
+    expect(body).toContain(RECONCILIATION_APPROVE_TO_REQUEST_CHANGES);
+    expect(body).toContain("NOTE (mt#2863)");
+  });
+});
