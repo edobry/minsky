@@ -341,7 +341,9 @@ export function evaluateCheckRunsPresence(
 export const BUNDLE_BOOT_SMOKE_CHECK_NAME = "bundle-boot-smoke";
 
 // Override env var honored by the gate. Registered as hook-only in
-// src/domain/configuration/sources/environment.ts (mt#1788 rule).
+// packages/domain/src/configuration/sources/environment.ts (mt#1788 rule).
+// Path corrected mt#4950: this said `src/domain/...`, which has not existed
+// since the mt#2108 package extraction.
 export const BUNDLE_BOOT_SMOKE_OVERRIDE_ENV = "MINSKY_SKIP_BUNDLE_SMOKE";
 
 interface BundleBootCheckRun {
@@ -359,10 +361,11 @@ interface BundleBootCheckRun {
 // workflow-name compositions can produce "<workflow-name> / <job-name>".
 // Accept both shapes so future GitHub UX/API drift doesn't false-deny merges
 // for a workflow that actually fired and passed.
-function matchesBundleBootSmokeName(name: string): boolean {
-  return (
-    name === BUNDLE_BOOT_SMOKE_CHECK_NAME || name.endsWith(`/ ${BUNDLE_BOOT_SMOKE_CHECK_NAME}`)
-  );
+// mt#4950: parameterized by check name so a second gated check can reuse the
+// same match/parse/sort logic rather than copying it. Default preserves every
+// existing caller's behaviour.
+function matchesCheckName(name: string, checkName: string = BUNDLE_BOOT_SMOKE_CHECK_NAME): boolean {
+  return name === checkName || name.endsWith(`/ ${checkName}`);
 }
 
 export interface BundleBootSmokeParseSuccess {
@@ -389,6 +392,83 @@ export interface BundleBootSmokeEvalResult {
   reason?: string;
 }
 
+// ---------------------------------------------------------------------------
+// typecheck-infra gate (mt#4950) — exported for tests
+// ---------------------------------------------------------------------------
+
+// The check_run name produced by `.github/workflows/ci.yml`'s typecheck-infra job.
+export const TYPECHECK_INFRA_CHECK_NAME = "typecheck-infra";
+
+// Override env var honored by the gate. Registered as hook-only in
+// packages/domain/src/configuration/sources/environment.ts (mt#1788 rule).
+export const TYPECHECK_INFRA_OVERRIDE_ENV = "MINSKY_SKIP_TYPECHECK_INFRA";
+
+/**
+ * Deny a merge when `typecheck-infra` CONCLUDED non-success on the PR's HEAD.
+ *
+ * **Deliberately narrower than `evaluateBundleBootSmokePresence`, which denies on
+ * four classes (API failure, absent, pending, non-success).** This one denies on
+ * exactly the last: an explicit non-success conclusion. An absent check, a
+ * pending one, and an unparseable API response all PASS.
+ *
+ * The asymmetry is the finding mt#4950 was filed on, not an oversight. What was
+ * measured is that PRs #3603 and #3610 MERGED while this check was RED and
+ * nothing objected — `infra/` silently stopped being typechecked. Denying on RED
+ * closes exactly that. Denying on ABSENT would additionally make every webhook
+ * miss a merge-stopper, which is a different failure this task did not measure
+ * and does not own; `bundle-boot-smoke` takes that stricter posture because a
+ * bundle that never booted is a deploy-crash risk, and an `infra/` type error is
+ * not.
+ *
+ * Branch protection would be the more general home for this — the repo already
+ * has `evaluateRequiredChecksStatus` reading whatever the base branch marks
+ * required. It is NOT used here because that route is unavailable from agent
+ * context: `forge_branch_protection_get main` returns
+ * "Resource not accessible by integration" for the App token (probed
+ * 2026-09-04). Recorded so a later reader with a stronger token can move this
+ * to branch protection and delete the gate rather than re-deriving the choice.
+ */
+export function evaluateTypecheckInfraConclusion(
+  parseResult: BundleBootSmokeParseResult,
+  prNumber: string,
+  headSha: string
+): BundleBootSmokeEvalResult {
+  // Parse failure: do NOT deny. The bundle gate treats this as its own denial
+  // class because its absence is safety-critical; here an unreadable API
+  // response is not evidence the typecheck failed.
+  if (!parseResult.ok) return { deny: false };
+
+  const latest = parseResult.runs[0];
+  // No run, or not finished yet — pass. See the docblock: absence is not the
+  // condition this gate exists for.
+  if (!latest || latest.status !== "completed") return { deny: false };
+
+  // `skipped` and `neutral` are not failures; GitHub uses them for jobs that
+  // deliberately did not run.
+  if (
+    latest.conclusion === null ||
+    latest.conclusion === "success" ||
+    latest.conclusion === "skipped" ||
+    latest.conclusion === "neutral"
+  ) {
+    return { deny: false };
+  }
+
+  const jobLink = latest.htmlUrl ? ` Job: ${latest.htmlUrl}` : "";
+  return {
+    deny: true,
+    reason:
+      `"${TYPECHECK_INFRA_CHECK_NAME}" concluded ${latest.conclusion} for PR #${prNumber} ` +
+      `HEAD ${headSha.slice(0, 7)} (mt#4950). While this check is red, \`infra/\` is NOT being ` +
+      `typechecked — the job dies in setup before \`tsgo\` runs, so a red X here means no ` +
+      `coverage rather than a type error.${jobLink}` +
+      ` Read the job log before overriding: if \`pulumi install\` hung, the per-attempt bound may ` +
+      `need re-deriving (mt#4950 sized it at 240s against a measured ~87s install). ` +
+      `Override after confirming \`bun run typecheck:infra\` passes locally: set ` +
+      `${TYPECHECK_INFRA_OVERRIDE_ENV}=1.`,
+  };
+}
+
 // Parse a `check-runs` response and filter it down to bundle-boot-smoke runs.
 // Distinguishes API/parse failure from "the workflow ran but conclusion is X"
 // so the gate can give an accurate, actionable diagnosis. As of mt#2617 the
@@ -398,12 +478,17 @@ export interface BundleBootSmokeEvalResult {
 // function already filters `check_runs[]` by name client-side (see
 // `matchesBundleBootSmokeName` below), so the server-side filter was never
 // load-bearing for correctness, only for response size.
-export function parseBundleBootSmokeResponse(result: {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-  timedOut?: boolean;
-}): BundleBootSmokeParseResult {
+export function parseBundleBootSmokeResponse(
+  result: {
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+    timedOut?: boolean;
+  },
+  // mt#4950: which check to filter to. Defaults to bundle-boot-smoke so every
+  // pre-existing caller and test is unchanged.
+  checkName: string = BUNDLE_BOOT_SMOKE_CHECK_NAME
+): BundleBootSmokeParseResult {
   if (result.timedOut) {
     return {
       ok: false,
@@ -437,7 +522,7 @@ export function parseBundleBootSmokeResponse(result: {
     return { ok: false, error: "gh api response missing check_runs[]" };
   }
   const runs = (obj.check_runs as BundleBootCheckRun[])
-    .filter((r) => typeof r?.name === "string" && matchesBundleBootSmokeName(r.name))
+    .filter((r) => typeof r?.name === "string" && matchesCheckName(r.name, checkName))
     .map((r) => ({
       name: r.name as string,
       status: typeof r.status === "string" ? r.status : "unknown",
@@ -1548,6 +1633,38 @@ async function main(): Promise<void> {
           hookEventName: "PreToolUse",
           permissionDecision: "deny",
           permissionDecisionReason: bundleResult.reason,
+        },
+      });
+      return recordAndExit("deny", overrideFields, "decided");
+    }
+  }
+
+  // mt#4950: typecheck-infra gate — deny only on an explicit non-success
+  // conclusion (see `evaluateTypecheckInfraConclusion`'s docblock for why this
+  // is narrower than the bundle gate above). Reuses the same shared
+  // `checkRunsResp`, filtered to a different check name; no extra API call.
+  const skipTypecheckInfra = process.env[TYPECHECK_INFRA_OVERRIDE_ENV];
+  if (skipTypecheckInfra && /^(1|true|yes)$/i.test(skipTypecheckInfra)) {
+    process.stdout.write(
+      `[require-review-before-merge] typecheck-infra gate skipped via ${TYPECHECK_INFRA_OVERRIDE_ENV} set ` +
+        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()}, value not echoed)\n`
+    );
+    overrideFields = {
+      overrideEnvVar: TYPECHECK_INFRA_OVERRIDE_ENV,
+      overrideClassification: classifyOverride(TYPECHECK_INFRA_OVERRIDE_ENV),
+    };
+  } else if (headSha) {
+    const infraParseResult = parseBundleBootSmokeResponse(
+      checkRunsResp,
+      TYPECHECK_INFRA_CHECK_NAME
+    );
+    const infraResult = evaluateTypecheckInfraConclusion(infraParseResult, pr, headSha);
+    if (infraResult.deny && infraResult.reason) {
+      writeOutput({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: infraResult.reason,
         },
       });
       return recordAndExit("deny", overrideFields, "decided");

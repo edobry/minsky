@@ -395,6 +395,30 @@ jobs:
         with:
           node-version: "20"
 
+      # mt#4950: cache the Pulumi plugin store. This is the vendor-canonical
+      # pattern — Pulumi's GitHub Actions guide and pulumi/actions#804 both say a
+      # clean runner re-downloads provider plugins every run, and to cache
+      # `~/.pulumi/plugins` — and until now this workflow cached nothing on the
+      # Pulumi path at all (the only cache here is `~/.bun/install/cache`).
+      #
+      # Keyed on Pulumi.yaml because that is where the provider and its version
+      # are declared (`packages.railway.version`), so a version bump misses the
+      # cache and re-downloads, which is the behaviour you want.
+      #
+      # Sizing note, so this is not mistaken for the fix to the timeout below:
+      # the plugin download is the SMALL half. Measured on run 33851833179
+      # (2026-09-04), "Downloading provider terraform-provider" through
+      # "Unpacking provider" took ~3s of a ~90s step. This cache is worth having
+      # and is close to free; the step's actual cost is the npm install cached
+      # below it.
+      - name: Cache Pulumi plugins
+        uses: actions/cache@v4
+        with:
+          path: ~/.pulumi/plugins
+          key: pulumi-plugins-${{ runner.os }}-${{ hashFiles('infra/Pulumi.yaml') }}
+          restore-keys: |
+            pulumi-plugins-${{ runner.os }}-
+
       # mt#4300: the third unprotected raw-network step in this file, bounded and
       # retried like the two ripgrep installs above.
       #
@@ -427,16 +451,76 @@ jobs:
       # matches none of the patterns (`apt-get`, `curl`, `npm install`,
       # `bun install`) the enumeration searched for. Named-tool-plus-bare-`install`
       # is the shape that slipped through; the reviewer caught it.
-      # 120s is ~12x the measured healthy duration (10s, run 32287929281
-      # 2026-08-19T18:33:34→18:33:44Z). Backstop: 3 x 120s + 2 x 10s = 380s, so 8.
+      # mt#4950: cache what `pulumi install` actually spends its time on. The
+      # step below is TWO operations and only the second is slow: (1) download +
+      # unpack the provider plugin, ~3s, cached above; (2) `npm install` in
+      # infra/, which regenerates nothing but installs the generated local SDK
+      # and its deps — measured at ~87s on run 33851833179 ("added 3 packages in
+      # 1m"). `infra/sdks` is cached alongside `infra/node_modules` because
+      # package.json declares `"@pulumi/railway": "file:sdks/railway"`, so
+      # restoring node_modules without sdks/ would leave a dangling file: link.
+      #
+      # Keyed on BOTH the lockfile and Pulumi.yaml: the lockfile pins the npm
+      # deps, and Pulumi.yaml pins the provider version the local SDK is
+      # generated from, so a provider bump must miss this cache too.
+      - name: Cache infra node_modules + generated SDK
+        uses: actions/cache@v4
+        with:
+          path: |
+            infra/node_modules
+            infra/sdks
+          key: infra-deps-${{ runner.os }}-${{ hashFiles('infra/package-lock.json', 'infra/Pulumi.yaml') }}
+
+      # mt#4950: the 120s bound is re-derived, and the comment it replaced was
+      # the reason it looked safe. That comment read "120s is ~12x the measured
+      # healthy duration (10s, run 32287929281 2026-08-19T18:33:34→18:33:44Z)."
+      # The 10s figure was accurate when written and is now 16 days stale: on run
+      # 33851833179 (2026-09-04) a SUCCEEDING attempt took ~87s, so 120s was 1.4x
+      # the healthy duration, not 12x — and the attempt before it on that same
+      # run hit the timeout at exactly 120.0s and was rescued only by the retry
+      # below. That is the whole mechanism of mt#4950: nothing broke, the install
+      # grew until ordinary variance started crossing a bound sized for a much
+      # smaller operation.
+      #
+      # 240s is ~2.75x the measured 87s. It is deliberately NOT derived from the
+      # timed-out attempt, whose true duration is unknown (`timeout` killed it,
+      # so all that is known is >120s). Backstop: 3 x 240s + 2 x 10s = 740s =
+      # 12.3 min, so 13; the job's own 25-min cap still leaves room for the ~4
+      # min the other steps take.
+      #
+      # What would falsify this bound: a cache-MISS run whose attempt still
+      # exceeds 240s. The caches above should make a miss rare, which also means
+      # a miss is the run that matters — read the duration on one before
+      # concluding this number is right.
       - name: Install infra dependencies + provider SDK
         working-directory: infra
-        timeout-minutes: 8
+        timeout-minutes: 13
         run: |
           for i in 1 2 3; do
-            if timeout 120 pulumi install; then break; fi
-            if [ "$i" = 3 ]; then exit 1; fi
-            echo "pulumi install failed or hung (mt#4300) - retry $i"; sleep 10
+            set +e
+            timeout 240 pulumi install
+            rc=$?
+            set -e
+            if [ "$rc" -eq 0 ]; then break; fi
+            # mt#4950 criterion 2: a retry-exhaustion exit 1 told the reader
+            # nothing about WHY. `timeout` exits 124 specifically when it killed
+            # the command, so the two causes are separable at no cost — and they
+            # call for opposite responses (a hang wants a bigger bound or a
+            # cache; a non-124 exit wants the install error read).
+            if [ "$rc" -eq 124 ]; then
+              echo "pulumi install HUNG - killed by the 240s per-attempt bound (attempt $i/3, mt#4950)"
+            else
+              echo "pulumi install FAILED with exit $rc - this is an install error, not a hang (attempt $i/3, mt#4950)"
+            fi
+            if [ "$i" = 3 ]; then
+              if [ "$rc" -eq 124 ]; then
+                echo "::error::pulumi install hung on all 3 attempts (240s each). The bound may be too tight for a cold install — see mt#4950 before raising it blindly."
+              else
+                echo "::error::pulumi install failed with exit $rc on all 3 attempts. This is NOT a timeout; read the install output above for the real cause."
+              fi
+              exit "$rc"
+            fi
+            sleep 10
           done
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
