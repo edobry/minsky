@@ -2167,7 +2167,9 @@ function describeFetchTarget(input: unknown): string {
  * ANSWERED 2026-09-04, and it is NOT the retry chain. On the first timeout
  * burst since this shipped (6 timeouts / 82 reviews, plus the first
  * `timeout-unrecovered` row ever written), `openai.sdk_retryable_response`
- * fired ZERO times across four deployments — while `toolloop.timeout_retry`,
+ * fired ZERO times across all five deployments that covered those timeouts
+ * (matched on each review's START time, not its end — the service redeployed
+ * 15 times that day, so a review can span a redeploy) — while `toolloop.timeout_retry`,
  * a `log.warn` from this same file, fired in every one of them, so the channel
  * was demonstrably live rather than silently blind. No retryable HTTP status
  * was returned. What the failures look like instead: four consecutive attempts
