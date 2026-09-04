@@ -24,6 +24,7 @@ import {
   selectScaffoldableRules,
 } from "./corpus";
 import {
+  describeScaffoldResult,
   hashRuleContent,
   scaffoldRulesFromCorpus,
   type ScaffoldFsDeps,
@@ -240,6 +241,9 @@ describe("scaffolding a project from the corpus", () => {
       async writeFile(p: string, data: string | Buffer) {
         state[p] = String(data);
       },
+      async unlink(p: string) {
+        delete state[p];
+      },
     };
   }
 
@@ -304,19 +308,115 @@ describe("scaffolding a project from the corpus", () => {
     expect(diverged?.action).toBe("diverged");
   });
 
-  it("recognizes a pre-migration file under a DIFFERENT id than any current rule", async () => {
-    // The rules that shipped before mt#4974 had different names entirely
-    // (`minsky-workflow`, `task-status-protocol`, …), so an id-keyed hash lookup
-    // alone would score every pre-migration file as diverged and refuse the
-    // migration the table exists to enable.
+  it("the retired ids are disjoint from the corpus ids — why the sweep is a separate pass", () => {
+    // This disjointness is the whole reason `isKnownShippedContent` cannot handle
+    // migration on its own: the scaffold loop only ever looks at `<corpusId>.mdc`,
+    // and a pre-migration project has none of those paths. Its old files live
+    // under retired ids, which is where `sweepRetiredScaffolds` looks.
     const allHashes = Object.values(HISTORICAL_SCAFFOLD_HASHES).flat();
     expect(allHashes.length).toBeGreaterThan(0);
     for (const hash of allHashes) expect(hash).toMatch(/^[0-9a-f]{64}$/);
 
-    const ids = Object.keys(HISTORICAL_SCAFFOLD_HASHES);
-    expect(ids).toContain("minsky-workflow");
-    // None of the historical ids is in today's base set — which is exactly why
-    // the union lookup is needed.
-    for (const id of ids) expect(EXPECTED_BASE).not.toContain(id);
+    const retiredIds = Object.keys(HISTORICAL_SCAFFOLD_HASHES);
+    expect(retiredIds).toContain("minsky-workflow");
+    for (const id of retiredIds) expect(EXPECTED_BASE).not.toContain(id);
+  });
+
+  describe("migrating a project the retired template system scaffolded (PR #3629 R1)", () => {
+    /** A pre-mt#4974 project: old scaffolds on disk, none of today's rules. */
+    function preMigrationProject(overrides: Record<string, string> = {}) {
+      const files: Record<string, string> = {};
+      for (const id of Object.keys(HISTORICAL_SCAFFOLD_HASHES)) {
+        files[`${RULES_DIR}/${id}.mdc`] = `shipped content for ${id}`;
+      }
+      return { ...files, ...overrides };
+    }
+
+    /** Hash table matching `preMigrationProject`'s synthetic content. */
+    const SYNTHETIC_HASHES = Object.fromEntries(
+      Object.keys(HISTORICAL_SCAFFOLD_HASHES).map((id) => [
+        id,
+        [hashRuleContent(`shipped content for ${id}`)],
+      ])
+    );
+
+    it("--overwrite REMOVES the old scaffolds it wrote, and says so", async () => {
+      const fs = fakeFs(preMigrationProject());
+      const result = await scaffoldRulesFromCorpus(
+        RULES_DIR,
+        true,
+        fs,
+        CORPUS_DIR,
+        SYNTHETIC_HASHES
+      );
+
+      // Before this pass the old files were simply left beside the new ones —
+      // inert, but still telling anyone who opened them to run `git approve`.
+      expect(result.retired.removed).toEqual(Object.keys(SYNTHETIC_HASHES).sort());
+      expect(result.retired.keptEdited).toEqual([]);
+      for (const id of Object.keys(SYNTHETIC_HASHES)) {
+        expect(fs.files[`${RULES_DIR}/${id}.mdc`]).toBeUndefined();
+      }
+      // ...and the new base rules are there.
+      for (const id of EXPECTED_BASE) {
+        expect(fs.files[`${RULES_DIR}/${id}.mdc`]).toBeDefined();
+      }
+      expect(describeScaffoldResult(result).info.join(" ")).toContain("removed");
+    });
+
+    it("--overwrite LEAVES an old scaffold the user edited, and warns", async () => {
+      const edited = `${RULES_DIR}/minsky-workflow.mdc`;
+      const fs = fakeFs(preMigrationProject({ [edited]: "# my notes on the workflow" }));
+
+      const result = await scaffoldRulesFromCorpus(
+        RULES_DIR,
+        true,
+        fs,
+        CORPUS_DIR,
+        SYNTHETIC_HASHES
+      );
+
+      expect(fs.files[edited]).toBe("# my notes on the workflow");
+      expect(result.retired.keptEdited).toEqual(["minsky-workflow"]);
+      expect(result.retired.removed).not.toContain("minsky-workflow");
+      expect(describeScaffoldResult(result).warnings.join(" ")).toContain("minsky-workflow");
+    });
+
+    it("without --overwrite it removes nothing and reports what is still there", async () => {
+      const fs = fakeFs(preMigrationProject());
+      const result = await scaffoldRulesFromCorpus(
+        RULES_DIR,
+        false,
+        fs,
+        CORPUS_DIR,
+        SYNTHETIC_HASHES
+      );
+
+      expect(result.retired.removed).toEqual([]);
+      expect(result.retired.present).toEqual(Object.keys(SYNTHETIC_HASHES).sort());
+      for (const id of Object.keys(SYNTHETIC_HASHES)) {
+        expect(fs.files[`${RULES_DIR}/${id}.mdc`]).toBeDefined();
+      }
+      expect(describeScaffoldResult(result).warnings.join(" ")).toContain("--overwrite");
+    });
+
+    it("does NOT refresh a corpus-id file whose content matches a DIFFERENT id's history", async () => {
+      // The union match this replaced would have overwritten this file. Content
+      // equality across ids is not evidence that THIS rule is ours to replace.
+      const target = `${RULES_DIR}/key-workflows.mdc`;
+      const otherIdsContent = "shipped content for minsky-workflow";
+      const fs = fakeFs({ [target]: otherIdsContent });
+
+      const result = await scaffoldRulesFromCorpus(
+        RULES_DIR,
+        true,
+        fs,
+        CORPUS_DIR,
+        SYNTHETIC_HASHES
+      );
+
+      expect(fs.files[target]).toBe(otherIdsContent);
+      expect(result.diverged).toContain("key-workflows");
+    });
   });
 });

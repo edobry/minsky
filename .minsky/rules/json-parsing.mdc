@@ -68,6 +68,6 @@ By using jq, you gain:
 
 ## Additional Resources
 
-- [jq Manual](mdc:https:/stedolan.github.io/jq/manual)
-- [jq Playground](mdc:https:/jqplay.org) for testing queries
-- [jq Cheat Sheet](mdc:https:/lzone.de/cheat-sheet/jq)
+- [jq Manual](https://stedolan.github.io/jq/manual)
+- [jq Playground](https://jqplay.org) for testing queries
+- [jq Cheat Sheet](https://lzone.de/cheat-sheet/jq)

@@ -49,6 +49,15 @@ export interface ScaffoldResult {
   readonly diverged: string[];
   /** Ids present in the corpus but withheld from this project (non-base tiers). */
   readonly withheld: string[];
+  /** What the retired template system left behind, and what became of it. */
+  readonly retired: {
+    /** Retired-scaffold files found on disk. */
+    readonly present: string[];
+    /** Removed: content matched a version we shipped, and `--overwrite` was set. */
+    readonly removed: string[];
+    /** Left alone: content is not ours, so the user has edited it. */
+    readonly keptEdited: string[];
+  };
 }
 
 /**
@@ -58,7 +67,7 @@ export interface ScaffoldResult {
  * existing in-memory double satisfies it without adaptation and `init` can pass
  * the same `fileSystem` it already threads everywhere else.
  */
-export type ScaffoldFsDeps = Pick<FsLike, "readFile" | "writeFile" | "exists">;
+export type ScaffoldFsDeps = Pick<FsLike, "readFile" | "writeFile" | "exists" | "unlink">;
 
 /**
  * Write the base corpus into `rulesDirPath`.
@@ -130,26 +139,76 @@ export async function scaffoldRulesFromCorpus(
     });
   }
 
-  return { outcomes, diverged: diverged.sort(), withheld };
+  const retired = await sweepRetiredScaffolds(rulesDirPath, overwrite, fs, knownHashes);
+
+  return { outcomes, diverged: diverged.sort(), withheld, retired };
 }
 
 /**
- * Did we ship this exact content for this rule id, at some point?
+ * Did we ship this exact content for THIS rule id, at some point?
  *
- * Checked against BOTH the id's own recorded history and the union of every
- * id's — because the rules that shipped before this change had DIFFERENT ids
- * (`minsky-workflow`, `task-status-protocol`, …), so an id-keyed lookup alone
- * would score every pre-migration file as diverged and refuse the migration
- * this table exists to enable.
+ * Strictly id-keyed (PR #3629 R1). It previously also matched the union of every
+ * id's hashes, on the reasoning that pre-migration files carry retired ids and an
+ * id-keyed lookup would refuse to migrate them. That reasoning was wrong twice
+ * over, so the union is gone:
+ *
+ *   - **It could not do the job.** This function is only reached for a path named
+ *     `<corpusId>.mdc`, and no retired id is a corpus id — a pre-migration project
+ *     has `minsky-workflow.mdc`, never `key-workflows.mdc`. The union therefore
+ *     fired only if a user had RENAMED a file onto a corpus id, which is not the
+ *     migration case it was written for. Retired scaffolds are now handled where
+ *     they actually live, by `sweepRetiredScaffolds` below.
+ *   - **It was unsound.** Any file whose bytes matched any historical scaffold was
+ *     replaced, even under a different rule's name — content equality across ids
+ *     is not evidence that THIS rule is ours to overwrite.
  */
 function isKnownShippedContent(
   id: string,
   hash: string,
   table: Readonly<Record<string, readonly string[]>>
 ): boolean {
-  const forId = table[id];
-  if (forId?.includes(hash)) return true;
-  return Object.values(table).some((hashes) => hashes.includes(hash));
+  return table[id]?.includes(hash) ?? false;
+}
+
+/**
+ * Account for the files the RETIRED template system left in a project.
+ *
+ * Without this, "migrates safely" was only half true: the four base rules were
+ * written and the six old scaffolds were left sitting beside them — inert
+ * (they reach neither Claude Code channel) but still on disk, still telling
+ * anyone who opens them to run `git approve` and to set DONE by hand.
+ *
+ * Removal happens only under `--overwrite`, and only for a file whose content is
+ * one WE wrote. Anything else is reported and left alone: a file the user edited
+ * is theirs, and a destructive default is the failure this whole task is about.
+ */
+async function sweepRetiredScaffolds(
+  rulesDirPath: string,
+  overwrite: boolean,
+  fs: ScaffoldFsDeps,
+  knownHashes: Readonly<Record<string, readonly string[]>>
+): Promise<{ removed: string[]; keptEdited: string[]; present: string[] }> {
+  const removed: string[] = [];
+  const keptEdited: string[] = [];
+  const present: string[] = [];
+
+  for (const id of Object.keys(knownHashes)) {
+    const target = path.join(rulesDirPath, `${id}.mdc`);
+    if (!(await fs.exists(target))) continue;
+    present.push(id);
+
+    if (!overwrite) continue;
+
+    const existing = await fs.readFile(target, "utf-8");
+    if (isKnownShippedContent(id, hashRuleContent(existing), knownHashes)) {
+      await fs.unlink(target);
+      removed.push(id);
+    } else {
+      keptEdited.push(id);
+    }
+  }
+
+  return { removed: removed.sort(), keptEdited: keptEdited.sort(), present: present.sort() };
 }
 
 /**
@@ -191,6 +250,31 @@ export function describeScaffoldResult(result: ScaffoldResult): {
       warnings.push(`minsky init: kept your edited "${outcome.id}" — ${outcome.reason}.`);
     }
   }
+
+  const { present, removed, keptEdited } = result.retired;
+  if (removed.length > 0) {
+    info.push(
+      `minsky init: removed ${removed.length} rule(s) left by the retired template system — ` +
+        `${removed.join(", ")}. They were unreachable by your agent and three of them carried ` +
+        `instructions that no longer work.`
+    );
+  }
+  if (keptEdited.length > 0) {
+    warnings.push(
+      `minsky init: ${keptEdited.length} rule(s) from the retired template system are still in ` +
+        `.minsky/rules and you have edited them — ${keptEdited.join(", ")}. Left alone. They are ` +
+        `superseded and unreachable by your agent; delete them once you have moved anything you want.`
+    );
+  }
+  const untouched = present.filter((id) => !removed.includes(id) && !keptEdited.includes(id));
+  if (untouched.length > 0) {
+    warnings.push(
+      `minsky init: ${untouched.length} superseded rule(s) from the retired template system are ` +
+        `still present — ${untouched.join(", ")}. Re-run with --overwrite to remove the ones ` +
+        `Minsky wrote.`
+    );
+  }
+
   return { info, warnings };
 }
 

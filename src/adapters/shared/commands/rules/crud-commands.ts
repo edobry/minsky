@@ -1,5 +1,7 @@
 /**
- * Rules CRUD commands: get, create, update, generate
+ * Rules CRUD commands: get, create, update.
+ *
+ * `generate` was here until mt#4974 SC6 retired the rule-template system.
  */
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import {
