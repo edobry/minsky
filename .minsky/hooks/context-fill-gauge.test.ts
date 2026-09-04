@@ -5,10 +5,12 @@ import {
   countAssistantTurns,
   findLastUsage,
   measureFill,
+  renderWorstCase,
   resolveWindow,
   run,
   FALLBACK_WINDOW_TOKENS,
   INJECTION_ENABLED,
+  MAX_RENDERED_MODEL_ID_CHARS,
 } from "./context-fill-gauge";
 import type { FillMeasurement, UsageReading } from "./context-fill-gauge";
 import type { TranscriptLine } from "./transcript";
@@ -18,6 +20,9 @@ import type { DispatchContext, GuardOutcome } from "./registry";
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
+
+/** The `windowSource` discriminant, named once so the assertions cannot drift. */
+const FALLBACK_SOURCE = "fallback-default";
 
 function assistantLine(
   model: string | undefined,
@@ -145,7 +150,7 @@ describe("resolveWindow", () => {
 
   test("an unknown model takes the conservative fallback and is marked as such", () => {
     const resolved = resolveWindow("some-future-model-9");
-    expect(resolved.source).toBe("fallback-default");
+    expect(resolved.source).toBe(FALLBACK_SOURCE);
     expect(resolved.tokens).toBe(FALLBACK_WINDOW_TOKENS);
   });
 
@@ -153,6 +158,77 @@ describe("resolveWindow", () => {
     // Direction matters: over-estimating the window silently hides saturation,
     // which costs the gauge its whole purpose. Pin the direction, not the value.
     expect(FALLBACK_WINDOW_TOKENS).toBeLessThan(resolveWindow("claude-opus-5").tokens);
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#4968 — release-suffix resolution.
+  //
+  // `claude-fable-5-1` is now an exact table key, so it can no longer exercise
+  // the stripping path. These use ids that are NOT keys, which is the only way
+  // to test the retry rather than the lookup that shadows it.
+  // -------------------------------------------------------------------------
+
+  test("a dotted release id resolves to its family's window", () => {
+    expect(resolveWindow("claude-opus-5-1")).toEqual({
+      tokens: 1_000_000,
+      source: "known-model",
+    });
+  });
+
+  test("a dated release id resolves to its family's window", () => {
+    expect(resolveWindow("claude-opus-5-20260101")).toEqual({
+      tokens: 1_000_000,
+      source: "known-model",
+    });
+  });
+
+  test("a dotted release that ALSO carries a date strips in two hops", () => {
+    // Why the retry is a loop rather than a single strip.
+    expect(resolveWindow("claude-opus-5-1-20260101").tokens).toBe(1_000_000);
+  });
+
+  test("a family deliberately absent from the table stays absent through stripping", () => {
+    // `claude-sonnet-5` is omitted on purpose (too small a sample to pin a
+    // ceiling). Stripping must not smuggle it in via a release suffix — it can
+    // only ever land on a key that already exists.
+    expect(resolveWindow("claude-sonnet-5-1").source).toBe(FALLBACK_SOURCE);
+  });
+
+  test("an unknown family still takes the conservative fallback", () => {
+    // mt#4968 acceptance test 2: the fallback is retained, not removed.
+    const resolved = resolveWindow("claude-zeta-9");
+    expect(resolved.source).toBe(FALLBACK_SOURCE);
+    expect(resolved.tokens).toBe(FALLBACK_WINDOW_TOKENS);
+  });
+
+  test("a NON-numeric trailing segment is not stripped", () => {
+    // Deliberately conservative: only an all-digits final segment is removed.
+    // A `-preview` / `-thinking` variant may not share its family's window, and
+    // this file's stated preference is the loud failure over the quiet guess.
+    expect(resolveWindow("claude-opus-5-preview").source).toBe(FALLBACK_SOURCE);
+  });
+
+  test("stripping never eats a family name down to a bare vendor prefix", () => {
+    expect(resolveWindow("claude-fable").source).toBe(FALLBACK_SOURCE);
+    expect(resolveWindow("claude").source).toBe(FALLBACK_SOURCE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4968 acceptance test 1, at the measurement level rather than the lookup:
+// the exact reading that was misreported in the originating incident.
+// ---------------------------------------------------------------------------
+
+describe("measureFill on a release-suffixed model (mt#4968)", () => {
+  test("claude-fable-5-1 at 257,693 tokens reads ~25.8% against a known window", () => {
+    const measurement = mustMeasure([assistantLine("claude-fable-5-1", usageSummingTo(257_693))]);
+    expect(measurement.windowSource).toBe("known-model");
+    expect(measurement.windowTokens).toBe(1_000_000);
+    expect(measurement.fillRatioPct).toBe(25.8);
+    // The number the gauge actually printed during the incident, pinned so a
+    // regression is legible as the thing that happened rather than as a delta.
+    expect(measurement.fillRatioPct).not.toBe(128.8);
+    expect(measurement.tier).toBe("ok");
   });
 });
 
@@ -240,6 +316,70 @@ describe("buildGaugeLine", () => {
   test("names an unrecognized model's window as assumed", () => {
     const unknown = mustMeasure([assistantLine("mystery-model", usageSummingTo(190_000))]);
     expect(buildGaugeLine(unknown)).toContain("assumed");
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#4968 — the caveat marks the PERCENTAGE, not only the denominator.
+  //
+  // The pre-mt#4968 line carried "assumed" on the window, several clauses after
+  // the figure, and an agent still relayed the figure to the principal as fact.
+  // The test above would pass against that wording; these two are what pin the
+  // placement, so keep them together.
+  // -------------------------------------------------------------------------
+
+  test("a fallback reading marks the percentage itself as estimated", () => {
+    const unknown = mustMeasure([assistantLine("mystery-model", usageSummingTo(190_000))]);
+    const line = buildGaugeLine(unknown);
+    const pct = `${unknown.fillRatioPct}%`;
+    expect(line).toContain(`${pct} ESTIMATED`);
+    // The marker is adjacent to the number, not merely present somewhere.
+    expect(line.indexOf("ESTIMATED")).toBe(line.indexOf(pct) + pct.length + 1);
+  });
+
+  test("a known-model reading carries NO estimate marker", () => {
+    // A measured reading needs no hedge; hedging it would train the marker to
+    // be ignored, which is the failure the marker exists to prevent.
+    expect(buildGaugeLine(measurement)).not.toContain("ESTIMATED");
+    expect(buildGaugeLine(measurement)).not.toContain("assumed");
+  });
+
+  test("the fallback line is still literally ONE line", () => {
+    // The single-line property (PR #3144 R3) is asserted above on the
+    // known-model branch only; the fallback branch is longer and is the one
+    // that would break it.
+    const unknown = mustMeasure([assistantLine("mystery-model", usageSummingTo(190_000))]);
+    expect(buildGaugeLine(unknown).split("\n")).toHaveLength(1);
+  });
+
+  test("the fallback line still says no action is required", () => {
+    const unknown = mustMeasure([assistantLine("mystery-model", usageSummingTo(190_000))]);
+    expect(buildGaugeLine(unknown).toLowerCase()).toContain("no action is required");
+  });
+
+  test("an over-long model id is capped in the render", () => {
+    // The id is the only unbounded input to the line; capping it is what lets
+    // the registry declare a PROVED attentionCost rather than a ceiling.
+    const long = "z".repeat(MAX_RENDERED_MODEL_ID_CHARS + 50);
+    const unknown = mustMeasure([assistantLine(long, usageSummingTo(190_000))]);
+    expect(buildGaugeLine(unknown)).not.toContain(long);
+    expect(buildGaugeLine(unknown)).toContain(`${"z".repeat(MAX_RENDERED_MODEL_ID_CHARS - 1)}…`);
+  });
+
+  test("an id at exactly the cap is NOT truncated", () => {
+    const exact = "z".repeat(MAX_RENDERED_MODEL_ID_CHARS);
+    const unknown = mustMeasure([assistantLine(exact, usageSummingTo(190_000))]);
+    expect(buildGaugeLine(unknown)).toContain(exact);
+    expect(buildGaugeLine(unknown)).not.toContain("…");
+  });
+
+  test("renderWorstCase stays inside the registry's declared attentionCost", () => {
+    // Pins the bound the registry entry declares (450). If an edit to the line
+    // pushes past this, the declaration is wrong before it reaches review —
+    // which is the failure the pre-mt#4968 "ceiling, not a proved bound" note
+    // left open.
+    expect(renderWorstCase().length).toBeLessThanOrEqual(450);
+    // And it must actually be the LONGER branch, or it measures the wrong one.
+    expect(renderWorstCase().length).toBeGreaterThan(buildGaugeLine(measurement).length);
   });
 
   // -------------------------------------------------------------------------
@@ -347,7 +487,7 @@ describe("run", () => {
   test("records the fallback window source for an unrecognized model", () => {
     const { records } = runWithCapture([assistantLine("mystery-model", usageSummingTo(50_000))]);
     const record = mustFirst(records);
-    expect(record.windowSource).toBe("fallback-default");
+    expect(record.windowSource).toBe(FALLBACK_SOURCE);
     expect(record.windowTokens).toBe(FALLBACK_WINDOW_TOKENS);
   });
 });

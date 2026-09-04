@@ -904,18 +904,26 @@ export const PROMPT_SCAN_GUARDS: readonly GuardRegistration[] = [
     tuningOwnership: "preference",
     event: "UserPromptSubmit",
     module: () => import("./context-fill-gauge").then((m) => ({ run: m.run })),
+    renderProbe: () => import("./context-fill-gauge").then((m) => m.renderWorstCase()),
     timeoutMs: 10000,
     calibrationLog: "context-fill-gauge",
     denyCapable: false,
     needsTranscript: true,
     contextPriority: 10,
-    // MEASURED (2026-08-18), not estimated: 269 chars on a known model, 355 on
-    // the unknown-model path, which appends `assumed (model <id> not in the
-    // window table)` and so grows with the MODEL ID's length. Every other
-    // interpolation is a number, and there is no list or finding enumeration —
-    // so 400 is a ceiling against a realistic id, not a proved bound. See
-    // `docs/architecture/hooks/context-fill-gauge.md` §Graduating it.
-    attentionCost: { denialMessageSizeChars: 400, optionCount: 1 },
+    // MEASURED via `renderProbe` (mt#4002), and now a PROVED bound rather than
+    // a ceiling — 422 chars worst case, 271 on the ordinary known-model path.
+    //
+    // The previous declaration (400) was explicitly "a ceiling against a
+    // realistic id, not a proved bound", because the unknown-model branch
+    // interpolates the MODEL ID and so grew without limit; the guard's own doc
+    // named capping the id as the remedy. mt#4968 did that
+    // (`MAX_RENDERED_MODEL_ID_CHARS`), which removes the only unbounded axis —
+    // every remaining interpolation is a number — so the probe can now measure
+    // a real worst case instead of a plausible one. That same change lengthened
+    // the fallback branch, which is why the number moved at all: the caveat had
+    // to reach the PERCENTAGE, not just the denominator it used to sit on.
+    // See `docs/architecture/hooks/context-fill-gauge.md` §Denominator.
+    attentionCost: { denialMessageSizeChars: 450, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt4291-canary-transcript" },
       transcriptLines: [
