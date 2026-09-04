@@ -1127,11 +1127,32 @@ export function registerCalibrationCommands(): void {
         }
 
         const text = formatResult(results, reviewDue);
-        const suffix = watermarkAdvanced
-          ? "\nWatermarks advanced for review-due logs."
-          : params.ack && skippedOpenAskPaths.length === 0
-            ? "\nNo review-due logs to advance."
-            : "";
+        // PR #3614 R1 (non-blocking, mt#4941): this line used to be derivable
+        // from `watermarkAdvanced` alone, because that flag was true whenever
+        // any write was attempted. It is now false for two passes that did real
+        // work — a repair-only ack and a clamp-only ack — so deriving it that
+        // way prints "No review-due logs to advance." directly above a report of
+        // 13 repairs. That is the same misreport this task exists to end, one
+        // layer up: the operator reads the summary line, not the sixth suffix.
+        //
+        // Both no-advance cases are named, not just the repair one — a
+        // clamp-only ack was already reaching the misleading line before this
+        // change, and the class is "the watermark did not move, for a reason
+        // worth stating" rather than the one instance the reviewer saw.
+        let suffix = "";
+        if (watermarkAdvanced) {
+          suffix = "\nWatermarks advanced for review-due logs.";
+        } else if (repairedPaths.length > 0) {
+          suffix =
+            `\nNo watermark advanced — this pass classified nothing — but ` +
+            `${repairedPaths.length} stranded watermark(s) were repaired (see below).`;
+        } else if (clampedPaths.length > 0) {
+          suffix =
+            `\nNo watermark advanced: all ${clampedPaths.length} target(s) were clamped to the ` +
+            `count already recorded (see below).`;
+        } else if (params.ack && skippedOpenAskPaths.length === 0) {
+          suffix = "\nNo review-due logs to advance.";
+        }
         const clearedSuffix = clearedAskId ? "\nCleared resolved ask from watermark(s)." : "";
         const skippedSuffix =
           skippedOpenAskPaths.length > 0
