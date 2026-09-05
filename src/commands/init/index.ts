@@ -33,6 +33,11 @@ export function createInitCommand(): Command {
   // reaches the MCP surface and never appears on the CLI at all. Same
   // parallel-implementation shape as `compileCheckTargets` in mt#4866 — caught
   // here by regenerating the completion manifest and finding the flags absent.
+  //
+  // GUARDED: `src/adapters/shared/commands/init.test.ts` → "every shared init
+  // parameter has a matching CLI flag" fails if you add a parameter to the
+  // shared definition without mirroring it here. Add both, or that test tells
+  // you which one you missed.
 
   cmd.option(
     "--enable <ids>",
