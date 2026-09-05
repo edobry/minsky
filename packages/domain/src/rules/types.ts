@@ -5,6 +5,8 @@
  * Extracted from rules.ts as part of modularization effort.
  */
 
+import type { RulePlane, RuleRung, RuleTier } from "../definitions/types";
+
 export interface Rule {
   id: string; // Filename without extension
   name?: string; // From frontmatter
@@ -13,6 +15,21 @@ export interface Rule {
   globs?: string[]; // From frontmatter, file patterns that this rule applies to
   alwaysApply?: boolean; // From frontmatter, whether this rule is always applied
   tags?: string[]; // From frontmatter, optional tags for categorization
+  /**
+   * Plane / tier / rung, carried through from frontmatter (mt#573 SC2).
+   *
+   * `RuleService` mapped a five-key allow-list until this task, while the
+   * compile pipeline's reader (`compile/rule-sources.ts`) was widened to carry
+   * these by mt#4974. That asymmetry is why the second reader could not honour
+   * selection: `listRules` had no way to see a rule's tier, so it could not
+   * compute the tier defaults the active set starts from.
+   *
+   * Additive and optional — absence means unclassified, exactly as on
+   * `RuleDefinition`, and no existing consumer of `Rule` has to change.
+   */
+  plane?: RulePlane;
+  tier?: RuleTier;
+  minimumRung?: RuleRung;
   content: string; // The rule content (without frontmatter)
   format: RuleFormat; // see RuleFormat for the accepted values
   path: string; // Full path to the rule file
@@ -85,6 +102,21 @@ export interface RuleOptions {
   tag?: string;
   debug?: boolean;
   file?: string;
+  /**
+   * Return rules the project has DESELECTED as well (mt#573 SC2).
+   *
+   * `listRules` honours the project's selection by default, because its
+   * consumers — the agent context assembler, the rules embeddings index and
+   * `rules list` — are all asking "what is active here?".
+   *
+   * Two callers are asking a different question and must set this:
+   * `getRulesConfig`, which reports `activeRuleCount` out of `totalRuleCount`
+   * and would otherwise report them as equal, and `knownRuleIds`, which
+   * validates the id passed to `rules enable|disable` and would otherwise make
+   * a disabled rule un-re-enableable — the config's own surface locking the
+   * user out of the config.
+   */
+  includeDeselected?: boolean;
 }
 
 export interface CreateRuleOptions {

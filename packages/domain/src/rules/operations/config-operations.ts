@@ -10,8 +10,8 @@ import { join } from "path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { log } from "@minsky/shared/logger";
 import { RuleService } from "../../rules";
-import { resolveActiveRules } from "../rule-selection";
-import { RULE_PRESETS } from "../../configuration/schemas/rules";
+import { deriveRulePresets, resolveActiveRules, type RuleTierInfo } from "../rule-selection";
+import { readRuleSelectionConfig } from "../selection-resolution";
 import { loadRuleCorpus } from "../corpus";
 import { ValidationError, getErrorMessage } from "../../errors/index";
 import type { RulesSelectionConfig, RulesConfigResult, RulesPresetsResult } from "./types";
@@ -25,22 +25,10 @@ import type { RulesSelectionConfig, RulesConfigResult, RulesPresetsResult } from
 export async function readRulesSelectionConfig(
   workspacePath: string
 ): Promise<RulesSelectionConfig> {
-  const configPath = join(workspacePath, ".minsky", "config.yaml");
-  let raw: Record<string, unknown> = {};
-
-  try {
-    const content = String(await fs.readFile(configPath, "utf8"));
-    raw = parseYaml(content) || {};
-  } catch {
-    // File doesn't exist or is unreadable — start from empty config
-  }
-
-  const rules = (raw?.rules as Record<string, unknown>) || {};
-  return {
-    presets: Array.isArray(rules.presets) ? (rules.presets as string[]) : [],
-    enabled: Array.isArray(rules.enabled) ? (rules.enabled as string[]) : [],
-    disabled: Array.isArray(rules.disabled) ? (rules.disabled as string[]) : [],
-  };
+  // Delegates to the shared reader (mt#573 SC2) rather than parsing the file a
+  // second way. The compile seam and `RuleService` both read this config now,
+  // and three hand-rolled YAML readers of one block is how they drift.
+  return readRuleSelectionConfig(workspacePath, fs);
 }
 
 /**
@@ -65,6 +53,9 @@ export async function writeRulesSelectionConfig(
   (raw.rules as Record<string, unknown>).presets = config.presets;
   (raw.rules as Record<string, unknown>).enabled = config.enabled;
   (raw.rules as Record<string, unknown>).disabled = config.disabled;
+  // `rung` is written back only when set, so a project that never declared one
+  // does not acquire a `rung: null` line from an unrelated `rules disable`.
+  if (config.rung !== undefined) (raw.rules as Record<string, unknown>).rung = config.rung;
 
   // Ensure directory exists
   try {
@@ -103,7 +94,12 @@ async function knownRuleIds(workspacePath: string): Promise<Set<string>> {
   const ids = new Set<string>();
 
   try {
-    for (const rule of await ruleService.listRules({})) ids.add(rule.id);
+    // `includeDeselected: true` (mt#573 SC2). This set is what `rules
+    // enable|disable` validates an id against, so it must contain the rules the
+    // project has ALREADY deselected — otherwise `rules disable X` succeeds and
+    // the matching `rules enable X` is rejected as an unknown id, and the only
+    // way back is hand-editing the config the command exists to manage.
+    for (const rule of await ruleService.listRules({ includeDeselected: true })) ids.add(rule.id);
   } catch (error) {
     // A workspace with no `.minsky/rules/` yet is the fresh-init case, not a
     // failure: the corpus ids below still make validation meaningful. Surfaced
@@ -200,11 +196,12 @@ export async function disableRule(
  */
 export async function getRulesConfig(workspacePath: string): Promise<RulesConfigResult> {
   const config = await readRulesSelectionConfig(workspacePath);
+  const { rules, tiers, ids } = await projectRuleTiers(workspacePath);
 
-  const ruleService = new RuleService(workspacePath);
-  const allRules = await ruleService.listRules({});
-  const allRuleIds = allRules.map((r) => r.id);
-  const activeIds = resolveActiveRules(allRuleIds, config);
+  const activeIds = resolveActiveRules(ids, config, {
+    tiers,
+    presets: deriveRulePresets(tiers, ids, config.rung),
+  });
 
   return {
     success: true,
@@ -212,18 +209,69 @@ export async function getRulesConfig(workspacePath: string): Promise<RulesConfig
     enabled: config.enabled,
     disabled: config.disabled,
     activeRuleCount: activeIds.size,
-    totalRuleCount: allRuleIds.length,
+    totalRuleCount: rules.length,
   };
 }
 
 /**
- * List available rule presets with their rule counts.
+ * Every rule in the project, with the tier metadata selection resolves against.
+ *
+ * `includeDeselected: true` is REQUIRED here and is not a performance choice.
+ * `listRules` honours selection by default (mt#573 SC2), so without it this
+ * function would resolve a selection over a list that had already had that same
+ * selection applied — `totalRuleCount` would equal `activeRuleCount`, and
+ * `rules config` would report that nothing is deselected no matter what the
+ * config says. The one command whose whole job is to show the selection would
+ * be the one command unable to see it.
  */
-export function getRulesPresets(): RulesPresetsResult {
-  const presets = Object.entries(RULE_PRESETS).map(([name, ruleIds]) => ({
-    name,
-    ruleCount: ruleIds.length,
-    rules: ruleIds,
-  }));
+async function projectRuleTiers(workspacePath: string): Promise<{
+  rules: Awaited<ReturnType<RuleService["listRules"]>>;
+  tiers: RuleTierInfo[];
+  ids: string[];
+}> {
+  const ruleService = new RuleService(workspacePath);
+  const rules = await ruleService.listRules({ includeDeselected: true });
+  return {
+    rules,
+    tiers: rules.map((r) => ({ id: r.id, tier: r.tier, minimumRung: r.minimumRung })),
+    ids: rules.map((r) => r.id),
+  };
+}
+
+/**
+ * List the preset bundles this project can offer, with their members (SC1).
+ *
+ * Derived from the tier metadata on the project's own rules, not from a
+ * hand-typed table. Two consequences worth stating, because both look like bugs
+ * and are not:
+ *
+ * - **A preset can be empty.** In a freshly initialized project `opinionated`
+ *   resolves to nothing, because `init` scaffolds only the `base` tier until the
+ *   selection surface (Phase 3, mt#4872) can ask the user about the rest. Empty
+ *   is the honest answer; the pre-fix behaviour was six bundles naming 22 ids of
+ *   which most were simply absent from the project.
+ * - **In Minsky's own repository every preset is empty**, because this
+ *   repository's 54 `.minsky/rules/*.mdc` predate the plane split and carry no
+ *   `tier:`. Retiring those in favour of the shipped corpus is Phase 1c
+ *   (mt#4871), not this task.
+ *
+ * Deriving from the PROJECT rather than from the shipped corpus is what makes
+ * AT5 true by construction: a preset cannot name an id the project does not
+ * have, because the ids come from the project. For a scaffolded project the two
+ * derivations agree anyway — its rules ARE the corpus's copies, carrying the
+ * corpus's tiers — and they diverge only where the user edited a tier locally,
+ * in which case the local file is the truth about that project.
+ *
+ * Now takes `workspacePath`; it took no arguments and could not have answered
+ * "which of these can this project receive?" at all.
+ */
+export async function getRulesPresets(workspacePath: string): Promise<RulesPresetsResult> {
+  const config = await readRulesSelectionConfig(workspacePath);
+  const { tiers, ids } = await projectRuleTiers(workspacePath);
+  const derived = deriveRulePresets(tiers, ids, config.rung);
+
+  const presets = Object.entries(derived)
+    .map(([name, ruleIds]) => ({ name, ruleCount: ruleIds.length, rules: ruleIds }))
+    .sort((a, b) => a.name.localeCompare(b.name));
   return { success: true, presets };
 }

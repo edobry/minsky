@@ -4704,7 +4704,7 @@
         },
         {
           "name": "presets",
-          "description": "List available rule presets with their rule counts",
+          "description": "List the rule presets this project can offer, with their rule counts",
           "commandId": "rules.presets"
         }
       ]
