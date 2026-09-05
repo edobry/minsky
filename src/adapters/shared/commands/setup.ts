@@ -17,6 +17,7 @@ import {
   type CommandParameterMap,
 } from "../command-registry";
 import { performSetup } from "@minsky/domain/setup";
+import { ensureLocalDaemonForSetup } from "../../../mcp/setup/ensure-local-daemon-for-setup";
 import { applyHarnessSettings } from "@minsky/domain/setup/harness-settings";
 import { detectInstalledClients } from "@minsky/domain/runtime/harness-detection";
 import { ValidationError } from "@minsky/domain/errors/index";
@@ -368,7 +369,19 @@ export function registerSetupCommands(deps: SetupCommandDeps = {}) {
             }
           }
 
-          const result = await performSetupFn({ repoPath, client, overwrite });
+          // mt#4707: inject the daemon-ensuring step. `performSetup` declares
+          // the seam but cannot fill it — `ensureLocalDaemonForSetup` lives
+          // under `src/`, which `packages/domain` may not import. It applies
+          // only to `claude-code`, which `performSetup` decides; passing it
+          // unconditionally here keeps that decision in one place.
+          // Guarded by the parity test in `setup-daemon-injection.test.ts`.
+          const result = await performSetupFn(
+            { repoPath, client, overwrite },
+            undefined,
+            {},
+            {},
+            { ensureLocalDaemon: ensureLocalDaemonForSetup }
+          );
 
           // Apply recommended agent performance settings unless skipped
           const agentSettingsMessages: string[] = [];

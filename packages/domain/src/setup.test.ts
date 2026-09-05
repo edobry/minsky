@@ -11,6 +11,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
+import type { LocalDaemonEnsureOutcome } from "./setup";
 import { parse as yamlParse } from "yaml";
 import { setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import { createMockFilesystem } from "../../../src/utils/test-utils/filesystem/mock-filesystem";
@@ -559,5 +560,152 @@ describe("performSetup — project-row provisioning (mt#2934)", () => {
     );
 
     expect(result.success).toBe(true);
+  });
+});
+
+describe("mt#4707 — ensuring the shared local daemon at setup time", () => {
+  /**
+   * A recording seam. `performSetup` cannot construct the real
+   * `ensureLocalDaemonForSetup` (it lives under `src/`), so what is asserted
+   * here is the DECISION: whether the step is invoked, for which client, and
+   * at what point relative to the config write.
+   */
+  function recordingDaemonDep(outcome: LocalDaemonEnsureOutcome = { kind: "started" }) {
+    const calls: string[] = [];
+    return {
+      calls,
+      dep: {
+        ensureLocalDaemon: async (repoPath: string) => {
+          calls.push(repoPath);
+          return outcome;
+        },
+      },
+    };
+  }
+
+  test("SC1: a claude-code setup ensures the daemon and reports what happened", async () => {
+    const mockFs = makeMockFs();
+    const { calls, dep } = recordingDaemonDep({ kind: "started" });
+
+    const result = await performSetup(
+      { repoPath: REPO_PATH, client: "claude-code" },
+      mockFs,
+      NO_DB_DEPS,
+      NO_PROVISION_DEPS,
+      dep
+    );
+
+    expect(calls).toEqual([REPO_PATH]);
+    expect(result.localDaemon).toEqual({ kind: "started" });
+  });
+
+  test("SC2: an already-serving daemon is reported, not started again", async () => {
+    const mockFs = makeMockFs();
+    const { dep } = recordingDaemonDep({ kind: "already-running" });
+
+    const result = await performSetup(
+      { repoPath: REPO_PATH, client: "claude-code" },
+      mockFs,
+      NO_DB_DEPS,
+      NO_PROVISION_DEPS,
+      dep
+    );
+
+    // Idempotence is enforced inside `ensureDaemonRunning`, which probes health
+    // before spawning; what this layer owes is reporting the distinction rather
+    // than flattening both into "done".
+    expect(result.localDaemon).toEqual({ kind: "already-running" });
+  });
+
+  test("SC3: the other registrars do not gain a daemon dependency", async () => {
+    // Every non-claude-code registrar emits the stdio-spawn form and talks to no
+    // daemon. If this ever fires, `setup --client cursor` has started depending
+    // on a process it has no use for.
+    for (const client of ["cursor", "vscode", "windsurf", "codex"]) {
+      const mockFs = makeMockFs();
+      const { calls, dep } = recordingDaemonDep();
+
+      const result = await performSetup(
+        { repoPath: REPO_PATH, client },
+        mockFs,
+        NO_DB_DEPS,
+        NO_PROVISION_DEPS,
+        dep
+      );
+
+      expect(calls).toEqual([]);
+      expect(result.localDaemon).toBeUndefined();
+    }
+  });
+
+  test("the daemon step runs BEFORE any config is written (mt#4337's invariant)", async () => {
+    // `ensureDaemonRunning`'s refusals all end "Nothing has been written." —
+    // true only while nothing has been. This asserts the ordering that keeps
+    // those messages honest, rather than trusting statement order to hold
+    // through a future edit.
+    const mockFs = makeMockFs();
+    const order: string[] = [];
+    const originalWriteFile = mockFs.writeFile.bind(mockFs);
+    mockFs.writeFile = (p: string, data: string) => {
+      order.push(`write:${p}`);
+      return originalWriteFile(p, data);
+    };
+
+    await performSetup(
+      { repoPath: REPO_PATH, client: "claude-code" },
+      mockFs,
+      NO_DB_DEPS,
+      NO_PROVISION_DEPS,
+      {
+        ensureLocalDaemon: async () => {
+          order.push("ensure-daemon");
+          return { kind: "started" } as const;
+        },
+      }
+    );
+
+    expect(order[0]).toBe("ensure-daemon");
+    expect(order.filter((e) => e.startsWith("write:")).length).toBeGreaterThan(0);
+  });
+
+  test("an unavailable daemon does not fail setup — the config is still written", async () => {
+    const mockFs = makeMockFs();
+    const result = await performSetup(
+      { repoPath: REPO_PATH, client: "claude-code" },
+      mockFs,
+      NO_DB_DEPS,
+      NO_PROVISION_DEPS,
+      {
+        ensureLocalDaemon: async () => ({
+          kind: "unavailable",
+          reason: "port 48765 is answered by something else",
+        }),
+      }
+    );
+
+    // The written config is CORRECT without a daemon; it is merely inert. A
+    // project that is otherwise set up must not report failure because one
+    // machine-local process could not start.
+    expect(result.success).toBe(true);
+    expect(result.localDaemon).toEqual({
+      kind: "unavailable",
+      reason: "port 48765 is answered by something else",
+    });
+    expect(mockFs.readFileSync(result.localConfigPath, "utf-8")).toContain("claude-code");
+  });
+
+  test("a caller that injects nothing is unaffected", async () => {
+    // Every pre-mt#4707 caller passes four arguments. The step must be absent,
+    // not crash on a missing dep.
+    const mockFs = makeMockFs();
+    const result = await performSetup(
+      { repoPath: REPO_PATH, client: "claude-code" },
+      mockFs,
+      NO_DB_DEPS,
+      NO_PROVISION_DEPS
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.localDaemon).toBeUndefined();
   });
 });

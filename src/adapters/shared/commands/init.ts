@@ -16,6 +16,7 @@ import {
   type ResolvedRepositoryConfig,
 } from "@minsky/domain/init";
 import { enableRule, disableRule } from "@minsky/domain/rules/operations/config-operations";
+import { ensureLocalDaemonForSetup } from "../../../mcp/setup/ensure-local-daemon-for-setup";
 import { TaskBackend } from "@minsky/domain/configuration/backend-detection";
 import { resolveInitClient } from "@minsky/domain/runtime/harness-detection";
 import { RULE_FORMAT_DESCRIPTION } from "../../../utils/option-descriptions";
@@ -441,14 +442,22 @@ export function registerInitCommands() {
             await disableRule(repoPath, ruleId);
           }
 
-          const initResult = await initializeProjectFromParams({
-            repoPath,
-            backend: domainBackend,
-            ruleFormat: ruleFormat as "cursor" | "generic" | "minsky",
-            mcp,
-            overwrite,
-            repository,
-          });
+          const initResult = await initializeProjectFromParams(
+            {
+              repoPath,
+              backend: domainBackend,
+              ruleFormat: ruleFormat as "cursor" | "generic" | "minsky",
+              mcp,
+              overwrite,
+              repository,
+            },
+            // mt#4707: `init` under CLAUDECODE=1 is the cold-machine first run —
+            // the case where nothing has started a daemon yet, and the one the
+            // principal named as the first-ten-minutes blocker. Threaded through
+            // to `performSetup`'s seam in Phase 2. Guarded by the parity test in
+            // `setup-daemon-injection.test.ts`.
+            { ensureLocalDaemon: ensureLocalDaemonForSetup }
+          );
 
           // TODO: Handle GitHub-specific configuration when github-issues backend is selected
           // This would involve setting up GitHub API configuration, but that's not implemented yet

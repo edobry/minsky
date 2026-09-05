@@ -37,12 +37,49 @@ export interface SetupOptions {
   mcp?: MinimalMcpConfig;
 }
 
+/**
+ * What the daemon-ensuring step did (mt#4707).
+ *
+ * A RESULT rather than a thrown error, deliberately. `ensureDaemonRunning`
+ * throws on `foreign`/`not-ready`, and each of its messages ends "Nothing has
+ * been written." — true for `setup local-http`, which calls it before its only
+ * write, and FALSE here, because `setup`/`init` go on to write the client
+ * config regardless. Letting that throw cross this seam would emit a
+ * factually wrong sentence to the operator, which is the defect mt#4337 fixed
+ * one caller over. The adapter translates it instead; see
+ * `src/mcp/setup/ensure-local-daemon-for-setup.ts`.
+ */
+export type LocalDaemonEnsureOutcome =
+  | { kind: "already-running" }
+  | { kind: "started" }
+  | { kind: "unavailable"; reason: string };
+
+/**
+ * Collaborators `performSetup` cannot construct itself (mt#4707).
+ *
+ * `ensureLocalDaemon` lives in `src/mcp/setup/`, which `packages/domain` may
+ * not import — the same constraint that made `compileForHarness` an injected
+ * seam in `./init.ts` and forced `DEFAULT_LOCAL_DAEMON_MCP_URL` to be
+ * duplicated in `./mcp/registration.ts`. Injected rather than duplicated
+ * because a second spawn implementation is exactly what ADR-014's
+ * one-owner-per-port rule makes dangerous.
+ */
+export interface PerformSetupDeps {
+  ensureLocalDaemon?: (repoPath: string) => Promise<LocalDaemonEnsureOutcome>;
+}
+
 export interface SetupResult {
   success: boolean;
   localConfigPath: string;
   harnessConfigPath: string;
   client: string;
   message: string;
+  /**
+   * Outcome of the daemon-ensuring step (mt#4707), or `undefined` when the
+   * step did not apply — a non-`claude-code` client, or a caller that injected
+   * no implementation.
+   */
+  localDaemon?: LocalDaemonEnsureOutcome;
   /**
    * Postgres connection-inheritance status, resolved via the config loader
    * (mt#2502): whether an already-configured connection was found (project/user
@@ -89,7 +126,8 @@ export async function performSetup(
   options: SetupOptions,
   fileSystem: FsLike = createRealFs(),
   dbDeps: ResolveExistingConnectionDeps = {},
-  provisionDeps: ProvisionProjectRowDeps = {}
+  provisionDeps: ProvisionProjectRowDeps = {},
+  setupDeps: PerformSetupDeps = {}
 ): Promise<SetupResult> {
   const { repoPath, client = "cursor", overwrite = true } = options;
 
@@ -115,6 +153,41 @@ export async function performSetup(
   // carries no conversation identity.
   const mcpConfig: MinimalMcpConfig = options.mcp ?? projectConfig?.mcp ?? { transport: "stdio" };
   const transport = mcpConfig.transport ?? "stdio";
+
+  // 3b. Ensure the shared local daemon is running (mt#4707).
+  //
+  // ORDER IS LOAD-BEARING: this runs BEFORE `registerWithClient` writes
+  // anything. `ensureDaemonRunning`'s refusals all end "Nothing has been
+  // written." — a sentence that is only true while nothing has been. Running
+  // it after the write would make every one of them false, which is the exact
+  // defect mt#4337 fixed on the `setup local-http` path.
+  //
+  // SCOPED TO `claude-code` (SC3): it is the only registrar that emits the
+  // shim form (`mcp shim --url <daemon>`), so it is the only one whose written
+  // config is inert without a daemon. The other seven spawn their own stdio
+  // server and must not gain a daemon dependency as a side effect.
+  //
+  // The written config is CORRECT either way — this makes it live. So a daemon
+  // that cannot be ensured is reported, not fatal; see the `unavailable`
+  // branch below.
+  let localDaemon: LocalDaemonEnsureOutcome | undefined;
+  if (client === "claude-code" && setupDeps.ensureLocalDaemon !== undefined) {
+    localDaemon = await setupDeps.ensureLocalDaemon(repoPath);
+    if (localDaemon.kind === "unavailable") {
+      // Surfaced, never swallowed — same posture as `initializeProject`'s
+      // observability-hook block: a project that is otherwise correctly set up
+      // must not fail because one machine-local process could not be started,
+      // but an operator whose tool calls will stall for 15s per call has to
+      // hear about it.
+      log.cliWarn(
+        `minsky setup: the shared MCP daemon is not running and could not be started — ` +
+          `${localDaemon.reason}\nYour ${client} config was written and is correct, but every ` +
+          `MCP tool call will retry for ~15s and fail until a daemon is serving. ` +
+          `Start one with \`minsky mcp start --http --local-daemon\`, or run ` +
+          `\`minsky mcp status\` to see what is holding the port.`
+      );
+    }
+  }
 
   // 4. Register with the MCP client — writes the harness config file (e.g. .cursor/mcp.json)
   await registerWithClient(
@@ -180,5 +253,6 @@ export async function performSetup(
     client,
     message: `Setup complete. Local config written to ${localConfigPath}. Harness config written to ${harnessConfigPath}.`,
     dbConnection,
+    localDaemon,
   };
 }

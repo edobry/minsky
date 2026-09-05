@@ -12,6 +12,7 @@ import {
   type DeclinableRule,
 } from "./init/rule-corpus-scaffold";
 import { readRuleSelectionConfig } from "./rules/selection-resolution";
+import type { LocalDaemonEnsureOutcome } from "./setup";
 import { RULE_FORMAT_OUTPUT_DIR, RULE_SOURCE_DIR } from "./rules/types";
 import { runMinskyCompile } from "./compile/compile";
 import { claudeMdIsOurs } from "./compile/monolithic-ownership";
@@ -126,13 +127,19 @@ export type InitializeProjectParams = z.infer<typeof initializeProjectParamsSche
  * This function acts as the primary domain function for the init command.
  */
 export async function initializeProjectFromParams(
-  params: InitializeProjectParams
+  params: InitializeProjectParams,
+  /**
+   * Injected collaborators (mt#4707). Optional so every existing caller is
+   * unaffected; the CLI adapter supplies `ensureLocalDaemon`, which cannot be
+   * defaulted here because it lives under `src/`.
+   */
+  deps: InitializeProjectDeps = {}
 ): Promise<InitializeProjectResult> {
   // Validate the parameters
   const validatedParams = initializeProjectParamsSchema.parse(params);
 
   // Call the original initialization function
-  return initializeProject(validatedParams);
+  return initializeProject(validatedParams, undefined, deps);
 }
 
 export interface InitializeProjectOptions {
@@ -186,6 +193,17 @@ export interface InitializeProjectDeps {
    * `deps` entirely, which is every production call site, is unaffected.
    */
   compileForHarness?: (target: string, workspacePath: string) => Promise<HarnessCompileAccounting>;
+  /**
+   * Ensure the shared local MCP daemon is running (mt#4707).
+   *
+   * Threaded straight through to `performSetup`'s own seam in Phase 2 rather
+   * than called here, because it is a SETUP concern: `init` under `CLAUDECODE=1`
+   * reaches it only via `performSetup`, which is also `minsky setup`'s entry
+   * point, so both paths get the step from one place. Same injected shape and
+   * same reason as `compileForHarness` above — the implementation lives under
+   * `src/`, which this package may not import.
+   */
+  ensureLocalDaemon?: (repoPath: string) => Promise<LocalDaemonEnsureOutcome>;
   /** Which MCP client / harness is running init. Defaults to real detection. */
   resolveClient?: () => string;
   /**
@@ -598,7 +616,13 @@ export async function initializeProject(
       // scaffolding above already branched on it, and two independent
       // resolutions could disagree.
       { repoPath, client: initClient, overwrite, mcp: mcpForConfig },
-      fileSystem
+      fileSystem,
+      {},
+      {},
+      // mt#4707: `init` under CLAUDECODE=1 is the cold-machine case — the very
+      // first run, where nothing has started a daemon yet. Threading the seam
+      // here is what makes that path get the step, not just `minsky setup`.
+      { ensureLocalDaemon: deps.ensureLocalDaemon }
     );
 
     // Install the observability baseline so this project's conversations are
