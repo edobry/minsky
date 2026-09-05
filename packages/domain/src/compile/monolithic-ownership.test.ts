@@ -152,10 +152,25 @@ describe("foreignOutputSkipReason", () => {
     expect(reason).toContain(CLAUDE_MD);
     expect(reason).toContain("banner");
     // The third clause is the one that is easy to drop and the one the operator
-    // needs — SC2 requires all three, and "where the rules went" is not "into
-    // your agent" today.
+    // needs. mt#5003 changed its ANSWER for CLAUDE.md: the always-apply rules
+    // now reach the agent through `.claude/rules/`, so the old text — "nothing
+    // loads them automatically, ask by name with rules_get" — became false the
+    // moment that channel started carrying them.
+    expect(reason).toContain(".claude/rules/");
+    expect(reason).not.toContain("rules_get");
+  });
+
+  it("keeps the honest answer for AGENTS.md, which has no such channel", () => {
+    // `.claude/rules/` is Claude-Code-only, so a Codex project's hand-written
+    // AGENTS.md really does leave the rules unreachable. Sharing one sentence
+    // across both files would make one of them a lie whichever way it is
+    // written — which is exactly what happened before mt#5003 split them.
+    const agentsMd = "/workspace/AGENTS.md";
+    const reason = foreignOutputSkipReason(agentsMd);
+    expect(reason).toContain(agentsMd);
     expect(reason).toContain(".minsky/rules/");
     expect(reason).toContain("rules_get");
+    expect(reason).not.toContain(".claude/rules/");
   });
 
   it("does NOT claim a missing banner for a file it could not read", () => {

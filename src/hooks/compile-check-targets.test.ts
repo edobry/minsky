@@ -20,8 +20,24 @@ import {
 import { regenerateStagedClaudeHooks } from "./claude-hooks-compile-regen";
 
 describe("compileCheckTargets (mt#2497, extended mt#2304, mt#3058)", () => {
+  /**
+   * This repository's case: both monolithic files carry the generation banner.
+   * Spelled out since mt#5003, because `claude.md` is now checked only for a
+   * CLAUDE.md Minsky generated — an absent one is no longer created, so
+   * demanding its freshness would be asking for a file nothing produces.
+   */
+  const OURS = { claudeMd: "generated", agentsMd: "generated" } as const;
+
   test("includes claude-agents when .minsky/agents/ is present", () => {
-    expect(compileCheckTargets({ skills: true, rules: true, agents: true, hooks: false })).toEqual([
+    expect(
+      compileCheckTargets({
+        skills: true,
+        rules: true,
+        agents: true,
+        hooks: false,
+        ownership: OURS,
+      })
+    ).toEqual([
       "claude-skills",
       "cursor-rules-ts",
       "claude.md",
@@ -37,6 +53,7 @@ describe("compileCheckTargets (mt#2497, extended mt#2304, mt#3058)", () => {
       rules: true,
       agents: false,
       hooks: false,
+      ownership: OURS,
     });
     expect(targets).not.toContain("claude-agents");
     expect(targets).toEqual([
@@ -49,7 +66,15 @@ describe("compileCheckTargets (mt#2497, extended mt#2304, mt#3058)", () => {
   });
 
   test("includes claude-hooks when .minsky/hooks/ is present", () => {
-    expect(compileCheckTargets({ skills: true, rules: true, agents: true, hooks: true })).toEqual([
+    expect(
+      compileCheckTargets({
+        skills: true,
+        rules: true,
+        agents: true,
+        hooks: true,
+        ownership: OURS,
+      })
+    ).toEqual([
       "claude-skills",
       "cursor-rules-ts",
       "claude.md",
@@ -74,7 +99,13 @@ describe("compileCheckTargets (mt#2497, extended mt#2304, mt#3058)", () => {
     // cursor-rules-ts + the three former-legacy monolithic/claude-rules targets
     // all gate on `rules`. Cutover requirement: none may be silently dropped.
     expect(
-      compileCheckTargets({ skills: false, rules: true, agents: false, hooks: false })
+      compileCheckTargets({
+        skills: false,
+        rules: true,
+        agents: false,
+        hooks: false,
+        ownership: OURS,
+      })
     ).toEqual(["cursor-rules-ts", "claude.md", "agents.md", "claude-rules"]);
   });
 
@@ -118,7 +149,16 @@ describe("compileCheckTargets (mt#2497, extended mt#2304, mt#3058)", () => {
   // produces, and a claude-code project would be told they are stale forever with
   // no invocation able to refresh them.
   describe("harness gate (mt#4866 SC3)", () => {
-    const RULES_ONLY = { skills: false, rules: true, agents: false, hooks: false };
+    // `ownership` carries this repository's case — a CLAUDE.md Minsky
+    // generated — which is what every test here was written under. Since
+    // mt#5003 `claude.md` is selected only for that case.
+    const RULES_ONLY = {
+      skills: false,
+      rules: true,
+      agents: false,
+      hooks: false,
+      ownership: { claudeMd: "generated", agentsMd: "generated" },
+    } as const;
     const NO_OUTPUTS = { cursorRules: false, agentsMd: false };
 
     test("drops cursor-rules-ts and agents.md under claude-code with no existing outputs", () => {
@@ -174,13 +214,19 @@ describe("compileCheckTargets (mt#2497, extended mt#2304, mt#3058)", () => {
   // to refresh it — and the one that would (`--target claude.md`) is refused by
   // the writer, so the operator has no way out at all.
   describe("foreign-ownership gate (mt#4986 SC3)", () => {
-    const RULES_ONLY = { skills: false, rules: true, agents: false, hooks: false };
+    const RULES_ONLY = {
+      skills: false,
+      rules: true,
+      agents: false,
+      hooks: false,
+      ownership: { claudeMd: "generated", agentsMd: "generated" },
+    } as const;
 
     test("drops claude.md when CLAUDE.md is the user's", () => {
       expect(
         compileCheckTargets({
           ...RULES_ONLY,
-          foreignOutputs: { claudeMd: true, agentsMd: false },
+          ownership: { claudeMd: "foreign", agentsMd: "generated" },
         })
       ).toEqual(["cursor-rules-ts", "agents.md", "claude-rules"]);
     });
@@ -191,7 +237,7 @@ describe("compileCheckTargets (mt#2497, extended mt#2304, mt#3058)", () => {
           ...RULES_ONLY,
           harness: "claude-code",
           existingOutputs: { cursorRules: true, agentsMd: true },
-          foreignOutputs: { claudeMd: false, agentsMd: true },
+          ownership: { claudeMd: "generated", agentsMd: "foreign" },
         })
       ).not.toContain("agents.md");
     });
@@ -202,9 +248,21 @@ describe("compileCheckTargets (mt#2497, extended mt#2304, mt#3058)", () => {
       expect(
         compileCheckTargets({
           ...RULES_ONLY,
-          foreignOutputs: { claudeMd: false, agentsMd: false },
+          ownership: { claudeMd: "generated", agentsMd: "generated" },
         })
       ).toEqual(compileCheckTargets(RULES_ONLY));
+    });
+
+    // mt#5003: the mirror must stop demanding freshness for a file the compile
+    // no longer creates, or a fresh project is told it is stale at every commit
+    // with no invocation able to fix it.
+    test("drops claude.md when no CLAUDE.md of ours exists", () => {
+      expect(
+        compileCheckTargets({
+          ...RULES_ONLY,
+          ownership: { claudeMd: "absent", agentsMd: "generated" },
+        })
+      ).not.toContain("claude.md");
     });
   });
 });

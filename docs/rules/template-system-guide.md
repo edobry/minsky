@@ -117,18 +117,31 @@ $ minsky compile
   and re-run.
 ```
 
-**What it costs you today, stated plainly.** `.claude/rules/` only accepts rules that
-declare `globs` and `alwaysApply: false`, and every base rule is always-apply — so
-while your `CLAUDE.md` is your own, Minsky's base rules reach your agent through no
-automatic channel at all. They are still installed under `.minsky/rules/` and an agent
-can read any of them by name. This is a known interim state, not the intended end
-state; where always-apply rules should go for a project that owns its own `CLAUDE.md`
-is an open design question (mt#4986, ask#11711).
+**Your rules still reach the agent** (mt#5003). Minsky's always-apply rules are written
+to `.claude/rules/` as files with **no `paths` frontmatter**, which Claude Code loads at
+launch at the same priority `./CLAUDE.md` would have had — so your instructions and
+Minsky's coexist rather than competing for one file. Path-scoped rules land in the same
+directory with their `paths:` frontmatter, as they always have.
 
-**To hand a file over to Minsky**, move it aside (or delete it) and re-run — the next
-run finds nothing there and writes the full output. There is no flag to force an
-overwrite, deliberately: the file is the only copy of your instructions, and a flag
-that discards them is a flag someone will pass by accident.
+> Earlier revisions of this page said the opposite — that the base rules reached your
+> agent through no automatic channel and had to be requested by name. That was true
+> between mt#4986 and mt#5003 and is no longer.
+
+**Minsky does not create a `CLAUDE.md` for you.** A project that has none stays that
+way; the rules go to `.claude/rules/`. If you want the file, ask for it once —
+`minsky compile --target claude.md` — and it is maintained from then on, because it now
+carries the banner. A `CLAUDE.md` Minsky already generated keeps being regenerated
+exactly as before, which is why Minsky's own repository is unaffected by any of this.
+
+**To hand an existing file over to Minsky**, move it aside (or delete it) and re-run.
+There is no flag to force an overwrite, deliberately: the file is the only copy of your
+instructions, and a flag that discards them is a flag someone will pass by accident.
+
+**`AGENTS.md` is different, and the run says so.** `.claude/rules/` is a Claude Code
+mechanism; Claude Code itself reads `CLAUDE.md`, not `AGENTS.md`. So for a project whose
+`AGENTS.md` is its own, Minsky's rules genuinely have no automatic channel — they are
+installed under `.minsky/rules/` and an agent has to ask for one by name with
+`rules_get <name>`.
 
 **Effect on `compile --check` and pre-commit.** A file Minsky does not own is not one
 of Minsky's outputs, so it is never reported stale and the pre-commit compile check

@@ -9,6 +9,7 @@ import { mergeProjectConfigYaml, UnmergeableConfigError } from "./init/config-me
 import { describeScaffoldResult, scaffoldRulesFromCorpus } from "./init/rule-corpus-scaffold";
 import { RULE_FORMAT_OUTPUT_DIR } from "./rules/types";
 import { runMinskyCompile } from "./compile/compile";
+import { claudeMdIsOurs } from "./compile/monolithic-ownership";
 /**
  * The per-target rule accounting {@link initializeProject} consumes (mt#4770).
  *
@@ -326,7 +327,25 @@ export async function initializeProject(
     const foreignOutputs: { path: string; reason: string }[] = [];
     let accountingComplete = true;
 
-    for (const target of ["claude.md", "claude-rules"]) {
+    // mt#5003. `claude.md` is compiled ONLY when a CLAUDE.md we generated is
+    // already there — `init` on a fresh project no longer creates one, and the
+    // always-apply rules reach the agent through `.claude/rules/` instead. This
+    // list is explicit rather than probed (`init` names its targets), so the
+    // predicate has to be applied here too or `init` would keep creating the
+    // file that `compile` has stopped creating.
+    //
+    // `claude-rules` is unconditional: it is the channel that now carries both
+    // tiers, and it is the one Claude Code always reads.
+    // `fileSystem`, not the real disk: `initializeProject` is driven by an
+    // injected `FsLike`, and reaching past it made this decision depend on
+    // whatever happened to be at `<repoPath>/CLAUDE.md` on the machine running
+    // the tests (PR #3646 CI — green locally on a stale `/tmp/test-repo`, red in
+    // CI without one).
+    const initTargets = (await claudeMdIsOurs(repoPath, fileSystem))
+      ? ["claude.md", "claude-rules"]
+      : ["claude-rules"];
+
+    for (const target of initTargets) {
       try {
         const result = await compileForHarness(target, repoPath);
         for (const id of result.definitionsIncluded ?? []) {

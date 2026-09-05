@@ -29,8 +29,25 @@
  */
 
 import realFs from "fs/promises";
-import type { MinskyCompileFsDeps } from "./types";
+import { join } from "path";
+
 import { GENERATION_BANNER_PATTERNS } from "../rules/compile/banner-constants";
+
+/**
+ * The only capability this module needs: read a file as text.
+ *
+ * Narrower than `MinskyCompileFsDeps` on purpose (PR #3646 CI). Both that type
+ * and `FsLike` — the interface `init.ts` is handed — satisfy it structurally, so
+ * every caller can inject the filesystem it already has rather than falling back
+ * to the real one. An earlier revision took `MinskyCompileFsDeps`, which
+ * `init.ts` does not have, so its call ran against the REAL disk while the rest
+ * of `initializeProject` ran on an injected mock. That made four init tests
+ * depend on whether `/tmp/test-repo/CLAUDE.md` happened to exist on the machine:
+ * green locally where a stale one did, red in CI where it did not.
+ */
+export interface MonolithicOwnershipFs {
+  readFile(path: string, encoding: "utf-8"): Promise<string>;
+}
 
 /**
  * How many leading lines are scanned for the banner.
@@ -105,9 +122,9 @@ export function hasGenerationBanner(content: string): boolean {
  */
 export async function readMonolithicOwnership(
   outputPath: string,
-  fsDeps?: MinskyCompileFsDeps
+  fsDeps?: MonolithicOwnershipFs
 ): Promise<MonolithicOwnership> {
-  const fs = fsDeps ?? (realFs as MinskyCompileFsDeps);
+  const fs: MonolithicOwnershipFs = fsDeps ?? (realFs as MonolithicOwnershipFs);
   let content: string;
   try {
     content = await fs.readFile(outputPath, "utf-8");
@@ -127,10 +144,36 @@ export async function readMonolithicOwnership(
  */
 export async function isForeignMonolith(
   outputPath: string,
-  fsDeps?: MinskyCompileFsDeps
+  fsDeps?: MonolithicOwnershipFs
 ): Promise<boolean> {
   const ownership = await readMonolithicOwnership(outputPath, fsDeps);
   return ownership === "foreign" || ownership === "unreadable";
+}
+
+/**
+ * Whether this workspace has a `CLAUDE.md` that Minsky itself generated (mt#5003).
+ *
+ * The question behind it is "does the always-apply set already have a home?", and
+ * it has exactly three answers, of which only one is yes:
+ *
+ * - **generated** — ours. `claude.md` carries the always-apply rules, as it always has.
+ * - **absent** — a fresh project. We do NOT create one; the rules go to `.claude/rules/`
+ *   as `paths`-less files, which Claude Code loads at launch at the same priority
+ *   (ask#11711, decided 2026-09-05).
+ * - **foreign / unreadable** — the user's. Same as absent for this purpose, and mt#4986
+ *   already refuses to write it.
+ *
+ * This is the single predicate that keeps the two channels MUTUALLY EXCLUSIVE. Without
+ * it, widening `isEligibleForClaudeRules` to admit always-apply rules would emit this
+ * repository's own 138K always-apply corpus into `.claude/rules/` *as well as*
+ * `CLAUDE.md`, roughly doubling its always-loaded context.
+ */
+export async function claudeMdIsOurs(
+  workspacePath: string,
+  fsDeps?: MonolithicOwnershipFs
+): Promise<boolean> {
+  const claudeMdPath = join(workspacePath, MONOLITHIC_TARGET_OUTPUTS["claude.md"]);
+  return (await readMonolithicOwnership(claudeMdPath, fsDeps)) === "generated";
 }
 
 /**
@@ -143,7 +186,7 @@ export async function isForeignMonolith(
  */
 export async function monolithicSkipIfNotOurs(
   outputPath: string,
-  fsDeps?: MinskyCompileFsDeps
+  fsDeps?: MonolithicOwnershipFs
 ): Promise<{ path: string; reason: string } | undefined> {
   const ownership = await readMonolithicOwnership(outputPath, fsDeps);
   if (ownership === "generated" || ownership === "absent") return undefined;
@@ -178,10 +221,21 @@ export function foreignOutputSkipReason(
       ? `Fix its permissions and re-run; if it is yours, no action is needed.`
       : `To hand the file over to Minsky instead, move it aside and re-run.`;
 
+  // Where the rules ACTUALLY went, which differs by file and became true only
+  // with mt#5003. Before it, both files shared one sentence saying nothing loads
+  // the rules automatically — accurate then, and false for CLAUDE.md the moment
+  // `.claude/rules/` started carrying the always-apply set. A reassuring truth
+  // and an alarming falsehood read identically to someone who does not check.
+  const destination = outputPath.endsWith(MONOLITHIC_TARGET_OUTPUTS["claude.md"])
+    ? `Minsky's rules still reach your agent: the always-apply ones are written to ` +
+      `.claude/rules/ as paths-less files, which Claude Code loads at launch at the same ` +
+      `priority this file would have had. Your instructions and Minsky's coexist.`
+    : `Minsky's rule sources are in .minsky/rules/; this harness has no channel that loads ` +
+      `them automatically while this file is yours, so an agent has to ask for one by name ` +
+      `with \`rules_get <name>\`.`;
+
   return (
     `${outputPath} was left untouched — ${cause}, so it is treated as yours and is never ` +
-    `overwritten. Minsky's rule sources are in .minsky/rules/; nothing loads them into your ` +
-    `agent automatically while this file is yours, so an agent has to ask for one by name ` +
-    `with \`rules_get <name>\`. ${remedy}`
+    `overwritten. ${destination} ${remedy}`
   );
 }

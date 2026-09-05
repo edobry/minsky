@@ -255,9 +255,11 @@ describe("Init rule-format output directory (mt#4714)", () => {
       }
     );
 
-    // Exactly the two channels Claude Code implements (mt#3107) — not the
-    // full target set, which would write files nothing reads.
-    expect(compiled.map((c) => c.target)).toEqual(["claude.md", "claude-rules"]);
+    // mt#5003: `claude-rules` ONLY. `init` no longer creates a CLAUDE.md, so on
+    // a fresh project (this mock fs has none) the always-apply rules go to
+    // `.claude/rules/` and `claude.md` is not compiled at all. Still exactly the
+    // channels Claude Code implements (mt#3107) — the set is now one, not two.
+    expect(compiled.map((c) => c.target)).toEqual(["claude-rules"]);
     expect(compiled.every((c) => c.workspacePath === testRepo)).toBe(true);
     // ...and the SOURCES they compile from are where the compile pipeline looks.
     expect(mockFileSystem.directories.has(dir(".minsky", "rules"))).toBe(true);
@@ -449,10 +451,11 @@ describe("Init reports rules unreachable by the harness (mt#4770)", () => {
   });
 
   test("says nothing when every rule reaches a target (AT5)", async () => {
-    const warnings = await runCapturingWarnings(async (target) =>
-      target === "claude.md"
-        ? accounting(["always-rule"], ["scoped-rule"])
-        : accounting(["scoped-rule"], ["always-rule"])
+    // mt#5003: `claude-rules` is the only target `init` compiles on a fresh
+    // project, and since it now carries the always-apply tier too, "every rule
+    // reaches a target" means every rule reaches THIS one.
+    const warnings = await runCapturingWarnings(async () =>
+      accounting(["always-rule", "scoped-rule"], [])
     );
 
     expect(warnings).toEqual([]);
@@ -486,9 +489,12 @@ describe("Init reports rules unreachable by the harness (mt#4770)", () => {
     warnings.filter((w) => w.includes("left untouched"));
 
   test("reports a monolithic output left alone because it is the user's file", async () => {
-    const warnings = await runCapturingWarnings(async (target) =>
-      target === "claude.md" ? skippedForeign([], ["always-rule"]) : accounting([], ["always-rule"])
-    );
+    // Pins the REPORTING MECHANISM, not which target triggers it: whenever a
+    // compiled target returns a `skippedForeignOutputs` entry, `init` surfaces
+    // it. mt#5003 changed who can trigger it at init — `claude.md` is not
+    // compiled unless a CLAUDE.md of ours already exists — so the stub is
+    // attributed to the target `init` actually runs rather than to `claude.md`.
+    const warnings = await runCapturingWarnings(async () => skippedForeign([], ["always-rule"]));
 
     const reported = foreignWarnings(warnings);
     expect(reported).toHaveLength(1);
@@ -501,9 +507,7 @@ describe("Init reports rules unreachable by the harness (mt#4770)", () => {
     // every base rule is also unreachable, and the unreachability warning on
     // its own sends the operator hunting for a frontmatter problem that does
     // not exist.
-    const warnings = await runCapturingWarnings(async (target) =>
-      target === "claude.md" ? skippedForeign([], ["always-rule"]) : accounting([], ["always-rule"])
-    );
+    const warnings = await runCapturingWarnings(async () => skippedForeign([], ["always-rule"]));
 
     const foreignIndex = warnings.findIndex((w) => w.includes("left untouched"));
     const reachabilityIndex = warnings.findIndex((w) => w.includes("not reachable by Claude"));
