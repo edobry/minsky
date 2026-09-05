@@ -22,11 +22,14 @@ import {
   detectMissingReview,
   listOpenPRs,
   loadSweeperConfig,
+  retriggerViaRunReview,
   runSweep,
   startSweeper,
+  type MissingReviewPR,
   type SweeperConfig,
   type SweeperDeps,
 } from "./sweeper";
+import type { ReviewDomainDeps } from "./domain-container";
 import { submissionFailureKey, type OpenCircuit } from "./submission-failure-tracker";
 import { DomainAskEmitter, type CircuitBreakerAlertContext } from "./ask-emitter";
 import { WebhookAlertSink } from "./alert-sink";
@@ -639,7 +642,17 @@ describe("runSweep", () => {
     expect(runReviewFn).toHaveBeenCalledTimes(1);
     // runReview is called with (config, owner, repo, prNumber, authorLogin, deliveryId,
     // headSha, deps). deliveryId is "sweeper-{timestamp}", headSha comes from the PR,
-    // and deps is undefined when no db is available.
+    // and deps is an EMPTY OBJECT here because this fixture supplies neither a db
+    // nor domain deps.
+    //
+    // mt#4998 changed this line from `expect(callDeps).toBeUndefined()`. That
+    // assertion was not merely describing the shape — it pinned the defect: the
+    // sweeper passed NO deps at all, so every sweeper-initiated review ran with no
+    // tier resolution and no bound-task spec. `{}` and `undefined` are
+    // interchangeable to runReview (`deps: RunReviewDeps = {}`), so nothing about
+    // behaviour changed for this fixture; what changed is that the sweeper now has
+    // somewhere to put the deps, and production fills it. The forwarding itself is
+    // asserted in the mt#4998 describe block at the bottom of this file.
     const [
       callConfig,
       callOwner,
@@ -658,7 +671,7 @@ describe("runSweep", () => {
     expect(typeof callDeliveryId).toBe("string");
     expect((callDeliveryId as string).startsWith("sweeper-")).toBe(true);
     expect(callSha).toBe(HEAD_SHA);
-    expect(callDeps).toBeUndefined();
+    expect(callDeps).toEqual({});
   });
 
   test("no open PRs: prsScanned=0, missing=[], retriggeredCount=0", async () => {
@@ -1728,5 +1741,180 @@ describe("runSweep — multi-repo target resolution (mt#4759)", () => {
     expect(callOwner).toBe("edobry");
     expect(callRepo).toBe("peezombie.me");
     expect(callPrNumber).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4998: a sweeper-initiated review gets the SAME domain context a
+// webhook-initiated one gets.
+//
+// The defect: `retriggerViaRunReview` passed only `{ db }` to `runReview`,
+// while the webhook path passed five domain deps besides. Nothing failed —
+// each dep degrades quietly by design — so every sweeper review posted
+// `Tier: unknown` with an empty `specVerification` and otherwise looked
+// normal. Observed in production on PR #3633 @ 5c56ffc22 (2026-09-04).
+// ---------------------------------------------------------------------------
+
+describe("mt#4998: retrigger forwards domain context to runReview", () => {
+  const MISSING_PR: MissingReviewPR = {
+    number: 3633,
+    headSha: "5c56ffc22c5809d4c9bac960c0cc3954b9f8731d",
+    authorLogin: "minsky-ai[bot]",
+    reason: "no_review_by_bot",
+    owner: "edobry",
+    repo: "minsky",
+  };
+
+  const EVENT_DEGRADED_CONTEXT = "sweeper.retrigger_degraded_context";
+
+  // Declared independently of the production `MISSING_DOMAIN_DEP_KEYS`, so a
+  // change to that constant's contents or ORDER still fails these tests.
+  const ALL_DOMAIN_DEP_KEYS = [
+    "taskService",
+    "persistenceProvider",
+    "memoryLookup",
+    "askLookup",
+    "sessionLookup",
+  ] as const satisfies readonly (keyof ReviewDomainDeps)[];
+
+  // Opaque sentinels: this test asserts the deps are FORWARDED, not that they
+  // work. Their behaviour is review-worker's concern and is covered there.
+  const DOMAIN_DEPS = Object.fromEntries(
+    ALL_DOMAIN_DEP_KEYS.map((key) => [key, { __sentinel: key }])
+  ) as unknown as ReviewDomainDeps;
+
+  const okReview = () =>
+    Promise.resolve({ status: "reviewed" as const, reason: "ok", tier: 3 as const });
+
+  test("forwards all five domain deps, alongside db, to runReview", async () => {
+    const runReviewFn = mock(okReview);
+    const db = { __sentinel: "db" } as unknown as ReviewerDb;
+
+    await retriggerViaRunReview(
+      BASE_CONFIG,
+      "edobry",
+      "minsky",
+      MISSING_PR,
+      runReviewFn,
+      db,
+      DOMAIN_DEPS
+    );
+
+    expect(runReviewFn).toHaveBeenCalledTimes(1);
+    // The deps object is runReview's 8th positional argument.
+    const deps = (runReviewFn.mock.calls[0] as unknown[])[7] as Record<string, unknown>;
+
+    // NEGATIVE CONTROL for this assertion lives in the PR body: on the
+    // pre-change build this object is exactly `{ db }`, so every one of the
+    // five below is undefined and this test fails five times over.
+    expect(deps.taskService).toBe(DOMAIN_DEPS.taskService);
+    expect(deps.persistenceProvider).toBe(DOMAIN_DEPS.persistenceProvider);
+    expect(deps.memoryLookup).toBe(DOMAIN_DEPS.memoryLookup);
+    expect(deps.askLookup).toBe(DOMAIN_DEPS.askLookup);
+    expect(deps.sessionLookup).toBe(DOMAIN_DEPS.sessionLookup);
+    // db must still be threaded — the pre-change behaviour is preserved, not
+    // replaced.
+    expect(deps.db).toBe(db);
+  });
+
+  test("no domain deps → still runs, and names every missing dep on a distinct event (SC3)", async () => {
+    const { logs, restore } = captureConsoleLogs();
+    const runReviewFn = mock(okReview);
+    try {
+      await retriggerViaRunReview(BASE_CONFIG, "edobry", "minsky", MISSING_PR, runReviewFn);
+    } finally {
+      restore();
+    }
+
+    // Degraded, not blocked: the sweeper is a best-effort safety net and must
+    // still review when the container never booted.
+    expect(runReviewFn).toHaveBeenCalledTimes(1);
+
+    const degraded = findLogEvent(logs, EVENT_DEGRADED_CONTEXT);
+    expect(degraded).not.toBeNull();
+    expect(degraded?.missingDomainDeps).toEqual([...ALL_DOMAIN_DEP_KEYS]);
+    expect(degraded?.pr).toBe(3633);
+  });
+
+  test("domain deps present → NO degraded-context event, so an empty specVerification means 'no bound task' rather than 'no taskService' (SC3)", async () => {
+    const { logs, restore } = captureConsoleLogs();
+    const runReviewFn = mock(okReview);
+    try {
+      await retriggerViaRunReview(
+        BASE_CONFIG,
+        "edobry",
+        "minsky",
+        MISSING_PR,
+        runReviewFn,
+        undefined,
+        DOMAIN_DEPS
+      );
+    } finally {
+      restore();
+    }
+
+    // This is the discrimination SC3 asks for. Without it the two causes of an
+    // empty `specVerification` array are indistinguishable from the outside:
+    // the PR genuinely has no bound task (correct, and pinned by mt#2153 AT2),
+    // versus the review had no `taskService` to look one up with (the defect).
+    expect(findLogEvent(logs, EVENT_DEGRADED_CONTEXT)).toBeNull();
+    expect(runReviewFn).toHaveBeenCalledTimes(1);
+  });
+
+  test("a PARTIAL dep set names only what is actually missing", async () => {
+    const { logs, restore } = captureConsoleLogs();
+    const runReviewFn = mock(okReview);
+    try {
+      await retriggerViaRunReview(
+        BASE_CONFIG,
+        "edobry",
+        "minsky",
+        MISSING_PR,
+        runReviewFn,
+        undefined,
+        { taskService: DOMAIN_DEPS.taskService } as ReviewDomainDeps
+      );
+    } finally {
+      restore();
+    }
+
+    const degraded = findLogEvent(logs, EVENT_DEGRADED_CONTEXT);
+    // Everything except the one dep that WAS supplied — derived, so this stays
+    // correct if the dep set grows.
+    expect(degraded?.missingDomainDeps).toEqual(
+      ALL_DOMAIN_DEP_KEYS.filter((key) => key !== "taskService")
+    );
+  });
+
+  test("runSweep threads SweeperDeps.reviewDomainDeps through to the retrigger", async () => {
+    const runReviewFn = mock(okReview);
+    const deps: SweeperDeps = {
+      ...makeFakeDeps(
+        {
+          openPRs: [
+            {
+              number: 3633,
+              head: { sha: HEAD_SHA },
+              body: TIER3_BODY,
+              user: { login: PR_AUTHOR },
+            },
+          ],
+          reviews: { 3633: [] },
+        },
+        BOT_LOGIN,
+        runReviewFn
+      ),
+      reviewDomainDeps: DOMAIN_DEPS,
+    };
+
+    const result = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    expect(result.retriggeredCount).toBe(1);
+    expect(runReviewFn).toHaveBeenCalledTimes(1);
+    // Proves the wiring survives the whole sweep cycle, not just the leaf
+    // function — the sweep is where production actually calls it.
+    const runDeps = (runReviewFn.mock.calls[0] as unknown[])[7] as Record<string, unknown>;
+    expect(runDeps.taskService).toBe(DOMAIN_DEPS.taskService);
+    expect(runDeps.sessionLookup).toBe(DOMAIN_DEPS.sessionLookup);
   });
 });
