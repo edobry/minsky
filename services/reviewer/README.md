@@ -257,6 +257,36 @@ retriggers. Before mt#4267 only the second existed, so a marker orphaned by a re
 every direct `/retrigger` until a sweeper cycle happened to sweep it — up to `SWEEPER_INTERVAL_MS`
 (default 10 min) away, and invisible to the caller.
 
+### The marker is a LEASE, not a fixed window (mt#4993)
+
+**A holder refreshes its own marker while it runs.** `startMarkerHeartbeat` pushes `expires_at` out
+every **60s** (`MARKER_HEARTBEAT_INTERVAL_MS`) for as long as `runReview` is executing, and stops in
+the same `finally` that releases the marker. The default TTL — **180s**, down from 5 minutes — is
+therefore _derived_: `interval x 3`, three missed beats, not a bound on how long a review may take.
+
+**Why it changed.** The old 5-minute TTL was sized against "OpenAI's 120s model timeout plus
+overhead" — one model call. A review is a tool loop of up to `MAX_TOOL_ROUNDS` rounds, each able to
+spend 120s plus a 120s retry, with an outer whole-review retry above that. Measured over 30 days:
+**4.0% of reviews (134 of 3,383) ran longer than their own marker**, and 19 pairs of reviews
+overlapped on the same `(pr, head_sha)` — 17 of them starting after the TTL had elapsed, so the
+takeover documented above handed a live review's row to a second caller.
+
+Note that this and mt#4267 pull the same number in opposite directions — a dead holder's marker
+should expire _sooner_, a live holder's _later_ — which is why the fix is a heartbeat rather than a
+bigger number. The lease serves both: a live holder never expires, and a dead one is now reclaimed
+in **180s instead of 300s**.
+
+**Operational note — `REVIEWER_INFLIGHT_MARKER_TTL_MS` is bounded below.** A value under
+`MARKER_MIN_TTL_MS` (two heartbeat intervals, 120s) is **refused**, logged as
+`inflight_marker.ttl_env_below_floor`, and the derived default is used instead. A sub-interval TTL
+expires live holders between beats, which is not a tighter setting but the duplicate-review defect
+switched back on. Raising it is permitted and is also rarely what you want: it lengthens the
+mt#4267 blocked-retrigger window and buys nothing, since the heartbeat — not the TTL — is what
+covers a long review.
+
+Watch `inflight_marker.heartbeat_ownership_lost`: it fires when a holder's refresh finds the row
+already claimed by someone else, which means a lease lapsed anyway. It should be ~zero.
+
 ## Re-running the harness (mt#1515)
 
 Two scripts under `services/reviewer/scripts/` codify the acceptance tests for the reviewer service fidelity and latency:

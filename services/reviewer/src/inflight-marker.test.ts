@@ -27,7 +27,13 @@ import {
   DEFAULT_INFLIGHT_TTL_MS,
   resolveInflightTtlMs,
   INFLIGHT_TTL_ENV_VAR,
+  refreshMarker,
+  startMarkerHeartbeat,
+  MARKER_HEARTBEAT_INTERVAL_MS,
+  MARKER_HEARTBEAT_MISS_TOLERANCE,
+  MARKER_MIN_TTL_MS,
 } from "./inflight-marker";
+import type { HeartbeatScheduler } from "./inflight-marker";
 import type { ReviewerDb } from "./db/client";
 
 // ---------------------------------------------------------------------------
@@ -71,6 +77,12 @@ const INFLIGHT_TABLE_DELETE_SQL = "delete from reviewer_inflight_reviews";
 
 /** SQL fragment for identifying inflight marker INSERT (acquire) queries. */
 const INFLIGHT_TABLE_INSERT_SQL = "insert into reviewer_inflight_reviews";
+
+/** SQL fragment for identifying inflight marker UPDATE (refresh) queries (mt#4993). */
+const INFLIGHT_TABLE_UPDATE_SQL = "update reviewer_inflight_reviews";
+
+/** The error every fail-open fake throws. One constant so the fakes cannot drift apart. */
+const INJECTED_DB_ERROR = "DB execute error (injected)";
 
 /** Reason string used in sweeper missing-PR lists. */
 const NO_REVIEW_BY_BOT = "no_review_by_bot" as const;
@@ -151,7 +163,7 @@ function makeFakeDb(options: { failExecute?: boolean; failSelect?: boolean } = {
   const db = {
     execute: mock(async (sqlQuery: { queryChunks?: unknown; sql?: string }): Promise<unknown[]> => {
       if (options.failExecute) {
-        throw new Error("DB execute error (injected)");
+        throw new Error(INJECTED_DB_ERROR);
       }
 
       // Determine query type from the SQL string representation.
@@ -343,6 +355,24 @@ function makeStatefulFakeDb(): {
       return [];
     }
 
+    if (sqlLower.includes(INFLIGHT_TABLE_UPDATE_SQL)) {
+      // mt#4993 refreshMarker:
+      //   UPDATE ... SET expires_at = now() + $1 ... WHERE id = $2 AND delivery_id = $3
+      // The delivery_id half of that predicate is the ownership guard, and the
+      // fake honours it — an id-only match here would make the guard untestable.
+      if (boundValues.length >= 3) {
+        const [ttlMs, markerId, deliveryId] = boundValues as [number, string, string];
+        for (const row of store.values()) {
+          if (row.id === markerId && row.deliveryId === deliveryId) {
+            const refreshedAt = new Date();
+            row.expiresAt = new Date(refreshedAt.getTime() + ttlMs);
+            return [{ id: row.id }] as UuidRow[];
+          }
+        }
+      }
+      return [];
+    }
+
     if (sqlLower.includes(INFLIGHT_TABLE_DELETE_SQL) && sqlLower.includes("returning")) {
       // pruneStaleMarkers: DELETE WHERE expires_at < now() RETURNING id
       const now = new Date();
@@ -443,8 +473,13 @@ describe("resolveInflightTtlMs", () => {
   });
 
   test("returns parsed value when env var is a valid positive integer", () => {
-    process.env[INFLIGHT_TTL_ENV_VAR] = "60000";
-    expect(resolveInflightTtlMs()).toBe(60_000);
+    // mt#4993: this asserted 60_000 until the lease shipped. That value is now
+    // refused, and correctly so — it is exactly ONE heartbeat interval, the
+    // value at which a live holder expires between beats. "Valid positive
+    // integer" stopped being the whole contract when the TTL acquired a floor;
+    // the case is kept, with a value that is legal under it.
+    process.env[INFLIGHT_TTL_ENV_VAR] = "600000";
+    expect(resolveInflightTtlMs()).toBe(600_000);
     delete process.env[INFLIGHT_TTL_ENV_VAR];
   });
 
@@ -1206,5 +1241,221 @@ describe("AT-6: fail-open contract", () => {
 
     expect(proceeded).toBe(true);
     expect(findLogEvent(logs, FAIL_OPEN_EVENT)).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4993 — the marker is a LEASE: a live holder refreshes, a dead one expires
+// ---------------------------------------------------------------------------
+
+describe("mt#4993: marker lease (heartbeat)", () => {
+  const KEY = { owner: "edobry", repo: "minsky", prNumber: 4993, headSha: "abc123" };
+
+  /** Unambiguously in the past — "this marker has expired", without reading a clock. */
+  const EXPIRED = new Date(0);
+
+  /** A scheduler whose ticks the test drives by hand — no timers, no patching. */
+  function manualScheduler(): {
+    scheduler: HeartbeatScheduler;
+    tick: () => void;
+    cleared: () => number;
+  } {
+    let fn: (() => void) | null = null;
+    let clearCount = 0;
+    return {
+      scheduler: {
+        setIntervalFn: (f) => {
+          fn = f;
+          return Symbol("handle");
+        },
+        clearIntervalFn: () => {
+          clearCount += 1;
+        },
+      },
+      tick: () => fn?.(),
+      cleared: () => clearCount,
+    };
+  }
+
+  /**
+   * Drain the heartbeat's promise chain. A fixed number of `await
+   * Promise.resolve()` hops is not enough and is brittle besides: the chain runs
+   * refreshMarker -> db.execute -> executeImpl, and its depth is an
+   * implementation detail of code under test. A macrotask yields after ALL
+   * pending microtasks, so it does not encode that depth.
+   */
+  const flushAsync = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+  test("TTL is DERIVED from the heartbeat interval, and is shorter than the 300s it replaced", () => {
+    expect(DEFAULT_INFLIGHT_TTL_MS).toBe(
+      MARKER_HEARTBEAT_INTERVAL_MS * MARKER_HEARTBEAT_MISS_TOLERANCE
+    );
+    // The direction matters: crash-recovery latency IMPROVES rather than being
+    // traded away to fix the duplicate-review bug (mt#4267 vs mt#4993).
+    expect(DEFAULT_INFLIGHT_TTL_MS).toBeLessThan(300_000);
+    // And the TTL must outlast a beat, or every live holder expires between them.
+    expect(DEFAULT_INFLIGHT_TTL_MS).toBeGreaterThan(MARKER_HEARTBEAT_INTERVAL_MS);
+  });
+
+  test("PR #3647 R1: an env TTL BELOW the floor is refused, not honoured", () => {
+    const original = process.env[INFLIGHT_TTL_ENV_VAR];
+    const { logs, restore } = captureConsoleLogs();
+    try {
+      // 30s against a 60s beat — the reviewer's exact example. It looks like a
+      // reasonable tightening and would expire every live holder between beats.
+      process.env[INFLIGHT_TTL_ENV_VAR] = String(MARKER_HEARTBEAT_INTERVAL_MS / 2);
+      expect(resolveInflightTtlMs()).toBe(DEFAULT_INFLIGHT_TTL_MS);
+    } finally {
+      restore();
+      if (original === undefined) delete process.env[INFLIGHT_TTL_ENV_VAR];
+      else process.env[INFLIGHT_TTL_ENV_VAR] = original;
+    }
+    // Refused LOUDLY: a silent fallback would leave the operator believing the
+    // override took, which is how a misconfiguration survives.
+    expect(findLogEvent(logs, "inflight_marker.ttl_env_below_floor")).not.toBeNull();
+  });
+
+  test("PR #3647 R1: exactly at the floor is ACCEPTED — the guard is a floor, not a ban on overrides", () => {
+    const original = process.env[INFLIGHT_TTL_ENV_VAR];
+    try {
+      process.env[INFLIGHT_TTL_ENV_VAR] = String(MARKER_MIN_TTL_MS);
+      expect(resolveInflightTtlMs()).toBe(MARKER_MIN_TTL_MS);
+      // And comfortably above it, so a legitimate operator override still works.
+      process.env[INFLIGHT_TTL_ENV_VAR] = String(MARKER_MIN_TTL_MS * 5);
+      expect(resolveInflightTtlMs()).toBe(MARKER_MIN_TTL_MS * 5);
+    } finally {
+      if (original === undefined) delete process.env[INFLIGHT_TTL_ENV_VAR];
+      else process.env[INFLIGHT_TTL_ENV_VAR] = original;
+    }
+  });
+
+  test("PR #3647 R1: the floor leaves room to miss a beat and recover", () => {
+    // The invariant the guard exists to protect, asserted directly rather than
+    // left to the docblock: a holder can miss one refresh and the next still
+    // lands before expiry.
+    expect(MARKER_MIN_TTL_MS).toBeGreaterThan(MARKER_HEARTBEAT_INTERVAL_MS);
+    expect(DEFAULT_INFLIGHT_TTL_MS).toBeGreaterThanOrEqual(MARKER_MIN_TTL_MS);
+  });
+
+  test("AT1: a holder that refreshes keeps its marker past the original TTL — a second acquirer is DENIED", async () => {
+    const { db, store } = makeStatefulFakeDb();
+    const first = await acquireMarker(db, { ...KEY, acquiredBy: "webhook", deliveryId: "d-1" });
+    expect(first.acquired).toBe(true);
+
+    // Simulate the review outrunning its TTL: expire the row, as the clock would.
+    for (const row of store.values()) row.expiresAt = EXPIRED;
+
+    // The heartbeat fires and pushes expiry back out.
+    const refreshed = await refreshMarker(db, {
+      markerId: (first as { id: string }).id,
+      deliveryId: "d-1",
+    });
+    expect(refreshed).toBe(true);
+
+    const second = await acquireMarker(db, { ...KEY, acquiredBy: "sweeper", deliveryId: "d-2" });
+    expect(second.acquired).toBe(false);
+  });
+
+  test("AT1 negative control: WITHOUT the refresh, the same expiry lets the second acquirer IN", async () => {
+    const { db, store } = makeStatefulFakeDb();
+    const first = await acquireMarker(db, { ...KEY, acquiredBy: "webhook", deliveryId: "d-1" });
+    expect(first.acquired).toBe(true);
+
+    for (const row of store.values()) row.expiresAt = EXPIRED;
+
+    // No refreshMarker call — this is the pre-mt#4993 behaviour, and it is the
+    // 19-overlapping-pairs defect reproduced in one assertion.
+    const second = await acquireMarker(db, { ...KEY, acquiredBy: "sweeper", deliveryId: "d-2" });
+    expect(second.acquired).toBe(true);
+  });
+
+  test("AT2: crash recovery is preserved — a holder that STOPS refreshing loses the marker", async () => {
+    const { db, store } = makeStatefulFakeDb();
+    const first = await acquireMarker(db, { ...KEY, acquiredBy: "webhook", deliveryId: "d-1" });
+    expect(first.acquired).toBe(true);
+
+    // The holder dies: no further refreshes, so the row simply ages out.
+    for (const row of store.values()) row.expiresAt = EXPIRED;
+
+    const recovered = await acquireMarker(db, { ...KEY, acquiredBy: "sweeper", deliveryId: "d-2" });
+    expect(recovered.acquired).toBe(true);
+  });
+
+  test("the ownership guard: a superseded holder's refresh does NOT steal the row back", async () => {
+    const { db, store } = makeStatefulFakeDb();
+    const first = await acquireMarker(db, { ...KEY, acquiredBy: "webhook", deliveryId: "d-1" });
+    const markerId = (first as { id: string }).id;
+
+    // The row lapses and a second caller legitimately takes it over. The takeover
+    // is an in-place DO UPDATE, so the row KEEPS ITS ID — which is exactly why a
+    // refresh keyed on the id alone would silently succeed here.
+    for (const row of store.values()) row.expiresAt = EXPIRED;
+    const second = await acquireMarker(db, { ...KEY, acquiredBy: "sweeper", deliveryId: "d-2" });
+    expect(second.acquired).toBe(true);
+    expect((second as { id: string }).id).toBe(markerId);
+
+    // The original holder's heartbeat fires late. It must NOT win.
+    const stolen = await refreshMarker(db, { markerId, deliveryId: "d-1" });
+    expect(stolen).toBe(false);
+
+    // The new owner is intact and can still refresh.
+    expect(await refreshMarker(db, { markerId, deliveryId: "d-2" })).toBe(true);
+  });
+
+  test("refreshMarker is fail-open: a DB error returns false and does not throw", async () => {
+    const failingDb = {
+      execute: async () => {
+        throw new Error(INJECTED_DB_ERROR);
+      },
+    } as unknown as ReviewerDb;
+
+    const { restore } = captureConsoleLogs();
+    try {
+      expect(await refreshMarker(failingDb, { markerId: "m-1", deliveryId: "d-1" })).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
+  test("the heartbeat refreshes on each tick, and stop() ends it", async () => {
+    const { db } = makeStatefulFakeDb();
+    const first = await acquireMarker(db, { ...KEY, acquiredBy: "webhook", deliveryId: "d-1" });
+    const markerId = (first as { id: string }).id;
+
+    const { scheduler, tick, cleared } = manualScheduler();
+    const stop = startMarkerHeartbeat(db, { markerId, deliveryId: "d-1" }, scheduler);
+
+    tick();
+    await flushAsync();
+
+    stop();
+    expect(cleared()).toBe(1);
+
+    // Idempotent: a second stop must not double-clear.
+    stop();
+    expect(cleared()).toBe(1);
+  });
+
+  test("the heartbeat stops itself when ownership is lost rather than racing the new owner", async () => {
+    const { db, store } = makeStatefulFakeDb();
+    const first = await acquireMarker(db, { ...KEY, acquiredBy: "webhook", deliveryId: "d-1" });
+    const markerId = (first as { id: string }).id;
+
+    // Another caller takes the row over.
+    for (const row of store.values()) row.expiresAt = EXPIRED;
+    await acquireMarker(db, { ...KEY, acquiredBy: "sweeper", deliveryId: "d-2" });
+
+    const { scheduler, tick, cleared } = manualScheduler();
+    const { logs, restore } = captureConsoleLogs();
+    try {
+      startMarkerHeartbeat(db, { markerId, deliveryId: "d-1" }, scheduler);
+      tick();
+      await flushAsync();
+    } finally {
+      restore();
+    }
+
+    expect(cleared()).toBe(1);
+    expect(findLogEvent(logs, "inflight_marker.heartbeat_ownership_lost")).not.toBeNull();
   });
 });

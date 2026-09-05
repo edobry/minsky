@@ -64,7 +64,7 @@ import { join } from "path";
 // migration journal — not test-state faking.
 // eslint-disable-next-line custom/no-real-fs-in-tests -- reads the real committed migration DDL so the arbiter constraint under test is production's own
 import { readFileSync } from "fs";
-import { acquireMarker } from "./inflight-marker";
+import { acquireMarker, refreshMarker } from "./inflight-marker";
 import type { ReviewerDb } from "./db/client";
 
 /**
@@ -280,6 +280,105 @@ if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
       // this is what makes the NEXT caller see a held marker rather than another
       // free-for-all.
       expect(new Date(after.expires_at).getTime()).toBeGreaterThan(Date.now());
+    });
+  });
+
+  describe("refreshMarker against real Postgres (mt#4993)", () => {
+    // Same argument as this file's docblock, one function over. The unit fake's
+    // UPDATE branch decides "matched / did not match" in TypeScript, so it can
+    // only confirm the predicate I wrote into the fake. Two properties here are
+    // Postgres's, not ours:
+    //   1. `now() + $1 * interval '1 millisecond'` — interval arithmetic against
+    //      a BOUND parameter. A bound int multiplied by an interval is not
+    //      obviously well-typed, and getting it wrong is a runtime 42883
+    //      (operator does not exist), invisible to any fake.
+    //   2. `RETURNING id` on an UPDATE whose WHERE matches nothing — empty
+    //      result rather than an error, which is what `refreshMarker` reads as
+    //      "ownership lost".
+
+    test("the refresh extends expiry — bound-parameter interval arithmetic works", async () => {
+      const before = await markerRow();
+      const beforeExpiry = new Date(before.expires_at).getTime();
+
+      const refreshed = await refreshMarker(db, {
+        markerId: before.id,
+        deliveryId: before.delivery_id,
+        ttlMs: FIVE_MINUTES_MS * 2,
+      });
+
+      expect(refreshed).toBe(true);
+
+      const after = await markerRow();
+      // Strictly later than it was: the UPDATE ran AND the interval expression
+      // evaluated. An expiry that merely stayed live would also satisfy a
+      // "> now()" check while the SET did nothing.
+      expect(new Date(after.expires_at).getTime()).toBeGreaterThan(beforeExpiry);
+      // Nothing else moved — a refresh is not a takeover.
+      expect(after.id).toBe(before.id);
+      expect(after.acquired_by).toBe(before.acquired_by);
+      expect(after.delivery_id).toBe(before.delivery_id);
+    });
+
+    test("a STALE delivery_id refreshes nothing — the ownership guard holds in Postgres", async () => {
+      const before = await markerRow();
+      const beforeExpiry = new Date(before.expires_at).getTime();
+
+      // The row id is STABLE across a takeover (proved by the test above), so an
+      // id-only predicate would match here and let a superseded holder extend a
+      // marker it no longer owns.
+      const refreshed = await refreshMarker(db, {
+        markerId: before.id,
+        deliveryId: "del-a-previous-holder",
+        ttlMs: FIVE_MINUTES_MS * 10,
+      });
+
+      expect(refreshed).toBe(false);
+
+      const after = await markerRow();
+      expect(new Date(after.expires_at).getTime()).toBe(beforeExpiry);
+    });
+
+    test("a refreshed marker is NOT taken over — the mt#4993 property, end to end", async () => {
+      // Expire the row, then refresh it as its rightful owner would. A second
+      // acquirer must still be denied: this is precisely the case that produced
+      // 19 duplicate concurrent reviews over 30 days before the heartbeat.
+      await expireMarker();
+      const held = await markerRow();
+
+      expect(
+        await refreshMarker(db, {
+          markerId: held.id,
+          deliveryId: held.delivery_id,
+          ttlMs: FIVE_MINUTES_MS,
+        })
+      ).toBe(true);
+
+      const contender = await acquireMarker(db, {
+        owner: OWNER,
+        repo: REPO,
+        prNumber: PR_NUMBER,
+        headSha: HEAD_SHA,
+        acquiredBy: "webhook",
+        deliveryId: "del-would-have-duplicated",
+        ttlMs: FIVE_MINUTES_MS,
+      });
+
+      expect(contender.acquired).toBe(false);
+      expect(await rowCount()).toBe(1);
+
+      // Negative control for the same expiry: WITHOUT the refresh, the contender
+      // gets in. This is the pre-mt#4993 behaviour, observed rather than assumed.
+      await expireMarker();
+      const duplicate = await acquireMarker(db, {
+        owner: OWNER,
+        repo: REPO,
+        prNumber: PR_NUMBER,
+        headSha: HEAD_SHA,
+        acquiredBy: "webhook",
+        deliveryId: "del-would-have-duplicated",
+        ttlMs: FIVE_MINUTES_MS,
+      });
+      expect(duplicate.acquired).toBe(true);
     });
   });
 }
