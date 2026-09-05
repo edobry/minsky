@@ -1767,11 +1767,15 @@ describe("mt#4998: retrigger forwards domain context to runReview", () => {
 
   const EVENT_DEGRADED_CONTEXT = "sweeper.retrigger_degraded_context";
 
+  // The one dep whose CAPABILITY is checked as well as its presence, so it is
+  // referenced from three places below.
+  const PERSISTENCE_KEY = "persistenceProvider" as const;
+
   // Declared independently of the production `MISSING_DOMAIN_DEP_KEYS`, so a
   // change to that constant's contents or ORDER still fails these tests.
   const ALL_DOMAIN_DEP_KEYS = [
     "taskService",
-    "persistenceProvider",
+    PERSISTENCE_KEY,
     "memoryLookup",
     "askLookup",
     "sessionLookup",
@@ -1780,7 +1784,16 @@ describe("mt#4998: retrigger forwards domain context to runReview", () => {
   // Opaque sentinels: this test asserts the deps are FORWARDED, not that they
   // work. Their behaviour is review-worker's concern and is covered there.
   const DOMAIN_DEPS = Object.fromEntries(
-    ALL_DOMAIN_DEP_KEYS.map((key) => [key, { __sentinel: key }])
+    ALL_DOMAIN_DEP_KEYS.map((key) => [
+      key,
+      // `persistenceProvider` is the one dep whose CAPABILITY is checked as well
+      // as its presence (PR #3645 R1): `resolveTier`'s ProvenanceService lookup
+      // needs SQL, so a non-SQL provider degrades the review exactly as a null
+      // one does. A fully-healthy fixture must therefore report sql:true.
+      key === PERSISTENCE_KEY
+        ? { __sentinel: key, capabilities: { sql: true } }
+        : { __sentinel: key },
+    ])
   ) as unknown as ReviewDomainDeps;
 
   const okReview = () =>
@@ -1884,6 +1897,38 @@ describe("mt#4998: retrigger forwards domain context to runReview", () => {
     expect(degraded?.missingDomainDeps).toEqual(
       ALL_DOMAIN_DEP_KEYS.filter((key) => key !== "taskService")
     );
+  });
+
+  test("a PRESENT but non-SQL persistenceProvider is reported as capability-degraded (PR #3645 R1)", async () => {
+    const { logs, restore } = captureConsoleLogs();
+    const runReviewFn = mock(okReview);
+    try {
+      await retriggerViaRunReview(
+        BASE_CONFIG,
+        "edobry",
+        "minsky",
+        MISSING_PR,
+        runReviewFn,
+        undefined,
+        {
+          ...DOMAIN_DEPS,
+          [PERSISTENCE_KEY]: {
+            __sentinel: PERSISTENCE_KEY,
+            capabilities: { sql: false },
+          },
+        } as unknown as ReviewDomainDeps
+      );
+    } finally {
+      restore();
+    }
+
+    const degraded = findLogEvent(logs, EVENT_DEGRADED_CONTEXT);
+    expect(degraded).not.toBeNull();
+    // The null check cannot see this — every dep IS present. Without the
+    // capability check the review would post `Tier: unknown` with nothing
+    // saying why, which is the exact silent degradation this task exists to end.
+    expect(degraded?.missingDomainDeps).toEqual([]);
+    expect(degraded?.capabilityDegradedDeps).toEqual(["persistenceProvider:no-sql-capability"]);
   });
 
   test("runSweep threads SweeperDeps.reviewDomainDeps through to the retrigger", async () => {

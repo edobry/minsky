@@ -414,7 +414,23 @@ export async function retriggerViaRunReview(
   const missingDomainDeps = MISSING_DOMAIN_DEP_KEYS.filter(
     (key) => reviewDomainDeps?.[key] == null
   );
-  if (missingDomainDeps.length > 0) {
+
+  // PR #3645 R1 (non-blocking, adopted): a dep can be PRESENT and still not
+  // work, and the null check above cannot see that. `resolveTier`'s
+  // ProvenanceService lookup requires SQL capability, so a persistence provider
+  // reporting `capabilities.sql !== true` produces `Tier: unknown` exactly as a
+  // null one does — the same silent degradation this event exists to surface,
+  // one layer down. Reported in its own field rather than folded into
+  // `missingDomainDeps` because the remedy differs: a null dep is a wiring bug,
+  // a capability-degraded one is a provider or configuration choice.
+  const capabilityDegradedDeps: string[] = [];
+  const provider = reviewDomainDeps?.persistenceProvider;
+  if (provider != null && provider.capabilities?.sql !== true) {
+    capabilityDegradedDeps.push("persistenceProvider:no-sql-capability");
+  }
+
+  if (missingDomainDeps.length > 0 || capabilityDegradedDeps.length > 0) {
+    const degraded = [...missingDomainDeps, ...capabilityDegradedDeps];
     log.warn("sweeper.retrigger_degraded_context", {
       event: "sweeper.retrigger_degraded_context",
       deliveryId,
@@ -423,9 +439,10 @@ export async function retriggerViaRunReview(
       owner,
       repo,
       missingDomainDeps,
+      capabilityDegradedDeps,
       message:
         `Sweeper retrigger for PR #${pr.number} is running WITHOUT ` +
-        `${missingDomainDeps.join(", ")}. This review will be weaker than an ` +
+        `${degraded.join(", ")}. This review will be weaker than an ` +
         "equivalent webhook-initiated one (no tier resolution and/or no bound-task " +
         "spec verification). Expected only on a DB-less or degraded boot; see mt#4998.",
     });
