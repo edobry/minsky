@@ -123,6 +123,17 @@ function makeResult(
       ((overrides.injectedFiresSinceLastReview ??
         merged.firesSinceLastReview - merged.suppressedSinceLastReview) === 0 &&
         merged.suppressedSinceLastReview >= FIRES_THRESHOLD),
+    // mt#4970: defaults to 0 — a fixture that names no log-only family has none.
+    logOnlyFamilySinceLastReview: overrides.logOnlyFamilySinceLastReview ?? 0,
+    // mt#4970: DERIVED, same reasoning as the three above. With the 0 default it
+    // reduces to `allSuppressed` for every existing fixture, so no prior case
+    // changes behavior.
+    allWithheld:
+      overrides.allWithheld ??
+      ((overrides.injectedFiresSinceLastReview ??
+        merged.firesSinceLastReview - merged.suppressedSinceLastReview) === 0 &&
+        merged.suppressedSinceLastReview + (overrides.logOnlyFamilySinceLastReview ?? 0) >=
+          FIRES_THRESHOLD),
   };
 }
 

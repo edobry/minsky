@@ -375,6 +375,26 @@ for the same reason. It is in `LOG_ONLY_FAMILIES`; it reaches the calibration re
 Flipping it is a one-line removal from that set, and should follow a calibration pass over the
 evaluation stream — not a fresh argument.
 
+**Each log-only MATCH is marked `logOnly: true` in the calibration record (mt#4970).**
+`toCalibrationMatches` stamps every match whose family is in `LOG_ONLY_FAMILIES`, so the sweep can
+exclude it from `injectedFiresSinceLastReview` and count it under
+`logOnlyFamilySinceLastReview` instead. This matters because the arm's records are otherwise
+byte-identical to an injecting family's — nothing is suppressed, because nothing was ever eligible —
+so the sweep counted them as operator-facing fires and reported **120 injected for a window in which
+23 reached the agent**, putting every FP rate computed over it 5x off.
+
+The declaration is written HERE rather than inferred by the sweep, and that is the point: a
+per-detector family table on the reading side is the drift hazard mt#4465 recorded for `judgedText`,
+because two places would then have to agree about `LOG_ONLY_FAMILIES` forever and only one of them
+is edited when an arm flips. Marking the match keeps that flip a one-line removal from the set, as
+this section already promises.
+
+`logOnly` is written only when true. An absent marker means "not declared" and the sweep counts the
+record as injected — the status quo for every record written before this change, so shipping it did
+not reclassify history (mt#4970 AT4). Note the arm-level `*ArmLogOnly` booleans above are retained
+and unchanged; they name which ARM fired, while `logOnly` is per-match and is what the counting path
+reads.
+
 **Accepted cost while log-only:** a genuine assertion trailed by one of the finite verbs
 (_"Filing it now, will report back"_) is suppressed. The discriminator is a heuristic over an open
 syntactic axis, not a decision procedure; that is what the measurement is for.

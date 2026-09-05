@@ -54,6 +54,9 @@ export const LIVE_CORPUS_READERS = [
   // mt#4975. Reads the `duplicate-check-search-provenance` corpus to measure the
   // named-query discharge against the records the presence-only one cleared.
   "scripts/replay-duplicate-check-search-provenance.ts",
+  // mt#4970. Replays the `untaken-action` corpus to verify the log-only
+  // exclusion, and to keep the pre/post-declaration boundary explicit.
+  "scripts/verify-log-only-exclusion.ts",
 ] as const;
 
 /**

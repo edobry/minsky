@@ -100,6 +100,19 @@ describe("computeReviewDueLogs (mt#2896)", () => {
         ((overrides.injectedFiresSinceLastReview ??
           merged.firesSinceLastReview - merged.suppressedSinceLastReview) === 0 &&
           merged.suppressedSinceLastReview >= FIRES_THRESHOLD),
+      // mt#4970: defaults to 0 — a fixture that does not mention a log-only
+      // family has none, which is every detector but `untaken-action` today.
+      logOnlyFamilySinceLastReview: overrides.logOnlyFamilySinceLastReview ?? 0,
+      // mt#4970: DERIVED, same reasoning as the three above. With the default 0
+      // above this reduces to `allSuppressed` for every existing fixture, so no
+      // prior case changes behavior — which is the property the additive claim
+      // rests on.
+      allWithheld:
+        overrides.allWithheld ??
+        ((overrides.injectedFiresSinceLastReview ??
+          merged.firesSinceLastReview - merged.suppressedSinceLastReview) === 0 &&
+          merged.suppressedSinceLastReview + (overrides.logOnlyFamilySinceLastReview ?? 0) >=
+            FIRES_THRESHOLD),
     };
   }
 

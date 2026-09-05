@@ -719,6 +719,27 @@ export interface RetrospectiveTriggerRecord {
     family: string;
     phrase: string;
     /**
+     * The writer's declaration that this family could never have injected
+     * (mt#4970) — a per-FAMILY log-only arm inside a detector that is otherwise
+     * live, so the match reaches the calibration record and never
+     * `additionalContext`.
+     *
+     * Distinct from `suppressionReasons`, which is the OTHER way a fire fails
+     * to reach the operator: a suppressed match was eligible and withheld; a
+     * log-only match was never eligible, so it leaves no suppression reason and
+     * is byte-identical in shape to an injecting one. That is why the sweep
+     * cannot infer it — the fact lives in the hook's own family set — and why
+     * the writer marks it instead.
+     *
+     * **Absent means NOT DECLARED, never "this injected."** Every record
+     * written before its producer adopted the field is in that position, so a
+     * projection defaulting it to `false` would manufacture a measurement (the
+     * accessor-that-synthesizes hazard in `claim-confidence.mdc`, and the same
+     * reasoning `deferralOverlap` above is written to). Only `true` is ever
+     * written or parsed.
+     */
+    logOnly?: true;
+    /**
      * The sentence or clause the phrase was matched in, when the detector
      * captures one (`pre-narration`, mt#3198). Absent for detectors that do
      * not.
@@ -1037,10 +1058,10 @@ export interface CalibrationLogResult {
    */
   suppressedSinceLastReview: number;
   /**
-   * `firesSinceLastReview` minus the suppressed ones and the evaluation-only
-   * ones — the count the review thresholds actually key off, because neither
-   * a suppressed detection nor a no-match evaluation record is an
-   * operator-facing fire (mt#3197; evaluation-only widened in mt#3863).
+   * `firesSinceLastReview` minus the suppressed ones, the evaluation-only ones,
+   * and the log-only-family ones — the count the review thresholds actually key
+   * off, because none of the three is an operator-facing fire (mt#3197;
+   * evaluation-only widened in mt#3863; log-only-family in mt#4970).
    *
    * Records from detectors that don't record a suppression outcome, and
    * records predating the field, count as injected here: unknown is treated
@@ -1060,6 +1081,21 @@ export interface CalibrationLogResult {
    * silenced" apart from "nothing was there."
    */
   evaluatedOnlySinceLastReview: number;
+  /**
+   * Of `firesSinceLastReview`, how many MATCHED but could never inject because
+   * every one of their families is log-only (mt#4970) — see
+   * {@link isLogOnlyFamilyRecord}.
+   *
+   * Reported rather than silently dropped, and that is the point of the field:
+   * a log-only arm's fire volume is exactly the evidence a decision to promote
+   * it to injecting would rest on. Excluding it from `injectedFires` without
+   * surfacing it anywhere would trade one wrong number for a missing one.
+   *
+   * Distinct from both neighbours. A SUPPRESSED record was eligible and
+   * withheld; an EVALUATION-ONLY record never matched; a log-only record
+   * matched and was never eligible.
+   */
+  logOnlyFamilySinceLastReview: number;
   /** Number of distinct matched phrases across all fires-since-last-review records. */
   distinctPhrases: number;
   /** True when fires-since-last-review >= FIRES_THRESHOLD (count bar, diversity-agnostic). */
@@ -1082,6 +1118,22 @@ export interface CalibrationLogResult {
    * diversity-gated; see the derivation for why.
    */
   allSuppressed: boolean;
+  /**
+   * The generalization of {@link allSuppressed}, and the flag the review-due
+   * routing keys off (mt#4970): the injected count is 0 and the volume the
+   * operator never saw — SUPPRESSED plus LOG-ONLY-family — clears the same bar
+   * the injected count would have had to.
+   *
+   * Identical to `allSuppressed` for every log with no log-only family, which
+   * is every detector but `untaken-action` today. It differs only where the
+   * mt#4970 exclusion can pin the injected count at 0 while nothing was
+   * suppressed — the cliff mt#4049 closed for the suppression column and this
+   * closes for the log-only one.
+   *
+   * `evaluatedOnlySinceLastReview` is NOT in the union: those records never
+   * matched, so their absence from review is correct rather than a gap.
+   */
+  allWithheld: boolean;
   /**
    * The un-reviewed records (since last watermark). Empty when below the count
    * bar AND not all-suppressed — an all-suppressed log is routed for review, so
@@ -1219,6 +1271,27 @@ export function isEvaluationOnlyRecord(record: CalibrationRecord): boolean {
 }
 
 /**
+ * True when EVERY match on this record comes from a log-only family (mt#4970).
+ *
+ * The record matched something, and none of it could reach the operator — the
+ * third way a fire fails to arrive, beside suppression and evaluation-only.
+ *
+ * **`every`, not `some`, and that is the load-bearing choice.** A record
+ * carrying a log-only match ALONGSIDE an injecting one DID reach the agent, so
+ * it is an injected fire; 8 of the 23 injected records in `untaken-action`'s
+ * 2026-09-04 window are exactly that shape, and a `some` test would have
+ * swung the count wrong in the other direction.
+ *
+ * The empty-matches case returns false rather than vacuously true, so an
+ * evaluation-only record stays in {@link isEvaluationOnlyRecord}'s column
+ * instead of being double-counted here.
+ */
+export function isLogOnlyFamilyRecord(record: CalibrationRecord): boolean {
+  if (!("matches" in record) || record.matches.length === 0) return false;
+  return record.matches.every((m) => m.logOnly === true);
+}
+
+/**
  * Match keys the shared fallback branch consumes structurally (mt#3289).
  *
  * `family`/`class`/`category` are the three per-detector label keys the branch
@@ -1227,7 +1300,18 @@ export function isEvaluationOnlyRecord(record: CalibrationRecord): boolean {
  * `expectedTool` and `hadMatchingTool` — and is carried through rather than
  * dropped.
  */
-const CONSUMED_MATCH_KEYS = new Set(["family", "class", "category", "phrase", "context"]);
+const CONSUMED_MATCH_KEYS = new Set([
+  "family",
+  "class",
+  "category",
+  "phrase",
+  "context",
+  // mt#4970. Consumed rather than passed through: `logOnly` decides whether the
+  // record counts toward `injectedFiresSinceLastReview`, and a field the
+  // COUNTING path reads must not also ride in `detectorFields` — mem#827 is the
+  // recorded incident of a reviewer reading that sub-object as the record.
+  "logOnly",
+]);
 
 /**
  * Collect every raw record key the per-kind parse did not consume (mt#3289).
@@ -1544,6 +1628,10 @@ function parseCalibrationRecordCore(
           return {
             family: String(obj["family"] ?? obj["class"] ?? obj["category"] ?? ""),
             phrase: String(obj["phrase"] ?? ""),
+            // mt#4970: strict `=== true`, never truthiness and never a default.
+            // Absent stays absent so the status-quo (counted as injected) is
+            // preserved for every record written before the writer declared it.
+            ...(obj["logOnly"] === true ? { logOnly: true as const } : {}),
             ...(obj["context"] === undefined ? {} : { context: String(obj["context"]) }),
             ...(dropped.length > 0 ? { detectorFields: Object.fromEntries(dropped) } : {}),
           };
@@ -1779,8 +1867,23 @@ export function computeLogResult(
   // detected-then-withheld). Reported as its own figure below
   // (`evaluatedOnlySinceLastReview`) so a reviewer can tell the two apart.
   const evaluatedOnlySinceLastReview = newRecords.filter(isEvaluationOnlyRecord).length;
+  // mt#4970: the third exclusion. A log-only-family record matched something and
+  // could never reach the operator, so counting it as injected overstated
+  // `untaken-action`'s window 5x (120 reported, 23 actually operator-facing) and
+  // put every FP rate computed over it on the wrong denominator.
+  //
+  // Counted, not dropped: the log-only arm's fire volume is precisely the
+  // evidence a future flip decision needs, so it is reported under its own name
+  // rather than vanishing from both columns.
+  const logOnlyFamilySinceLastReview = newRecords.filter(
+    (r) => !isSuppressedRecord(r) && !isRevisedAway(r) && isLogOnlyFamilyRecord(r)
+  ).length;
   const injectedFiresSinceLastReview = newRecords.filter(
-    (r) => !isSuppressedRecord(r) && !isRevisedAway(r) && !isEvaluationOnlyRecord(r)
+    (r) =>
+      !isSuppressedRecord(r) &&
+      !isRevisedAway(r) &&
+      !isEvaluationOnlyRecord(r) &&
+      !isLogOnlyFamilyRecord(r)
   ).length;
 
   // The review threshold is DIVERSITY-AWARE (spec Success Criterion #3): a log is
@@ -1813,6 +1916,35 @@ export function computeLogResult(
   const allSuppressed =
     injectedFiresSinceLastReview === 0 && suppressedSinceLastReview >= FIRES_THRESHOLD;
 
+  // allWithheld (mt#4970): the GENERALIZATION of `allSuppressed`, and what the
+  // routing below now keys off.
+  //
+  // mt#4049 closed the case where the injected count is pinned at 0 because
+  // every detection was SUPPRESSED. Adding the log-only exclusion above opens
+  // the same cliff through a different column: a detector whose injecting
+  // volume reaches 0 while a log-only arm fires at volume has
+  // `injectedFiresSinceLastReview === 0` AND `suppressedSinceLastReview === 0`
+  // — nothing suppressed it — so `atCountThreshold` is false, `allSuppressed`
+  // is false, and the log falls through both gates into invisibility. That is
+  // the exact failure mt#4049 exists to prevent, reached by a route its
+  // predicate cannot see.
+  //
+  // The union is the right shape because both columns answer ONE question: the
+  // record MATCHED and the operator never saw it, so "is this gate too broad?"
+  // is still answerable from the records. `evaluatedOnlySinceLastReview` is
+  // deliberately NOT in the union — an evaluation-only record never matched at
+  // all, so there is nothing to classify and its absence from review is
+  // correct, not a cliff.
+  //
+  // `allSuppressed` keeps its exact prior meaning and stays reported: consumers
+  // that specifically mean "suppressed" (`scripts/verify-all-suppressed-routing.ts`,
+  // the cadence detector) are unaffected, and when no log-only family exists
+  // — every detector but `untaken-action` today — `allWithheld === allSuppressed`.
+  const withheldButMatchedSinceLastReview =
+    suppressedSinceLastReview + logOnlyFamilySinceLastReview;
+  const allWithheld =
+    injectedFiresSinceLastReview === 0 && withheldButMatchedSinceLastReview >= FIRES_THRESHOLD;
+
   return {
     entry,
     exists,
@@ -1821,11 +1953,13 @@ export function computeLogResult(
     suppressedSinceLastReview,
     injectedFiresSinceLastReview,
     evaluatedOnlySinceLastReview,
+    logOnlyFamilySinceLastReview,
     distinctPhrases,
     atCountThreshold,
     lowDiversity,
     pastThreshold,
     allSuppressed,
+    allWithheld,
     // Records are surfaced once the COUNT bar is hit (so a reviewer can see why a
     // log is low-diversity), even though the Ask only fires on pastThreshold.
     //
@@ -1835,7 +1969,11 @@ export function computeLogResult(
     // EMPTY `newRecords` — the reviewer told to judge a log and shown nothing,
     // which is the compounding trap the spec names. The records are exactly
     // what answers this leg's question ("is this gate too broad?").
-    newRecords: atCountThreshold || allSuppressed ? newRecords : [],
+    // mt#4970: keyed on `allWithheld` rather than `allSuppressed` — same
+    // behavior for every log without a log-only family, and it keeps a log whose
+    // only volume is log-only from falling through both gates with its records
+    // hidden.
+    newRecords: atCountThreshold || allWithheld ? newRecords : [],
     watermarkCount,
     watermarkStranded,
     openAskId: watermark?.openAskId,
