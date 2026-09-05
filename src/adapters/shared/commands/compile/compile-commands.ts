@@ -115,6 +115,14 @@ export function registerCompileCommands(targetRegistry: {
           log.cli(`[compile] ${skipped.reason}`);
         }
 
+        // mt#573 SC5, the run-level selection report. Top-level for the same
+        // reason as the block above: it belongs to the run, not to any one
+        // target, and on a single-target invocation `result.targets` is
+        // undefined so the per-target loop below never executes.
+        for (const reason of result.skipReasons ?? []) {
+          log.cli(`[compile] ${reason}`);
+        }
+
         if (result.targets && result.targets.length > 0) {
           const staleTargets: string[] = [];
           const budgetFailures: string[] = [];

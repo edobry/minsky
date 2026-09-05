@@ -11,6 +11,8 @@ import { existsSync as nodeExistsSync } from "fs";
 import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "../errors/index";
 import { serializeYamlFrontmatter } from "./utils/yaml-frontmatter";
+import { deriveRulePresets, resolveActiveRules, type RuleTierInfo } from "./rule-selection";
+import { isSelectionConfigured, readRuleSelectionConfig } from "./selection-resolution";
 import type {
   Rule,
   RuleMeta,
@@ -22,6 +24,33 @@ import type {
 } from "./types";
 
 const matter = grayMatterNamespace.default || grayMatterNamespace;
+
+/**
+ * Carry `plane` / `tier` / `minimumRung` out of parsed frontmatter (mt#573 SC2).
+ *
+ * A helper rather than three inline spreads because `getRule` builds a `Rule`
+ * at three separate return sites (requested-format hit, other-format hit with a
+ * conversion note, other-format hit without one) and the previous five-key
+ * mapping was duplicated across all three. Adding a sixth key three times is
+ * how the next one gets added twice.
+ *
+ * Values are passed through UNVALIDATED, matching every sibling key here
+ * (`globs`, `alwaysApply` and `tags` are all raw `data.*`). `RuleService` is the
+ * legacy reader and does no schema validation at all; the compile pipeline's
+ * reader validates against `ruleDefinitionSchema`. Validating only these three
+ * would make one rule's frontmatter parse differently depending on which reader
+ * opened it, which is the asymmetry this task is removing rather than widening.
+ * An unrecognised `tier:` value therefore reaches the resolver, where it is
+ * neither `base` nor `style` and so defaults ON — the same treatment as
+ * untiered, which is the safe direction.
+ */
+function tierMetaFrom(data: Record<string, unknown>): Pick<Rule, "plane" | "tier" | "minimumRung"> {
+  return {
+    plane: data.plane as Rule["plane"],
+    tier: data.tier as Rule["tier"],
+    minimumRung: data.minimumRung as Rule["minimumRung"],
+  };
+}
 
 /**
  * Structural subset of fs/promises used by RuleService.
@@ -54,6 +83,42 @@ export class RuleService {
     this.existsSyncFn = deps?.existsSyncFn || nodeExistsSync;
     // Log workspace path on initialization for debugging
     log.debug("RuleService initialized", { workspacePath });
+  }
+
+  /**
+   * Drop rules this project has deselected (mt#573 SC2).
+   *
+   * The second of the two readers of `.minsky/rules/`. The first is
+   * `discoverRuleSources` (`compile/rule-sources.ts`), which every compile
+   * target passes through; this one feeds the agent context assembler, the
+   * rules embeddings index and `rules list`. Selection is corpus MEMBERSHIP, so
+   * both have to honour it or a deselected rule stays out of `CLAUDE.md` and
+   * goes on being indexed and delivered as context.
+   *
+   * `getRule` is deliberately NOT filtered: an explicit `rules_get <name>` is a
+   * request for one named rule, not a listing, and answering "no such rule"
+   * because the project deselected it would be a lie about what is on disk.
+   *
+   * Skips the config read entirely when nothing is selected, which is every
+   * project today — see `selection-resolution.ts`.
+   */
+  private async applySelection(rules: Rule[], options: RuleOptions): Promise<Rule[]> {
+    if (options.includeDeselected) return rules;
+
+    const config = await readRuleSelectionConfig(this.workspacePath, this.fs);
+    if (!isSelectionConfigured(config)) return rules;
+
+    const tiers: RuleTierInfo[] = rules.map((r) => ({
+      id: r.id,
+      tier: r.tier,
+      minimumRung: r.minimumRung,
+    }));
+    const ids = rules.map((r) => r.id);
+    const active = resolveActiveRules(ids, config, {
+      tiers,
+      presets: deriveRulePresets(tiers, ids, config.rung),
+    });
+    return rules.filter((r) => active.has(r.id));
   }
 
   private getRuleDirPath(format: RuleFormat): string {
@@ -134,7 +199,7 @@ export class RuleService {
         }
       }
 
-      return rules;
+      return this.applySelection(rules, options);
     }
 
     // Multi-format scan: collect rules in priority order (minsky > cursor > generic),
@@ -205,7 +270,7 @@ export class RuleService {
       }
     }
 
-    return rules;
+    return this.applySelection(rules, options);
   }
 
   /**
@@ -258,6 +323,7 @@ export class RuleService {
             globs: data.globs,
             alwaysApply: data.alwaysApply,
             tags: data.tags,
+            ...tierMetaFrom(data),
             content: ruleContent.trim(),
             format: requestedFormat,
             path: filePath,
@@ -339,6 +405,7 @@ export class RuleService {
               globs: data.globs,
               alwaysApply: data.alwaysApply,
               tags: data.tags,
+              ...tierMetaFrom(data),
               content: ruleContent.trim(),
               format: originalFormat, // Return actual format, not requested format
               path: filePath,
@@ -354,6 +421,7 @@ export class RuleService {
             globs: data.globs,
             alwaysApply: data.alwaysApply,
             tags: data.tags,
+            ...tierMetaFrom(data),
             content: ruleContent.trim(),
             format,
             path: filePath,

@@ -104,8 +104,13 @@ export function registerSelectionCommands(targetRegistry: {
     id: "rules.presets",
     category: CommandCategory.RULES,
     name: "presets",
-    description: "List available rule presets with their rule counts",
+    description: "List the rule presets this project can offer, with their rule counts",
     parameters: {},
-    execute: async () => getRulesPresets(),
+    // Resolves the workspace and passes it through (mt#573 SC1). The presets are
+    // now DERIVED from the tier metadata on the project's rules rather than read
+    // from a hand-typed table, so this command cannot answer without knowing
+    // which project is asking — and the table it replaced named 13 ids that
+    // existed only in Minsky's own repository plus 3 that existed nowhere.
+    execute: async () => getRulesPresets(await resolveWorkspacePath({})),
   });
 }

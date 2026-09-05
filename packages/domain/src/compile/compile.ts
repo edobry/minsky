@@ -12,6 +12,7 @@ import { resolveWorkspacePath } from "../workspace";
 import { createMinskyCompileService, type MinskyCompileService } from "./compile-service";
 import type { MinskyCompileServiceResult, MinskyCompileTargetOutcome } from "./compile-service";
 import type { MinskyCompileFsDeps } from "./types";
+import { applyRuleSelection, discoverRuleSourcesUnfiltered } from "./rule-sources";
 import type { SizeBudget } from "./size-budget";
 import type { MemoryLoadingMode } from "../configuration/schemas/memory";
 import { unknownCompileTargetMessage } from "../rules/compile/target-error-hint";
@@ -404,8 +405,18 @@ export async function runMinskyCompile(
   const compileService = createMinskyCompileService();
   const fsDeps: MinskyCompileFsDeps = options.fsDeps ?? (realFs as MinskyCompileFsDeps);
 
+  // mt#573 SC5. Computed once per run, ahead of any target, and merged into
+  // whichever result shape is returned below.
+  const selectionReasons = await describeRuleSelectionIssues(workspacePath, fsDeps);
+  const withSelectionReasons = (result: MinskyCompileServiceResult): MinskyCompileServiceResult =>
+    selectionReasons.length === 0
+      ? result
+      : { ...result, skipReasons: [...selectionReasons, ...(result.skipReasons ?? [])] };
+
   if (options.target) {
-    return compileSingleMinskyTarget(compileService, options.target, options, workspacePath);
+    return withSelectionReasons(
+      await compileSingleMinskyTarget(compileService, options.target, options, workspacePath)
+    );
   }
 
   // mt#2803: bare invocation — regenerate every applicable target instead of
@@ -447,7 +458,9 @@ export async function runMinskyCompile(
       workspacePath
     );
     const merged = [...gateSkippedForeign, ...(single.skippedForeignOutputs ?? [])];
-    return merged.length > 0 ? { ...single, skippedForeignOutputs: merged } : single;
+    return withSelectionReasons(
+      merged.length > 0 ? { ...single, skippedForeignOutputs: merged } : single
+    );
   }
 
   const targets: MinskyCompileTargetOutcome[] = [];
@@ -474,7 +487,7 @@ export async function runMinskyCompile(
     skippedForeignOutputs.push(...(single.skippedForeignOutputs ?? []));
   }
 
-  return {
+  return withSelectionReasons({
     target: targetIds.join(", "),
     filesWritten,
     definitionsIncluded,
@@ -483,5 +496,86 @@ export async function runMinskyCompile(
     check: options.check,
     stale: options.check ? overallStale : undefined,
     targets,
-  };
+  });
+}
+
+/**
+ * Describe anything in the project's rule selection that could not be honoured
+ * (mt#573 SC5).
+ *
+ * Two classes, and both are reported rather than skipped silently:
+ *
+ * - **An id the project does not have.** A preset member, an `enabled` entry or
+ *   a `disabled` entry naming a rule that is not in `.minsky/rules/` — most
+ *   often because the user deleted the file by hand after selecting it. The
+ *   resolver intersects with the corpus, so such an id changes nothing; without
+ *   this message it changes nothing SILENTLY, which is indistinguishable from
+ *   working. That indistinguishability is the whole defect this task exists to
+ *   remove: before it, `rules disable <anything>` persisted happily and altered
+ *   no output at all.
+ * - **A `disabled` entry naming a `base` rule.** Base is not declinable
+ *   (ask#11286), so the entry is ignored — and an ignored config line the user
+ *   wrote deliberately has to say so.
+ *
+ * Emitted through `skipReasons`, the channel the CLI already renders, rather
+ * than `log.warn`, which `resolveDiagnosticSink` DISCARDS for a one-shot
+ * command — the mt#3119 finding that the surrounding code documents at length.
+ *
+ * Returns `[]` — and reads no frontmatter — when the project expressed no
+ * selection, which is every project today.
+ */
+async function describeRuleSelectionIssues(
+  workspacePath: string,
+  fsDeps: MinskyCompileFsDeps
+): Promise<string[]> {
+  let outcome: Awaited<ReturnType<typeof applyRuleSelection>>;
+  try {
+    outcome = await applyRuleSelection(
+      await discoverRuleSourcesUnfiltered(workspacePath, fsDeps),
+      workspacePath,
+      fsDeps
+    );
+  } catch {
+    // intentional-swallow: this is a REPORT about the compile, not part of it.
+    // A project whose rules directory cannot be read has a real problem, and
+    // the targets themselves surface it — failing the compile from inside its
+    // diagnostic would replace that message with a worse one.
+    return [];
+  }
+  if (!outcome.applied) return [];
+
+  const reasons: string[] = [];
+  if (outcome.parseError !== undefined) {
+    reasons.push(
+      `[compile:rules] the project's rule selection could not be read, so NO selection was ` +
+        `applied and the full corpus was compiled — ${outcome.parseError}. Fix the file and ` +
+        `re-run; until then any \`enabled\`/\`disabled\` entries in it are not in effect.`
+    );
+  }
+  if (outcome.unresolvedIds.length > 0) {
+    reasons.push(
+      `[compile:rules] this project's rule selection names ${outcome.unresolvedIds.length} ` +
+        `rule id(s) it does not have: ${outcome.unresolvedIds.join(", ")}. They were ignored. ` +
+        `Run \`minsky rules list\` to see what is present, or \`minsky rules enable <id>\` ` +
+        `after restoring the file.`
+    );
+  }
+  // Reported separately from the ids above (PR #3651 R1). An unknown preset
+  // name is not a missing file, so "restore the file" is the wrong remedy and
+  // `rules list` is the wrong place to look — `rules presets` is.
+  if (outcome.unresolvedPresets.length > 0) {
+    reasons.push(
+      `[compile:rules] ${outcome.unresolvedPresets.join(", ")} — no such preset. Presets are ` +
+        `derived from the tier metadata on this project's rules, so the available set depends ` +
+        `on which rules it has; run \`minsky rules presets\` to see them.`
+    );
+  }
+  if (outcome.refusedDisables.length > 0) {
+    reasons.push(
+      `[compile:rules] ${outcome.refusedDisables.join(", ")} cannot be disabled — base-tier ` +
+        `rules are not declinable, because declining them breaks Minsky. The \`disabled\` ` +
+        `entries were ignored and the rules are still active.`
+    );
+  }
+  return reasons;
 }

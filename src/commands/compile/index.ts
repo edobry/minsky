@@ -103,6 +103,18 @@ export function createCompileCommand(): Command {
           log.cli(`[compile] ${skipped.reason}`);
         }
 
+        // mt#573 SC5. TOP-LEVEL `skipReasons`, which until now nothing rendered:
+        // the loop further down reads `targetResult.skipReasons`, per target.
+        // The selection report is a property of the RUN — one project config,
+        // resolved once — so it lands here, exactly like `skippedForeignOutputs`
+        // above. Rendering it per target would repeat it once per target, and on
+        // a single-target invocation `result.targets` is undefined and the
+        // per-target loop never runs at all, so it would not have been rendered
+        // even once. Caught by the live AT1 run, not by a test.
+        for (const reason of result.skipReasons ?? []) {
+          log.cli(`[compile] ${reason}`);
+        }
+
         if (result.targets && result.targets.length > 0) {
           let anyStale = false;
           let anyBudgetFailure = false;

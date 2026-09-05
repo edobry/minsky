@@ -156,6 +156,72 @@ hook groups, and `.minsky/config.yaml` merges every key `init` does not own. The
 monolithic files were the exception by inheritance rather than by choice: in Minsky's
 own repository `CLAUDE.md` genuinely is wholly generated.
 
+## Selection: which of the shipped rules a project actually gets
+
+Shipped in mt#573 (RFC Phase 2). Selection is **corpus membership** — a rule is
+either in this project's active set or it is not, and the same answer is used
+everywhere.
+
+### Where the answer comes from
+
+Three things combine, in this order:
+
+1. **Tier defaults.** `base` and `opinionated` are on; `style` is off and opt-in.
+   A rule with **no** `tier:` is on — that is the common case, and it is what
+   keeps rules you wrote yourself, and every project that predates the shipped
+   corpus, working unchanged.
+2. **The project's rung**, if `.minsky/config.yaml` declares one under
+   `rules.rung`. A rule whose `minimumRung` is above it is not proposed. No
+   `rung` means no rung filter at all, not `T0`.
+3. **The project's own selection**, under `rules:` in `.minsky/config.yaml`:
+   `presets` and `enabled` add, `disabled` subtracts. Every addition is
+   intersected with the rules the project actually has, so naming a rule you do
+   not have cannot conjure one.
+
+`base` is the one tier `disabled` cannot remove — declining it breaks Minsky
+(ask#11286). The entry is ignored and `minsky compile` says so rather than
+letting it look honoured.
+
+### Presets are derived, not listed
+
+`minsky rules presets` computes one bundle per tier from the `tier` and
+`minimumRung` frontmatter on the project's own rules. There is no table of
+preset names to maintain, and a preset **cannot** name a rule the project does
+not have. A bundle may legitimately be empty: in a fresh project `opinionated`
+has no members, because `init` scaffolds only the `base` tier until the
+selection conversation (Phase 3) can ask you about the rest.
+
+### Where it is applied
+
+Both readers of `.minsky/rules/` honour it:
+
+- **`minsky compile`**, so a deselected rule leaves `CLAUDE.md`,
+  `.claude/rules/` and `.cursor/rules/` — and its stale `.cursor/rules/*.mdc` is
+  deleted rather than left behind. Only files carrying Minsky's generated-file
+  banner are ever deleted; a rule you hand-wrote into `.cursor/rules/` is left
+  alone.
+- **`minsky rules list`**, the agent's context assembly, and the rules
+  embeddings index, so a deselected rule is not delivered or indexed either.
+
+`minsky rules get <id>` is deliberately **not** filtered: asking for one rule by
+name is a request, not a listing, and the file is still on disk.
+
+### Reversing a choice
+
+`minsky rules enable <id>` then `minsky compile`. Compiled outputs are always
+regenerated from `.minsky/rules/`, never hand-edited, so nothing is lost by
+turning a rule off and back on. `minsky rules config` shows the current
+selection and how many rules are active out of the total.
+
+### One source directory, every harness
+
+`.minsky/rules/` is where rule sources live regardless of `--rule-format`.
+`.cursor/rules/` is compiled output, exactly like `.claude/rules/`. Before
+mt#573 a Cursor project — which is also what a project with no detected harness
+gets — had its sources written straight into `.cursor/rules/`, so there was
+nothing upstream for selection to filter and the rule set was fixed at `init`
+forever.
+
 ## Adding or changing a shipped rule
 
 1. Add or edit the `.mdc` under `packages/domain/src/rules/corpus/`.

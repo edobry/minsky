@@ -14,10 +14,12 @@
 import { describe, test, expect } from "bun:test";
 import {
   compileCheckTargets,
+  compileCheckTargetsWithGateReport,
   claudeHooksCompileAffected,
   classifyCompileHooksRegenError,
 } from "./pre-commit";
 import { regenerateStagedClaudeHooks } from "./claude-hooks-compile-regen";
+import type { MonolithicOwnership } from "../../packages/domain/src/compile/monolithic-ownership";
 
 describe("compileCheckTargets (mt#2497, extended mt#2304, mt#3058)", () => {
   /**
@@ -419,5 +421,128 @@ describe("regenerateStagedClaudeHooks orchestration (mt#2977 AT#1-3)", () => {
     const result = await regenerateStagedClaudeHooks(deps);
     expect(result.success).toBe(false);
     expect(result.message).toContain("Could not stage regenerated claude-hooks output");
+  });
+});
+
+// ─── mt#573 SC8: the two mirrored mappings, pinned against each other ────────
+//
+// `compileCheckTargetsWithGateReport` (this file's subject) and
+// `minskyCompileTargetsWithGateReport` (`packages/domain/src/compile/compile.ts`)
+// are parallel implementations of one decision: which targets does a bare
+// `minsky compile` produce, and therefore which may `--check` call stale? The
+// duplication is deliberate — importing the domain module would drag
+// `createMinskyCompileService` and every compile target into a hook that runs on
+// every commit — but until now nothing asserted they AGREE.
+//
+// They have had to be edited in lockstep three times (mt#4866's harness gate,
+// mt#4986's foreign-ownership gate, mt#5003's absent-CLAUDE.md gate), each time
+// by an author who happened to remember. The existing tests above check
+// individual cases on the hook side only, so a divergence introduced on either
+// side passes them. This walks the ENTIRE input space instead: a disagreement in
+// any of the 1,728 combinations fails, naming the input.
+//
+// Why now: SC3 makes `.minsky/rules/` exist in a Cursor project where it did
+// not before, which flips `present.rules` — an input BOTH mappings read. That
+// change needs no edit to either one, and this test is what makes "needs no
+// edit" a verified claim rather than an inspection.
+describe("mt#573 SC8 — the pre-commit mapping matches the domain mapping exactly", () => {
+  /**
+   * All FOUR `MonolithicOwnership` variants (PR #3651 R1).
+   *
+   * This listed three and omitted `"absent"` — which is the DEFAULT the mapping
+   * falls back to and the whole subject of mt#5003's "do not create a
+   * CLAUDE.md" gate, so the most important case was the missing one. The
+   * `satisfies` below turns the next omission into a compile error rather than
+   * a silently narrower sweep: adding a variant to the union makes this
+   * assignment fail until the value is listed here.
+   */
+  const OWNERSHIP_VALUES = ["absent", "generated", "foreign", "unreadable"] as const;
+  const _exhaustive: readonly MonolithicOwnership[] = OWNERSHIP_VALUES;
+  type OwnershipCovered = (typeof OWNERSHIP_VALUES)[number];
+  const _covers: MonolithicOwnership extends OwnershipCovered ? true : never = true;
+  void _exhaustive;
+  void _covers;
+
+  const HARNESS_VALUES = [undefined, "claude-code", "cursor"] as const;
+
+  test("every combination of inputs produces the same targets and the same gated-out set", async () => {
+    // A deep relative path, matching how `pre-commit.ts` itself reaches the
+    // domain package (`monolithicOwnershipForCheck` imports
+    // `../../packages/domain/src/compile/monolithic-ownership` the same way).
+    // There is no `@minsky/domain` path alias to use: the repo declares none,
+    // and `tsconfig.hooks.json` includes only the hook trees. Diverging from the
+    // module under test would be the inconsistency, not the fix.
+    const { minskyCompileTargetsWithGateReport } = await import(
+      "../../packages/domain/src/compile/compile"
+    );
+
+    // Collected rather than asserted in the loop, so a failure shows the
+    // MISMATCHING combinations as a list instead of stopping at the first one
+    // with two strings that share an identical prefix (PR #3651 R1).
+    const mismatches: Array<{
+      where: Record<string, unknown>;
+      field: "targets" | "gatedOut";
+      hook: string[];
+      domain: string[];
+    }> = [];
+    let compared = 0;
+    for (const skills of [false, true]) {
+      for (const rules of [false, true]) {
+        for (const agents of [false, true]) {
+          for (const hooks of [false, true]) {
+            for (const harness of HARNESS_VALUES) {
+              for (const cursorRules of [false, true]) {
+                for (const agentsMdExists of [false, true]) {
+                  for (const claudeMd of OWNERSHIP_VALUES) {
+                    for (const agentsMd of OWNERSHIP_VALUES) {
+                      const present = {
+                        skills,
+                        rules,
+                        agents,
+                        hooks,
+                        harness,
+                        existingOutputs: { cursorRules, agentsMd: agentsMdExists },
+                        ownership: { claudeMd, agentsMd },
+                      };
+                      const hook = compileCheckTargetsWithGateReport(present);
+                      const domain = minskyCompileTargetsWithGateReport(present);
+
+                      if (hook.targets.join(",") !== domain.targets.join(",")) {
+                        mismatches.push({
+                          where: present,
+                          field: "targets",
+                          hook: hook.targets,
+                          domain: domain.targets,
+                        });
+                      }
+                      // The domain side carries a reason per gated target and
+                      // this one carries only the name, so compare the names.
+                      const domainGated = domain.gatedOut.map((g) => g.target);
+                      if (hook.gatedOut.join(",") !== domainGated.join(",")) {
+                        mismatches.push({
+                          where: present,
+                          field: "gatedOut",
+                          hook: hook.gatedOut,
+                          domain: domainGated,
+                        });
+                      }
+                      compared += 1;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    expect(mismatches).toEqual([]);
+
+    // Guards the vacuous pass: a refactor that made the loops iterate nothing
+    // would otherwise report success having compared no cases at all.
+    // 16 source-dir combinations x 3 harnesses x 4 existing-output combinations
+    // x 16 ownership pairs.
+    expect(compared).toBe(3072);
   });
 });

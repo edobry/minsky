@@ -11,11 +11,13 @@ import type { SizeBudget, SizeBudgetStatus, RuleContribution } from "../../compi
 
 // ─── Rules Selection Config ──────────────────────────────────────────────────
 
-export interface RulesSelectionConfig {
-  presets: string[];
-  enabled: string[];
-  disabled: string[];
-}
+/**
+ * Re-exported from `../selection-resolution`, which is where the shape now
+ * lives (mt#573 SC2): the two readers of `.minsky/rules/` need it and neither
+ * can import this module without a cycle. Kept as an alias so every existing
+ * importer of `RulesSelectionConfig` is unaffected.
+ */
+export type { RuleSelectionConfig as RulesSelectionConfig } from "../selection-resolution";
 
 // ─── Migration ───────────────────────────────────────────────────────────────
 

@@ -25,6 +25,16 @@ import { join } from "path";
 import matter from "gray-matter";
 import { ruleDefinitionSchema } from "../definitions/schemas";
 import type { RuleDefinition } from "../definitions/types";
+import {
+  deriveRulePresets,
+  explainRuleSelection,
+  type RuleTierInfo,
+} from "../rules/rule-selection";
+import {
+  isSelectionConfigured,
+  readRuleSelectionConfig,
+  type RuleSelectionConfig,
+} from "../rules/selection-resolution";
 import type { MinskyCompileFsDeps } from "./types";
 
 /** File name of a TypeScript rule source inside a `.minsky/rules/<name>/` dir. */
@@ -88,6 +98,25 @@ export async function discoverRuleSources(
   workspacePath: string,
   fs: MinskyCompileFsDeps
 ): Promise<RuleSource[]> {
+  const sources = await discoverRuleSourcesUnfiltered(workspacePath, fs);
+  return (await applyRuleSelection(sources, workspacePath, fs)).sources;
+}
+
+/**
+ * Discovery WITHOUT the selection filter (mt#573 SC5).
+ *
+ * `discoverRuleSources` above is what every compile target calls and is
+ * correctly filtered. This is for the one caller that needs to know what the
+ * filter DID: `compile`'s selection report has to resolve the selection against
+ * the project's full corpus, and running it against an already-filtered set
+ * would compare the selection to its own output — every deselected rule would
+ * look like an id the project does not have, and the report would name them all
+ * as errors.
+ */
+export async function discoverRuleSourcesUnfiltered(
+  workspacePath: string,
+  fs: MinskyCompileFsDeps
+): Promise<RuleSource[]> {
   const sourceDir = ruleSourceDir(workspacePath);
   let entries: string[];
   try {
@@ -129,6 +158,122 @@ export async function discoverRuleSources(
     }
   }
   return sources;
+}
+
+/**
+ * What a selection pass did, for a caller that wants to report it (SC5).
+ *
+ * `deselected` and the two unresolved lists are what `compile` surfaces so a
+ * selection that names a rule the project does not have is REPORTED rather than
+ * skipped silently — the pre-fix behaviour of the whole selection layer, which
+ * accepted any id and changed nothing.
+ */
+export interface RuleSelectionOutcome {
+  readonly sources: RuleSource[];
+  readonly deselected: string[];
+  readonly unresolvedIds: string[];
+  /** Preset NAMES that resolve to no bundle — a different remedy from an id. */
+  readonly unresolvedPresets: string[];
+  readonly refusedDisables: string[];
+  /** Set when the project's config exists and could not be read or parsed. */
+  readonly parseError?: string;
+  /** False when the project expressed no selection and nothing was filtered. */
+  readonly applied: boolean;
+}
+
+/**
+ * Read the source's tier metadata, for selection.
+ *
+ * A `ts` source is reported UNTIERED rather than imported. Discovery is
+ * filesystem-only by construction — importing every `rule.ts` here would give
+ * this function the dynamic-import surface (and the failure modes) that the
+ * targets deliberately own — and the practical cost is nil: there are zero
+ * `rule.ts` sources in existence (ADR-016 §Rule-source ambiguity policy records
+ * the same fact). Untiered defaults ON, so a TS rule is never silently dropped;
+ * it simply cannot be reached by a tier-derived preset until it has a reader.
+ */
+async function readTierInfo(
+  source: RuleSource,
+  fs: MinskyCompileFsDeps
+): Promise<RuleTierInfo | undefined> {
+  if (source.kind !== "mdc") return { id: source.name };
+  let raw: string;
+  try {
+    raw = await fs.readFile(source.path, "utf-8");
+  } catch {
+    // intentional-swallow: an unreadable source is the targets' problem to
+    // report (they skip+warn per mt#2182); selection must not fail the compile
+    // over it, and untiered-defaults-on keeps the rule in the set either way.
+    return { id: source.name };
+  }
+  const extracted = extractRuleDefinitionFromMdc(raw, source.path);
+  if ("error" in extracted) return { id: source.name };
+  return {
+    id: source.name,
+    tier: extracted.rule.tier,
+    minimumRung: extracted.rule.minimumRung,
+  };
+}
+
+/**
+ * Filter discovered sources down to the project's active selection (SC2).
+ *
+ * Applied INSIDE `discoverRuleSources` so that every compile target honours it
+ * with no change of their own: `cursor-rules-ts` consumes this reader directly,
+ * and `claude-md` / `claude-rules` / `agents-md` reach it through
+ * `targets/rule-loader.ts`. Filtering in the targets instead would put the same
+ * decision in four places, and `listOutputFiles` and `compile` within one target
+ * would have to be kept in agreement by hand — a disagreement there makes
+ * `--check` report a file as an orphan on one run and expected on the next.
+ *
+ * Exported so a caller that needs the REPORT (`compile`, per SC5) can have it;
+ * `discoverRuleSources` keeps its `RuleSource[]` return so no existing caller
+ * changes.
+ *
+ * The no-selection short-circuit is the common path and skips every frontmatter
+ * read — see `rules/selection-resolution.ts` for why that matters.
+ */
+export async function applyRuleSelection(
+  sources: RuleSource[],
+  workspacePath: string,
+  fs: MinskyCompileFsDeps,
+  configOverride?: RuleSelectionConfig
+): Promise<RuleSelectionOutcome> {
+  const config = configOverride ?? (await readRuleSelectionConfig(workspacePath, fs));
+  if (!isSelectionConfigured(config)) {
+    return {
+      sources,
+      deselected: [],
+      unresolvedIds: [],
+      unresolvedPresets: [],
+      refusedDisables: [],
+      applied: false,
+    };
+  }
+
+  const tiers: RuleTierInfo[] = [];
+  for (const source of sources) {
+    const info = await readTierInfo(source, fs);
+    if (info) tiers.push(info);
+  }
+
+  const ids = sources.map((s) => s.name);
+  const presets = deriveRulePresets(tiers, ids, config.rung);
+  const { active, unresolvedIds, unresolvedPresets, refusedDisables } = explainRuleSelection(
+    ids,
+    config,
+    { tiers, presets }
+  );
+
+  return {
+    sources: sources.filter((s) => active.has(s.name)),
+    deselected: ids.filter((id) => !active.has(id)),
+    unresolvedIds,
+    unresolvedPresets,
+    refusedDisables,
+    parseError: config.parseError,
+    applied: true,
+  };
 }
 
 /**
