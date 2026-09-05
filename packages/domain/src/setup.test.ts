@@ -12,6 +12,7 @@
 
 import { describe, test, expect } from "bun:test";
 import type { LocalDaemonEnsureOutcome } from "./setup";
+import { log } from "@minsky/shared/logger";
 import { parse as yamlParse } from "yaml";
 import { setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import { createMockFilesystem } from "../../../src/utils/test-utils/filesystem/mock-filesystem";
@@ -666,6 +667,48 @@ describe("mt#4707 — ensuring the shared local daemon at setup time", () => {
 
     expect(order[0]).toBe("ensure-daemon");
     expect(order.filter((e) => e.startsWith("write:")).length).toBeGreaterThan(0);
+  });
+
+  test("PR #3658 R2 — the 'config was written' claim is made AFTER the writes", async () => {
+    // The daemon ACTION must precede the first write (test above) and the
+    // operator CLAIM must follow the last one, because it says the config has
+    // been written. Emitting it beside the action stated that in the past tense
+    // while it was still false — and would have been flatly wrong had the write
+    // then thrown. Two requirements pulling opposite ways; both are pinned.
+    const mockFs = makeMockFs();
+    const order: string[] = [];
+    const originalWriteFile = mockFs.writeFile.bind(mockFs);
+    mockFs.writeFile = (p: string, data: string) => {
+      order.push("write");
+      return originalWriteFile(p, data);
+    };
+
+    const cliWarn = log.cliWarn;
+    (log as { cliWarn: (m: string) => void }).cliWarn = (message: string) => {
+      if (message.includes("shared MCP daemon")) order.push("claim");
+    };
+
+    try {
+      await performSetup(
+        { repoPath: REPO_PATH, client: "claude-code" },
+        mockFs,
+        NO_DB_DEPS,
+        NO_PROVISION_DEPS,
+        {
+          ensureLocalDaemon: async () => {
+            order.push("ensure-daemon");
+            return { kind: "unavailable", reason: "something else holds the port" };
+          },
+        }
+      );
+    } finally {
+      (log as { cliWarn: (m: string) => void }).cliWarn = cliWarn;
+    }
+
+    const claimIndex = order.indexOf("claim");
+    const lastWriteIndex = order.lastIndexOf("write");
+    expect(order[0]).toBe("ensure-daemon");
+    expect(claimIndex).toBeGreaterThan(lastWriteIndex);
   });
 
   test("an unavailable daemon does not fail setup — the config is still written", async () => {
