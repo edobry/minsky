@@ -46,6 +46,42 @@ import {
  * surface that calls callOpenAIWithClient directly doesn't load config.
  *
  * mt#1086.
+ *
+ * **The 120s value is a settled decision, not an untuned default (mt#4996,
+ * 2026-09-05). Do not move it without new evidence.** This note lives on the
+ * constant rather than only in the task spec because three passes of mt#1897
+ * re-opened this question, and two of them argued for RAISING the cap from
+ * percentiles computed over rounds that had been censored at this very cap
+ * (mem#1373). The spec is not where a reader lands; this is.
+ *
+ * Measured over 53,038 completing rounds across all reviewer history: p50 7.7s,
+ * p95 38.2s, p99 62.3s, p99.9 105.0s, max 118.0s — only 33 rounds (0.062%)
+ * exceed 110s. **The cap sits above p99.9, so it is not truncating legitimate
+ * work, and lowering it would begin to.**
+ *
+ * Those figures are a **2026-09-05 snapshot and will age**. They are recorded as
+ * the BASIS for this decision, not as a live signal, and nothing reads them at
+ * runtime — so do not refresh them casually. What to re-measure is the reopen
+ * triggers at the end of this block; their queries live in mt#4996
+ * `## DECISION 2026-09-05`. The numbers are here rather than behind a pointer on
+ * purpose: a pointer is what the three mt#1897 passes had, and each re-derived
+ * the population from scratch and got it wrong.
+ *
+ * Nor should it be raised: a round that hits this cap is not a slow round, it is
+ * a request that returned NOTHING. Every observed failure is at round 0, and a
+ * retry on a fresh connection has succeeded in as little as 2.7s. PR #3625
+ * burned four consecutive 120s attempts across two retry layers and completed no
+ * round. Recovery is the retry layers' job and they do it: 133 of 134 timeout
+ * events recovered, 1 unrecovered in 103 days.
+ *
+ * Stall detection (a time-to-first-token budget) is the remedy the failure shape
+ * points at and is NOT reachable from here — the toolloop calls
+ * `chat.completions.create` non-streaming, so no byte arrives before the whole
+ * completion does. Adopting it means converting this loop to streaming.
+ *
+ * Reopen only on mt#4996's recorded triggers: >=2 `timeout-unrecovered` rows in
+ * a rolling 30 days, event-level recovery below 95%, or completing-round p99.9
+ * crossing 115s.
  */
 const DEFAULT_MODEL_TIMEOUT_MS = 120_000;
 
