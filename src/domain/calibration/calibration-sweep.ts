@@ -1096,6 +1096,26 @@ export interface CalibrationLogResult {
    * matched and was never eligible.
    */
   logOnlyFamilySinceLastReview: number;
+  /**
+   * Distinct FIRES among the new records — grouped by judged-text digest (mt#3866).
+   *
+   * Not a replacement for `firesSinceLastReview`, which stays a RECORD count
+   * because the watermark is one. Read the two together: equal means every
+   * record was a distinct message, lower means one message was judged more than
+   * once. Counts only records that CARRY a digest, so on a pre-mt#3866 window it
+   * is 0 and says nothing — see {@link CalibrationLogResult.ungroupableSinceLastReview}.
+   */
+  distinctFiresSinceLastReview: number;
+  /**
+   * New records carrying NO judged-text digest — identity unknown (mt#3866).
+   *
+   * Its own column rather than folded into either side, deliberately: an
+   * un-groupable record is not evidence of a distinct fire and not evidence of a
+   * duplicate. Together with `distinctFiresSinceLastReview` it bounds the true
+   * distinct count to a RANGE, which is the honest form and the reason no single
+   * "distinct fires" figure was added.
+   */
+  ungroupableSinceLastReview: number;
   /** Number of distinct matched phrases across all fires-since-last-review records. */
   distinctPhrases: number;
   /** True when fires-since-last-review >= FIRES_THRESHOLD (count bar, diversity-agnostic). */
@@ -1825,6 +1845,14 @@ export function computeLogResult(
 
   const distinctPhrases = extractDistinctPhrases(newRecords).size;
 
+  // mt#3866: how many DISTINCT fires those records represent, and how many
+  // cannot be placed either way. `firesSinceLastReview` is a RECORD count and
+  // stays one — the watermark is itself a record count, so the arithmetic has
+  // to stay aligned with it (same reason `suppressedSinceLastReview` did not
+  // change `firesSinceLastReview`'s meaning at mt#3197). These sit beside it.
+  const { distinctFiresSinceLastReview, ungroupableSinceLastReview } =
+    distinctFireFields(newRecords);
+
   // mt#3197: a SUPPRESSED detection never reached the operator, so it is not a
   // "fire" for review-cadence purposes. Counting it was making a correctly-tuned
   // detector trip review forever: code-mechanism-assertion reported 71 fires in
@@ -1954,6 +1982,8 @@ export function computeLogResult(
     injectedFiresSinceLastReview,
     evaluatedOnlySinceLastReview,
     logOnlyFamilySinceLastReview,
+    distinctFiresSinceLastReview,
+    ungroupableSinceLastReview,
     distinctPhrases,
     atCountThreshold,
     lowDiversity,
@@ -2192,6 +2222,97 @@ export interface ClassifiabilityAssessment {
 function hasCaptureMarker(record: CalibrationRecord): boolean {
   const passthrough = (record as SharedCalibrationFields).detectorFields;
   return typeof passthrough?.[CAPTURE_SCHEMA_KEY] === "number";
+}
+
+/**
+ * The record key carrying a judged-text digest (mt#3866).
+ *
+ * Source of truth for the name is `JUDGED_TEXT_HASH_FIELD` in
+ * `.minsky/hooks/judged-input-capture.ts`; duplicated here for the same reason
+ * {@link CAPTURE_SCHEMA_KEY} is — this module does not import the hook tree.
+ */
+const JUDGED_TEXT_HASH_KEY = "judged_text_hash";
+
+/**
+ * Read a record's distinct-fire digest from the passthrough.
+ *
+ * **The passthrough is the ONLY level, and that was measured rather than
+ * assumed.** A first cut read both levels on the theory that a detector with a
+ * per-kind parse branch might lift the field. No branch names
+ * `judged_text_hash`, so every kind demotes it — verified by parsing a
+ * `retrospective-trigger` line, the one detector that has written this field
+ * since mt#3821:
+ *
+ * ```
+ * parseCalibrationLines('{"…","judged_text_hash":"deadbeefdeadbeef","rung":1}', "retrospective-trigger")
+ * → { timestamp, session_id, matches: [], detectorFields: { judged_text_hash: "…", rung: 1 } }
+ * ```
+ *
+ * The top-level read was therefore dead code. Kept as a note rather than as a
+ * defensive branch, because an unreachable branch is untestable and reads as
+ * coverage: if a future per-kind branch DOES lift this field, that branch is
+ * where the read belongs, and its own test will say so.
+ *
+ * Reading the wrong level is nonetheless the live hazard here — mem#827 is the
+ * recorded incident, and {@link hasCaptureMarker} carries the same note for its
+ * own key.
+ */
+function readJudgedTextHash(record: CalibrationRecord): string | undefined {
+  const passthrough = (record as SharedCalibrationFields).detectorFields;
+  const digest = passthrough?.[JUDGED_TEXT_HASH_KEY];
+  return typeof digest === "string" && digest.length > 0 ? digest : undefined;
+}
+
+/**
+ * Split a record set into DISTINCT fires and UN-GROUPABLE ones (mt#3866).
+ *
+ * ## The un-groupable column is the point, not a rounding detail
+ *
+ * A record with no digest cannot be shown to be the same fire as another, and
+ * it cannot be shown to be different either. Counting it as distinct is the
+ * over-count this task exists to remove — measured at 11 records for at most 9
+ * distinct messages in one `ask-routing-deferral` window (~18%), on a count
+ * that drives the review-cadence bar. Counting it as a duplicate would be the
+ * opposite error and equally unfounded.
+ *
+ * So it is reported in its own column and folded into NEITHER. A reader seeing
+ * `distinct: 3, ungroupable: 8` knows the true distinct count is somewhere in
+ * `[3, 11]` and that only the first number is measured — which is the honest
+ * statement a single figure cannot make.
+ *
+ * Note this makes the historical corpus permanently un-groupable by this route.
+ * That is correct rather than a limitation: those records genuinely carry no
+ * identity, and the cross-stream join (mt#3866 `## Evidence 2026-08-16`) is the
+ * separate mechanism for recovering it where a sibling stream happens to have
+ * hashed the same turn.
+ */
+export function countDistinctFires(records: CalibrationRecord[]): {
+  distinct: number;
+  ungroupable: number;
+} {
+  const digests = new Set<string>();
+  let ungroupable = 0;
+  for (const record of records) {
+    const digest = readJudgedTextHash(record);
+    if (digest === undefined) ungroupable += 1;
+    else digests.add(digest);
+  }
+  return { distinct: digests.size, ungroupable };
+}
+
+/**
+ * {@link countDistinctFires} under the two `CalibrationLogResult` field names.
+ *
+ * Exists so production and test fixtures spread the SAME derivation rather than
+ * each mapping the pair by hand — the drift `assessClassifiability` is already
+ * shared for, one field over.
+ */
+export function distinctFireFields(records: CalibrationRecord[]): {
+  distinctFiresSinceLastReview: number;
+  ungroupableSinceLastReview: number;
+} {
+  const { distinct, ungroupable } = countDistinctFires(records);
+  return { distinctFiresSinceLastReview: distinct, ungroupableSinceLastReview: ungroupable };
 }
 
 /**

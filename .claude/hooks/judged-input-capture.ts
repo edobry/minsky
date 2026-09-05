@@ -291,3 +291,82 @@ export function captureArtifact(
     truncated: text.length > maxChars,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Record identity — the distinct-fire question (mt#3866)
+// ---------------------------------------------------------------------------
+
+/**
+ * The record key a judged-text digest is written under.
+ *
+ * Named to match `retrospective-trigger-scanner.ts`, which has written exactly
+ * this field since mt#3821 and was, before mt#3866, the ONLY calibration writer
+ * that did.
+ */
+export const JUDGED_TEXT_HASH_FIELD = "judged_text_hash";
+
+/**
+ * The fields a calibration writer stamps to make its record both AUDITABLE and
+ * IDENTIFIABLE — spread into the record instead of writing the marker alone.
+ *
+ * ## Why this exists rather than two independent stamps (mt#3866)
+ *
+ * {@link CAPTURE_SCHEMA_FIELD} answers *"can this record's judged text be
+ * re-read?"*. It does NOT answer *"is this record the same FIRE as that one?"*,
+ * and nothing in its shape said so — which let a writer stamp the marker while
+ * carrying no identifier at all.
+ *
+ * That was not hypothetical. Measured 2026-09-05 on
+ * `ask-routing-deferral-calibration.jsonl`: all 58 records carried
+ * `captureSchema`, and the complete top-level key set was `timestamp,
+ * session_id, injection_enabled, captureSchema, matches, suppressionReasons` —
+ * no digest anywhere. Four records on 2026-09-04 carried a byte-identical
+ * `matches[].context` and could not be told apart from four genuine emissions
+ * of the same sentence, which bounded a precision figure to a range in
+ * mt#5004's gap report.
+ *
+ * The two capture helpers in this module are why the gap was invisible:
+ * {@link extractMatchContext} returns a bounded STRING and
+ * {@link captureArtifact} returns `{ excerpt, hash }`. A writer taking the
+ * first route gets re-readability with no identity, and the marker reads the
+ * same either way.
+ *
+ * **So the coupling is the fix.** A writer that stamps the marker through this
+ * function cannot omit the digest, because there is no longer a way to spell
+ * one without the other.
+ *
+ * ## What the digest can and cannot settle
+ *
+ * It answers "same TEXT", which is the discriminator the ambiguity actually
+ * needed: a 2,675-character message written three times across 3.5 hours would
+ * not hash identically, so identical digests in one session mean one message
+ * judged repeatedly (the route `## Evidence 2026-08-16` on mt#3866 took, by
+ * borrowing a sibling stream's digest).
+ *
+ * It does NOT answer "same TURN". Two genuinely distinct turns that emit the
+ * identical sentence hash identically and will group as one — deliberately
+ * accepted here, because the alternative needs a turn identifier the hook does
+ * not have at write time, and because collapsing a repeated sentence is the
+ * safer error for a rate whose denominator this feeds. A reader wanting turn
+ * identity should join the anchor stream, not this field.
+ */
+export function captureFields(judgedText: string): Record<string, unknown> {
+  return {
+    [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+    [JUDGED_TEXT_HASH_FIELD]: hashJudgedText(judgedText),
+  };
+}
+
+/**
+ * Read a record's distinct-fire digest, or `undefined` when it carries none.
+ *
+ * `undefined` means **un-groupable**, and a caller must not read it as
+ * "distinct". A record written before mt#3866 has no digest, so treating
+ * absence as distinctness would silently re-create the over-count this field
+ * exists to remove — the same discipline {@link hasJudgedInputCapture} states
+ * for its own `false`.
+ */
+export function getJudgedTextHash(record: Record<string, unknown>): string | undefined {
+  const value = record[JUDGED_TEXT_HASH_FIELD];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}

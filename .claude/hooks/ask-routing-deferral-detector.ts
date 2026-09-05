@@ -49,11 +49,7 @@ import type { TranscriptLine } from "./transcript";
 import { logCalibrationRecord, logEvaluationRecord } from "./dispatcher";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { elideQuotedContexts, elideDoubleQuotedSpans } from "./elision";
-import {
-  CAPTURE_SCHEMA_FIELD,
-  CAPTURE_SCHEMA_VERSION,
-  extractMatchContext,
-} from "./judged-input-capture";
+import { captureFields, extractMatchContext } from "./judged-input-capture";
 import { createHash } from "node:crypto";
 import { cappedEvidenceLines, truncateToRenderedLength } from "./guard-feedback-format";
 import { STOP_INJECTED_OVERLAP_FAMILY, overlapTurnKey, readFlagged } from "./turn-end-scan-store";
@@ -2017,7 +2013,11 @@ export async function run(
       timestamp: new Date().toISOString(),
       session_id: input.session_id,
       injection_enabled: INJECTION_ENABLED,
-      [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+      // mt#3866: stamps the capture marker AND the distinct-fire digest
+      // together. Before this, all 58 records in the live window carried the
+      // marker and no identifier, so four byte-identical records could not be
+      // told apart from four genuine emissions of one sentence.
+      ...captureFields(assistantText),
       matches: calibrationMatches(matches),
       suppressionReasons,
       // ADR-024's degraded MARKER. Present only when a nomination was attempted
@@ -2165,7 +2165,9 @@ export async function main(): Promise<void> {
     timestamp: new Date().toISOString(),
     session_id: input.session_id,
     injection_enabled: INJECTION_ENABLED,
-    [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+    // mt#3866 — see the sibling site in `run()` for why marker and digest are
+    // stamped by one call.
+    ...captureFields(assistantText),
     matches: calibrationMatches(matches),
     suppressionReasons,
     ...(settledRung2.degradedReason !== undefined
