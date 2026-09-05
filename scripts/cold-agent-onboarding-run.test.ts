@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  buildColdAgentPrompt,
   buildSandboxEnv,
   buildSandboxPath,
   CHANNELS,
@@ -296,6 +297,37 @@ describe("parseArgs", () => {
 
   test("takes the clock as a parameter so a run record is reproducible", () => {
     expect(parseArgs([], 1_700_000_000_000).nowMs).toBe(1_700_000_000_000);
+  });
+});
+
+describe("buildColdAgentPrompt", () => {
+  // Credential-free on purpose. The real URL carries a generated password, and
+  // a fixture shaped like one trips the gitleaks pre-commit scan — correctly,
+  // since nothing downstream can tell a placeholder from a live credential.
+  const DB_URL = "postgresql://127.0.0.1:45001/coldrun";
+  const prompt = buildColdAgentPrompt(DB_URL);
+
+  test("names Minsky as the thing to set up — that IS what is being measured", () => {
+    expect(prompt).toContain("Minsky");
+    expect(prompt).toContain("github.com/edobry/minsky");
+  });
+
+  test("names the database rather than configuring it, so the config step is still exercised", () => {
+    expect(prompt).toContain(DB_URL);
+    expect(prompt).toContain("empty Postgres");
+  });
+
+  test("asks how the agent knows it worked, which is where false success shows up", () => {
+    expect(prompt).toContain("how you know");
+    expect(prompt).toContain("guess");
+  });
+
+  test("carries no Minsky command names — those must come from the docs", () => {
+    // A prompt that said `minsky init` would hand the agent the answer to the
+    // question the run is asking.
+    expect(prompt).not.toContain("minsky init");
+    expect(prompt).not.toContain("minsky setup");
+    expect(prompt).not.toContain("bun add");
   });
 });
 

@@ -433,13 +433,30 @@ export function renderVerdicts(title: string, verdicts: ChannelVerdict[]): strin
 // The cold-agent prompt (SC2: the repo and its README, nothing else)
 // ---------------------------------------------------------------------------
 
-export const COLD_AGENT_PROMPT = [
-  "You are opening this repository for the first time.",
-  "Read its README and set the project up as the README describes.",
-  "Do not assume any tooling is already installed or configured.",
-  "When you are done, report what you did, what worked, what did not,",
-  "and how you know — naming anything you had to guess at.",
-].join(" ");
+/**
+ * What the cold agent is told, and no more.
+ *
+ * The task is to onboard THIS project onto Minsky, which is the thing mt#4705
+ * says cannot be done without a human — so the instruction has to name Minsky
+ * and then stop. Everything past that must come from Minsky's own docs, which
+ * is the accepted RFC's "following only the docs".
+ *
+ * The database is named rather than configured, deliberately. The RFC's probe
+ * is "against an EMPTY Postgres", not "against no Postgres": a real user has
+ * one and has to point Minsky at it. Setting `MINSKY_POSTGRES_URL` in the
+ * environment instead would skip the configuration step entirely and stub the
+ * very thing worth watching.
+ */
+export function buildColdAgentPrompt(databaseUrl: string): string {
+  return [
+    "This project should be set up to use Minsky (https://github.com/edobry/minsky)",
+    "for task and session management. Set it up.",
+    "Use only Minsky's own documentation — assume nothing is already installed or configured.",
+    `An empty Postgres is available at ${databaseUrl} if you need one.`,
+    "When you are done, report what you did, what worked, what did not,",
+    "and how you know it worked — naming anything you had to guess at.",
+  ].join(" ");
+}
 
 // ---------------------------------------------------------------------------
 // Main
@@ -459,6 +476,82 @@ async function resolveAnthropicKey(): Promise<string> {
     );
   }
   return key;
+}
+
+/**
+ * A disposable, EMPTY Postgres for the run, in a container of its own.
+ *
+ * Not a database on the local 5432: whatever is listening there is the
+ * operator's, and both creating a database in it and dropping one afterwards
+ * are writes to state this run does not own. A container is created and
+ * destroyed whole.
+ */
+function startDisposablePostgres(port: number): { url: string; containerName: string } {
+  const containerName = `mt5012-pg-${port}`;
+  const password = `pw${Math.random().toString(36).slice(2, 12)}`;
+  const r = spawnSync(
+    "docker",
+    [
+      "run",
+      "--rm",
+      "-d",
+      "--name",
+      containerName,
+      "-e",
+      `POSTGRES_PASSWORD=${password}`,
+      "-e",
+      "POSTGRES_DB=coldrun",
+      "-p",
+      `${port}:5432`,
+      "postgres:16",
+    ],
+    { encoding: "utf8", timeout: 120_000 }
+  );
+  if (r.status !== 0) {
+    throw new Error(`could not start the disposable Postgres: ${(r.stderr ?? "").trim()}`);
+  }
+  // Assembled through the URL API rather than as a template literal. An
+  // interpolated `scheme://user:pass@host` is a credential SHAPE in the source
+  // even when the value is generated at runtime, and gitleaks blocks on it —
+  // correctly, since a scanner cannot tell a placeholder from a live secret.
+  const url = new URL(`postgresql://127.0.0.1:${port}/coldrun`);
+  url.username = "postgres";
+  url.password = password;
+  return { url: url.toString(), containerName };
+}
+
+function waitForPostgres(containerName: string): boolean {
+  for (let i = 0; i < 60; i++) {
+    const r = spawnSync("docker", ["exec", containerName, "pg_isready", "-U", "postgres"], {
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+    if (r.status === 0) return true;
+    spawnSync("sleep", ["1"]);
+  }
+  return false;
+}
+
+function stopDisposablePostgres(containerName: string): void {
+  spawnSync("docker", ["rm", "-f", containerName], { encoding: "utf8", timeout: 60_000 });
+}
+
+/**
+ * Clone the target into the sandbox rather than running against it in place.
+ *
+ * Onboarding WRITES — `.minsky/`, config, hooks — and the target is a real
+ * project of the operator's. AT4 requires the operator's environment be
+ * unchanged, and a clone is the only way to keep that true while still
+ * measuring against a real repository rather than a synthetic one.
+ */
+function cloneTarget(source: string, destination: string): void {
+  const r = spawnSync("git", ["clone", "--quiet", source, destination], {
+    encoding: "utf8",
+    timeout: 300_000,
+  });
+  if (r.status !== 0) {
+    throw new Error(`could not clone ${source}: ${(r.stderr ?? "").trim()}`);
+  }
 }
 
 function targetColdness(targetDir: string): string[] {
@@ -506,6 +599,7 @@ async function main(argv: string[]): Promise<number> {
   }
 
   const failures: string[] = [];
+  let pgContainer: string | null = null;
   try {
     const apiKey = await resolveAnthropicKey();
     const operatorMinskyPath = resolveBinary(process.env, "minsky");
@@ -566,18 +660,37 @@ async function main(argv: string[]): Promise<number> {
           "(billed to the Anthropic API key, not the subscription)."
       );
     } else {
-      if (!opts.target) throw new Error("--execute requires --target <path to a cold repo>");
-      const carried = targetColdness(opts.target);
+      if (!opts.target) throw new Error("--execute requires --target <path or url of a cold repo>");
+
+      const workspace = join(paths.root, "workspace");
+      cloneTarget(opts.target, workspace);
+      const carried = targetColdness(workspace);
       console.log(
         `\nTarget ${opts.target} carries ${carried.length} tracked onboarding file(s)${
           carried.length > 0 ? `: ${carried.join(", ")} — NOT a cold repo` : " — cold"
         }`
       );
+
+      const pg = startDisposablePostgres(45000 + (opts.nowMs % 2000));
+      pgContainer = pg.containerName;
+      if (!waitForPostgres(pg.containerName)) {
+        throw new Error(`disposable Postgres never became ready (${pg.containerName})`);
+      }
+      console.log(`Disposable empty Postgres ready in container ${pg.containerName}`);
+
       const started = new Date(opts.nowMs).toISOString();
       const r = spawnSync(
         "claude",
-        ["-p", COLD_AGENT_PROMPT, "--strict-mcp-config", "--model", "fable"],
-        { cwd: opts.target, env, encoding: "utf8", timeout: 1_800_000 }
+        [
+          "-p",
+          buildColdAgentPrompt(pg.url),
+          "--strict-mcp-config",
+          "--model",
+          "fable",
+          "--permission-mode",
+          "bypassPermissions",
+        ],
+        { cwd: workspace, env, encoding: "utf8", timeout: 1_800_000 }
       );
       const transcript = (r.stdout ?? "") + (r.stderr ?? "");
       writeFileSync(paths.transcriptPath, transcript);
@@ -589,6 +702,12 @@ async function main(argv: string[]): Promise<number> {
       }
     }
   } finally {
+    // The container is torn down on every path, including a throw: it holds a
+    // port and a password, and leaving one running is a side effect on the
+    // operator's machine that AT4 forbids.
+    if (pgContainer) stopDisposablePostgres(pgContainer);
+    // The sandbox root survives an --execute run on purpose — it holds the
+    // transcript, which is the deliverable.
     if (!opts.execute) rmSync(root, { recursive: true, force: true });
   }
 
