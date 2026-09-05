@@ -42,7 +42,11 @@ import { loadAdoptionSweeperConfig, startAdoptionSweeper } from "./adoption-swee
 import { getDb, type ReviewerDb } from "./db/client";
 import { applyMigrations } from "./db/migrate";
 import { recoverPendingReviews, loadBootRecoveryConfig } from "./boot-recovery";
-import { bootDomainContainer, type DomainServices } from "./domain-container";
+import {
+  bootDomainContainer,
+  buildReviewDomainDeps,
+  type DomainServices,
+} from "./domain-container";
 import {
   recordWebhookReceipt,
   updateOutcome,
@@ -575,16 +579,9 @@ export function createApp(
       headSha,
       {
         ...(db !== undefined ? { db } : {}),
-        ...(domainServices
-          ? {
-              taskService: domainServices.taskService,
-              persistenceProvider: domainServices.persistenceProvider,
-              // mt#3964: mem#N / ask#N / ws#N criteria-reference resolution.
-              memoryLookup: domainServices.memoryLookup,
-              askLookup: domainServices.askLookup,
-              sessionLookup: domainServices.sessionProvider,
-            }
-          : {}),
+        // mt#4998: one builder for all three runReview entry points. Assembling
+        // this list by hand is what let the sweeper's copy omit it entirely.
+        ...buildReviewDomainDeps(domainServices),
       }
     )
       .then((result) => {
@@ -1779,18 +1776,8 @@ if (import.meta.main) {
     config,
     loadBootRecoveryConfig(),
     runReview,
-    {
-      ...(domainServices
-        ? {
-            taskService: domainServices.taskService,
-            persistenceProvider: domainServices.persistenceProvider,
-            // mt#3964: mem#N / ask#N / ws#N criteria-reference resolution.
-            memoryLookup: domainServices.memoryLookup,
-            askLookup: domainServices.askLookup,
-            sessionLookup: domainServices.sessionProvider,
-          }
-        : {}),
-    },
+    // mt#4998: shared builder — see the webhook site above.
+    buildReviewDomainDeps(domainServices),
     // mt#4881: a recovered review that fails must reach the operator the same
     // way a live one does. Built here from the same container the sweeper and
     // createApp use; undefined when no container booted.
@@ -1895,7 +1882,11 @@ if (import.meta.main) {
   // `undefined`) — so it never blocks startup either way. See sweeper.ts
   // module-header "Boot catch-up sweep" for the diagnosis of why the
   // pre-mt#2660 sweeper missed PR #1812's webhook for 25+ minutes.
-  startSweeper(config, loadSweeperConfig(), db, domainServices?.container, alertSink);
+  // mt#4998: pass the whole DomainServices, not just its container — the
+  // sweeper's retriggers must resolve the same tier and bound-task spec a
+  // webhook review does. Passing `.container` alone is what left every
+  // sweeper-initiated review posting `Tier: unknown` with no spec verification.
+  startSweeper(config, loadSweeperConfig(), db, domainServices, alertSink);
 
   // Start the PR-watch scheduler (mt#1618 / mt#1899).
   // Uses domain imports (mt#2121) via the booted domain container — no MCP-over-HTTP.

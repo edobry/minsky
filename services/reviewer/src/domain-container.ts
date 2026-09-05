@@ -29,6 +29,7 @@ import type {
   SqlCapablePersistenceProvider,
 } from "@minsky/domain/persistence/types";
 import type { MemoryLookup, AskLookup } from "./short-id-fetch";
+import type { RunReviewDeps } from "./review-worker";
 
 export interface DomainServices {
   container: AppContainerInterface;
@@ -122,4 +123,64 @@ export async function bootDomainContainer(): Promise<DomainServices> {
   const askLookup = buildAskLookup(persistenceProvider);
 
   return { container, sessionProvider, taskService, persistenceProvider, memoryLookup, askLookup };
+}
+
+/**
+ * The subset of `RunReviewDeps` that carries DOMAIN CONTEXT into a review —
+ * as opposed to the test seams that make up the rest of that interface.
+ *
+ * Every one of these is silently optional in `runReview`, and each degrades a
+ * different part of the review rather than failing it:
+ *
+ * | Missing dep           | Consequence                                              |
+ * | --------------------- | -------------------------------------------------------- |
+ * | `taskService`         | `resolveTaskSpec` → null → `specVerification: []`         |
+ * | `persistenceProvider` | `resolveTier` skips ProvenanceService → `Tier: unknown`   |
+ * | `memoryLookup`        | `mem#N` criteria references unresolved (mt#3964)          |
+ * | `askLookup`           | `ask#N` criteria references unresolved (mt#3964)          |
+ * | `sessionLookup`       | `ws#N` criteria references unresolved (mt#3964)           |
+ *
+ * @see mt#4998 — the defect that motivated extracting this.
+ */
+export type ReviewDomainDeps = Pick<
+  RunReviewDeps,
+  "taskService" | "persistenceProvider" | "memoryLookup" | "askLookup" | "sessionLookup"
+>;
+
+/**
+ * Map booted `DomainServices` onto the review's domain-context deps.
+ *
+ * ## Why this exists rather than each caller spreading the fields itself
+ *
+ * There are three `runReview` entry points — the webhook handler, boot
+ * recovery, and the missed-review sweeper's retrigger — and until mt#4998 each
+ * assembled this object by hand. Two did it identically; the sweeper passed
+ * only `{ db }`, so EVERY sweeper-initiated review ran with no tier resolution
+ * and no bound-task spec, posting `Tier: unknown` with an empty
+ * `specVerification` array. Nothing failed, because each dep degrades quietly
+ * by design (see the table above) — the review simply came out weaker than the
+ * one a webhook would have produced for the same commit.
+ *
+ * A hand-assembled dep list is exactly the shape that admits that defect: the
+ * omission is invisible at the call site and invisible in the output. One
+ * builder means a fourth entry point cannot repeat it.
+ *
+ * Returns `{}` when the container never booted (DB-less or degraded start), so
+ * callers keep today's graceful-degradation behaviour rather than throwing —
+ * the sweeper is a best-effort safety net and must still run without a
+ * container.
+ *
+ * @see mt#2121 — the direct-domain-import path these deps came from.
+ * @see mt#4998 — the sweeper omission this closes.
+ */
+export function buildReviewDomainDeps(domainServices?: DomainServices): ReviewDomainDeps {
+  if (!domainServices) return {};
+  return {
+    taskService: domainServices.taskService,
+    persistenceProvider: domainServices.persistenceProvider,
+    // mt#3964: mem#N / ask#N / ws#N criteria-reference resolution.
+    memoryLookup: domainServices.memoryLookup,
+    askLookup: domainServices.askLookup,
+    sessionLookup: domainServices.sessionProvider,
+  };
 }

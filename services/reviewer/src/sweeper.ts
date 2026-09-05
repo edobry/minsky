@@ -97,7 +97,7 @@ import type { ReviewerConfig } from "./config";
 import { parsePositiveIntEnv } from "./config";
 import { createOctokit, getAppIdentity } from "./github-client";
 import { githubAuthHealth } from "./auth-health";
-import { runReview } from "./review-worker";
+import { runReview, type RunReviewDeps } from "./review-worker";
 import { decideRouting, extractTierFromPRBody } from "./tier-routing";
 import type { Octokit } from "@octokit/rest";
 import type { ReviewerDb } from "./db/client";
@@ -112,7 +112,11 @@ import { log } from "./logger";
 import { extractPgErrorContext } from "./webhook-events";
 import { DomainAskEmitter, makeContainerAskRepoProvider, type AskEmitter } from "./ask-emitter";
 import { buildAlertSink, loadAlertSinkConfig, type AlertSink } from "./alert-sink";
-import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import {
+  buildReviewDomainDeps,
+  type DomainServices,
+  type ReviewDomainDeps,
+} from "./domain-container";
 import {
   resolveRepoTargets,
   defaultGetInstallationCoverage,
@@ -338,6 +342,24 @@ export async function detectMissingReview(
 export type RunReviewFn = typeof runReview;
 
 /**
+ * The `ReviewDomainDeps` keys a retrigger reports as missing (mt#4998).
+ *
+ * Every key of the type, deliberately: they all originate from the same
+ * `DomainServices` boot, so in production they are present or absent together,
+ * and enumerating the type rather than the two observed symptoms means a key
+ * added to `ReviewDomainDeps` later is covered without a second edit here.
+ * `satisfies` pins it to the type, so dropping a key from `ReviewDomainDeps`
+ * fails the build rather than silently narrowing this check.
+ */
+const MISSING_DOMAIN_DEP_KEYS = [
+  "taskService",
+  "persistenceProvider",
+  "memoryLookup",
+  "askLookup",
+  "sessionLookup",
+] as const satisfies readonly (keyof ReviewDomainDeps)[];
+
+/**
  * Retrigger a review for a missed PR by calling runReview directly.
  *
  * Uses a synthesized delivery ID ("sweeper-{timestamp}") in the log since
@@ -345,6 +367,23 @@ export type RunReviewFn = typeof runReview;
  *
  * Errors from runReview are logged as warnings but do not propagate — the
  * sweeper is a best-effort safety net, not a hard guarantee.
+ *
+ * ## mt#4998: this review gets the SAME domain context a webhook review gets
+ *
+ * `reviewDomainDeps` is forwarded so a retriggered review resolves its tier and
+ * its bound task spec exactly as the webhook path does. Before mt#4998 only
+ * `{ db }` was passed, so every sweeper-initiated review posted `Tier: unknown`
+ * with an empty `specVerification` array — a strictly weaker review than the one
+ * a webhook would have produced for the same commit, with nothing in the output
+ * saying so.
+ *
+ * This does NOT contradict `runSweep`'s deliberate use of
+ * `extractTierFromPRBody` over `resolveTier`. That decision is about the SCAN
+ * phase, which touches every open PR and would pay 1-3s per PR for an MCP
+ * round-trip. This is the REVIEW phase for a single PR the scan already
+ * selected — bounded by `SWEEP_CONCURRENCY` (1) and by how many reviews are
+ * actually missing (typically 0-2), against a review that itself runs for
+ * minutes. The two answer different questions and have different budgets.
  */
 export async function retriggerViaRunReview(
   config: ReviewerConfig,
@@ -352,7 +391,8 @@ export async function retriggerViaRunReview(
   repo: string,
   pr: MissingReviewPR,
   runReviewFn: RunReviewFn = runReview,
-  db?: ReviewerDb
+  db?: ReviewerDb,
+  reviewDomainDeps?: ReviewDomainDeps
 ): Promise<void> {
   const deliveryId = `sweeper-${Date.now()}`;
   log.info("sweeper.retrigger_start", {
@@ -364,6 +404,50 @@ export async function retriggerViaRunReview(
     repo,
   });
 
+  // mt#4998 SC3: a review that runs without its domain context is a WEAKER
+  // review, not a failed one — it posts `Tier: unknown` and an empty
+  // `specVerification` and otherwise looks normal. That is precisely why the
+  // original omission survived in production unnoticed. Name the missing deps
+  // on a distinct event so a degraded retrigger is greppable rather than
+  // inferred from the review body, and so this cannot silently regress if a
+  // future caller stops threading them.
+  const missingDomainDeps = MISSING_DOMAIN_DEP_KEYS.filter(
+    (key) => reviewDomainDeps?.[key] == null
+  );
+
+  // PR #3645 R1 (non-blocking, adopted): a dep can be PRESENT and still not
+  // work, and the null check above cannot see that. `resolveTier`'s
+  // ProvenanceService lookup requires SQL capability, so a persistence provider
+  // reporting `capabilities.sql !== true` produces `Tier: unknown` exactly as a
+  // null one does — the same silent degradation this event exists to surface,
+  // one layer down. Reported in its own field rather than folded into
+  // `missingDomainDeps` because the remedy differs: a null dep is a wiring bug,
+  // a capability-degraded one is a provider or configuration choice.
+  const capabilityDegradedDeps: string[] = [];
+  const provider = reviewDomainDeps?.persistenceProvider;
+  if (provider != null && provider.capabilities?.sql !== true) {
+    capabilityDegradedDeps.push("persistenceProvider:no-sql-capability");
+  }
+
+  if (missingDomainDeps.length > 0 || capabilityDegradedDeps.length > 0) {
+    const degraded = [...missingDomainDeps, ...capabilityDegradedDeps];
+    log.warn("sweeper.retrigger_degraded_context", {
+      event: "sweeper.retrigger_degraded_context",
+      deliveryId,
+      pr: pr.number,
+      headSha: pr.headSha,
+      owner,
+      repo,
+      missingDomainDeps,
+      capabilityDegradedDeps,
+      message:
+        `Sweeper retrigger for PR #${pr.number} is running WITHOUT ` +
+        `${degraded.join(", ")}. This review will be weaker than an ` +
+        "equivalent webhook-initiated one (no tier resolution and/or no bound-task " +
+        "spec verification). Expected only on a DB-less or degraded boot; see mt#4998.",
+    });
+  }
+
   try {
     const result = await runReviewFn(
       config,
@@ -373,7 +457,10 @@ export async function retriggerViaRunReview(
       pr.authorLogin,
       deliveryId,
       pr.headSha,
-      db !== undefined ? { db } : undefined
+      {
+        ...(db !== undefined ? { db } : {}),
+        ...(reviewDomainDeps ?? {}),
+      } satisfies RunReviewDeps
     );
     log.info("sweeper.retrigger_success", {
       event: "sweeper.retrigger_success",
@@ -404,6 +491,16 @@ export interface SweeperDeps {
   botLogin: string;
   /** Optional runReview override for tests. Defaults to the real runReview. */
   runReviewFn?: RunReviewFn;
+  /**
+   * Domain-context deps forwarded to `runReview` on a retrigger (mt#4998).
+   *
+   * Built by `buildReviewDomainDeps` from the booted container and threaded
+   * through `startSweeper`. When absent (no container, or a test that doesn't
+   * need it) a retriggered review still runs — it just resolves no tier and no
+   * bound-task spec, which is the degradation mt#4998 exists to stop being
+   * silent. NOT a test seam: production must populate this.
+   */
+  reviewDomainDeps?: ReviewDomainDeps;
   /**
    * Optional DB instance for in-flight marker integration (mt#1907).
    * When absent, marker lookup is skipped (graceful degradation for tests
@@ -457,11 +554,14 @@ export async function buildSweeperDeps(
   config: ReviewerConfig,
   db?: ReviewerDb,
   askEmitter?: AskEmitter,
-  alertSink?: AlertSink | null
+  alertSink?: AlertSink | null,
+  // mt#4998: forwarded to runReview on every retrigger so a sweeper-initiated
+  // review resolves the same tier and bound-task spec a webhook one does.
+  reviewDomainDeps?: ReviewDomainDeps
 ): Promise<SweeperDeps> {
   const octokit = await createOctokit(config);
   const botIdentity = await getAppIdentity(config);
-  return { octokit, botLogin: botIdentity.login, db, askEmitter, alertSink };
+  return { octokit, botLogin: botIdentity.login, db, askEmitter, alertSink, reviewDomainDeps };
 }
 
 /**
@@ -523,7 +623,7 @@ export async function runSweep(
   const startedAt = new Date().toISOString();
 
   const deps = depsOverride ?? (await buildSweeperDeps(config));
-  const { octokit, botLogin, runReviewFn, db, askEmitter, alertSink } = deps;
+  const { octokit, botLogin, runReviewFn, db, askEmitter, alertSink, reviewDomainDeps } = deps;
   const listOpenCircuitsFn = deps.listOpenCircuitsFn ?? listOpenCircuitsForPRs;
   const markCircuitAlertedFn = deps.markCircuitAlertedFn ?? markCircuitAlerted;
 
@@ -823,7 +923,9 @@ export async function runSweep(
     // Schedule each in the batch. retriggerViaRunReview never throws (it
     // catch-logs internally), so we can safely await all in parallel.
     await Promise.all(
-      batch.map((pr) => retriggerViaRunReview(config, pr.owner, pr.repo, pr, runReviewFn, db))
+      batch.map((pr) =>
+        retriggerViaRunReview(config, pr.owner, pr.repo, pr, runReviewFn, db, reviewDomainDeps)
+      )
     );
     retriggeredCount += batch.length;
   }
@@ -877,7 +979,13 @@ export function startSweeper(
   config: ReviewerConfig,
   sweeperConfig: SweeperConfig,
   db?: ReviewerDb,
-  container?: AppContainerInterface,
+  // mt#4998: widened from `container?: AppContainerInterface`. The sweeper
+  // needs more than the container — a retriggered review must resolve its tier
+  // and bound-task spec, which takes `taskService` / `persistenceProvider` /
+  // the three short-id lookups. Passing the whole `DomainServices` keeps the
+  // container available for the Ask emitter below AND lets
+  // `buildReviewDomainDeps` assemble the review's context from one source.
+  domainServices?: DomainServices,
   // mt#2451: when the caller (server start) passes a pre-built sink, reuse that
   // single instance (shared with the /alert-test route). When omitted (existing
   // test callers), build one from env — preserving prior behavior.
@@ -953,7 +1061,13 @@ export function startSweeper(
   // container (the mt#2121 direct-domain-import path). When no container is
   // wired (DB-less / degraded boot), the emitter's repo provider returns null
   // and the sweeper falls back to log-only behavior.
-  const askEmitter = new DomainAskEmitter(makeContainerAskRepoProvider(container));
+  const askEmitter = new DomainAskEmitter(makeContainerAskRepoProvider(domainServices?.container));
+
+  // mt#4998: the review's domain context, assembled once and reused across
+  // sweep cycles. `{}` when no container booted — the sweeper still runs, and
+  // `retriggerViaRunReview` emits `sweeper.retrigger_degraded_context` naming
+  // what is missing rather than posting a quietly weaker review.
+  const reviewDomainDeps = buildReviewDomainDeps(domainServices);
 
   // mt#2364 / mt#1596 Phase 2: the external off-cockpit alert sink. Opt-in
   // (ALERT_SINK_TYPE); null when unset/off, in which case the sweeper falls back
@@ -991,7 +1105,7 @@ export function startSweeper(
     isSweeping = true;
     // Lazily build deps on first cycle; reuse on subsequent cycles.
     if (cachedDeps === null) {
-      cachedDeps = buildSweeperDeps(config, db, askEmitter, alertSink);
+      cachedDeps = buildSweeperDeps(config, db, askEmitter, alertSink, reviewDomainDeps);
     }
     cachedDeps
       .then((deps) => runSweep(config, sweeperConfig, deps))
@@ -1037,7 +1151,7 @@ export function startSweeper(
     // templated into the rendered message text, not left as a JSON-only
     // attribute (Railway's log surface displays/searches only the rendered
     // message line — an attribute-only signal is invisible there).
-    const hasContainer = container !== undefined;
+    const hasContainer = domainServices !== undefined;
     const hasAlertSink = alertSink !== null;
     const degradedParts: string[] = [];
     if (!hasContainer) {
