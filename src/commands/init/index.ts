@@ -26,6 +26,27 @@ export function createInitCommand(): Command {
   cmd.option("--mcp-transport <string>", "MCP transport type (stdio, sse, httpStream)");
   cmd.option("--mcp-port <string>", "Port for MCP network transports");
   cmd.option("--mcp-host <string>", "Host for MCP network transports");
+  // mt#4872 SC4. These MUST be mirrored here as well as in the shared
+  // definition: the INIT category is hidden from CLI auto-generation
+  // (`init-customizations.ts`) because this file registers `init` as a
+  // top-level command, so a parameter added only to the shared registry
+  // reaches the MCP surface and never appears on the CLI at all. Same
+  // parallel-implementation shape as `compileCheckTargets` in mt#4866 — caught
+  // here by regenerating the completion manifest and finding the flags absent.
+  //
+  // GUARDED: `src/adapters/shared/commands/init.test.ts` → "every shared init
+  // parameter has a matching CLI flag" fails if you add a parameter to the
+  // shared definition without mirroring it here. Add both, or that test tells
+  // you which one you missed.
+
+  cmd.option(
+    "--enable <ids>",
+    "Rule ids to enable, comma-separated (non-interactive selection; see `minsky rules list`)"
+  );
+  cmd.option(
+    "--disable <ids>",
+    "Rule ids to decline, comma-separated (non-interactive selection; base rules cannot be declined)"
+  );
 
   cmd.action(async (options) => {
     try {
@@ -48,6 +69,8 @@ export function createInitCommand(): Command {
           mcpTransport: options.mcpTransport,
           mcpPort: options.mcpPort,
           mcpHost: options.mcpHost,
+          enable: options.enable,
+          disable: options.disable,
         },
         { interface: "cli" }
       );

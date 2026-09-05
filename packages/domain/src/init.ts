@@ -6,7 +6,12 @@ import type { FsLike } from "./interfaces/fs-like";
 import { createRealFs } from "./interfaces/real-fs";
 import { getMinskyConfigContentYaml } from "./init/config-content";
 import { mergeProjectConfigYaml, UnmergeableConfigError } from "./init/config-merge";
-import { describeScaffoldResult, scaffoldRulesFromCorpus } from "./init/rule-corpus-scaffold";
+import {
+  describeScaffoldResult,
+  scaffoldRulesFromCorpus,
+  type DeclinableRule,
+} from "./init/rule-corpus-scaffold";
+import { readRuleSelectionConfig } from "./rules/selection-resolution";
 import { RULE_FORMAT_OUTPUT_DIR, RULE_SOURCE_DIR } from "./rules/types";
 import { runMinskyCompile } from "./compile/compile";
 import { claudeMdIsOurs } from "./compile/monolithic-ownership";
@@ -60,8 +65,32 @@ export { getMinskyConfigContentYaml } from "./init/config-content";
 export {
   describeScaffoldResult,
   scaffoldRulesFromCorpus,
+  type DeclinableRule,
   type ScaffoldResult,
 } from "./init/rule-corpus-scaffold";
+
+/**
+ * What `init` reports back to whoever called it (mt#4872 SC2).
+ *
+ * `initializeProject` returned `Promise<void>` until this task, which is why
+ * the selection surface could not exist on the agent path: `init`'s operator
+ * messages go to stdout, and an agent calling the `mcp__minsky__init` tool
+ * never sees stdout. A printed list is not a reportable one, so the list became
+ * a return value.
+ */
+export interface InitializeProjectResult {
+  /**
+   * Rules installed that the user may turn off, each with its own description.
+   *
+   * Empty is a real answer, not a failure: a project whose config already
+   * declines everything declinable has nothing left to be asked about.
+   */
+  readonly declinable: DeclinableRule[];
+  /** Rules that ship with Minsky and were not installed (`style`, or declined). */
+  readonly withheld: string[];
+  /** The operator-facing lines `init` emitted, in order, for callers that render their own output. */
+  readonly notices: string[];
+}
 
 export const initializeProjectParamsSchema = z.object({
   repoPath: z.string(),
@@ -96,7 +125,9 @@ export type InitializeProjectParams = z.infer<typeof initializeProjectParamsSche
  * The interface-agnostic function for initializing a project with Minsky configuration.
  * This function acts as the primary domain function for the init command.
  */
-export async function initializeProjectFromParams(params: InitializeProjectParams): Promise<void> {
+export async function initializeProjectFromParams(
+  params: InitializeProjectParams
+): Promise<InitializeProjectResult> {
   // Validate the parameters
   const validatedParams = initializeProjectParamsSchema.parse(params);
 
@@ -183,12 +214,27 @@ export async function initializeProject(
   { repoPath, backend, ruleFormat, mcp, overwrite = false, repository }: InitializeProjectOptions,
   fileSystem: FsLike = createRealFs(),
   deps: InitializeProjectDeps = {}
-): Promise<void> {
+): Promise<InitializeProjectResult> {
   const resolveClient = deps.resolveClient ?? resolveInitClient;
-  const warn = deps.warn ?? ((message: string) => log.cliWarn(message));
+  // Every operator-facing line is also COLLECTED (mt#4872 SC2), not only sunk.
+  // The MCP path has no stdout, so the caller needs the lines as data; the
+  // sinks stay exactly as they were for the CLI path.
+  const notices: string[] = [];
+  const emitWarn = deps.warn ?? ((message: string) => log.cliWarn(message));
+  const warn = (message: string): void => {
+    notices.push(message);
+    emitWarn(message);
+  };
   // Separate channel from `warn` on purpose (mt#4974): `warn` is mt#4770's
   // "something is wrong" signal, and a successful scaffold must not use it.
-  const info = deps.info ?? ((message: string) => log.cli(message));
+  const emitInfo = deps.info ?? ((message: string) => log.cli(message));
+  const info = (message: string): void => {
+    notices.push(message);
+    emitInfo(message);
+  };
+  let declinable: DeclinableRule[] = [];
+  let withheld: string[] = [];
+  let deliberatelyOnDemand: string[] = [];
   const compileForHarness =
     deps.compileForHarness ??
     (async (target: string, workspacePath: string) => runMinskyCompile({ target, workspacePath }));
@@ -250,7 +296,23 @@ export async function initializeProject(
   //     corpus reader has no registry dependency, so there is nothing left to
   //     tolerate.
   try {
-    const scaffold = await scaffoldRulesFromCorpus(rulesDirPath, overwrite, fileSystem);
+    // Read the project's EXISTING selection before scaffolding (mt#4872 SC5).
+    // The config rewrite below happens later in this function, so this sees the
+    // user's own `disabled` entries rather than the proposal init is about to
+    // write — which is what keeps an `--overwrite` from re-installing a rule
+    // they already declined.
+    const selection = await readRuleSelectionConfig(repoPath, fileSystem);
+    const scaffold = await scaffoldRulesFromCorpus(
+      rulesDirPath,
+      overwrite,
+      fileSystem,
+      undefined,
+      undefined,
+      selection
+    );
+    declinable = scaffold.declinable;
+    withheld = scaffold.withheld;
+    deliberatelyOnDemand = scaffold.deliberatelyOnDemand;
     const described = describeScaffoldResult(scaffold);
     // Routine outcomes go to `info`; only a kept-because-edited rule warns. The
     // warning channel is mt#4770's "something is wrong" signal and
@@ -381,7 +443,26 @@ export async function initializeProject(
     }
 
     if (accountingComplete) {
-      const unreachable = [...compiled].filter((id) => !reachable.has(id)).sort();
+      // mt#4872: a rule that DECLARES `onDemand: true` (mt#3107) is reachable
+      // only via `rules_get <name>` on purpose, so reporting it as unreachable
+      // states a defect that does not exist. `isReachableOrDeliberate` has
+      // drawn this distinction since mt#4974 and the corpus test asserts it;
+      // this warning never consulted it, and until now never had to — every
+      // on-demand rule in the corpus is `opinionated`, and opinionated rules
+      // were not scaffolded. Proposing them (ask#11764) made 8 of 13 land here
+      // on a healthy first run, which reads as "Minsky installed 8 broken
+      // rules" to exactly the new user this phase exists to serve.
+      const onDemand = new Set(deliberatelyOnDemand);
+      const unreachable = [...compiled]
+        .filter((id) => !reachable.has(id) && !onDemand.has(id))
+        .sort();
+      if (onDemand.size > 0) {
+        info(
+          `minsky init: ${onDemand.size} rule(s) are reference material your agent looks up by ` +
+            `name rather than loading automatically — ${[...onDemand].sort().join(", ")}. ` +
+            `That is deliberate, not a misconfiguration.`
+        );
+      }
       if (unreachable.length > 0) {
         warn(
           `minsky init: ${unreachable.length} scaffolded rule(s) are not reachable by Claude ` +
@@ -546,4 +627,6 @@ export async function initializeProject(
       );
     }
   }
+
+  return { declinable, withheld, notices };
 }

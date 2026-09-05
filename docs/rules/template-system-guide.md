@@ -70,11 +70,26 @@ _shipping_ cannot leak into an artifact that steers _behavior_.
 
 ### What `init` writes
 
-Only the `base` tier. Opinionated rules ship in the corpus and are deliberately
-**not** written, because until Phase 2 (mt#573) wires selection there is no way for
-a user to decline one — and installing a declinable rule nobody was asked about is
-the thing that must not happen at any intermediate step. `init` reports what it
-withheld.
+The **tier defaults**: `base` and `opinionated`. `style` is off and opt-in.
+
+`init` then reports the declinable set — every `opinionated` rule it installed,
+with that rule's own one-line description — on stdout and in the MCP tool result,
+so a user or their agent can turn any of them off:
+
+```bash
+minsky rules disable --id <id>   # decline
+minsky rules enable --id <id>    # change your mind
+minsky compile                   # apply it to the harness outputs
+```
+
+**Optional rules stay installed until someone removes them.** That is the cost the
+principal accepted in choosing "propose then decline" (ask#11764) over withholding,
+and it is why `init` says plainly what it installed rather than only that the rules
+exist.
+
+> Earlier revisions of this page said `init` wrote **only** the base tier, because
+> until Phase 2 (mt#573) wired selection there was no way for a user to decline
+> anything. Phase 2 shipped; mt#4872 widened the scaffold and added the report.
 
 ### Overwrite is content-aware
 
@@ -187,9 +202,10 @@ letting it look honoured.
 `minsky rules presets` computes one bundle per tier from the `tier` and
 `minimumRung` frontmatter on the project's own rules. There is no table of
 preset names to maintain, and a preset **cannot** name a rule the project does
-not have. A bundle may legitimately be empty: in a fresh project `opinionated`
-has no members, because `init` scaffolds only the `base` tier until the
-selection conversation (Phase 3) can ask you about the rest.
+not have. A bundle may legitimately be empty — `style` is, in a fresh project,
+because nothing installs a `style` rule until you opt in. `opinionated` is not:
+`init` scaffolds it by default (mt#4872), so its bundle lists what you can
+decline.
 
 ### Where it is applied
 
@@ -239,5 +255,8 @@ candidate tier column.
 - RFC "The rules Minsky ships" (Notion `3ce937f0`, Accepted 2026-09-04) — the
   plane split, tiers, and selection-at-init design.
 - mt#4744 — the 61-row corpus audit the promotion set comes from.
-- mt#573 — Phase 2, which wires selection so opinionated rules become installable.
+- mt#573 — Phase 2, which wired selection so a declined rule actually leaves the
+  compiled output.
+- mt#4872 — Phase 3, which scaffolds the opinionated tier by default and reports
+  the declinable set (ask#11764, "propose then decline").
 - ADR-016 — the compile pipeline this corpus feeds.

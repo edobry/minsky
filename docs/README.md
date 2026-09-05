@@ -98,6 +98,31 @@ live in `src/utils/test-utils/`. Architecture-level docs:
 - **Project Setup**: `minsky init`
 - **MCP Server**: `minsky mcp start`
 
+### Rules a new project receives
+
+`minsky init` installs two kinds of rule and tells you which is which:
+
+- **Base** rules are not declinable — Minsky's own workflows depend on them.
+- **Optional** rules are installed too, and you can turn any of them off. `init` lists them with
+  a one-line description each, on stdout and in the MCP tool result.
+
+Declining is per-rule and reversible at any time:
+
+```bash
+minsky rules disable --id <id>   # or: minsky rules enable --id <id>
+minsky compile              # regenerates .claude/rules, .cursor/rules, AGENTS.md
+```
+
+For scripted or CI onboarding, decide at init time instead — this writes the same config the
+commands above write:
+
+```bash
+minsky init --backend minsky --disable json-parsing,git-safety
+```
+
+Optional rules stay installed until you remove them, so a project nobody reviews keeps the full
+set. `minsky rules config` shows what is currently selected.
+
 ### Backend Types
 
 - **Task Backends**: `minsky`, `github-issues`

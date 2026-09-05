@@ -546,3 +546,64 @@ describe("Init reports rules unreachable by the harness (mt#4770)", () => {
     expect(foreignWarnings(warnings)).toEqual([]);
   });
 });
+
+describe("mt#4872 — init returns the declinable set as data, not only as output", () => {
+  test("SC2: the result carries the declinable rules with their descriptions", async () => {
+    const mockFileSystem = createMockFs();
+
+    // This is the MCP path's payload. It is asserted here rather than through a
+    // live `mcp__minsky__init` call because the MCP daemon serves the installed
+    // build, not a session workspace — calling it before merge exercises the
+    // OLD code and would be evidence about nothing.
+    const result = await initializeProject(
+      {
+        repoPath: "/tmp/mt4872-declinable",
+        backend: "minsky",
+        ruleFormat: "minsky",
+        mcp: { enabled: false },
+        overwrite: false,
+      },
+      mockFileSystem,
+      { compileForHarness: async () => ({ definitionsIncluded: [], definitionsSkipped: [] }) }
+    );
+
+    expect(result.declinable.length).toBeGreaterThan(0);
+    for (const rule of result.declinable) {
+      expect(rule.id.length).toBeGreaterThan(0);
+      expect(rule.description.length).toBeGreaterThan(0);
+    }
+
+    // Base rules are installed and NOT offered as declinable — an entry the
+    // user cannot act on is worse than no list.
+    const ids = result.declinable.map((r) => r.id);
+    expect(ids).not.toContain("task-status-workflow-protocol");
+    expect(ids).not.toContain("minsky-rule-selection");
+  });
+
+  test("SC5: a rule the project already declined is neither installed nor re-offered", async () => {
+    const repoPath = "/tmp/mt4872-declined";
+    const mockFileSystem = createMockFs();
+    mockFileSystem.files.set(
+      path.join(repoPath, ".minsky", "config.yaml"),
+      "rules:\n  disabled:\n    - json-parsing\n"
+    );
+
+    const result = await initializeProject(
+      {
+        repoPath,
+        backend: "minsky",
+        ruleFormat: "minsky",
+        mcp: { enabled: false },
+        overwrite: true,
+      },
+      mockFileSystem,
+      { compileForHarness: async () => ({ definitionsIncluded: [], definitionsSkipped: [] }) }
+    );
+
+    expect(result.declinable.map((r) => r.id)).not.toContain("json-parsing");
+    expect(result.withheld).toContain("json-parsing");
+    expect(
+      mockFileSystem.files.has(path.join(repoPath, ".minsky", "rules", "json-parsing.mdc"))
+    ).toBe(false);
+  });
+});

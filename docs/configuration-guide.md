@@ -69,6 +69,43 @@ workspace:
 
 - This setting prevents accidental use of remote URLs or session workspace paths for task file operations.
 
+## Rule Selection (`rules`)
+
+Which of Minsky's shipped rules this project uses. `minsky init` installs the base rules (not
+declinable) plus the optional ones, and lists the optional set so you can turn any of them off.
+
+```yaml
+rules:
+  presets: [] # named bundles, derived from rule tiers
+  enabled: [] # rules turned on beyond the defaults
+  disabled: # rules you have declined
+    - json-parsing
+  rung: T2 # optional: the project's adoption rung
+```
+
+Minsky does not own this block — `minsky init --overwrite` preserves your entries rather than
+rewriting them. Manage it with the commands rather than by hand:
+
+```bash
+minsky rules config              # what is currently selected
+minsky rules disable --id <id>   # decline a rule
+minsky rules enable --id <id>    # re-enable one you declined
+minsky compile                   # regenerate the harness outputs
+```
+
+`compile` is what actually adds or removes the rule from `.claude/rules/`, `.cursor/rules/` and
+`AGENTS.md`; those are generated outputs and hand-edits to them are overwritten. A `disabled`
+entry naming a base rule is refused, with the reason stated — base rules are the ones Minsky's own
+workflows depend on.
+
+For CI or scripted onboarding, decide at init time instead — it writes the same config:
+
+```bash
+minsky init --backend minsky --disable json-parsing,git-safety
+```
+
+Optional rules stay installed until you remove them, so a project nobody reviews keeps the full set.
+
 ## Task Backend Configuration
 
 ### `tasks.githubBackend.enabled` (default: `false`)

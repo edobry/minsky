@@ -12,8 +12,10 @@ import {
 import {
   initializeProjectFromParams,
   detectRepositoryBackend,
+  type DeclinableRule,
   type ResolvedRepositoryConfig,
 } from "@minsky/domain/init";
+import { enableRule, disableRule } from "@minsky/domain/rules/operations/config-operations";
 import { TaskBackend } from "@minsky/domain/configuration/backend-detection";
 import { resolveInitClient } from "@minsky/domain/runtime/harness-detection";
 import { RULE_FORMAT_DESCRIPTION } from "../../../utils/option-descriptions";
@@ -73,8 +75,67 @@ const initParams = composeParams(
       description: "Host for MCP network transports",
       required: false,
     },
+    // mt#4872 SC4: the non-interactive half of the selection surface. The
+    // conversation is the primary path and needs no flags; these exist so CI
+    // and scripted onboarding are complete WITHOUT it.
+    enable: {
+      schema: z.union([z.string(), z.array(z.string())]).optional(),
+      description:
+        "Rule ids to enable, comma-separated (non-interactive selection; see `minsky rules list`)",
+      required: false,
+    },
+    disable: {
+      schema: z.union([z.string(), z.array(z.string())]).optional(),
+      description:
+        "Rule ids to decline, comma-separated (non-interactive selection; base rules cannot be declined)",
+      required: false,
+    },
   }
 ) satisfies CommandParameterMap;
+
+/**
+ * Split a repeatable/comma-separated id parameter into ids (mt#4872 SC4).
+ *
+ * Accepts both shapes because the CLI and MCP surfaces supply different ones:
+ * `--disable a,b` arrives as one string, an MCP caller can pass an array.
+ */
+export function parseRuleIds(value: string | string[] | undefined): string[] {
+  if (value === undefined) return [];
+  const raw = Array.isArray(value) ? value : [value];
+  return raw
+    .flatMap((entry) => entry.split(","))
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0);
+}
+
+/**
+ * Compose `init`'s operator-facing message, declinable set included (mt#4872 SC2).
+ *
+ * Extracted rather than inlined in `execute` so the CLI leg is assertable as a
+ * VALUE. The alternative is driving the whole command to observe one string,
+ * which is the shape `testing-standards.mdc §Testable Design` says to treat as
+ * design feedback.
+ *
+ * Why the list rides in `message` rather than in a payload field alone: the
+ * `minsky init` CLI command is hand-written (`src/commands/init/index.ts`,
+ * registered top-level because the INIT category is hidden from CLI
+ * auto-generation) and prints `result.message` and nothing else. A `declinable`
+ * array would reach the MCP tool result and be dropped on stdout. Both surfaces
+ * are fed from here, so they cannot drift.
+ */
+export function formatInitMessage(declinable: readonly DeclinableRule[]): string {
+  const headline = "Project initialized successfully.";
+  if (declinable.length === 0) return headline;
+  return [
+    headline,
+    "",
+    `${declinable.length} optional rule(s) were installed and can be turned off:`,
+    ...declinable.map((rule) => `  - ${rule.id}: ${rule.description}`),
+    "",
+    "Decline any with `minsky rules disable --id <id>` then `minsky compile`.",
+    "They stay until you remove them.",
+  ].join("\n");
+}
 
 export function registerInitCommands() {
   sharedCommandRegistry.registerCommand(
@@ -363,7 +424,24 @@ export function registerInitCommands() {
           // Use the backend selected by the user (or provided via CLI parameter)
           const domainBackend = backend;
 
-          await initializeProjectFromParams({
+          // mt#4872 SC4: apply the non-interactive selection BEFORE init runs.
+          // Order is load-bearing — init reads the committed selection to decide
+          // what to scaffold and then compiles from it, so applying the flags
+          // first means one pass produces the right rules AND the right compiled
+          // output. Applying them afterwards would need a second compile, and
+          // would leave the intermediate state emitting rules the caller had
+          // just declined. `enableRule` / `disableRule` are the same functions
+          // `minsky rules enable|disable` calls, so the flags and the
+          // conversation write identical config (AT4); they also validate the
+          // id, so a typo fails here rather than persisting into the config.
+          for (const ruleId of parseRuleIds(params.enable as string | string[] | undefined)) {
+            await enableRule(repoPath, ruleId);
+          }
+          for (const ruleId of parseRuleIds(params.disable as string | string[] | undefined)) {
+            await disableRule(repoPath, ruleId);
+          }
+
+          const initResult = await initializeProjectFromParams({
             repoPath,
             backend: domainBackend,
             ruleFormat: ruleFormat as "cursor" | "generic" | "minsky",
@@ -380,7 +458,30 @@ export function registerInitCommands() {
             // Future: Set up GitHub API configuration, webhooks, etc.
           }
 
-          return { success: true, message: "Project initialized successfully." };
+          // mt#4872 SC2 — the declinable set reaches all three invocation paths.
+          //
+          // The structured `declinable` field is what an agent on the
+          // `mcp__minsky__init` path reads: stdout never reaches it, so the
+          // scaffold's printed lines are invisible there.
+          //
+          // The `message` carries the same list because of how the CLI renders.
+          // `init` registers no `outputFormatter` and is not switch-cased in
+          // `formatObjectResult`, so it falls through to `formatGenericObject`,
+          // whose `if (result.message) { … return; }` branch fires BEFORE the
+          // branch that renders payload keys (the one ADR-039 added). A
+          // `declinable` field alone would therefore reach the MCP result and be
+          // silently dropped on both stdout paths. Folding it into `message` is
+          // the resolution ADR-039 sanctions that needs no per-command
+          // formatter — and it is why AT2 measures all three paths rather than
+          // assuming the payload is enough.
+          const declinable = initResult.declinable;
+
+          return {
+            success: true,
+            message: formatInitMessage(declinable),
+            declinable,
+            withheld: initResult.withheld,
+          };
         } catch (error: unknown) {
           log.error("Error initializing project", { error });
           throw error instanceof ValidationError
