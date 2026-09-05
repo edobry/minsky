@@ -22,6 +22,7 @@ import type {
 } from "../../src/domain/calibration/calibration-sweep";
 import {
   assessClassifiability,
+  distinctFireFields,
   computeReviewDueLogs,
   FIRES_THRESHOLD,
   STALE_DAYS_MS,
@@ -98,6 +99,11 @@ function makeResult(
     // production function rather than hardcoded, so a fixture that DOES pass
     // `newRecords` gets the verdict runSweep would have computed for them.
     classifiability: assessClassifiability(overrides.newRecords ?? []),
+    // mt#3866: derived from the same records `classifiability` reads, for the
+    // same reason — a fixture that DOES pass `newRecords` gets the counts
+    // runSweep would have computed, rather than a hardcoded 0 that could
+    // disagree with them.
+    ...distinctFireFields(overrides.newRecords ?? []),
     ...overrides,
   };
   return {

@@ -62,8 +62,7 @@ import { safeTruncate } from "@minsky/shared/safe-truncate";
 // change than this task's evidence supports.
 import { elideDoubleQuotedSpans } from "./elision";
 import {
-  CAPTURE_SCHEMA_FIELD,
-  CAPTURE_SCHEMA_VERSION,
+  captureFields,
   extractMatchContext,
   MATCH_CONTEXT_MAX_CHARS,
 } from "./judged-input-capture";
@@ -481,6 +480,22 @@ export interface PreNarrationDetection {
   matches: ClaimMatch[];
   /** Backed claims — detected, then suppressed. Recorded, never injected. */
   suppressed: SuppressedClaimMatch[];
+  /**
+   * The assistant text this detection was computed over (mt#3866).
+   *
+   * Carried on the RESULT rather than threaded as a third parameter to
+   * `buildPreNarrationRecord`, which would have touched nine call sites for a
+   * value the detection already had in hand. It is genuinely part of what was
+   * detected: `detectPreNarrationWithSuppression` derives it internally with
+   * `extractAssistantText` and every match's offsets address it.
+   *
+   * `""` on the no-text early return, and that case is real — a turn carrying
+   * only tool calls extracts to the empty string. The digest is then over `""`,
+   * which `captureFields` treats as a judged text like any other; returning no
+   * digest there would let a writer opt out of identity by having nothing to
+   * say, which is the separability mt#3866 exists to remove.
+   */
+  judgedText: string;
 }
 
 /**
@@ -670,7 +685,7 @@ export function detectPreNarrationWithSuppression(
   evidencePrNumbers?: ReadonlyMap<string, ReadonlySet<number>>
 ): PreNarrationDetection {
   const rawText = extractAssistantText(turnLines);
-  if (!rawText) return { matches: [], suppressed: [] };
+  if (!rawText) return { matches: [], suppressed: [], judgedText: "" };
 
   // Double-quoted prose elided AFTER the markdown pass (mt#3864 class 6), so
   // quotes inside a code span are already blanked and cannot confuse pairing —
@@ -744,7 +759,7 @@ export function detectPreNarrationWithSuppression(
     }
     matches.push(matched);
   }
-  return { matches, suppressed };
+  return { matches, suppressed, judgedText: rawText };
 }
 
 /**
@@ -785,7 +800,10 @@ export function buildPreNarrationRecord(
     // marker says so explicitly, so a corpus-wide auditability check reads the
     // same field everywhere instead of special-casing the surfaces that shipped
     // capture before the marker existed.
-    [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+    // mt#3866 (PR #3656 R2): marker and distinct-fire digest stamped by ONE
+    // call, so this writer cannot claim capture without carrying an identity.
+    // The judged text rides on the detection — see `PreNarrationDetection`.
+    ...captureFields(detection.judgedText),
     matches: [
       ...detection.matches.map((m) => ({
         category: m.category,

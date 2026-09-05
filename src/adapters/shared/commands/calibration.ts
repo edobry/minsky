@@ -1088,6 +1088,14 @@ export function registerCalibrationCommands(): void {
               suppressedSinceLastReview: r.suppressedSinceLastReview,
               injectedFiresSinceLastReview: r.injectedFiresSinceLastReview,
               evaluatedOnlySinceLastReview: r.evaluatedOnlySinceLastReview,
+              // mt#3866: projected HERE and not only into the text output. The
+              // comment below on `classifiability` states the principle — this
+              // JSON path is what an AGENT reads — and mt#5011 exists because
+              // three other computed fields were added to the domain result and
+              // never to this literal, so an agent following the skill's
+              // instruction to read them got `null`.
+              distinctFiresSinceLastReview: r.distinctFiresSinceLastReview,
+              ungroupableSinceLastReview: r.ungroupableSinceLastReview,
               distinctPhrases: r.distinctPhrases,
               atCountThreshold: r.atCountThreshold,
               lowDiversity: r.lowDiversity,

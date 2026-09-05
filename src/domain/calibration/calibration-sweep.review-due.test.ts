@@ -13,6 +13,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   computeReviewDueLogs,
+  distinctFireFields,
   FIRES_THRESHOLD,
   STALE_DAYS_MS,
   NEVER_REVIEWED_DAYS,
@@ -76,6 +77,11 @@ describe("computeReviewDueLogs (mt#2896)", () => {
           recordsAssessed: 0,
         },
       },
+      // mt#3866: derived from `newRecords` for the same reason the
+      // classifiability verdict above is — a fixture that passes records gets
+      // the counts runSweep would have computed, not a hardcoded pair that
+      // could disagree with them.
+      ...distinctFireFields(overrides.newRecords ?? []),
       ...overrides,
     };
     return {

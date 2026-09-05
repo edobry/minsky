@@ -117,11 +117,7 @@ import type { SpecTextRead } from "./authored-spec-text";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { logCalibrationRecord, logEvaluationRecord } from "./dispatcher";
 import { elideQuotedContexts, elideDoubleQuotedSpans } from "./elision";
-import {
-  CAPTURE_SCHEMA_FIELD,
-  CAPTURE_SCHEMA_VERSION,
-  extractMatchContext,
-} from "./judged-input-capture";
+import { captureFields, extractMatchContext } from "./judged-input-capture";
 // Surrogate-pair-safe truncation — the matched text is arbitrary assistant
 // prose / operator-authored option labels, so a raw `.slice(0, N)` can split
 // an emoji. Same cross-tree import the standalone parallel-work guard uses.
@@ -1567,7 +1563,17 @@ export function buildCalibrationRecord(
     // hit; `context` carries the surrounding prose that used to occupy `phrase`.
     // Both, because the axis needs the first to be meaningful and a human
     // reviewer needs the second to classify the fire at all.
-    [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+    // mt#3866 (PR #3656 R2): the marker and the distinct-fire digest are
+    // stamped by ONE call, so this writer cannot claim capture without also
+    // carrying an identity. `turnText` is the judged text — the same string
+    // `deferralOverlap` is derived from three lines above.
+    //
+    // `turnText` is optional on this path and empty for a tool-call-only fire
+    // (surface E), so the digest is over `""` there. That is deliberate and
+    // matches `captureFields`' own contract: an empty judged text is still a
+    // judged text, and returning no digest would let a writer opt out of
+    // identity by passing nothing — which is the separability this fixes.
+    ...captureFields(turnText ?? ""),
     matches: matches.map((m) => ({
       category: m.surface,
       phrase: m.matchedPhrase,
