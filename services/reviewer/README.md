@@ -620,6 +620,34 @@ condition that would make the cap genuinely tight against real work. The unrecov
 on its own via `reviewer-pre-submit-failure/v1` (mt#4881). Full reasoning and the queries:
 mt#4996 `## DECISION 2026-09-05`.
 
+### What watches those triggers (mt#4988)
+
+`timeout-regime-watch.ts` evaluates all three of the triggers above on a schedule, so the accept is
+not decide-and-forget. It reads `review_timing` only — no Railway credentials, no external call —
+records every reading against its threshold each cycle (`timeout_regime.cycle_complete`), and
+notifies through the alert sink at `warn` only when one crosses, at most once per trigger per
+crossing.
+
+**It is not an incident channel and deliberately does not page.** A crossed trigger means a
+documented baseline moved, not that the reviewer is down, and the remedy is to reopen mt#4996's
+analysis. The alert body says so in as many words.
+
+| Variable                           | Default          | What it does                                                                                                       |
+| ---------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `TIMEOUT_REGIME_WATCH_ENABLED`     | `false`          | Opt-in, matching the other non-urgent schedulers. Set `true` to start it.                                          |
+| `TIMEOUT_REGIME_WATCH_INTERVAL_MS` | `86400000` (24h) | Cycle cadence. The triggers are 30-day aggregates; they do not move hourly.                                        |
+| `TIMEOUT_REGIME_WATCH_WINDOW_DAYS` | `30`             | The rolling window mt#4996 stated its triggers over.                                                               |
+| `TIMEOUT_REGIME_WATCH_CAP_MS`      | `118000`         | Rounds at or above this are censored at the timeout cap, not measured, and are excluded from the p99.9 (mem#1373). |
+| `TIMEOUT_REGIME_MAX_UNRECOVERED`   | `2`              | Crossed at or above this many unrecovered events. Baseline: 1 in 103 days.                                         |
+| `TIMEOUT_REGIME_MIN_RECOVERY_BP`   | `9500`           | Crossed below this event-level recovery rate, in basis points (9500 = 95.00%). Baseline: 99.25%.                   |
+| `TIMEOUT_REGIME_MAX_P999_MS`       | `115000`         | Crossed above this completing-round p99.9. Baseline: 105.0s.                                                       |
+
+Every default is a value mt#4996 measured rather than a round number, per
+`decision-defaults.mdc §Thresholds`. **Known bound:** the once-per-crossing suppression is
+in-process, so a redeploy re-arms it and a still-crossed trigger notifies again on the next cycle.
+The `timeout_regime.trigger_crossed` log line carries `suppressionScope: "process-local"` so a
+repeat can be correlated against a restart rather than read as flapping.
+
 ## Running a model A/B on production traffic (mt#4569)
 
 `REVIEWER_EXPERIMENT_MODEL` runs a second model alongside the incumbent so the two can be compared. **Unset — the default — no experiment runs and every PR uses `REVIEWER_MODEL`.**

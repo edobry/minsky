@@ -90,7 +90,16 @@ export interface TimeoutRegimeSample {
   reviewsWithTimeout: number;
   /** Sum of `timeout_count` over the window — the recovery rate's denominator. */
   timeoutEvents: number;
-  /** `timeout-unrecovered` entries across `retry_outcomes` in the window. */
+  /**
+   * `timeout-unrecovered` ENTRIES across `retry_outcomes` in the window — array
+   * elements, not rows carrying at least one (PR #3653 R1).
+   *
+   * Counting elements is the more general of the two and needs no assumption
+   * about how many a review can carry: if one ever carries two, this counts two
+   * where a row-count would under-report. Today they agree exactly — measured
+   * over the live 30-day window, 1 element / 1 row / max 1 per row — which is
+   * also what keeps this consistent with mt#4996's baseline, itself a row count.
+   */
   unrecoveredEvents: number;
   /** p99.9 of COMPLETING round latencies in ms, or null when there are none. */
   completingRoundP999Ms: number | null;
@@ -223,11 +232,28 @@ export async function sampleTimeoutRegime(
   const nowMs = options.nowMs ?? Date.now();
   const cutoff = new Date(nowMs - options.windowDays * 24 * 60 * 60 * 1000);
 
+  // `tool_use_active is true` scopes this to the population mt#4996's thresholds
+  // and mt#4988's burst figures were both measured over (PR #3653 R1).
+  //
+  // Measured before adding it, so the change is understood rather than assumed:
+  // over the live 30-day window the filter excludes 1,238 of 4,593 rows and
+  // changes NOTHING — 51 timeout events either way, 27,189 completing rounds
+  // either way, p99.9 108,068.7ms either way, identical to the digit. The
+  // excluded rows are the skip paths (routing-skip, concurrent-inflight) that
+  // write a timing row with no model call, so they carry an empty
+  // `per_round_latencies_ms` and a zero `timeout_count`.
+  //
+  // It is here anyway because that equality is a property of the CURRENT write
+  // paths, not an invariant this query states. A future path that recorded round
+  // latencies with tool-use off would pool two regimes into one percentile with
+  // no error to notice — mem#1247's shape. The filter makes the population
+  // explicit instead of coincidental.
   const rows = await db.execute<SampleRow>(
     sql`WITH w AS (
           SELECT timeout_count, retry_outcomes, per_round_latencies_ms
             FROM review_timing
            WHERE created_at >= ${cutoff}
+             AND tool_use_active IS TRUE
         ),
         ev AS (
           SELECT count(*) FILTER (WHERE timeout_count > 0) AS reviews_with_timeout,
@@ -351,6 +377,10 @@ export async function runTimeoutRegimeWatchCycle(
         event: "timeout_regime.trigger_crossed",
         notified,
         crossed,
+        // PR #3653 R1: state the suppression's scope in the record itself, so a
+        // reader correlating a repeat notification against a redeploy does not
+        // have to infer it from the module source. See `### Does NOT cover`.
+        suppressionScope: "process-local",
       });
       // `notify` is contractually fail-open and never throws, so this needs no
       // guard of its own — but it is awaited so a cycle's work is finished
