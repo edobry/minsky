@@ -189,7 +189,24 @@ describe("Init rule-format output directory (mt#4714)", () => {
     mockFileSystem = createMockFs();
   });
 
-  async function runInit(ruleFormat: "cursor" | "generic" | "minsky"): Promise<void> {
+  /**
+   * Run `init` with BOTH environment-sensitive seams injected (mt#573).
+   *
+   * `resolveClient` and `compileForHarness` used to default to the real ones
+   * here, which made these tests depend on the machine: `detectAgentHarness()`
+   * reads `CLAUDECODE` from the ambient environment, so the same test resolved
+   * to `claude-code` on a developer's machine inside Claude Code and to the
+   * `cursor` fallback in CI — and mt#573 makes the two take different compile
+   * paths. That is precisely the shape that shipped a CI failure past a green
+   * local run in mt#5003 (a domain function reading past its injected
+   * filesystem). Pinning both seams keeps these assertions about `init`'s
+   * logic rather than about where they happen to run.
+   */
+  async function runInit(
+    ruleFormat: "cursor" | "generic" | "minsky",
+    client: "claude-code" | "cursor" = "claude-code",
+    compiled: string[] = []
+  ): Promise<void> {
     await initializeProject(
       {
         repoPath: testRepo,
@@ -200,7 +217,14 @@ describe("Init rule-format output directory (mt#4714)", () => {
         mcp: { enabled: false },
         overwrite: false,
       },
-      mockFileSystem
+      mockFileSystem,
+      {
+        resolveClient: () => client,
+        compileForHarness: async (target) => {
+          compiled.push(target);
+          return { definitionsIncluded: [], definitionsSkipped: [] };
+        },
+      }
     );
   }
 
@@ -216,20 +240,36 @@ describe("Init rule-format output directory (mt#4714)", () => {
     expect(mockFileSystem.directories.has(dir(".cursor", "rules"))).toBe(false);
   });
 
-  test("ruleFormat 'cursor' still scaffolds into .cursor/rules", async () => {
-    await runInit("cursor");
+  // ─── mt#573 SC3: one SOURCE directory, every format ────────────────────────
+  //
+  // These two tests asserted the opposite until mt#573 ("still scaffolds into
+  // .cursor/rules" / ".ai/rules"), and the change is deliberate rather than a
+  // regression. `.cursor/rules` is a compile OUTPUT; writing sources there left
+  // a Cursor project — and any project with no detected harness, since
+  // `resolveInitClient` falls back to `cursor` — with nothing upstream for
+  // selection to filter, so its rule set was fixed at `init` forever. What the
+  // old assertions were really protecting is that the requested format is
+  // HONOURED, and it still is: `.cursor/rules` is produced, as compiled output.
 
-    expect(mockFileSystem.directories.has(dir(".cursor", "rules"))).toBe(true);
+  test("ruleFormat 'cursor' scaffolds SOURCES into .minsky/rules (mt#573 SC3)", async () => {
+    const compiled: string[] = [];
+    await runInit("cursor", "cursor", compiled);
+
+    expect(mockFileSystem.directories.has(dir(".minsky", "rules"))).toBe(true);
     expect(mockFileSystem.directories.has(dir(".ai", "rules"))).toBe(false);
-    expect(mockFileSystem.directories.has(dir(".minsky", "rules"))).toBe(false);
+    // `.cursor/rules` is now produced by the compile target, not by scaffolding,
+    // so `init` itself creates no such directory — the target does.
+    expect(compiled).toContain("cursor-rules-ts");
   });
 
-  test("ruleFormat 'generic' still scaffolds into .ai/rules", async () => {
+  test("ruleFormat 'generic' scaffolds into .minsky/rules, not .ai/rules (mt#573 SC3)", async () => {
     await runInit("generic");
 
-    expect(mockFileSystem.directories.has(dir(".ai", "rules"))).toBe(true);
-    expect(mockFileSystem.directories.has(dir(".cursor", "rules"))).toBe(false);
-    expect(mockFileSystem.directories.has(dir(".minsky", "rules"))).toBe(false);
+    expect(mockFileSystem.directories.has(dir(".minsky", "rules"))).toBe(true);
+    // The one format that loses a directory. No compile target writes
+    // `.ai/rules`, so `init` says so on stderr rather than leaving the operator
+    // to notice — see the `generic` warning in `init.ts`.
+    expect(mockFileSystem.directories.has(dir(".ai", "rules"))).toBe(false);
   });
 
   test("compiles for claude-code, and only the two channels it implements (mt#4715)", async () => {
@@ -265,58 +305,37 @@ describe("Init rule-format output directory (mt#4714)", () => {
     expect(mockFileSystem.directories.has(dir(".minsky", "rules"))).toBe(true);
   });
 
-  test("does NOT compile under a non-claude-code harness (mt#4715 SC3)", async () => {
+  // Was "does NOT compile under a non-claude-code harness (mt#4715 SC3)".
+  // mt#4715's finding was that a scaffolded project whose harness reads nothing
+  // it was given is broken; its remedy compiled for Claude Code and left every
+  // other harness alone, because under a Cursor `init` the sources were IN
+  // `.cursor/rules` already and there was nothing to compile FROM. SC3 removed
+  // that premise — sources are in `.minsky/rules` now — so the same finding
+  // points the other way: a Cursor project must compile too, or it would be
+  // scaffolded with files ITS harness never opens, which is mt#4715's own
+  // defect with the harnesses swapped.
+  test("a cursor harness compiles cursor-rules-ts from the shared sources (mt#573 SC3)", async () => {
     const compiled: string[] = [];
-    await initializeProject(
-      {
-        repoPath: testRepo,
-        backend: "minsky",
-        ruleFormat: "cursor",
-        mcp: { enabled: false },
-        overwrite: false,
-      },
-      mockFileSystem,
-      {
-        resolveClient: () => "cursor",
-        compileForHarness: async (target) => {
-          compiled.push(target);
-          return { definitionsIncluded: [], definitionsSkipped: [] };
-        },
-      }
-    );
+    await runInit("cursor", "cursor", compiled);
 
-    expect(compiled).toEqual([]);
-    expect(mockFileSystem.directories.has(dir(".cursor", "rules"))).toBe(true);
+    expect(compiled).toEqual(["cursor-rules-ts"]);
+    expect(mockFileSystem.directories.has(dir(".minsky", "rules"))).toBe(true);
   });
 
-  test("claude-code + a non-minsky format does NOT compile (PR #3431 R1)", async () => {
-    // The compile targets read `.minsky/rules`. An explicit `--rule-format
-    // cursor` under Claude Code puts sources in `.cursor/rules`, so compiling
-    // would read an empty directory — the project would get neither the Cursor
-    // files it asked for nor usable Claude ones.
+  // Was "claude-code + a non-minsky format does NOT compile (PR #3431 R1)".
+  // R1's concern was concrete and is now resolved rather than overruled: it
+  // objected that compiling would read an EMPTY `.minsky/rules`, leaving the
+  // project with "neither the Cursor files it asked for nor usable Claude
+  // ones". Sources land in `.minsky/rules` for every format now, so the
+  // directory is populated and the project gets BOTH. The two harness branches
+  // are independent by design — asking for Cursor output does not stop a Claude
+  // Code project from receiving what its own harness reads.
+  test("claude-code + --rule-format cursor compiles BOTH (mt#573 SC3)", async () => {
     const compiled: string[] = [];
-    await initializeProject(
-      {
-        repoPath: testRepo,
-        backend: "minsky",
-        ruleFormat: "cursor",
-        mcp: { enabled: false },
-        overwrite: false,
-      },
-      mockFileSystem,
-      {
-        resolveClient: () => "claude-code",
-        compileForHarness: async (target) => {
-          compiled.push(target);
-          return { definitionsIncluded: [], definitionsSkipped: [] };
-        },
-      }
-    );
+    await runInit("cursor", "claude-code", compiled);
 
-    expect(compiled).toEqual([]);
-    // The explicitly-requested format is still honoured.
-    expect(mockFileSystem.directories.has(dir(".cursor", "rules"))).toBe(true);
-    expect(mockFileSystem.directories.has(dir(".minsky", "rules"))).toBe(false);
+    expect(compiled.sort()).toEqual(["claude-rules", "cursor-rules-ts"]);
+    expect(mockFileSystem.directories.has(dir(".minsky", "rules"))).toBe(true);
   });
 
   test("a failing compile does not fail init (mt#4715 SC5)", async () => {

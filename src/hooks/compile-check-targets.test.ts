@@ -14,6 +14,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   compileCheckTargets,
+  compileCheckTargetsWithGateReport,
   claudeHooksCompileAffected,
   classifyCompileHooksRegenError,
 } from "./pre-commit";
@@ -419,5 +420,83 @@ describe("regenerateStagedClaudeHooks orchestration (mt#2977 AT#1-3)", () => {
     const result = await regenerateStagedClaudeHooks(deps);
     expect(result.success).toBe(false);
     expect(result.message).toContain("Could not stage regenerated claude-hooks output");
+  });
+});
+
+// ─── mt#573 SC8: the two mirrored mappings, pinned against each other ────────
+//
+// `compileCheckTargetsWithGateReport` (this file's subject) and
+// `minskyCompileTargetsWithGateReport` (`packages/domain/src/compile/compile.ts`)
+// are parallel implementations of one decision: which targets does a bare
+// `minsky compile` produce, and therefore which may `--check` call stale? The
+// duplication is deliberate — importing the domain module would drag
+// `createMinskyCompileService` and every compile target into a hook that runs on
+// every commit — but until now nothing asserted they AGREE.
+//
+// They have had to be edited in lockstep three times (mt#4866's harness gate,
+// mt#4986's foreign-ownership gate, mt#5003's absent-CLAUDE.md gate), each time
+// by an author who happened to remember. The existing tests above check
+// individual cases on the hook side only, so a divergence introduced on either
+// side passes them. This walks the ENTIRE input space instead: a disagreement in
+// any of the 1,728 combinations fails, naming the input.
+//
+// Why now: SC3 makes `.minsky/rules/` exist in a Cursor project where it did
+// not before, which flips `present.rules` — an input BOTH mappings read. That
+// change needs no edit to either one, and this test is what makes "needs no
+// edit" a verified claim rather than an inspection.
+describe("mt#573 SC8 — the pre-commit mapping matches the domain mapping exactly", () => {
+  const OWNERSHIP_VALUES = ["generated", "foreign", "unreadable"] as const;
+  const HARNESS_VALUES = [undefined, "claude-code", "cursor"] as const;
+
+  test("every combination of inputs produces the same targets and the same gated-out set", async () => {
+    const { minskyCompileTargetsWithGateReport } = await import(
+      "../../packages/domain/src/compile/compile"
+    );
+
+    let compared = 0;
+    for (const skills of [false, true]) {
+      for (const rules of [false, true]) {
+        for (const agents of [false, true]) {
+          for (const hooks of [false, true]) {
+            for (const harness of HARNESS_VALUES) {
+              for (const cursorRules of [false, true]) {
+                for (const agentsMdExists of [false, true]) {
+                  for (const claudeMd of OWNERSHIP_VALUES) {
+                    for (const agentsMd of OWNERSHIP_VALUES) {
+                      const present = {
+                        skills,
+                        rules,
+                        agents,
+                        hooks,
+                        harness,
+                        existingOutputs: { cursorRules, agentsMd: agentsMdExists },
+                        ownership: { claudeMd, agentsMd },
+                      };
+                      const hook = compileCheckTargetsWithGateReport(present);
+                      const domain = minskyCompileTargetsWithGateReport(present);
+
+                      const where = JSON.stringify(present);
+                      expect(`${where} -> ${hook.targets.join(",")}`).toBe(
+                        `${where} -> ${domain.targets.join(",")}`
+                      );
+                      // The domain side carries a reason per gated target and
+                      // this one carries only the name, so compare the names.
+                      expect(`${where} -> ${hook.gatedOut.join(",")}`).toBe(
+                        `${where} -> ${domain.gatedOut.map((g) => g.target).join(",")}`
+                      );
+                      compared += 1;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Guards the vacuous pass: a refactor that made the loops iterate nothing
+    // would otherwise report success having compared no cases at all.
+    expect(compared).toBe(1728);
   });
 });

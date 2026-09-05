@@ -160,7 +160,12 @@ and policies that remain stable while the environment changes. Arbitrates betwee
 - Rules system (`packages/domain/src/rules/`) — Markdown files with YAML frontmatter that encode
   operational policy. Rules marked `alwaysApply: true` are included in every AI context.
   The rules compilation pipeline propagates policy into agent behavior across all supported
-  AI assistants.
+  AI assistants. Which rules a project receives is its own decision: each rule carries a
+  tier (`base` / `opinionated` / `style`) and a minimum adoption rung, and the project's
+  `rules:` block adds to or subtracts from the resulting default set. `base` is the tier a
+  project may not decline. Selection is honored by both readers of `.minsky/rules/` — the
+  compile pipeline and the context assembler — so a deselected rule reaches the agent
+  through neither (mt#573).
 
 **Status**: Built.
 

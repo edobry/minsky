@@ -7,7 +7,7 @@ import { createRealFs } from "./interfaces/real-fs";
 import { getMinskyConfigContentYaml } from "./init/config-content";
 import { mergeProjectConfigYaml, UnmergeableConfigError } from "./init/config-merge";
 import { describeScaffoldResult, scaffoldRulesFromCorpus } from "./init/rule-corpus-scaffold";
-import { RULE_FORMAT_OUTPUT_DIR } from "./rules/types";
+import { RULE_FORMAT_OUTPUT_DIR, RULE_SOURCE_DIR } from "./rules/types";
 import { runMinskyCompile } from "./compile/compile";
 import { claudeMdIsOurs } from "./compile/monolithic-ownership";
 /**
@@ -218,23 +218,19 @@ export async function initializeProject(
       throw new Error(`Backend "${backend}" is not supported.`);
   }
 
-  // Create rule file directory.
+  // Create the rule SOURCE directory (mt#573 SC3).
   //
-  // mt#4714: the format→directory mapping is `RULE_FORMAT_OUTPUT_DIR` — the SAME
-  // constant `RuleTemplateService.getOutputDir` uses, so init can no longer
-  // disagree with it. This was a two-way ternary (`=== "cursor" ? .cursor/rules
-  // : .ai/rules`), which sent `ruleFormat: "minsky"` to `.ai/rules` — the
-  // `generic` location — while every other consumer resolved it to
-  // `.minsky/rules`.
+  // One directory for every `ruleFormat`, always `.minsky/rules` — see
+  // `RULE_SOURCE_DIR` for why. This used to resolve through
+  // `RULE_FORMAT_OUTPUT_DIR[ruleFormat]` (mt#4714), which sent a `cursor` or
+  // unsignalled `init` straight into `.cursor/rules/`. That directory is a
+  // compile OUTPUT, so those projects had no source layer for selection to
+  // filter and their rule set was fixed at `init` forever.
   //
-  // The resolved path is still passed to `generateRulesWithTemplateSystem` as an
-  // explicit `outputDir` rather than letting the service resolve it. That is
-  // deliberate and NOT the override the bug was about: the mapping is now shared,
-  // so the explicit value cannot diverge. Dropping the argument entirely would
-  // also require reshaping that function, which derives the service's
-  // `workspacePath` from this very path (`path.dirname` twice) — mt#4715 reworks
-  // this call path and is the right place for it.
-  const rulesDirPath = path.join(repoPath, ...RULE_FORMAT_OUTPUT_DIR[ruleFormat].split("/"));
+  // `RULE_FORMAT_OUTPUT_DIR` is not retired — it still says where each format's
+  // compiled output goes, and the target selection below reads it. What is
+  // retired is its use as a SOURCE location.
+  const rulesDirPath = path.join(repoPath, ...RULE_SOURCE_DIR.split("/"));
   await createDirectoryIfNotExists(rulesDirPath, fileSystem);
 
   // mt#4974 SC3/SC5: scaffold from the package-resident product corpus.
@@ -286,12 +282,16 @@ export async function initializeProject(
   // delivery mechanism here, so emitting more targets would write files nothing
   // reads — the very defect this step removes.
   //
-  // Gated on the FORMAT as well as the harness (PR #3431 R1). The compile
-  // pipeline reads `.minsky/rules` (ADR-016), which is where sources land only
-  // under `ruleFormat: "minsky"`. An explicit `--rule-format cursor` under
-  // Claude Code puts them in `.cursor/rules` instead — compiling then reads an
-  // empty directory and produces nothing, so the project would end up with
-  // neither the Cursor files it asked for nor the Claude ones it cannot use.
+  // The FORMAT gate this block used to carry is RETIRED (mt#573 SC3). It read
+  // `const sourcesAreWhereCompileReads = ruleFormat === "minsky"` and warned
+  // that `--rule-format cursor` under Claude Code produced no `CLAUDE.md`,
+  // because sources landed in `.cursor/rules` where the compile pipeline does
+  // not look. Sources now always land in `.minsky/rules` (`RULE_SOURCE_DIR`),
+  // so the condition the warning described can no longer arise and the gate is
+  // vacuously true. Compiling for Cursor is a separate step below rather than
+  // an alternative to this one: the two harnesses are not exclusive, and a
+  // project can legitimately want both.
+  //
   // Channel note (mt#4770). Every operator-facing message in this block uses
   // `log.cliWarn`, never `log.warn`. `log.warn` routes through
   // `emitDiagnostic` (`packages/shared/src/logger.ts`), which DISCARDS in HUMAN
@@ -300,15 +300,7 @@ export async function initializeProject(
   // the two warnings here were invisible to the operator they addressed. This
   // is the init surface only; the compile pipeline's own `SkipLogFn` default
   // still uses `log.warn` and stays mt#3119's to fix.
-  const sourcesAreWhereCompileReads = ruleFormat === "minsky";
-  if (initClient === "claude-code" && !sourcesAreWhereCompileReads) {
-    warn(
-      `minsky init: --rule-format "${ruleFormat}" writes rules to ` +
-        `${RULE_FORMAT_OUTPUT_DIR[ruleFormat]}, which Claude Code does not read, so no ` +
-        `CLAUDE.md was generated. Re-run with --rule-format minsky for the Claude Code layout.`
-    );
-  }
-  if (initClient === "claude-code" && sourcesAreWhereCompileReads) {
+  if (initClient === "claude-code") {
     // mt#4770: scaffolding the sources and compiling them is STILL not the
     // whole job — a rule can compile cleanly into NEITHER Claude Code target
     // and leave no trace of having done so, which is how a fresh project ends
@@ -400,6 +392,51 @@ export async function initializeProject(
         );
       }
     }
+  }
+
+  // mt#573 SC3, second half: compile `.cursor/rules/` FROM the sources.
+  //
+  // Fires for an explicit `--rule-format cursor` and for a Cursor harness,
+  // which is also what a project with no harness signal resolves to
+  // (`resolveInitClient` falls back to `cursor`). Before this, those projects
+  // got their sources written straight into `.cursor/rules/` and nothing
+  // upstream of it; now they get sources in `.minsky/rules/` and compiled
+  // output here, which is what makes `rules disable` able to REMOVE a file
+  // (SC4's banner-gated orphan removal) instead of leaving it forever.
+  //
+  // The two harness blocks are independent, not exclusive: a project can be
+  // detected as Claude Code and still ask for `--rule-format cursor`, and it
+  // should get both. That is the whole point of one source directory.
+  if (ruleFormat === "cursor" || initClient === "cursor") {
+    try {
+      await compileForHarness("cursor-rules-ts", repoPath);
+    } catch (error) {
+      // Same posture as the claude-code block above (mt#4715 SC5): `init`
+      // succeeds, because sources on disk are recoverable with `minsky
+      // compile`, but the operator hears about it.
+      warn(
+        `minsky init: could not compile "cursor-rules-ts". The rule sources in ` +
+          `${RULE_SOURCE_DIR} were written; run \`minsky compile\` to produce ` +
+          `${RULE_FORMAT_OUTPUT_DIR.cursor}. Cause: ` +
+          `${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  // `generic` is the one format that loses a directory to SC3, so it is said
+  // out loud rather than left to be discovered. There is no compile target that
+  // writes `.ai/rules`, so a generic project's rules now live only in
+  // `${RULE_SOURCE_DIR}` — which `RuleService` reads first, and which is where
+  // `minsky compile` would read them from if a target for that format ever
+  // ships. Silence here would be the mt#4735 shape: a directory the operator
+  // expects, quietly not written.
+  if (ruleFormat === "generic") {
+    warn(
+      `minsky init: --rule-format "generic" no longer writes rule sources to ` +
+        `${RULE_FORMAT_OUTPUT_DIR.generic} (mt#573). They were written to ${RULE_SOURCE_DIR}, ` +
+        `the one source directory for every format, and no compile target produces ` +
+        `${RULE_FORMAT_OUTPUT_DIR.generic} today. \`minsky rules list\` still finds them.`
+    );
   }
 
   // Create main Minsky configuration file with user's backend choice

@@ -18,7 +18,7 @@
  * where the legacy serializer left it unterminated. See `buildRuleMdc`.
  */
 
-import { join } from "path";
+import { basename, join } from "path";
 import realFs from "fs/promises";
 import * as jsYaml from "js-yaml";
 import { ruleDefinitionSchema } from "../../definitions/schemas";
@@ -144,6 +144,65 @@ function extractRuleDefinition(
   return { rule: parsed.data as RuleDefinition };
 }
 
+/**
+ * Delete `.cursor/rules/*.mdc` outputs this run did NOT write (mt#573 SC4).
+ *
+ * Without this, deselecting a rule leaves its `.mdc` sitting in
+ * `.cursor/rules/` forever: Cursor goes on reading a rule the project turned
+ * off, and the only way to remove it is by hand. `claude-rules.ts` has had the
+ * same removal since mt#2992 — this is the missing half, and it is why SC2's
+ * filter alone would not have made deselection work under Cursor.
+ *
+ * **Banner-gated, and that is load-bearing rather than cautious.** This target
+ * declares `sharedOutputDirectory: true` precisely because `.cursor/rules/` may
+ * also hold hand-authored `.mdc` files with no `.minsky/rules/` source — Cursor
+ * documents `/create-rule` writing straight into that directory
+ * (`cursor.com/docs/context/rules`, read 2026-09-05), so those files are
+ * expected, not anomalous. A basename-set orphan check would delete them.
+ * Only a file carrying `GENERATED_BANNER` — which this target itself emits on
+ * line 2 of every file it writes — is a candidate.
+ *
+ * A file we cannot READ is left alone rather than deleted: an unreadable file
+ * is one we cannot prove is ours, and the failure directions are not
+ * symmetrical. Leaving a stale output costs a stale rule; deleting a user's
+ * file costs their work.
+ */
+async function removeOrphanedRuleOutputs(
+  workspacePath: string,
+  fs: MinskyCompileFsDeps,
+  filesWritten: string[]
+): Promise<string[]> {
+  const outputDir = ruleOutputDir(workspacePath);
+  const expected = new Set(filesWritten.map((p) => basename(p)));
+  const removed: string[] = [];
+
+  let entries: string[];
+  try {
+    entries = await fs.readdir(outputDir);
+  } catch {
+    // intentional-swallow: the directory does not exist yet (a fresh compile
+    // with no Cursor outputs), so there is nothing stale in it.
+    return removed;
+  }
+
+  for (const entry of entries) {
+    if (!entry.endsWith(".mdc")) continue;
+    if (expected.has(entry)) continue;
+    const entryPath = join(outputDir, entry);
+    let existing: string;
+    try {
+      existing = await fs.readFile(entryPath, "utf-8");
+    } catch {
+      continue; // Unreadable — skip rather than risk deleting blind.
+    }
+    if (!existing.includes(GENERATED_BANNER)) continue;
+    await fs.unlink?.(entryPath);
+    removed.push(entryPath);
+  }
+
+  return removed;
+}
+
 /** Build the cursor-rules-ts target, injecting a dynamic-import function for tests. */
 function makeCursorRulesTsTarget(
   dynamicImport: DynamicImportFn = realDynamicImport,
@@ -155,6 +214,14 @@ function makeCursorRulesTsTarget(
     // `.cursor/rules/` may also contain hand-authored `.mdc` files that have no
     // `.minsky/rules/` source; skip orphan detection so `--check` does not flag
     // those as stale. (Every source-backed rule IS emitted by this target.)
+    //
+    // mt#573 SC4 added banner-gated stale-file REMOVAL to `compile()`, which is
+    // a different question from this flag and does not contradict it — the same
+    // split `claude-rules.ts` has carried since mt#2992, which also declares
+    // `sharedOutputDirectory: true`. This flag governs what `--check` may call
+    // STALE (nothing it did not write); the removal governs what `compile` may
+    // DELETE (only a file carrying our own banner). A hand-authored file is
+    // outside both.
     sharedOutputDirectory: true,
 
     defaultOutputPath(workspacePath: string): string {
@@ -283,6 +350,11 @@ function makeCursorRulesTsTarget(
 
         await emit(dirName, rule);
       }
+
+      // Stale-file removal (SC4). Not reported on the result, matching
+      // `claude-rules.ts` — the shared `MinskyCompileResult` has no field for
+      // it, and widening that contract for one target is not this task's.
+      if (!options.dryRun) await removeOrphanedRuleOutputs(workspacePath, fs, filesWritten);
 
       return {
         target: "cursor-rules-ts",

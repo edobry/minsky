@@ -97,6 +97,32 @@ export const RULE_FORMAT_OUTPUT_DIR: Record<RuleFormat, string> = {
   minsky: ".minsky/rules",
 };
 
+/**
+ * The ONE directory rule sources are authored and scaffolded into, for every
+ * `RuleFormat` (mt#573 SC3).
+ *
+ * `RULE_FORMAT_OUTPUT_DIR` above still maps a format to where its COMPILED
+ * output goes, and `RuleService` still READS all three directories so a project
+ * that predates this change keeps working. What changed is that `init` no
+ * longer WRITES sources anywhere but here.
+ *
+ * **Why this had to move.** Under `--rule-format cursor` — which is also what a
+ * project with no harness signal gets, since `resolveInitClient` falls back to
+ * `cursor` — `init` wrote its sources straight into `.cursor/rules/`. That
+ * directory is a compile OUTPUT, so there was nothing upstream of it for a
+ * filter to read: a Cursor project's rule selection was a one-shot decision
+ * taken at `init` and never revisable, because deselecting a rule has nothing
+ * to deselect it FROM. This is the expert-review finding folded into RFC
+ * `3ce937f0` as Phase 2, and it is why SC2's filter and SC3's directory move
+ * are one task — landing the filter alone would ship a selection mechanism that
+ * silently does nothing for exactly the projects that fall back to `cursor`.
+ *
+ * `.minsky/rules` is also what the compile pipeline reads (ADR-016), so this
+ * completes that ADR's `.minsky/`-canonical direction for the one format still
+ * outside it.
+ */
+export const RULE_SOURCE_DIR = ".minsky/rules";
+
 export interface RuleOptions {
   format?: RuleFormat;
   tag?: string;

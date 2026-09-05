@@ -98,6 +98,25 @@ export async function discoverRuleSources(
   workspacePath: string,
   fs: MinskyCompileFsDeps
 ): Promise<RuleSource[]> {
+  const sources = await discoverRuleSourcesUnfiltered(workspacePath, fs);
+  return (await applyRuleSelection(sources, workspacePath, fs)).sources;
+}
+
+/**
+ * Discovery WITHOUT the selection filter (mt#573 SC5).
+ *
+ * `discoverRuleSources` above is what every compile target calls and is
+ * correctly filtered. This is for the one caller that needs to know what the
+ * filter DID: `compile`'s selection report has to resolve the selection against
+ * the project's full corpus, and running it against an already-filtered set
+ * would compare the selection to its own output — every deselected rule would
+ * look like an id the project does not have, and the report would name them all
+ * as errors.
+ */
+export async function discoverRuleSourcesUnfiltered(
+  workspacePath: string,
+  fs: MinskyCompileFsDeps
+): Promise<RuleSource[]> {
   const sourceDir = ruleSourceDir(workspacePath);
   let entries: string[];
   try {
@@ -138,7 +157,7 @@ export async function discoverRuleSources(
       sources.push({ kind: "mdc", name, path: ruleMdcPath(workspacePath, name) });
     }
   }
-  return (await applyRuleSelection(sources, workspacePath, fs)).sources;
+  return sources;
 }
 
 /**
