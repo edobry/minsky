@@ -238,10 +238,32 @@ rather than recording "cannot classify" from the empty array — the
 say `classifiable`. See §"Cannot classify" is a claim about the corpus.
 
 **An `all-suppressed` log is the exception: it DOES carry its records (mt#4049).**
-That gate is `atCountThreshold || allSuppressed`, because routing a log for
+That gate is `atCountThreshold || allWithheld`, because routing a log for
 review and then handing the reviewer an empty array would be a warning with no
 evidence attached. So read `newRecords` directly for this leg rather than
 reaching for the raw JSONL.
+
+**`allWithheld` generalizes `allSuppressed` (mt#4970), and the two are equal for
+every log without a log-only family.** It fires when the injected count is 0 and
+the volume the operator never saw — SUPPRESSED plus LOG-ONLY-family — clears the
+same bar. Both columns mean "the record matched and nobody saw it", which is what
+keeps "is this gate too broad?" answerable. `evaluatedOnlySinceLastReview` is
+deliberately outside the union: those records never matched, so there is nothing
+to classify and their absence from review is correct.
+
+**Bound the FP rate by `injectedFiresSinceLastReview`, and read
+`logOnlyFamilySinceLastReview` beside it (mt#4970).** A per-FAMILY log-only arm
+inside a LIVE detector produces records byte-identical to injecting ones — the
+gating lives in the hook's own family set, not in the record — so before mt#4970
+`untaken-action`'s 2026-09-04 window reported **120 injected where 23 reached the
+agent**, and any FP rate computed over that denominator was 5x off. The two
+counts now sit side by side: divide by the injected one, and treat the log-only
+one as what it is — the fire volume a decision to promote that arm would rest on,
+not warnings anyone received.
+
+Note this is the per-FAMILY case. The per-DETECTOR sibling — a whole detector
+quieted via `injection_enabled` — is still unsurfaced and owned by mt#4318; a
+log can be affected by one, the other, or both.
 
 ### Step 1b — Coverage-receipt check (mt#2554)
 

@@ -1124,10 +1124,44 @@ export const STRANDED_TASK_FAMILY = "stranded-task-state";
  * A family is added here by a DELIBERATE edit, so promoting an arm to injecting
  * is a one-line removal that shows up in review rather than an emergent effect.
  */
-const LOG_ONLY_FAMILIES: ReadonlySet<string> = new Set([
+export const LOG_ONLY_FAMILIES: ReadonlySet<string> = new Set([
   STRANDED_TASK_FAMILY,
   PRESENT_PROGRESSIVE_FAMILY,
 ]);
+
+/**
+ * Project matches into the calibration record, DECLARING which of them could
+ * never have injected (mt#4970).
+ *
+ * The sweep's `injectedFiresSinceLastReview` excludes what the operator never
+ * saw, and it derived that from `suppressionReasons` alone. A log-only family
+ * is the other way a fire fails to reach the operator, and it leaves no
+ * suppression reason — nothing suppressed it; it was never eligible. So the
+ * sweep counted 120 injected fires in a window where 23 reached the agent.
+ *
+ * The fact is declared HERE, by the writer, rather than inferred there. A
+ * per-detector family table in the sweep is the drift hazard mt#4465 recorded
+ * for `judgedText`: two places would have to agree about
+ * {@link LOG_ONLY_FAMILIES} forever, and only one of them is edited when an arm
+ * flips. Marking the match means promoting an arm to injecting stays the
+ * one-line removal from that set which this module already documents.
+ *
+ * `logOnly` is written ONLY when true — never `false`. Absent means "this
+ * writer does not declare the fact", which the sweep must treat as the status
+ * quo (counted as injected), exactly as `deferralOverlap`'s docblock in
+ * `calibration-sweep.ts` requires for the same reason: a projection that
+ * defaulted the field would manufacture a measurement for every record written
+ * before this change.
+ */
+function toCalibrationMatches(
+  matches: readonly { family: string; matchedPhrase: string }[]
+): Array<{ family: string; phrase: string; logOnly?: true }> {
+  return matches.map((m) => ({
+    family: m.family,
+    phrase: m.matchedPhrase,
+    ...(LOG_ONLY_FAMILIES.has(m.family) ? { logOnly: true as const } : {}),
+  }));
+}
 
 /**
  * Calls whose RESULT carries a task's current status.
@@ -1511,7 +1545,7 @@ export function run(
         timestamp: new Date().toISOString(),
         session_id: input.session_id,
         stop_hook_active: input.stop_hook_active === true,
-        matches: newMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
+        matches: toCalibrationMatches(newMatches),
         final_message_tail: finalMessage.slice(-TAIL_WINDOW_CHARS),
         deferralOverlap: detectDeferralPhrases(finalMessage).length > 0,
         suppressionReasons: [reason],
@@ -1644,7 +1678,7 @@ export function run(
       timestamp: new Date().toISOString(),
       session_id: input.session_id,
       stop_hook_active: input.stop_hook_active === true,
-      matches: newMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
+      matches: toCalibrationMatches(newMatches),
       final_message_tail: finalMessage.slice(-TAIL_WINDOW_CHARS),
       // Retained (mt#3620) so the overlap rate stays measurable across the
       // direction change — but it no longer suppresses, so it is reported

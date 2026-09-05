@@ -123,6 +123,17 @@ function makeResult(
       ((overrides.injectedFiresSinceLastReview ??
         merged.firesSinceLastReview - merged.suppressedSinceLastReview) === 0 &&
         merged.suppressedSinceLastReview >= FIRES_THRESHOLD),
+    // mt#4970: defaults to 0 — a fixture that names no log-only family has none.
+    logOnlyFamilySinceLastReview: overrides.logOnlyFamilySinceLastReview ?? 0,
+    // mt#4970: DERIVED, same reasoning as the three above. With the 0 default it
+    // reduces to `allSuppressed` for every existing fixture, so no prior case
+    // changes behavior.
+    allWithheld:
+      overrides.allWithheld ??
+      ((overrides.injectedFiresSinceLastReview ??
+        merged.firesSinceLastReview - merged.suppressedSinceLastReview) === 0 &&
+        merged.suppressedSinceLastReview + (overrides.logOnlyFamilySinceLastReview ?? 0) >=
+          FIRES_THRESHOLD),
   };
 }
 
@@ -217,6 +228,7 @@ describe("shouldReWarn", () => {
     firesSinceLastReview: 43,
     injectedFiresSinceLastReview: 43,
     suppressedSinceLastReview: 0,
+    logOnlyFamilySinceLastReview: 0,
     totalFires: 43,
     distinctPhrases: 31,
     reason: "past-threshold",
@@ -271,6 +283,7 @@ describe("shouldReWarn — policy-coverage kind (mt#2659)", () => {
     firesSinceLastReview: 1457,
     injectedFiresSinceLastReview: 1457,
     suppressedSinceLastReview: 0,
+    logOnlyFamilySinceLastReview: 0,
     totalFires: 1457,
     distinctPhrases: 5,
     reason: "past-threshold",
@@ -342,6 +355,7 @@ describe("suppression-aware review-due legs (mt#3197, PR #2300 R1)", () => {
       makeResult(entry, {
         firesSinceLastReview: 12,
         suppressedSinceLastReview: 11,
+        logOnlyFamilySinceLastReview: 0,
         totalFires: 40,
       }),
     ];
@@ -394,6 +408,7 @@ describe("all-suppressed review-due leg (mt#4049)", () => {
       makeResult(entry, {
         firesSinceLastReview: 12,
         suppressedSinceLastReview: 12,
+        logOnlyFamilySinceLastReview: 0,
         totalFires: 12,
       }),
     ];
@@ -415,6 +430,7 @@ describe("all-suppressed review-due leg (mt#4049)", () => {
       makeResult(entry, {
         firesSinceLastReview: 12,
         suppressedSinceLastReview: 12,
+        logOnlyFamilySinceLastReview: 0,
         totalFires: 40,
       }),
     ];
@@ -436,6 +452,7 @@ describe("all-suppressed review-due leg (mt#4049)", () => {
       makeResult(entry, {
         firesSinceLastReview: 12,
         suppressedSinceLastReview: 11,
+        logOnlyFamilySinceLastReview: 0,
         totalFires: 12,
       }),
     ];
@@ -489,6 +506,7 @@ describe("all-suppressed review-due leg (mt#4049)", () => {
       makeResult(entry, {
         firesSinceLastReview: 12,
         suppressedSinceLastReview: 12,
+        logOnlyFamilySinceLastReview: 0,
         totalFires: 12,
         distinctPhrases: 1,
       }),
@@ -503,6 +521,7 @@ describe("all-suppressed review-due leg (mt#4049)", () => {
       makeResult(entry, {
         firesSinceLastReview: 12,
         suppressedSinceLastReview: 12,
+        logOnlyFamilySinceLastReview: 0,
         totalFires: 12,
         watermarkCount: 99,
       }),
@@ -522,6 +541,7 @@ describe("formatCadenceWarning — the all-suppressed line (mt#4049)", () => {
         firesSinceLastReview: 15,
         injectedFiresSinceLastReview: 0,
         suppressedSinceLastReview: 13,
+        logOnlyFamilySinceLastReview: 0,
         totalFires: 15,
         distinctPhrases: 13,
         reason: "all-suppressed",
@@ -553,6 +573,7 @@ describe("formatCadenceWarning", () => {
         // mt#3197: no suppression outcome recorded -> every fire is injected.
         injectedFiresSinceLastReview: 43,
         suppressedSinceLastReview: 0,
+        logOnlyFamilySinceLastReview: 0,
         totalFires: 43,
         distinctPhrases: 31,
         reason: "past-threshold",
@@ -565,6 +586,7 @@ describe("formatCadenceWarning", () => {
         firesSinceLastReview: 8,
         injectedFiresSinceLastReview: 8,
         suppressedSinceLastReview: 0,
+        logOnlyFamilySinceLastReview: 0,
         totalFires: 20,
         distinctPhrases: 3,
         reason: "time-stale",
@@ -599,6 +621,7 @@ describe("formatCadenceWarning", () => {
         firesSinceLastReview: 0,
         injectedFiresSinceLastReview: 0,
         suppressedSinceLastReview: 0,
+        logOnlyFamilySinceLastReview: 0,
         totalFires: 121,
         distinctPhrases: 0,
         reason: "watermark-stranded",
@@ -628,6 +651,7 @@ describe("formatCadenceWarning", () => {
         firesSinceLastReview: 1,
         injectedFiresSinceLastReview: 1,
         suppressedSinceLastReview: 0,
+        logOnlyFamilySinceLastReview: 0,
         totalFires: 1,
         distinctPhrases: 1,
         reason: "never-reviewed",
@@ -665,6 +689,7 @@ describe("formatCadenceWarning", () => {
         firesSinceLastReview: 999,
         injectedFiresSinceLastReview: 999,
         suppressedSinceLastReview: 999,
+        logOnlyFamilySinceLastReview: 0,
         totalFires: 9999,
         distinctPhrases: 999,
         reason: "never-fired",
@@ -794,6 +819,7 @@ describe("selectPendingAskLogs", () => {
     firesSinceLastReview: 20,
     injectedFiresSinceLastReview: 20,
     suppressedSinceLastReview: 0,
+    logOnlyFamilySinceLastReview: 0,
     totalFires: 1477,
     distinctPhrases: 5,
     reason: "past-threshold",
@@ -854,6 +880,7 @@ describe("formatPendingAskLines", () => {
     firesSinceLastReview: 20,
     injectedFiresSinceLastReview: 20,
     suppressedSinceLastReview: 0,
+    logOnlyFamilySinceLastReview: 0,
     totalFires: 1477,
     distinctPhrases: 5,
     reason: "past-threshold",
