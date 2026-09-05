@@ -30,8 +30,8 @@ say so in one line and move on.
 2. **Present it to the user in one pass, not one question per rule.** Give each rule its id and
    its description in a single message, and ask which — if any — they want to turn off. Use
    whatever question affordance your harness has. A user who says "keep them all" is finished.
-3. **Record each choice as they make it:** `minsky rules disable <id>` to decline,
-   `minsky rules enable <id>` to re-enable one they declined earlier.
+3. **Record each choice as they make it:** `minsky rules disable --id <id>` to decline,
+   `minsky rules enable --id <id>` to re-enable one they declined earlier.
 4. **Recompile once, at the end:** `minsky compile`. This is what actually removes a declined
    rule from the files your harness reads. Skipping it leaves the config saying one thing and
    the harness loading another.
@@ -49,7 +49,7 @@ say so in one line and move on.
 
 ## Reversal
 
-Every choice here is reversible at any time: `minsky rules enable <id>` then `minsky compile`
+Every choice here is reversible at any time: `minsky rules enable --id <id>` then `minsky compile`
 restores a rule the user declined, and `minsky rules config` shows what is currently selected.
 Say so when you ask — a user deciding under the impression that a choice is permanent will
 decline nothing.

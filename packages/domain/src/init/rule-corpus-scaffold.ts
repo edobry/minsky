@@ -314,14 +314,14 @@ export function describeScaffoldResult(result: ScaffoldResult): {
     info.push(
       `minsky init: installed ${result.declinable.length} optional rule(s) you can turn off — ` +
         `${result.declinable.map((r) => r.id).join(", ")}. Ask your agent to walk you through ` +
-        `them, or run \`minsky rules disable <id>\` for any you do not want, then ` +
+        `them, or run \`minsky rules disable --id <id>\` for any you do not want, then ` +
         `\`minsky compile\`. They stay until you remove them.`
     );
   }
   if (result.withheld.length > 0) {
     info.push(
       `minsky init: ${result.withheld.length} rule(s) ship with Minsky and were NOT installed — ` +
-        `${result.withheld.join(", ")}. Opt in with \`minsky rules enable <id>\`.`
+        `${result.withheld.join(", ")}. Opt in with \`minsky rules enable --id <id>\`.`
     );
   }
   for (const outcome of result.outcomes) {

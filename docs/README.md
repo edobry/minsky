@@ -109,7 +109,7 @@ live in `src/utils/test-utils/`. Architecture-level docs:
 Declining is per-rule and reversible at any time:
 
 ```bash
-minsky rules disable <id>   # or: minsky rules enable <id>
+minsky rules disable --id <id>   # or: minsky rules enable --id <id>
 minsky compile              # regenerates .claude/rules, .cursor/rules, AGENTS.md
 ```
 

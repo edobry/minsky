@@ -132,7 +132,7 @@ export function formatInitMessage(declinable: readonly DeclinableRule[]): string
     `${declinable.length} optional rule(s) were installed and can be turned off:`,
     ...declinable.map((rule) => `  - ${rule.id}: ${rule.description}`),
     "",
-    "Decline any with `minsky rules disable <id>` then `minsky compile`.",
+    "Decline any with `minsky rules disable --id <id>` then `minsky compile`.",
     "They stay until you remove them.",
   ].join("\n");
 }

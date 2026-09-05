@@ -37,7 +37,7 @@ describe("mt#4872 SC2 — the declinable set reaches the operator", () => {
   it("states how to decline, and that not declining is a decision", () => {
     const message = formatInitMessage(DECLINABLE);
 
-    expect(message).toContain("minsky rules disable <id>");
+    expect(message).toContain("minsky rules disable --id <id>");
     expect(message).toContain("minsky compile");
     // SC6: the cost the principal accepted with "propose then decline"
     // (ask#11764) — a project nobody asks keeps them.
