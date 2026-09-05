@@ -7,7 +7,10 @@
  * outcome the domain can report without emitting a false sentence.
  */
 
+/* eslint-disable custom/no-real-fs-in-tests -- the upstream-coupling case below is ABOUT the real `local-http-apply.ts` source: a fixture would assert this file's own copy of the phrase against itself, which is the circularity that case exists to break. */
 import { describe, it, expect } from "bun:test";
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
 
 import { ensureLocalDaemonForSetup } from "./ensure-local-daemon-for-setup";
 
@@ -78,6 +81,28 @@ describe("mt#4707 — translating the daemon-ensuring result", () => {
     // The useful half survives — the operator still learns which URL and why.
     expect(outcome.reason).toContain("http://127.0.0.1:48765/health");
     expect(outcome.reason).toContain("reports unhealthy");
+  });
+
+  it("PR #3658 R3 — the stripped phrase is still the one upstream actually emits", async () => {
+    // Without this, the guard verifies itself in a circle: every case above
+    // feeds `stripWriteClaim` a message THIS FILE wrote, so it proves the
+    // stripper works on my string, not that my string is upstream's. If
+    // `ensureDaemonRunning` reworded its refusals, all of them would keep
+    // passing while the contradiction quietly returned — mem#704's shape, in a
+    // test rather than a probe.
+    //
+    // The docblock on `stripWriteClaim` claims a reworded upstream message
+    // "fails a test rather than silently reintroducing the contradiction."
+    // This is the test that makes that sentence true.
+    // `String(...)`: the `readFileSync` overload widens to `string | Buffer`
+    // under this tsconfig, and bun test does not typecheck — so the untyped
+    // version ran green locally and failed `validate_typecheck`.
+    const upstream = String(
+      readFileSync(fileURLToPath(new URL("./local-http-apply.ts", import.meta.url)), "utf-8")
+    );
+
+    const occurrences = upstream.split("Nothing has been written.").length - 1;
+    expect(occurrences).toBeGreaterThan(0);
   });
 
   it("leaves a message that carries no write claim untouched", async () => {
