@@ -689,6 +689,15 @@ async function main(argv: string[]): Promise<number> {
           "fable",
           "--permission-mode",
           "bypassPermissions",
+          // The tool-by-tool trace, not just the last message. `-p`'s default
+          // output format returns ONLY the final turn, which makes every
+          // friction point a matter of the agent's own account of what it did
+          // — `strong-evidence` about its own behaviour rather than a record of
+          // it. The 2026-09-05 run was captured that way and its classification
+          // carries that bound; this is what removes it for the next one.
+          "--output-format",
+          "stream-json",
+          "--verbose",
         ],
         { cwd: workspace, env, encoding: "utf8", timeout: 1_800_000 }
       );
