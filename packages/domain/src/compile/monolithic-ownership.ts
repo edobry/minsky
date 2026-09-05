@@ -29,6 +29,7 @@
  */
 
 import realFs from "fs/promises";
+import { join } from "path";
 import type { MinskyCompileFsDeps } from "./types";
 import { GENERATION_BANNER_PATTERNS } from "../rules/compile/banner-constants";
 
@@ -134,6 +135,32 @@ export async function isForeignMonolith(
 }
 
 /**
+ * Whether this workspace has a `CLAUDE.md` that Minsky itself generated (mt#5003).
+ *
+ * The question behind it is "does the always-apply set already have a home?", and
+ * it has exactly three answers, of which only one is yes:
+ *
+ * - **generated** — ours. `claude.md` carries the always-apply rules, as it always has.
+ * - **absent** — a fresh project. We do NOT create one; the rules go to `.claude/rules/`
+ *   as `paths`-less files, which Claude Code loads at launch at the same priority
+ *   (ask#11711, decided 2026-09-05).
+ * - **foreign / unreadable** — the user's. Same as absent for this purpose, and mt#4986
+ *   already refuses to write it.
+ *
+ * This is the single predicate that keeps the two channels MUTUALLY EXCLUSIVE. Without
+ * it, widening `isEligibleForClaudeRules` to admit always-apply rules would emit this
+ * repository's own 138K always-apply corpus into `.claude/rules/` *as well as*
+ * `CLAUDE.md`, roughly doubling its always-loaded context.
+ */
+export async function claudeMdIsOurs(
+  workspacePath: string,
+  fsDeps?: MinskyCompileFsDeps
+): Promise<boolean> {
+  const claudeMdPath = join(workspacePath, MONOLITHIC_TARGET_OUTPUTS["claude.md"]);
+  return (await readMonolithicOwnership(claudeMdPath, fsDeps)) === "generated";
+}
+
+/**
  * The skip entry for a monolithic output we must not write, or `undefined` when
  * writing it is fine (it is ours, or it is not there yet).
  *
@@ -178,10 +205,21 @@ export function foreignOutputSkipReason(
       ? `Fix its permissions and re-run; if it is yours, no action is needed.`
       : `To hand the file over to Minsky instead, move it aside and re-run.`;
 
+  // Where the rules ACTUALLY went, which differs by file and became true only
+  // with mt#5003. Before it, both files shared one sentence saying nothing loads
+  // the rules automatically — accurate then, and false for CLAUDE.md the moment
+  // `.claude/rules/` started carrying the always-apply set. A reassuring truth
+  // and an alarming falsehood read identically to someone who does not check.
+  const destination = outputPath.endsWith(MONOLITHIC_TARGET_OUTPUTS["claude.md"])
+    ? `Minsky's rules still reach your agent: the always-apply ones are written to ` +
+      `.claude/rules/ as paths-less files, which Claude Code loads at launch at the same ` +
+      `priority this file would have had. Your instructions and Minsky's coexist.`
+    : `Minsky's rule sources are in .minsky/rules/; this harness has no channel that loads ` +
+      `them automatically while this file is yours, so an agent has to ask for one by name ` +
+      `with \`rules_get <name>\`.`;
+
   return (
     `${outputPath} was left untouched — ${cause}, so it is treated as yours and is never ` +
-    `overwritten. Minsky's rule sources are in .minsky/rules/; nothing loads them into your ` +
-    `agent automatically while this file is yours, so an agent has to ask for one by name ` +
-    `with \`rules_get <name>\`. ${remedy}`
+    `overwritten. ${destination} ${remedy}`
   );
 }

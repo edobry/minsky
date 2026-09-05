@@ -16,9 +16,10 @@ import type { SizeBudget } from "./size-budget";
 import type { MemoryLoadingMode } from "../configuration/schemas/memory";
 import { unknownCompileTargetMessage } from "../rules/compile/target-error-hint";
 import {
-  isForeignMonolith,
+  readMonolithicOwnership,
   monolithicSkipIfNotOurs,
   monolithicOutputName,
+  type MonolithicOwnership,
 } from "./monolithic-ownership";
 
 /**
@@ -32,7 +33,13 @@ import {
  */
 export interface MinskyCompileGatedTarget {
   target: string;
-  kind: "harness" | "foreign";
+  /**
+   * Why the target was skipped. Three kinds, three different remedies:
+   * `"harness"` — opt in with `--target`; `"foreign"` — the user's file, move it
+   * aside first; `"absent"` (mt#5003) — intended, the content is delivered
+   * elsewhere and nothing is wrong.
+   */
+  kind: "harness" | "foreign" | "absent";
   reason: string;
 }
 
@@ -101,9 +108,9 @@ export function minskyCompileTargetsFromPresence(present: {
   existingOutputs?: { cursorRules: boolean; agentsMd: boolean };
   /**
    * Whether each monolithic output on disk is the user's own file (mt#4986
-   * SC3). See {@link minskyCompileTargetsWithGateReport} for the full rationale.
+   * SC3, mt#5003). See {@link minskyCompileTargetsWithGateReport} for the rationale.
    */
-  foreignOutputs?: { claudeMd: boolean; agentsMd: boolean };
+  ownership?: { claudeMd: MonolithicOwnership; agentsMd: MonolithicOwnership };
 }): string[] {
   // mt#4866 SC3. `cursor-rules-ts` and `agents.md` were selected on the presence
   // of `.minsky/rules/` alone, regardless of harness — so a bare `minsky compile`
@@ -149,26 +156,28 @@ export function minskyCompileTargetsWithGateReport(present: {
   harness?: string;
   existingOutputs?: { cursorRules: boolean; agentsMd: boolean };
   /**
-   * Whether each monolithic output on disk is the USER's file rather than ours
-   * — present, and not carrying the generation banner (mt#4986 SC3).
+   * WHO OWNS each monolithic output on disk (mt#4986 SC3, extended mt#5003).
    *
-   * This is the narrowing SC3 asks for, expressed as its own input rather than
-   * by redefining `existingOutputs.agentsMd`. Both readings gate `agents.md`
-   * out for a foreign `AGENTS.md`; a separate field ALSO covers the two cases
-   * `existingOutputs` cannot reach, because that field only ever unlocks a
-   * harness escape: a foreign `AGENTS.md` under a NON-claude-code harness
-   * (where the escape is never consulted), and `CLAUDE.md`, which has no
-   * presence gate at all — it is pushed unconditionally below, so there was
-   * nothing to narrow. `CLAUDE.md` is the file this task is named for, and a
-   * literal reading of "narrow the presence rule" would not have reached it.
+   * One tri-state per file rather than a pair of booleans. An earlier revision
+   * carried `foreignOutputs` and `ownedOutputs` separately, which made
+   * `{ foreign: true, owned: true }` representable — a state that cannot exist,
+   * and whose resolution then depended on the order the checks happened to run
+   * in. The union makes it unrepresentable instead.
+   *
+   * Absent defaults to `"absent"` for both, and that default is deliberate: a
+   * caller that does not probe gets the new "do not create a CLAUDE.md"
+   * behaviour rather than silently keeping the old one.
    */
-  foreignOutputs?: { claudeMd: boolean; agentsMd: boolean };
+  ownership?: { claudeMd: MonolithicOwnership; agentsMd: MonolithicOwnership };
 }): { targets: string[]; gatedOut: MinskyCompileGatedTarget[] } {
   const claudeCodeOnly = present.harness === "claude-code";
   const cursorRulesExists = present.existingOutputs?.cursorRules ?? false;
   const agentsMdExists = present.existingOutputs?.agentsMd ?? false;
-  const claudeMdIsForeign = present.foreignOutputs?.claudeMd ?? false;
-  const agentsMdIsForeign = present.foreignOutputs?.agentsMd ?? false;
+  const claudeMd = present.ownership?.claudeMd ?? "absent";
+  const agentsMd = present.ownership?.agentsMd ?? "absent";
+  // "Not ours and not absent" — the user's file, or one we cannot classify.
+  // Both mean "never write it" (mt#4986).
+  const notOurs = (o: MonolithicOwnership): boolean => o === "foreign" || o === "unreadable";
 
   const targets: string[] = [];
   const gatedOut: MinskyCompileGatedTarget[] = [];
@@ -192,17 +201,44 @@ export function minskyCompileTargetsWithGateReport(present: {
       `as yours and is never overwritten. Move it aside and re-run to hand the file to Minsky.`,
   });
 
+  // mt#5003. NOT a defect and NOT a skip the operator needs to act on — it is
+  // where the always-apply rules are SUPPOSED to go now. Kept a distinct `kind`
+  // from `foreign` so a caller does not report an ordinary fresh project as
+  // "your file was left alone", which would be alarming and false.
+  const absentGate = (
+    target: string,
+    output: string,
+    destination: string
+  ): MinskyCompileGatedTarget => ({
+    target,
+    kind: "absent",
+    reason:
+      `${output} does not exist, and Minsky no longer creates one — always-apply rules are ` +
+      `delivered through ${destination} instead, which this harness loads at launch. Run ` +
+      `\`minsky compile --target ${target}\` if you want the file anyway; it will then be ` +
+      `maintained from that point on.`,
+  });
+
   if (present.skills) targets.push("claude-skills");
   if (present.rules) {
     if (!claudeCodeOnly || cursorRulesExists) targets.push("cursor-rules-ts");
     else gatedOut.push(harnessGate("cursor-rules-ts", ".cursor/rules"));
 
-    // Foreign-ownership is checked BEFORE the harness gate, and unconditionally:
-    // whose file it is does not depend on which harness the project runs.
-    if (!claudeMdIsForeign) targets.push("claude.md");
-    else gatedOut.push(foreignGate("claude.md", "CLAUDE.md"));
+    // mt#5003. `claude.md` is now selected only when a `CLAUDE.md` we generated
+    // already exists — we MAINTAIN ours, we do not CREATE one. The absent case
+    // used to fall through to "write it", which is how a fresh managed project
+    // got a 15 KB CLAUDE.md; its always-apply rules now go to `.claude/rules/`
+    // as `paths`-less files instead (ask#11711).
+    //
+    // An operator who wants the file can still opt in explicitly with
+    // `--target claude.md` — that path returns early in `runMinskyCompile` and
+    // never reaches this probe — and from then on it exists, so this gate keeps
+    // it maintained. Same affordance the `AGENTS.md` harness gate already offers.
+    if (claudeMd === "generated") targets.push("claude.md");
+    else if (notOurs(claudeMd)) gatedOut.push(foreignGate("claude.md", "CLAUDE.md"));
+    else gatedOut.push(absentGate("claude.md", "CLAUDE.md", ".claude/rules/"));
 
-    if (agentsMdIsForeign) {
+    if (notOurs(agentsMd)) {
       gatedOut.push(foreignGate("agents.md", "AGENTS.md"));
     } else if (!claudeCodeOnly || agentsMdExists) {
       targets.push("agents.md");
@@ -305,12 +341,12 @@ export async function probeMinskyCompileTargetsWithGateReport(
       cursorRules: await pathExists(path.join(workspacePath, ".cursor", "rules")),
       agentsMd: await pathExists(path.join(workspacePath, "AGENTS.md")),
     },
-    // mt#4986 SC3: whose file is it. Read here, at the one place that already
-    // touches the filesystem, so the pure mapping above stays testable without
-    // fs stubbing — the same split `existingOutputs` already uses.
-    foreignOutputs: {
-      claudeMd: await isForeignMonolith(path.join(workspacePath, "CLAUDE.md"), fsDeps),
-      agentsMd: await isForeignMonolith(path.join(workspacePath, "AGENTS.md"), fsDeps),
+    // mt#4986 SC3 / mt#5003: whose file is it. Read here, at the one place that
+    // already touches the filesystem, so the pure mapping above stays testable
+    // without fs stubbing — the same split `existingOutputs` already uses.
+    ownership: {
+      claudeMd: await readMonolithicOwnership(path.join(workspacePath, "CLAUDE.md"), fsDeps),
+      agentsMd: await readMonolithicOwnership(path.join(workspacePath, "AGENTS.md"), fsDeps),
     },
   });
 }

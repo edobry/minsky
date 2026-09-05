@@ -25,6 +25,9 @@ import { resolveTsgoBinary } from "../utils/tsgo-binary";
 import { stat, readdir, readFile } from "fs/promises";
 import { join } from "path";
 import { ProjectConfigReader } from "@minsky/domain/project/config-reader";
+// Type-only: the VALUE is loaded lazily in `monolithicOwnershipForCheck` below,
+// so this adds nothing to the hook's runtime import graph.
+import type { MonolithicOwnership } from "@minsky/domain/compile/monolithic-ownership";
 import { log } from "@minsky/shared/logger";
 import {
   detectNulByteViolations,
@@ -2411,15 +2414,15 @@ export class PreCommitHook {
         cursorRules: await dirExists(`${this.projectRoot}/.cursor/rules`),
         agentsMd: await dirExists(`${this.projectRoot}/AGENTS.md`),
       },
-      // mt#4986 SC3 — mirrors the probe's foreign-ownership read for the same
+      // mt#4986 SC3 / mt#5003 — mirrors the probe's ownership read for the same
       // lockstep reason the harness gate above is mirrored: a target the compile
       // will not write must not be a target this check demands be fresh, or a
       // project with its own CLAUDE.md is told it is stale forever with no
       // invocation able to refresh it. No-op in Minsky's own repository, whose
       // CLAUDE.md and AGENTS.md both carry the banner.
-      foreignOutputs: {
-        claudeMd: await isForeignMonolithForCheck(`${this.projectRoot}/CLAUDE.md`),
-        agentsMd: await isForeignMonolithForCheck(`${this.projectRoot}/AGENTS.md`),
+      ownership: {
+        claudeMd: await monolithicOwnershipForCheck(`${this.projectRoot}/CLAUDE.md`),
+        agentsMd: await monolithicOwnershipForCheck(`${this.projectRoot}/AGENTS.md`),
       },
     });
 
@@ -2674,15 +2677,18 @@ export function compileCheckTargets(present: {
   harness?: string;
   /** Whether each harness-specific output already exists on disk. */
   existingOutputs?: { cursorRules: boolean; agentsMd: boolean };
-  /** Whether each monolithic output on disk is the user's own file (mt#4986 SC3). */
-  foreignOutputs?: { claudeMd: boolean; agentsMd: boolean };
+  /** Who owns each monolithic output on disk (mt#4986 SC3, mt#5003). */
+  ownership?: { claudeMd: MonolithicOwnership; agentsMd: MonolithicOwnership };
 }): string[] {
   return compileCheckTargetsWithGateReport(present).targets;
 }
 
 /**
- * Whether `filePath` is a monolithic output this check must not demand be fresh
- * — the user's own file, or one we cannot classify (mt#4986 SC3).
+ * Who owns the monolithic output at `filePath` (mt#4986 SC3, mt#5003).
+ *
+ * Returns the domain tri-state rather than a boolean, because this check now
+ * needs to tell "the user's" from "absent": the first leaves the file alone, the
+ * second means Minsky never creates it and the rules go to `.claude/rules/`.
  *
  * **Delegates to the domain predicate rather than re-implementing it**
  * (PR #3643 R1). An earlier revision copied the banner scan here, citing the
@@ -2695,11 +2701,11 @@ export function compileCheckTargets(present: {
  * heavy to avoid, and the copy carried its own five-line window that could
  * silently drift from `BANNER_SCAN_LINES`.
  */
-async function isForeignMonolithForCheck(filePath: string): Promise<boolean> {
-  const { isForeignMonolith } = await import(
+async function monolithicOwnershipForCheck(filePath: string): Promise<MonolithicOwnership> {
+  const { readMonolithicOwnership } = await import(
     "../../packages/domain/src/compile/monolithic-ownership"
   );
-  return isForeignMonolith(filePath);
+  return readMonolithicOwnership(filePath);
 }
 
 /**
@@ -2721,14 +2727,15 @@ export function compileCheckTargetsWithGateReport(present: {
   hooks: boolean;
   harness?: string;
   existingOutputs?: { cursorRules: boolean; agentsMd: boolean };
-  /** Whether each monolithic output on disk is the user's own file (mt#4986 SC3). */
-  foreignOutputs?: { claudeMd: boolean; agentsMd: boolean };
+  /** Who owns each monolithic output on disk (mt#4986 SC3, mt#5003). */
+  ownership?: { claudeMd: MonolithicOwnership; agentsMd: MonolithicOwnership };
 }): { targets: string[]; gatedOut: string[] } {
   const claudeCodeOnly = present.harness === "claude-code";
   const cursorRulesExists = present.existingOutputs?.cursorRules ?? false;
   const agentsMdExists = present.existingOutputs?.agentsMd ?? false;
-  const claudeMdIsForeign = present.foreignOutputs?.claudeMd ?? false;
-  const agentsMdIsForeign = present.foreignOutputs?.agentsMd ?? false;
+  const claudeMd = present.ownership?.claudeMd ?? "absent";
+  const agentsMd = present.ownership?.agentsMd ?? "absent";
+  const notOurs = (o: MonolithicOwnership): boolean => o === "foreign" || o === "unreadable";
 
   const targets: string[] = [];
   const gatedOut: string[] = [];
@@ -2738,10 +2745,14 @@ export function compileCheckTargetsWithGateReport(present: {
     if (!claudeCodeOnly || cursorRulesExists) targets.push("cursor-rules-ts");
     else gatedOut.push("cursor-rules-ts");
 
-    if (!claudeMdIsForeign) targets.push("claude.md");
+    // mt#5003: check the target only when a CLAUDE.md we generated exists.
+    // Demanding freshness for a file the compile no longer creates would tell
+    // every fresh project it is permanently stale. No-op here — this repo's
+    // CLAUDE.md carries the banner.
+    if (claudeMd === "generated") targets.push("claude.md");
     else gatedOut.push("claude.md");
 
-    if (agentsMdIsForeign) {
+    if (notOurs(agentsMd)) {
       gatedOut.push("agents.md");
     } else if (!claudeCodeOnly || agentsMdExists) {
       targets.push("agents.md");
