@@ -39,6 +39,7 @@ import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { callMcp } from "./mcp-client";
 import { loadMergeStateSweeperConfig, startMergeStateSweeper } from "./merge-state-sweeper";
 import { loadAdoptionSweeperConfig, startAdoptionSweeper } from "./adoption-sweeper";
+import { loadTimeoutRegimeWatchConfig, startTimeoutRegimeWatch } from "./timeout-regime-watch";
 import { getDb, type ReviewerDb } from "./db/client";
 import { applyMigrations } from "./db/migrate";
 import { recoverPendingReviews, loadBootRecoveryConfig } from "./boot-recovery";
@@ -1951,6 +1952,18 @@ if (import.meta.main) {
   // Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN to be set.
   // Disabled by default; set ADOPTION_SWEEPER_ENABLED=true to activate.
   startAdoptionSweeper(config, loadAdoptionSweeperConfig());
+
+  // Start the timeout-regime watch (mt#4988).
+  // mt#4996 accepted the 120s toolloop-timeout cadence on a measured baseline
+  // and recorded three conditions under which that question should be REOPENED.
+  // Nothing evaluated them; this does, daily, over a 30-day window of
+  // review_timing. It notifies through the alert sink at `warn` rather than
+  // minting an operator incident — a drifted baseline is not an outage and is
+  // not operator-only to resolve.
+  // Configurable via TIMEOUT_REGIME_WATCH_ENABLED, TIMEOUT_REGIME_WATCH_INTERVAL_MS,
+  // TIMEOUT_REGIME_WATCH_WINDOW_DAYS, and the three threshold vars.
+  // Opt-in: disabled by default; set TIMEOUT_REGIME_WATCH_ENABLED=true to activate.
+  startTimeoutRegimeWatch(db, loadTimeoutRegimeWatchConfig(), alertSink);
 
   // Start the webhook-event retention pruner (mt#1372).
   // Deletes reviewer_webhook_events rows older than MINSKY_REVIEWER_WEBHOOK_EVENT_RETENTION_DAYS
