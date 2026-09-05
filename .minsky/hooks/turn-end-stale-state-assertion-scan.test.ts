@@ -741,3 +741,82 @@ describe("mt#4580 PR #3544 R1 — the three review findings", () => {
     expect(out.degradedReasons.length).toBe(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// mt#5008 — a nominated segment that NAMES its own refs is not charged against
+// every other ref in the tail.
+//
+// Measured before shipping, over this detector's own calibration corpus (295
+// records, 119 fires, 599 claims): 301 claims had a segment naming at least one
+// ref, and 221 of those (73%) were charged against a ref the segment does not
+// name while naming a different one. The rule drops exactly those: 599 → 378
+// claims, with ZERO fires losing all their claims.
+// ---------------------------------------------------------------------------
+
+describe("mt#5008 — segment-named refs bound the attribution", () => {
+  /**
+   * A `run` seam returning one nomination with the given segment. Cast to the
+   * parameter's own type, mirroring the `resolve` seam's cast above — the
+   * fixture supplies only the fields the pairing loop reads.
+   */
+  const runWith = (segment: string) =>
+    (async () => ({
+      nominations: [{ family: FAMILY_PAST_TENSE, segment, score: 0.5 }],
+    })) as unknown as NonNullable<Parameters<typeof nominatePendingClaims>[1]>["run"];
+  // Any non-null value: `run` is injected, so the deps are never dereferenced.
+  const resolveOk = async () => ({}) as never;
+
+  const idsFrom = (claims: readonly { entity: { id: string } }[]) =>
+    claims.map((c) => c.entity.id).sort();
+
+  test("a segment naming ONE ref is charged only against that ref", async () => {
+    const tail = "Shipped mt#4993 — the marker now leases. Also touched mt#1897 and mt#4988.";
+    const out = await nominatePendingClaims(tail, {
+      resolve: resolveOk,
+      run: runWith("Shipped mt#4993 — the marker now leases."),
+    });
+
+    // NEGATIVE CONTROL for this assertion lives in the PR body: on the
+    // pre-change build this returns all three ids, because the loop paired
+    // every nomination with every ref in the tail unconditionally.
+    expect(idsFrom(out.claims)).toEqual(["mt#4993"]);
+  });
+
+  test("a segment naming NO ref still pairs with every tail ref — mt#4580's case, unchanged", async () => {
+    const tail = "Start mt#4556 next. Its arms are unmeasurable without it, and so are mt#4557's.";
+    const out = await nominatePendingClaims(tail, {
+      resolve: resolveOk,
+      run: runWith("Its arms are unmeasurable without it."),
+    });
+
+    // This is the adjacent-sentence case mt#4580 deliberately protects: the
+    // segment identifies no subject, so proximity-free pairing is still right.
+    expect(idsFrom(out.claims)).toEqual(["mt#4556", "mt#4557"]);
+  });
+
+  test("a segment naming SEVERAL refs is charged against exactly those", async () => {
+    const tail = "Both mt#4993 and mt#4998 shipped. Unrelated: mt#1897, mt#5004.";
+    const out = await nominatePendingClaims(tail, {
+      resolve: resolveOk,
+      run: runWith("Both mt#4993 and mt#4998 shipped."),
+    });
+
+    // A genuinely multi-ref sentence keeps every ref it names — the rule bounds
+    // attribution, it does not force it to one.
+    expect(idsFrom(out.claims)).toEqual(["mt#4993", "mt#4998"]);
+  });
+
+  test("the join is on the normalised id, so a minsky:// link form matches a short ref", async () => {
+    const tail = "Shipped mt#4993 today. Separately mt#1897 is still open.";
+    const out = await nominatePendingClaims(tail, {
+      resolve: resolveOk,
+      // The same task, written as a deeplink rather than a short ref.
+      run: runWith("Shipped [it](minsky://task/mt%234993) today."),
+    });
+
+    // Joining on raw ref TEXT would drop this to zero claims; collectEntityRefs
+    // decodes the link target back to `mt#4993`, which is the id the tail ref
+    // also carries.
+    expect(idsFrom(out.claims)).toEqual(["mt#4993"]);
+  });
+});

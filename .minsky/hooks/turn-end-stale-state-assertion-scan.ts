@@ -615,9 +615,31 @@ export async function nominatePendingClaims(
   // concerns is routinely in an adjacent sentence ("2. Start mt#4556 — its arms
   // are unmeasurable without it"). Proximity is what Rung 1 uses to bound a
   // phrase's reach; the semantic stage already bounds itself by meaning.
+  //
+  // mt#5008: with ONE exception, which is not a proximity rule and does not
+  // reopen the case above. When the nominated segment NAMES entity refs itself,
+  // it has identified its own subject — and a claim charged against some OTHER
+  // ref in the tail is then a misattribution the segment itself contradicts.
+  // The adjacent-sentence case the paragraph above protects is exactly the case
+  // where the segment names NOTHING, and that falls through unchanged.
+  //
+  // Measured over this detector's own calibration corpus (295 records, 119
+  // fires, 599 claims) before shipping this:
+  //
+  //   - 301 of 599 claims had a segment naming at least one ref — the half this
+  //     rule can decide. Of those, 221 (73%) were charged against a ref the
+  //     segment does not name while naming a different one.
+  //   - Applying the rule: 599 claims → 378, and **zero** fires lose all their
+  //     claims, so no detection is silenced (ADR-032's invariant).
+  //   - The 298 segments naming no ref are untouched, which is mt#4580's case.
+  //
+  // Joined on `EntityRef.id`, not the raw ref text, because `collectEntityRefs`
+  // normalises `mt#N` and a `minsky://task/mt%23N` link target to the same id.
   const claims: PendingClaim[] = [];
   for (const nomination of result.nominations) {
+    const namedIds = new Set(collectEntityRefs(nomination.segment).map((e) => e.id));
     for (const entity of refs) {
+      if (namedIds.size > 0 && !namedIds.has(entity.id)) continue;
       claims.push({
         entity,
         assertion: {
