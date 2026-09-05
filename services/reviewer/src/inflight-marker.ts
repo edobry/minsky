@@ -61,9 +61,12 @@
  * them: a live holder never expires however long it runs, and a dead one is
  * reclaimed in 180s — FASTER than the 300s it used to take.
  *
- * Configurable via REVIEWER_INFLIGHT_MARKER_TTL_MS. Raising it past a few
- * heartbeat intervals re-introduces the mt#4267 delay for no benefit; the
- * heartbeat, not the TTL, is what covers a long review.
+ * Configurable via REVIEWER_INFLIGHT_MARKER_TTL_MS, within bounds in ONE
+ * direction. Raising it past a few heartbeat intervals re-introduces the mt#4267
+ * delay for no benefit — the heartbeat, not the TTL, is what covers a long
+ * review. LOWERING it below `MARKER_MIN_TTL_MS` is refused outright by
+ * `resolveInflightTtlMs`, because a sub-interval TTL expires live holders
+ * between beats and is the mt#4993 defect re-enabled by configuration.
  *
  * ## Fail-open contract (SC #6)
  *
@@ -115,8 +118,34 @@ export const DEFAULT_INFLIGHT_TTL_MS =
 export const INFLIGHT_TTL_ENV_VAR = "REVIEWER_INFLIGHT_MARKER_TTL_MS";
 
 /**
+ * The shortest TTL the lease can operate under (mt#4993, PR #3647 R1).
+ *
+ * Two heartbeat intervals: the lease needs room to miss one beat and still
+ * recover on the next. A TTL at or below one interval expires every live holder
+ * BETWEEN beats, which is not a degraded lease — it is the duplicate-review
+ * defect this module exists to prevent, switched back on by configuration.
+ */
+export const MARKER_MIN_TTL_MS = MARKER_HEARTBEAT_INTERVAL_MS * 2;
+
+/**
  * Resolve the effective TTL for inflight markers.
- * Falls back to DEFAULT_INFLIGHT_TTL_MS when the env var is absent or invalid.
+ *
+ * Falls back to DEFAULT_INFLIGHT_TTL_MS when the env var is absent, invalid, or
+ * BELOW `MARKER_MIN_TTL_MS`.
+ *
+ * That last clause is the one worth explaining. Before the lease, any positive
+ * TTL was merely a policy choice — shorter meant faster crash recovery and more
+ * mid-review expiry, and an operator could trade between them. The lease removes
+ * that trade: the heartbeat now covers long reviews, so a short TTL buys nothing
+ * except the failure mode. `REVIEWER_INFLIGHT_MARKER_TTL_MS=30000` against a 60s
+ * beat would look like a reasonable tightening and would silently reinstate the
+ * duplicate reviews this module was changed to eliminate.
+ *
+ * Refusing rather than clamping, deliberately, and matching this function's
+ * existing convention for an invalid value: a clamp would honour part of an
+ * operator's intent while quietly meaning something else, and the intent here is
+ * not partially satisfiable. The warning names the floor so the operator can
+ * choose a legal value rather than guess why theirs did nothing.
  */
 export function resolveInflightTtlMs(): number {
   const raw = process.env[INFLIGHT_TTL_ENV_VAR];
@@ -128,6 +157,20 @@ export function resolveInflightTtlMs(): number {
       envVar: INFLIGHT_TTL_ENV_VAR,
       value: raw,
       fallback: DEFAULT_INFLIGHT_TTL_MS,
+    });
+    return DEFAULT_INFLIGHT_TTL_MS;
+  }
+  if (parsed < MARKER_MIN_TTL_MS) {
+    log.warn("inflight_marker.ttl_env_below_floor", {
+      event: "inflight_marker.ttl_env_below_floor",
+      envVar: INFLIGHT_TTL_ENV_VAR,
+      value: parsed,
+      minimum: MARKER_MIN_TTL_MS,
+      heartbeatIntervalMs: MARKER_HEARTBEAT_INTERVAL_MS,
+      fallback: DEFAULT_INFLIGHT_TTL_MS,
+      reason:
+        "a TTL below two heartbeat intervals expires live holders between beats, " +
+        "reinstating the duplicate-review defect (mt#4993)",
     });
     return DEFAULT_INFLIGHT_TTL_MS;
   }

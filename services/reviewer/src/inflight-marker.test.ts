@@ -31,6 +31,7 @@ import {
   startMarkerHeartbeat,
   MARKER_HEARTBEAT_INTERVAL_MS,
   MARKER_HEARTBEAT_MISS_TOLERANCE,
+  MARKER_MIN_TTL_MS,
 } from "./inflight-marker";
 import type { HeartbeatScheduler } from "./inflight-marker";
 import type { ReviewerDb } from "./db/client";
@@ -472,8 +473,13 @@ describe("resolveInflightTtlMs", () => {
   });
 
   test("returns parsed value when env var is a valid positive integer", () => {
-    process.env[INFLIGHT_TTL_ENV_VAR] = "60000";
-    expect(resolveInflightTtlMs()).toBe(60_000);
+    // mt#4993: this asserted 60_000 until the lease shipped. That value is now
+    // refused, and correctly so — it is exactly ONE heartbeat interval, the
+    // value at which a live holder expires between beats. "Valid positive
+    // integer" stopped being the whole contract when the TTL acquired a floor;
+    // the case is kept, with a value that is legal under it.
+    process.env[INFLIGHT_TTL_ENV_VAR] = "600000";
+    expect(resolveInflightTtlMs()).toBe(600_000);
     delete process.env[INFLIGHT_TTL_ENV_VAR];
   });
 
@@ -1289,6 +1295,46 @@ describe("mt#4993: marker lease (heartbeat)", () => {
     expect(DEFAULT_INFLIGHT_TTL_MS).toBeLessThan(300_000);
     // And the TTL must outlast a beat, or every live holder expires between them.
     expect(DEFAULT_INFLIGHT_TTL_MS).toBeGreaterThan(MARKER_HEARTBEAT_INTERVAL_MS);
+  });
+
+  test("PR #3647 R1: an env TTL BELOW the floor is refused, not honoured", () => {
+    const original = process.env[INFLIGHT_TTL_ENV_VAR];
+    const { logs, restore } = captureConsoleLogs();
+    try {
+      // 30s against a 60s beat — the reviewer's exact example. It looks like a
+      // reasonable tightening and would expire every live holder between beats.
+      process.env[INFLIGHT_TTL_ENV_VAR] = String(MARKER_HEARTBEAT_INTERVAL_MS / 2);
+      expect(resolveInflightTtlMs()).toBe(DEFAULT_INFLIGHT_TTL_MS);
+    } finally {
+      restore();
+      if (original === undefined) delete process.env[INFLIGHT_TTL_ENV_VAR];
+      else process.env[INFLIGHT_TTL_ENV_VAR] = original;
+    }
+    // Refused LOUDLY: a silent fallback would leave the operator believing the
+    // override took, which is how a misconfiguration survives.
+    expect(findLogEvent(logs, "inflight_marker.ttl_env_below_floor")).not.toBeNull();
+  });
+
+  test("PR #3647 R1: exactly at the floor is ACCEPTED — the guard is a floor, not a ban on overrides", () => {
+    const original = process.env[INFLIGHT_TTL_ENV_VAR];
+    try {
+      process.env[INFLIGHT_TTL_ENV_VAR] = String(MARKER_MIN_TTL_MS);
+      expect(resolveInflightTtlMs()).toBe(MARKER_MIN_TTL_MS);
+      // And comfortably above it, so a legitimate operator override still works.
+      process.env[INFLIGHT_TTL_ENV_VAR] = String(MARKER_MIN_TTL_MS * 5);
+      expect(resolveInflightTtlMs()).toBe(MARKER_MIN_TTL_MS * 5);
+    } finally {
+      if (original === undefined) delete process.env[INFLIGHT_TTL_ENV_VAR];
+      else process.env[INFLIGHT_TTL_ENV_VAR] = original;
+    }
+  });
+
+  test("PR #3647 R1: the floor leaves room to miss a beat and recover", () => {
+    // The invariant the guard exists to protect, asserted directly rather than
+    // left to the docblock: a holder can miss one refresh and the next still
+    // lands before expiry.
+    expect(MARKER_MIN_TTL_MS).toBeGreaterThan(MARKER_HEARTBEAT_INTERVAL_MS);
+    expect(DEFAULT_INFLIGHT_TTL_MS).toBeGreaterThanOrEqual(MARKER_MIN_TTL_MS);
   });
 
   test("AT1: a holder that refreshes keeps its marker past the original TTL — a second acquirer is DENIED", async () => {
