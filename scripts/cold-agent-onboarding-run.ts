@@ -1,0 +1,518 @@
+#!/usr/bin/env bun
+/**
+ * Cold-agent onboarding run (mt#5012)
+ *
+ * The instrument for mt#4705: run a fresh, context-free agent at Minsky's
+ * onboarding path inside a sandbox holding none of this machine's accumulated
+ * setup, and treat its transcript as the gap list.
+ *
+ * Two modes, and the default is the free one:
+ *
+ *   bun scripts/cold-agent-onboarding-run.ts                   # assert only
+ *   bun scripts/cold-agent-onboarding-run.ts --execute --target <path|url>
+ *
+ * The default mode gathers the isolation observations twice — once under the
+ * sandbox, once without it — and reports both. That second pass is the
+ * negative control (AT2): an isolation check that would report "clean" against
+ * a broken sandbox proves nothing (mem#704), so the suite must be shown to FAIL
+ * when the sandbox is absent before its passing run means anything.
+ *
+ * `--execute` additionally provisions a disposable Postgres, dispatches the
+ * agent, and writes the transcript. It costs metered Anthropic API tokens
+ * rather than subscription usage — see `## The cost this shape carries` on
+ * mt#5012 — which is why it is opt-in per `operational-safety-dry-run-first`.
+ *
+ * Exit 0 = pass, non-zero = fail.
+ */
+
+import "reflect-metadata";
+import { spawnSync } from "child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { delimiter, dirname, join } from "path";
+
+// ---------------------------------------------------------------------------
+// The six contamination channels (mt#5012 §The contamination problem)
+// ---------------------------------------------------------------------------
+
+/** Channel ids, in the spec's order. AT1 asserts (a)-(f) against these. */
+export const CHANNELS = {
+  mcp: "1/a ambient MCP servers",
+  minskyState: "2/c operator Minsky config, state and daemon token",
+  minskyBinary: "3/b minsky on PATH",
+  daemon: "4/d operator daemon usable",
+  claudeCustomizations: "5/e user-level Claude Code customizations",
+  database: "6/f operator database reachable",
+} as const;
+
+export type ChannelId = keyof typeof CHANNELS;
+
+/**
+ * What the shell observed. Deliberately plain data with no methods: the
+ * verdict logic below is pure and unit-testable in both directions without
+ * spawning anything, which is what makes the negative control cheap.
+ */
+export interface IsolationObservations {
+  /** MCP server names `claude mcp list` reported under this env. */
+  mcpServerNames: string[];
+  /** Absolute path `minsky` resolves to on this PATH, or null. */
+  minskyBinaryPath: string | null;
+  /** Whether an operator Minsky config file is readable at this XDG root. */
+  minskyConfigPresent: boolean;
+  /** Whether a local-daemon bearer token is readable at this token path. */
+  daemonTokenPresent: boolean;
+  /**
+   * HTTP status from an unauthenticated POST to the daemon's /mcp, or null if
+   * no daemon answered. 401 is the PASS: the daemon's port is a fixed contract
+   * (ADR-038) and macOS loopback is shared, so it stays reachable — the
+   * assertion is that it cannot be USED.
+   */
+  daemonUnauthenticatedMcpStatus: number | null;
+  /** Customization entries found in the Claude config dir (CLAUDE.md, skills, ...). */
+  claudeCustomizationEntries: string[];
+  /** Names of Postgres connection env vars still set. */
+  postgresEnvVarsPresent: string[];
+}
+
+export interface ChannelVerdict {
+  channel: ChannelId;
+  label: string;
+  isolated: boolean;
+  detail: string;
+}
+
+/** The customization entries under a Claude config dir that leak into any repo. */
+export const CLAUDE_CUSTOMIZATION_ENTRIES = [
+  "CLAUDE.md",
+  "skills",
+  "plugins",
+  "commands",
+  "agents",
+];
+
+/** Connection-string env vars that would hand the run the operator's database. */
+export const POSTGRES_ENV_VARS = [
+  "MINSKY_POSTGRES_URL",
+  "MINSKY_PERSISTENCE_POSTGRES_URL",
+  "MINSKY_PERSISTENCE_POSTGRES_CONNECTIONSTRING",
+  "DATABASE_URL",
+];
+
+/**
+ * Pure verdict over observations — one entry per channel, in spec order.
+ *
+ * Note channel 4 is the odd one and deliberately so: every other channel is
+ * isolated by ABSENCE, but the daemon cannot be hidden, so its verdict asserts
+ * that an unauthenticated call is REFUSED. A daemon that answered 200 to an
+ * unauthenticated /mcp would be a usable daemon and a failed channel; a daemon
+ * that is not running at all (null) is also fine, because there is then nothing
+ * to use.
+ */
+export function evaluateIsolation(obs: IsolationObservations): ChannelVerdict[] {
+  const minskyServers = obs.mcpServerNames.filter((n) => /minsky/i.test(n));
+  const daemonRefused =
+    obs.daemonUnauthenticatedMcpStatus === null || obs.daemonUnauthenticatedMcpStatus === 401;
+
+  return [
+    {
+      channel: "mcp",
+      label: CHANNELS.mcp,
+      isolated: minskyServers.length === 0,
+      detail:
+        minskyServers.length === 0
+          ? "no minsky MCP server visible"
+          : `visible: ${minskyServers.join(", ")}`,
+    },
+    {
+      channel: "minskyState",
+      label: CHANNELS.minskyState,
+      isolated: !obs.minskyConfigPresent && !obs.daemonTokenPresent,
+      detail: [
+        obs.minskyConfigPresent ? "operator config readable" : "no operator config",
+        obs.daemonTokenPresent ? "daemon token readable" : "no daemon token",
+      ].join("; "),
+    },
+    {
+      channel: "minskyBinary",
+      label: CHANNELS.minskyBinary,
+      isolated: obs.minskyBinaryPath === null,
+      detail: obs.minskyBinaryPath ? `resolves to ${obs.minskyBinaryPath}` : "not on PATH",
+    },
+    {
+      channel: "daemon",
+      label: CHANNELS.daemon,
+      isolated: daemonRefused,
+      detail:
+        obs.daemonUnauthenticatedMcpStatus === null
+          ? "no daemon answered"
+          : `unauthenticated /mcp -> ${obs.daemonUnauthenticatedMcpStatus}`,
+    },
+    {
+      channel: "claudeCustomizations",
+      label: CHANNELS.claudeCustomizations,
+      isolated: obs.claudeCustomizationEntries.length === 0,
+      detail:
+        obs.claudeCustomizationEntries.length === 0
+          ? "config dir carries no customizations"
+          : `present: ${obs.claudeCustomizationEntries.join(", ")}`,
+    },
+    {
+      channel: "database",
+      label: CHANNELS.database,
+      // Two routes, and the env one is NOT the load-bearing half. Measured
+      // 2026-09-05: none of POSTGRES_ENV_VARS is set on this machine — the
+      // connection string comes from the Minsky config file — so an env-only
+      // check reads clean with or without the sandbox and discriminates
+      // nothing. The first live AT2 run failed on exactly that.
+      isolated: obs.postgresEnvVarsPresent.length === 0 && !obs.minskyConfigPresent,
+      detail: [
+        obs.postgresEnvVarsPresent.length === 0
+          ? "no connection string in env"
+          : `env: ${obs.postgresEnvVarsPresent.join(", ")}`,
+        obs.minskyConfigPresent
+          ? "operator config reachable (carries the connection string)"
+          : "no operator config to read one from",
+      ].join("; "),
+    },
+  ];
+}
+
+/**
+ * AT2's shape, as a pure function: which channels the negative control must
+ * show OPEN when the sandbox is absent.
+ *
+ * The daemon channel is excluded, and that exclusion is the point rather than
+ * an oversight — the operator's daemon refuses an unauthenticated caller
+ * whether or not a sandbox is active, so it cannot discriminate and including
+ * it would make the control fail for a reason unrelated to isolation.
+ */
+export const NEGATIVE_CONTROL_CHANNELS: ChannelId[] = [
+  "mcp",
+  "minskyState",
+  "minskyBinary",
+  "claudeCustomizations",
+  "database",
+];
+
+/** Channels the negative control expected to be open but which read as isolated. */
+export function negativeControlGaps(unsandboxed: ChannelVerdict[]): ChannelId[] {
+  return NEGATIVE_CONTROL_CHANNELS.filter(
+    (id) => unsandboxed.find((v) => v.channel === id)?.isolated === true
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sandbox construction (pure where it can be)
+// ---------------------------------------------------------------------------
+
+export interface SandboxPaths {
+  root: string;
+  claudeConfigDir: string;
+  xdgConfigHome: string;
+  xdgDataHome: string;
+  xdgStateHome: string;
+  minskyStateDir: string;
+  daemonTokenPath: string;
+  transcriptPath: string;
+}
+
+export function sandboxPathsUnder(root: string): SandboxPaths {
+  return {
+    root,
+    claudeConfigDir: join(root, "claude-config"),
+    xdgConfigHome: join(root, "xdg-config"),
+    xdgDataHome: join(root, "xdg-data"),
+    xdgStateHome: join(root, "xdg-state"),
+    minskyStateDir: join(root, "minsky-state"),
+    daemonTokenPath: join(root, "minsky-state", "local-mcp-token"),
+    transcriptPath: join(root, "transcript.txt"),
+  };
+}
+
+/**
+ * Remove the directory holding a binary from a PATH string.
+ *
+ * A real new user installs `minsky` by following the README, so the harness
+ * must not hand the cold agent an already-installed one. Dropping the whole
+ * directory is deliberate: `~/.bun/bin` also carries `bun`, and a new user
+ * following a Bun-based README would install that themselves too.
+ */
+export function stripPathEntry(pathValue: string, binaryPath: string | null): string {
+  // Empty segments are dropped on BOTH paths, not just when a binary is being
+  // removed: an empty PATH entry means "the current directory" on POSIX, and
+  // handing that to a sandboxed agent running inside a repo is its own leak.
+  const dir = binaryPath === null ? null : dirname(binaryPath);
+  return pathValue
+    .split(delimiter)
+    .filter((entry) => entry !== "" && entry !== dir)
+    .join(delimiter);
+}
+
+/**
+ * The sandboxed environment handed to `claude`.
+ *
+ * `HOME` is deliberately NOT redirected. Measured 2026-09-05: a sandboxed HOME
+ * (or config dir) loses Claude Code's OAuth session entirely — `claude -p` then
+ * prints "Not logged in" and exits 0. `CLAUDE_CONFIG_DIR` plus an
+ * `ANTHROPIC_API_KEY` is the vendor's documented auth for that case (see
+ * `--bare`'s help text) and is what closes channel 5 without losing auth.
+ */
+export function buildSandboxEnv(
+  base: NodeJS.ProcessEnv,
+  paths: SandboxPaths,
+  apiKey: string,
+  minskyBinaryPath: string | null
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...base };
+  for (const name of POSTGRES_ENV_VARS) delete env[name];
+
+  env.CLAUDE_CONFIG_DIR = paths.claudeConfigDir;
+  env.XDG_CONFIG_HOME = paths.xdgConfigHome;
+  env.XDG_DATA_HOME = paths.xdgDataHome;
+  env.XDG_STATE_HOME = paths.xdgStateHome;
+  env.MINSKY_STATE_DIR = paths.minskyStateDir;
+  env.MINSKY_LOCAL_MCP_TOKEN_PATH = paths.daemonTokenPath;
+  env.ANTHROPIC_API_KEY = apiKey;
+  env.PATH = stripPathEntry(base.PATH ?? "", minskyBinaryPath);
+  return env;
+}
+
+// ---------------------------------------------------------------------------
+// Observation gathering (the shell)
+// ---------------------------------------------------------------------------
+
+const DAEMON_MCP_URL = "http://127.0.0.1:48765/mcp";
+
+function resolveBinary(env: NodeJS.ProcessEnv, name: string): string | null {
+  const r = spawnSync("sh", ["-c", `command -v ${name}`], { env, encoding: "utf8" });
+  const out = (r.stdout ?? "").trim();
+  return r.status === 0 && out.length > 0 ? out : null;
+}
+
+function listMcpServers(env: NodeJS.ProcessEnv, strict: boolean): string[] {
+  const args = strict ? ["mcp", "list", "--strict-mcp-config"] : ["mcp", "list"];
+  const r = spawnSync("claude", args, { env, encoding: "utf8", timeout: 60_000 });
+  const out = ((r.stdout ?? "") + (r.stderr ?? "")).split("\n");
+  // Project server NAMES only. `claude mcp list` renders "<name>: <command>",
+  // and the command half can carry a token, so never keep the whole line.
+  return out
+    .map((line) => /^([A-Za-z0-9_.-]+):/.exec(line.trim())?.[1])
+    .filter((n): n is string => Boolean(n));
+}
+
+async function probeDaemonUnauthenticated(): Promise<number | null> {
+  try {
+    const res = await fetch(DAEMON_MCP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    return res.status;
+  } catch {
+    return null;
+  }
+}
+
+function customizationEntriesIn(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  const present = new Set(readdirSync(dir));
+  return CLAUDE_CUSTOMIZATION_ENTRIES.filter((e) => present.has(e));
+}
+
+export interface ObserveOptions {
+  env: NodeJS.ProcessEnv;
+  claudeConfigDir: string;
+  minskyConfigPath: string;
+  daemonTokenPath: string;
+  /** Whether to pass --strict-mcp-config, which is how the sandbox closes channel 1. */
+  strictMcpConfig: boolean;
+}
+
+export async function observe(opts: ObserveOptions): Promise<IsolationObservations> {
+  return {
+    mcpServerNames: listMcpServers(opts.env, opts.strictMcpConfig),
+    minskyBinaryPath: resolveBinary(opts.env, "minsky"),
+    minskyConfigPresent: existsSync(opts.minskyConfigPath),
+    daemonTokenPresent: existsSync(opts.daemonTokenPath),
+    daemonUnauthenticatedMcpStatus: await probeDaemonUnauthenticated(),
+    claudeCustomizationEntries: customizationEntriesIn(opts.claudeConfigDir),
+    postgresEnvVarsPresent: POSTGRES_ENV_VARS.filter((n) => Boolean(opts.env[n])),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Reporting
+// ---------------------------------------------------------------------------
+
+export function renderVerdicts(title: string, verdicts: ChannelVerdict[]): string {
+  const lines = [title];
+  for (const v of verdicts) {
+    lines.push(`  ${v.isolated ? "ISOLATED" : "OPEN    "}  ${v.label} — ${v.detail}`);
+  }
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// The cold-agent prompt (SC2: the repo and its README, nothing else)
+// ---------------------------------------------------------------------------
+
+export const COLD_AGENT_PROMPT = [
+  "You are opening this repository for the first time.",
+  "Read its README and set the project up as the README describes.",
+  "Do not assume any tooling is already installed or configured.",
+  "When you are done, report what you did, what worked, what did not,",
+  "and how you know — naming anything you had to guess at.",
+].join(" ");
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+async function resolveAnthropicKey(): Promise<string> {
+  const { initializeConfiguration, CustomConfigFactory, getConfiguration } = await import(
+    "@minsky/domain/configuration"
+  );
+  await initializeConfiguration(new CustomConfigFactory(), { workingDirectory: process.cwd() });
+  const cfg = getConfiguration() as { ai?: { providers?: { anthropic?: { apiKey?: string } } } };
+  const key = cfg?.ai?.providers?.anthropic?.apiKey;
+  if (typeof key !== "string" || key.length < 20) {
+    throw new Error(
+      "No usable Anthropic API key at ai.providers.anthropic.apiKey. " +
+        "The sandboxed config dir loses Claude Code's OAuth session, so an API key is required."
+    );
+  }
+  return key;
+}
+
+function targetColdness(targetDir: string): string[] {
+  const r = spawnSync(
+    "git",
+    ["ls-files", ".minsky", ".claude", ".cursor", "CLAUDE.md", "AGENTS.md"],
+    { cwd: targetDir, encoding: "utf8" }
+  );
+  return (r.stdout ?? "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+}
+
+export interface RunOptions {
+  execute: boolean;
+  target: string | null;
+  nowMs: number;
+}
+
+export function parseArgs(argv: string[], nowMs: number = Date.now()): RunOptions {
+  const targetIdx = argv.indexOf("--target");
+  return {
+    execute: argv.includes("--execute"),
+    target: targetIdx >= 0 ? (argv[targetIdx + 1] ?? null) : null,
+    nowMs,
+  };
+}
+
+async function main(argv: string[]): Promise<number> {
+  const opts = parseArgs(argv);
+  const root = mkdtempSync(join(tmpdir(), "mt5012-cold-"));
+  const paths = sandboxPathsUnder(root);
+  for (const dir of [
+    paths.claudeConfigDir,
+    paths.xdgConfigHome,
+    paths.xdgDataHome,
+    paths.xdgStateHome,
+    paths.minskyStateDir,
+  ]) {
+    mkdirSync(dir, { recursive: true });
+  }
+
+  const failures: string[] = [];
+  try {
+    const apiKey = await resolveAnthropicKey();
+    const operatorMinskyPath = resolveBinary(process.env, "minsky");
+    const env = buildSandboxEnv(process.env, paths, apiKey, operatorMinskyPath);
+
+    // --- AT1: the sandbox closes every channel ---------------------------
+    const sandboxed = evaluateIsolation(
+      await observe({
+        env,
+        claudeConfigDir: paths.claudeConfigDir,
+        minskyConfigPath: join(paths.xdgConfigHome, "minsky", "config.yaml"),
+        daemonTokenPath: paths.daemonTokenPath,
+        strictMcpConfig: true,
+      })
+    );
+    console.log(renderVerdicts("AT1 — under the sandbox:", sandboxed));
+    for (const v of sandboxed) {
+      if (!v.isolated) failures.push(`AT1: channel still open — ${v.label} (${v.detail})`);
+    }
+
+    // --- AT2: the same suite must FAIL without the sandbox ----------------
+    const operatorConfigHome =
+      process.env.XDG_CONFIG_HOME ?? join(process.env.HOME ?? "", ".config");
+    const unsandboxed = evaluateIsolation(
+      await observe({
+        env: process.env,
+        claudeConfigDir: join(process.env.HOME ?? "", ".claude"),
+        minskyConfigPath: join(operatorConfigHome, "minsky", "config.yaml"),
+        daemonTokenPath: join(operatorConfigHome, "minsky", "local-mcp-token"),
+        strictMcpConfig: false,
+      })
+    );
+    console.log(`\n${renderVerdicts("AT2 — negative control, no sandbox:", unsandboxed)}`);
+    const gaps = negativeControlGaps(unsandboxed);
+    if (gaps.length > 0) {
+      failures.push(
+        `AT2: negative control did not discriminate on ${gaps.join(", ")} — ` +
+          "a suite that reads clean without the sandbox proves nothing about the sandbox"
+      );
+    }
+
+    if (!opts.execute) {
+      console.log(
+        "\nAssertion mode only. Pass --execute --target <path> to run the metered agent run " +
+          "(billed to the Anthropic API key, not the subscription)."
+      );
+    } else {
+      if (!opts.target) throw new Error("--execute requires --target <path to a cold repo>");
+      const carried = targetColdness(opts.target);
+      console.log(
+        `\nTarget ${opts.target} carries ${carried.length} tracked onboarding file(s)${
+          carried.length > 0 ? `: ${carried.join(", ")} — NOT a cold repo` : " — cold"
+        }`
+      );
+      const started = new Date(opts.nowMs).toISOString();
+      const r = spawnSync(
+        "claude",
+        ["-p", COLD_AGENT_PROMPT, "--strict-mcp-config", "--model", "fable"],
+        { cwd: opts.target, env, encoding: "utf8", timeout: 1_800_000 }
+      );
+      const transcript = (r.stdout ?? "") + (r.stderr ?? "");
+      writeFileSync(paths.transcriptPath, transcript);
+      console.log(`\nRun started ${started}; transcript at ${paths.transcriptPath}`);
+      // Exit status is NOT the success signal: a "Not logged in" failure exits 0
+      // (measured 2026-09-05). Assert on content.
+      if (/Not logged in/i.test(transcript) || transcript.trim().length === 0) {
+        failures.push("run produced no usable transcript (check auth and the target path)");
+      }
+    }
+  } finally {
+    if (!opts.execute) rmSync(root, { recursive: true, force: true });
+  }
+
+  if (failures.length > 0) {
+    console.error(`\nFAIL:\n${failures.map((f) => `  - ${f}`).join("\n")}`);
+    return 1;
+  }
+  console.log("\nAll isolation assertions and the negative control passed.");
+  return 0;
+}
+
+if (import.meta.main) {
+  main(process.argv.slice(2))
+    .then((code) => process.exit(code))
+    .catch((err) => {
+      console.error("cold-agent-onboarding-run crashed:", err);
+      process.exit(1);
+    });
+}
