@@ -545,12 +545,29 @@ async function describeRuleSelectionIssues(
   if (!outcome.applied) return [];
 
   const reasons: string[] = [];
+  if (outcome.parseError !== undefined) {
+    reasons.push(
+      `[compile:rules] the project's rule selection could not be read, so NO selection was ` +
+        `applied and the full corpus was compiled — ${outcome.parseError}. Fix the file and ` +
+        `re-run; until then any \`enabled\`/\`disabled\` entries in it are not in effect.`
+    );
+  }
   if (outcome.unresolvedIds.length > 0) {
     reasons.push(
       `[compile:rules] this project's rule selection names ${outcome.unresolvedIds.length} ` +
-        `id(s) it does not have: ${outcome.unresolvedIds.join(", ")}. They were ignored. ` +
+        `rule id(s) it does not have: ${outcome.unresolvedIds.join(", ")}. They were ignored. ` +
         `Run \`minsky rules list\` to see what is present, or \`minsky rules enable <id>\` ` +
         `after restoring the file.`
+    );
+  }
+  // Reported separately from the ids above (PR #3651 R1). An unknown preset
+  // name is not a missing file, so "restore the file" is the wrong remedy and
+  // `rules list` is the wrong place to look — `rules presets` is.
+  if (outcome.unresolvedPresets.length > 0) {
+    reasons.push(
+      `[compile:rules] ${outcome.unresolvedPresets.join(", ")} — no such preset. Presets are ` +
+        `derived from the tier metadata on this project's rules, so the available set depends ` +
+        `on which rules it has; run \`minsky rules presets\` to see them.`
     );
   }
   if (outcome.refusedDisables.length > 0) {

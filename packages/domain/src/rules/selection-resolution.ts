@@ -51,6 +51,21 @@ export interface RuleSelectionConfig {
   enabled: string[];
   disabled: string[];
   rung?: RuleRung;
+  /**
+   * Set when the config file EXISTS but could not be parsed (PR #3651 R1).
+   *
+   * "No config yet" and "a YAML typo in the config" both used to produce the
+   * same empty selection, so a malformed file silently made selection
+   * inoperative — the operator's `disabled` entries would quietly stop being
+   * honoured with nothing said. That is the exact class this task exists to
+   * remove, reproduced one layer down. Distinguishing them costs one `code`
+   * check; the message is threaded into `compile`'s run-level report.
+   *
+   * Deliberately NOT thrown: a compile that refuses to run because a project's
+   * config has a typo is worse than one that emits its full corpus and says
+   * why.
+   */
+  parseError?: string;
 }
 
 const RUNG_VALUES: readonly string[] = ["T0", "T1", "T2", "T3", "T4"];
@@ -68,27 +83,48 @@ export function projectConfigPath(workspacePath: string): string {
   return join(workspacePath, ".minsky", "config.yaml");
 }
 
+/** Is this a "no such file" failure, as opposed to a real read/parse problem? */
+function isMissingFile(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
+}
+
 /**
  * Read the selection block from `.minsky/config.yaml`.
  *
- * An unreadable or unparseable file yields the empty selection rather than
- * throwing. That is deliberate and matches the pre-existing reader in
- * `config-operations.ts`: the overwhelmingly common cause is "the project has
- * no config yet", and a compile that refuses to run because a project has not
- * been initialized is worse than one that emits its full corpus.
+ * Never throws — the empty selection is returned in both failure cases, because
+ * a compile that refuses to run because a project has not been initialized is
+ * worse than one that emits its full corpus. But the two cases are DISTINGUISHED
+ * (PR #3651 R1): a missing file is the ordinary uninitialized project and is
+ * silent, while a file that exists and cannot be read or parsed sets
+ * `parseError`, which `compile` reports. Folding them together let a YAML typo
+ * silently disable every selection the operator had made.
  */
 export async function readRuleSelectionConfig(
   workspacePath: string,
   fs: SelectionConfigFsDeps
 ): Promise<RuleSelectionConfig> {
+  const configPath = projectConfigPath(workspacePath);
+  const empty = { presets: [], enabled: [], disabled: [] };
+
+  let content: string;
+  try {
+    content = String(await fs.readFile(configPath, "utf8"));
+  } catch (error) {
+    if (isMissingFile(error)) return empty; // uninitialized project — expected
+    return {
+      ...empty,
+      parseError: `could not read ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
   let raw: Record<string, unknown> = {};
   try {
-    const content = String(await fs.readFile(projectConfigPath(workspacePath), "utf8"));
     raw = (parseYaml(content) as Record<string, unknown> | null) ?? {};
-  } catch {
-    // intentional-swallow: no config, or an unparseable one, is the
-    // no-selection case. See the docblock.
-    return { presets: [], enabled: [], disabled: [] };
+  } catch (error) {
+    return {
+      ...empty,
+      parseError: `could not parse ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
 
   const rules = (raw?.rules as Record<string, unknown>) ?? {};
@@ -113,6 +149,11 @@ export function isSelectionConfigured(config: RuleSelectionConfig): boolean {
     config.presets.length > 0 ||
     config.enabled.length > 0 ||
     config.disabled.length > 0 ||
-    config.rung !== undefined
+    config.rung !== undefined ||
+    // A file that exists and does not parse counts as configured, so the
+    // selection pass runs far enough to REPORT it. Treating it as unconfigured
+    // would take the silent short-circuit and drop the very message that makes
+    // the typo visible.
+    config.parseError !== undefined
   );
 }

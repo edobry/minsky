@@ -166,7 +166,28 @@ function extractRuleDefinition(
  * is one we cannot prove is ours, and the failure directions are not
  * symmetrical. Leaving a stale output costs a stale rule; deleting a user's
  * file costs their work.
+ *
+ * **The banner must be on LINE 2, not merely present** (PR #3651 R1). A
+ * substring check over the whole file would delete a hand-authored rule that
+ * quotes the banner — a rule ABOUT generated files is exactly the kind someone
+ * writes, and it would be deleted for mentioning the thing it documents. Line 2
+ * is where `buildRuleMdc` puts it, immediately after the `---` opener Cursor's
+ * `.mdc` parser requires, so the position is a property of the emitter rather
+ * than a convention this function hopes holds.
  */
+/**
+ * Does this file carry the banner where THIS target emits it — line 2, directly
+ * under the `---` frontmatter opener (`buildRuleMdc`)?
+ *
+ * Exported for the test that pins the false-positive case. Trailing whitespace
+ * is tolerated because an editor may add it; a banner anywhere else in the file
+ * is quoted content, not provenance.
+ */
+export function hasBannerAtEmittedPosition(content: string): boolean {
+  const lines = content.split("\n");
+  return lines[0]?.trimEnd() === "---" && lines[1]?.trimEnd() === GENERATED_BANNER;
+}
+
 async function removeOrphanedRuleOutputs(
   workspacePath: string,
   fs: MinskyCompileFsDeps,
@@ -195,7 +216,7 @@ async function removeOrphanedRuleOutputs(
     } catch {
       continue; // Unreadable — skip rather than risk deleting blind.
     }
-    if (!existing.includes(GENERATED_BANNER)) continue;
+    if (!hasBannerAtEmittedPosition(existing)) continue;
     await fs.unlink?.(entryPath);
     removed.push(entryPath);
   }

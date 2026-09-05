@@ -87,7 +87,7 @@ describe("SC5 — every preset resolves against a freshly initialized project", 
   it("the base preset is non-empty, so the assertion above is not vacuous", () => {
     const corpus = shippedCorpusTiers();
     const presets = deriveRulePresets(corpus, freshProjectRuleIds(corpus));
-    expect(presets.base.length).toBeGreaterThan(0);
+    expect(presets.base ?? []).not.toEqual([]);
   });
 
   // Negative control: the invariant CAN fail. Constructed rather than measured,

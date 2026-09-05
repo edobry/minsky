@@ -154,10 +154,21 @@ export interface RuleSelectionExplanation {
   /** `disabled` entries naming a `base` rule, which cannot be declined. */
   readonly refusedDisables: string[];
   /**
-   * Ids named by `presets` / `enabled` / `disabled` that this project does not
-   * have. SC5: `compile` reports these rather than skipping them silently.
+   * RULE IDS named by `presets` / `enabled` / `disabled` that this project does
+   * not have. SC5: `compile` reports these rather than skipping them silently.
    */
   readonly unresolvedIds: string[];
+  /**
+   * PRESET NAMES in `presets` that resolve to no bundle — kept separate from
+   * `unresolvedIds` (PR #3651 R1).
+   *
+   * They were folded together, and the two have different remedies: a missing
+   * rule id is fixed by restoring a file or correcting a typo, while an unknown
+   * preset name names nothing that could ever be a file. Reported under one
+   * "ids it does not have" banner, an unknown preset sends the user looking
+   * through `rules list` for a rule that was never a rule.
+   */
+  readonly unresolvedPresets: string[];
 }
 
 export function explainRuleSelection(
@@ -185,11 +196,13 @@ export function explainRuleSelection(
   };
 
   // Presets add. A preset name this project does not know is itself
-  // unresolvable — reported, not silently ignored.
+  // unresolvable — reported, not silently ignored, and reported as a PRESET
+  // rather than as a missing rule id (PR #3651 R1).
+  const unresolvedPresets: string[] = [];
   for (const presetName of config.presets) {
     const members = presets[presetName];
     if (members === undefined) {
-      unresolvedIds.push(presetName);
+      unresolvedPresets.push(presetName);
       continue;
     }
     for (const id of members) addNamed(id);
@@ -215,5 +228,6 @@ export function explainRuleSelection(
     active,
     refusedDisables: [...new Set(refusedDisables)].sort(),
     unresolvedIds: [...new Set(unresolvedIds)].sort(),
+    unresolvedPresets: [...new Set(unresolvedPresets)].sort(),
   };
 }

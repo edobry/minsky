@@ -209,12 +209,19 @@ describe("explainRuleSelection — what could not be honoured (mt#573 SC5)", () 
     expect(unresolvedIds).toEqual(["ghost", "phantom"]);
   });
 
-  it("reports a preset NAME the project cannot resolve", () => {
-    const { unresolvedIds } = explainRuleSelection(["a", "b"], config({ presets: ["no-such"] }), {
-      tiers,
-      presets: {},
-    });
-    expect(unresolvedIds).toEqual(["no-such"]);
+  // PR #3651 R1: an unknown preset NAME is reported separately from missing
+  // rule ids. Folded together, `compile` announced a preset name under an
+  // "id(s) it does not have" banner and told the user to restore a file that
+  // was never a file.
+  it("reports a preset NAME separately from missing rule ids", () => {
+    const { unresolvedIds, unresolvedPresets } = explainRuleSelection(
+      ["a", "b"],
+      config({ presets: ["no-such"], enabled: ["ghost"] }),
+      { tiers, presets: {} }
+    );
+    expect(unresolvedPresets).toEqual(["no-such"]);
+    expect(unresolvedIds).toEqual(["ghost"]);
+    expect(unresolvedIds).not.toContain("no-such");
   });
 
   it("reports a preset MEMBER the project does not have", () => {
@@ -226,12 +233,13 @@ describe("explainRuleSelection — what could not be honoured (mt#573 SC5)", () 
   });
 
   it("says nothing when the selection resolves cleanly", () => {
-    const { unresolvedIds, refusedDisables } = explainRuleSelection(
+    const { unresolvedIds, unresolvedPresets, refusedDisables } = explainRuleSelection(
       ["a", "b"],
       config({ disabled: ["b"] }),
       { tiers }
     );
     expect(unresolvedIds).toEqual([]);
+    expect(unresolvedPresets).toEqual([]);
     expect(refusedDisables).toEqual([]);
   });
 });

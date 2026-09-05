@@ -172,7 +172,11 @@ export interface RuleSelectionOutcome {
   readonly sources: RuleSource[];
   readonly deselected: string[];
   readonly unresolvedIds: string[];
+  /** Preset NAMES that resolve to no bundle — a different remedy from an id. */
+  readonly unresolvedPresets: string[];
   readonly refusedDisables: string[];
+  /** Set when the project's config exists and could not be read or parsed. */
+  readonly parseError?: string;
   /** False when the project expressed no selection and nothing was filtered. */
   readonly applied: boolean;
 }
@@ -241,6 +245,7 @@ export async function applyRuleSelection(
       sources,
       deselected: [],
       unresolvedIds: [],
+      unresolvedPresets: [],
       refusedDisables: [],
       applied: false,
     };
@@ -254,16 +259,19 @@ export async function applyRuleSelection(
 
   const ids = sources.map((s) => s.name);
   const presets = deriveRulePresets(tiers, ids, config.rung);
-  const { active, unresolvedIds, refusedDisables } = explainRuleSelection(ids, config, {
-    tiers,
-    presets,
-  });
+  const { active, unresolvedIds, unresolvedPresets, refusedDisables } = explainRuleSelection(
+    ids,
+    config,
+    { tiers, presets }
+  );
 
   return {
     sources: sources.filter((s) => active.has(s.name)),
     deselected: ids.filter((id) => !active.has(id)),
     unresolvedIds,
+    unresolvedPresets,
     refusedDisables,
+    parseError: config.parseError,
     applied: true,
   };
 }
