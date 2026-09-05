@@ -87,11 +87,36 @@ describe("mt#3866 — the capture marker is never stamped without an identity", 
   test("the claim-capture population is non-empty — the assertion has something to check", () => {
     // Without this, deleting every marker would make the test above pass while
     // the invariant became untestable. This is the denominator.
+    //
+    // PR #3656 R3 (non-blocking): the bound was `>= 9`, the population size when
+    // this landed. That number is a census, and a census in an assertion goes
+    // stale the first time a writer is added or retired — failing for a reason
+    // that has nothing to do with the invariant. The floor is now the three
+    // writers mt#3866 adopted, which cannot drop without the adoption being
+    // reverted, and that is exactly what a vacuity guard needs to catch.
     const claimants = hookSources().filter((f) => {
       const src = readFileSync(join(HOOKS_DIR, f), "utf-8");
       return HAND_ROLLED.test(src) || /captureFields\(/.test(src);
     });
-    expect(claimants.length).toBeGreaterThanOrEqual(9);
+    expect(claimants.length).toBeGreaterThanOrEqual(3);
+  });
+
+  test("the three writers mt#3866 adopted still go through captureFields", () => {
+    // The named floor behind the count above. A census cannot say WHICH writers
+    // matter; these three are the ones that carried the defect, so they are the
+    // ones whose regression would be silent.
+    const adopted = [
+      "ask-routing-deferral-detector.ts",
+      "operator-deferral-detector.ts",
+      "pre-narration-detector.ts",
+    ];
+    for (const f of adopted) {
+      const src = readFileSync(join(HOOKS_DIR, f), "utf-8");
+      expect({ file: f, coupled: /\.\.\.captureFields\(/.test(src) }).toEqual({
+        file: f,
+        coupled: true,
+      });
+    }
   });
 
   test("the scan can actually find the pattern — otherwise the assertion above is vacuous", () => {

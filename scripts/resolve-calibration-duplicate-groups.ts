@@ -72,18 +72,43 @@ interface CalibrationEntry {
   readonly context: string;
 }
 
+/**
+ * Parse a JSONL corpus, REPORTING what it could not parse.
+ *
+ * PR #3656 R3 (non-blocking). The first cut swallowed malformed lines silently,
+ * which is the same shape this whole script exists to make visible: a truncated
+ * or partially-written log would shrink the corpus and the run would print a
+ * confident, smaller answer with nothing marking the loss. A calibration log is
+ * append-only from several processes, so a torn final line is a real state, not
+ * a hypothetical.
+ *
+ * Skips are counted and surfaced on stderr rather than thrown on: one bad line
+ * should not make the other 1,555 unreadable. The count is what turns a silent
+ * shrink into something a reader can weigh.
+ */
 function readJsonl(path: string): Record<string, unknown>[] {
-  return readFileSync(path, "utf-8")
+  const lines = readFileSync(path, "utf-8")
     .split("\n")
     .map((l) => l.trim())
-    .filter((l) => l.length > 0)
-    .flatMap((l) => {
-      try {
-        return [JSON.parse(l) as Record<string, unknown>];
-      } catch {
-        return [];
-      }
-    });
+    .filter((l) => l.length > 0);
+
+  let skipped = 0;
+  const parsed = lines.flatMap((l) => {
+    try {
+      return [JSON.parse(l) as Record<string, unknown>];
+    } catch {
+      skipped += 1;
+      return [];
+    }
+  });
+
+  if (skipped > 0) {
+    console.error(
+      `[resolve-duplicate-groups] WARNING: skipped ${skipped} of ${lines.length} unparseable ` +
+        `line(s) in ${path}. Counts below are over ${parsed.length} records, not ${lines.length}.`
+    );
+  }
+  return parsed;
 }
 
 function loadOracle(): OracleEntry[] {
