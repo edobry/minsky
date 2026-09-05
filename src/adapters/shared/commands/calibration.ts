@@ -638,7 +638,13 @@ export function formatResult(results: CalibrationLogResult[], reviewDue: ReviewD
           : d.reason === "all-suppressed"
             ? `  - ${d.name}: ${d.reason} (${d.suppressedSinceLastReview} suppressed, ` +
               `0 injected — nothing reached the operator)`
-            : `  - ${d.name}: ${d.reason} (${d.firesSinceLastReview} new / ${d.totalFires} total fires)`
+            : // mt#4970: same shape, other column. Quoting the suppressed count
+              // here would print 0 and read as "nothing happened", when the
+              // defining fact is that N matches were never eligible to inject.
+              d.reason === "all-withheld"
+              ? `  - ${d.name}: ${d.reason} (${d.logOnlyFamilySinceLastReview} matched in ` +
+                `log-only families, 0 injected — nothing reached the operator)`
+              : `  - ${d.name}: ${d.reason} (${d.firesSinceLastReview} new / ${d.totalFires} total fires)`
       );
     }
     lines.push(

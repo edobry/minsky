@@ -46,12 +46,13 @@ const GUARD = "untaken-action";
 /**
  * The families `turn-end-untaken-action-scan.ts` declares LOG_ONLY.
  *
- * Duplicated here deliberately and ONLY here: this script's whole job is to
- * simulate the writer's declaration over records written before it existed.
- * Production never re-derives this — the writer marks the match, which is the
- * mt#4465 drift lesson this task's SC2 is built on.
+ * IMPORTED from the writer, not restated (PR #3644 R1). This script simulates
+ * the writer's declaration over records written before it existed, so a local
+ * copy would be a second place that has to agree about the family set forever —
+ * the exact mt#4465 drift hazard this task's SC2 exists to remove, reintroduced
+ * in the tool that verifies it.
  */
-const LOG_ONLY_FAMILIES = new Set(["stranded-task-state", "present-progressive-assertion"]);
+import { LOG_ONLY_FAMILIES } from "../.minsky/hooks/turn-end-untaken-action-scan";
 
 /** The 2026-09-04 review window: watermark 0 → 190. */
 const DEFAULT_WINDOW = 190;

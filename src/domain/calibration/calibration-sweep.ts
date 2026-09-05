@@ -2577,6 +2577,15 @@ export interface ReviewDueLog {
   injectedFiresSinceLastReview: number;
   /** Of `firesSinceLastReview`, how many were suppressed before injection (mt#3197). */
   suppressedSinceLastReview: number;
+  /**
+   * Of `firesSinceLastReview`, how many MATCHED but could never inject because
+   * their families are log-only (mt#4970).
+   *
+   * Carried onto the review-due row so the `all-withheld` leg can quote the
+   * column that actually explains it, rather than a suppressed count that is 0
+   * on that leg by construction.
+   */
+  logOnlyFamilySinceLastReview: number;
   totalFires: number;
   distinctPhrases: number;
   reason:
@@ -2585,7 +2594,12 @@ export interface ReviewDueLog {
     | "never-reviewed"
     | "never-fired"
     | "watermark-stranded"
-    | "all-suppressed";
+    | "all-suppressed"
+    // mt#4970. Its OWN reason rather than a reuse of `all-suppressed`: nothing
+    // was suppressed on this leg, so telling a reviewer "every detection was
+    // withheld before injection" would be false. The distinction matters at the
+    // cadence hook, which renders a per-reason sentence.
+    | "all-withheld";
   /**
    * The watermark this log was compared against (mt#4904, PR #3572 R1).
    * Carried so a consumer can render the `watermark-stranded` leg's actual
@@ -2623,6 +2637,7 @@ function toReviewDueLog(
     firesSinceLastReview: r.firesSinceLastReview,
     injectedFiresSinceLastReview: r.injectedFiresSinceLastReview,
     suppressedSinceLastReview: r.suppressedSinceLastReview,
+    logOnlyFamilySinceLastReview: r.logOnlyFamilySinceLastReview,
     totalFires: r.totalFires,
     distinctPhrases: r.distinctPhrases,
     reason,
@@ -2734,8 +2749,21 @@ export function computeReviewDueLogs(
     // than a reuse of the count/time legs, and the cadence hook gives it its
     // own warning text — because "review these fires" is the wrong question for
     // a log with no fires to review.
-    if (r.allSuppressed) {
-      due.push(toReviewDueLog(r, "all-suppressed", wm?.openAskId));
+    // mt#4970 widens this leg from `allSuppressed` to `allWithheld`. The two are
+    // equal for every log without a log-only family, so no existing log changes
+    // routing; what it adds is the log whose volume is log-only, which has
+    // `suppressedSinceLastReview === 0` and so could never satisfy the narrower
+    // flag. Without this the mt#4970 exclusion would push exactly that log out of
+    // review — reintroducing this leg's own cliff through a third column.
+    //
+    // The REASON still distinguishes which column carried it: `all-suppressed`
+    // when detections were genuinely withheld after matching, `all-withheld`
+    // when they were never eligible. Collapsing them would tell a reviewer every
+    // detection was suppressed on a log that suppressed nothing.
+    if (r.allWithheld) {
+      due.push(
+        toReviewDueLog(r, r.allSuppressed ? "all-suppressed" : "all-withheld", wm?.openAskId)
+      );
       continue;
     }
 

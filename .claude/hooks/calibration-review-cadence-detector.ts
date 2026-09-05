@@ -358,6 +358,19 @@ export function formatCadenceWarning(due: ReviewDueLog[]): string {
         `Judge the suppressions, not a false-positive rate: there are no fires to rate.`
       );
     }
+    // mt#4970: the same shape one column over, and it needs its own sentence for
+    // the same reason the leg above does. Saying "suppressed N" here would be
+    // false — nothing was suppressed; these matches were never eligible to
+    // inject — and the number to judge is the log-only volume, not a
+    // suppression count that is 0 on this leg by construction.
+    if (d.reason === "all-withheld") {
+      return (
+        `  - ${d.name}: matched ${d.logOnlyFamilySinceLastReview} of ` +
+        `${d.firesSinceLastReview} detection(s) in LOG-ONLY families and injected NONE — the ` +
+        `detector is running and the operator has seen nothing. Is this arm too broad? ` +
+        `Judge the matches, not a false-positive rate: there are no fires to rate.`
+      );
+    }
     const reasonLabel =
       d.reason === "past-threshold"
         ? "past review threshold (fires + diversity)"

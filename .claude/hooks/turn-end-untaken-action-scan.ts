@@ -1124,7 +1124,7 @@ export const STRANDED_TASK_FAMILY = "stranded-task-state";
  * A family is added here by a DELIBERATE edit, so promoting an arm to injecting
  * is a one-line removal that shows up in review rather than an emergent effect.
  */
-const LOG_ONLY_FAMILIES: ReadonlySet<string> = new Set([
+export const LOG_ONLY_FAMILIES: ReadonlySet<string> = new Set([
   STRANDED_TASK_FAMILY,
   PRESENT_PROGRESSIVE_FAMILY,
 ]);

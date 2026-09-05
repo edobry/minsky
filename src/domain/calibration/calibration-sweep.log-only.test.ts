@@ -18,6 +18,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   computeLogResult,
+  computeReviewDueLogs,
   isLogOnlyFamilyRecord,
   parseCalibrationRecord,
   FIRES_THRESHOLD,
@@ -37,6 +38,8 @@ const STRANDED = "stranded-task-state";
 const PRESENT_PROGRESSIVE = "present-progressive-assertion";
 /** An injecting family from the same detector. */
 const ILL_ACTION = "ill-action";
+/** One of the detector's real suppression reasons. */
+const SUPPRESSION_REASON = "armed-watcher-evidence";
 
 /** One second after a base timestamp per index — cheap, always unique/valid ISO-8601. */
 function isoAt(baseIso: string, i: number): string {
@@ -152,7 +155,7 @@ describe("computeLogResult — log-only families are excluded from the injected 
     // Suppression is checked first, so the two columns never double-count the
     // same record — `firesSinceLastReview` stays the sum of the parts.
     const content = buildLog([
-      { matches: [LOG_ONLY_MATCH], suppressionReasons: ["armed-watcher-evidence"] },
+      { matches: [LOG_ONLY_MATCH], suppressionReasons: [SUPPRESSION_REASON] },
       { matches: [LOG_ONLY_MATCH] },
     ]);
     const result = computeLogResult(UNTAKEN_ENTRY, content, true, undefined);
@@ -193,6 +196,32 @@ describe("computeLogResult — the review-due cliff the exclusion would otherwis
     // The compounding trap mt#4049 names: routed for review AND handed the
     // records that answer "is this arm too broad?".
     expect(result.newRecords.length).toBe(FIRES_THRESHOLD);
+
+    // ROUTING, not the flag. PR #3644 R1 was BLOCKING because the assertions
+    // above all passed while `computeReviewDueLogs` still keyed its leg on
+    // `allSuppressed` — the log computed as withheld and was never surfaced.
+    // `allWithheld` is a proxy for the outcome; this is the outcome.
+    const due = computeReviewDueLogs([result], {}, Date.parse(BASE));
+    expect(due.map((d) => d.name)).toEqual([UNTAKEN_KIND]);
+    expect(due[0]?.reason).toBe("all-withheld");
+    expect(due[0]?.logOnlyFamilySinceLastReview).toBe(FIRES_THRESHOLD);
+  });
+
+  test("the reason stays `all-suppressed` when suppression is what carried it", () => {
+    // The two legs must remain distinguishable: telling a reviewer every
+    // detection was suppressed on a log that suppressed nothing is false, and
+    // the cadence hook renders a different sentence for each.
+    const content = buildLog(
+      Array.from({ length: FIRES_THRESHOLD }, () => ({
+        matches: [INJECTING_MATCH],
+        suppressionReasons: [SUPPRESSION_REASON],
+      }))
+    );
+    const result = computeLogResult(UNTAKEN_ENTRY, content, true, undefined);
+    const due = computeReviewDueLogs([result], {}, Date.parse(BASE));
+
+    expect(result.allSuppressed).toBe(true);
+    expect(due[0]?.reason).toBe("all-suppressed");
   });
 
   test("a log-only log BELOW the bar is not routed — the volume question is unchanged", () => {
@@ -212,7 +241,7 @@ describe("computeLogResult — the review-due cliff the exclusion would otherwis
     const content = buildLog([
       ...Array.from({ length: half }, () => ({
         matches: [LOG_ONLY_MATCH],
-        suppressionReasons: ["armed-watcher-evidence"],
+        suppressionReasons: [SUPPRESSION_REASON],
       })),
       ...Array.from({ length: FIRES_THRESHOLD - half }, () => ({ matches: [LOG_ONLY_MATCH] })),
     ]);
