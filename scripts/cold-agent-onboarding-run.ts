@@ -36,7 +36,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "fs";
-import { tmpdir } from "os";
+import { homedir, tmpdir } from "os";
 import { delimiter, dirname, join } from "path";
 
 // ---------------------------------------------------------------------------
@@ -194,20 +194,42 @@ export function evaluateIsolation(obs: IsolationObservations): ChannelVerdict[] 
 }
 
 /**
- * Preconditions on the sandbox itself — things whose ABSENCE would make the run
- * fail for a reason that has nothing to do with what is being measured.
+ * Tools the HARNESS itself invokes. Distinct from what the cold agent needs:
+ * these are the instrument's own dependencies, and a missing one produces an
+ * opaque failure partway through rather than a clear refusal up front.
+ *
+ * `docker` and `git` are only reached on the `--execute` path, so requiring
+ * them in assertion mode would refuse a run that would have worked.
+ */
+export const REQUIRED_TOOLS = {
+  always: ["claude"],
+  execute: ["docker", "git"],
+} as const;
+
+/**
+ * Preconditions — things whose ABSENCE would make the run fail for a reason
+ * that has nothing to do with what is being measured.
  *
  * A run that dies because Bun is missing produces a transcript full of
  * install-a-runtime friction, and every finding read off it would be a finding
- * about the harness. Fail loudly here instead.
+ * about the harness. Same for a missing `docker`: the failure surfaces as
+ * "disposable Postgres never became ready", which reads like an infrastructure
+ * problem rather than a tool that was never installed. Fail loudly, up front,
+ * naming the tool.
  */
-export function preconditionFailures(obs: IsolationObservations): string[] {
+export function preconditionFailures(
+  obs: IsolationObservations,
+  missingTools: string[] = []
+): string[] {
   const failures: string[] = [];
   if (obs.bunBinaryPath === null) {
     failures.push(
       "bun is not on the sandboxed PATH — the README names it a prerequisite, " +
         "so the sandbox must carry it forward rather than strip it with minsky"
     );
+  }
+  for (const tool of missingTools) {
+    failures.push(`${tool} is not available, and the harness invokes it directly`);
   }
   return failures;
 }
@@ -364,15 +386,44 @@ function resolveBinary(env: NodeJS.ProcessEnv, name: string): string | null {
   return r.status === 0 && out.length > 0 ? out : null;
 }
 
+/**
+ * Server NAMES from `claude mcp list`, never whole lines: the output renders
+ * "<name>: <command>" and the command half can carry a token.
+ *
+ * Failure direction matters more than precision here. A name this parse MISSES
+ * reads as an absent server, which reports the channel ISOLATED when it is not
+ * — a false pass in the one direction the whole harness exists to prevent. So
+ * the name pattern is permissive (anything up to the first colon that is not
+ * itself a URL scheme), and a line that looks like an entry but yields no name
+ * is surfaced as `UNPARSED:<line-prefix>` rather than dropped, so the channel
+ * opens instead of silently closing.
+ */
+export function parseMcpServerNames(output: string): string[] {
+  const names: string[] = [];
+  for (const raw of output.split("\n")) {
+    const line = raw.trim();
+    if (line === "" || line.startsWith("#")) continue;
+    // Skip a bare URL line ("http://..."), whose scheme colon is not a name.
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(line)) continue;
+    const colon = line.indexOf(":");
+    // No colon at all is not an entry. A colon at position 0 IS an entry with
+    // an empty name — the two must not collapse, because skipping the second
+    // drops a server silently and closes the channel.
+    if (colon < 0) continue;
+    const name = line.slice(0, colon).trim();
+    if (name === "") {
+      names.push(`UNPARSED:${line.slice(0, 24)}`);
+      continue;
+    }
+    names.push(name);
+  }
+  return names;
+}
+
 function listMcpServers(env: NodeJS.ProcessEnv, strict: boolean): string[] {
   const args = strict ? ["mcp", "list", "--strict-mcp-config"] : ["mcp", "list"];
   const r = spawnSync("claude", args, { env, encoding: "utf8", timeout: 60_000 });
-  const out = ((r.stdout ?? "") + (r.stderr ?? "")).split("\n");
-  // Project server NAMES only. `claude mcp list` renders "<name>: <command>",
-  // and the command half can carry a token, so never keep the whole line.
-  return out
-    .map((line) => /^([A-Za-z0-9_.-]+):/.exec(line.trim())?.[1])
-    .filter((n): n is string => Boolean(n));
+  return parseMcpServerNames((r.stdout ?? "") + (r.stderr ?? ""));
 }
 
 async function probeDaemonUnauthenticated(): Promise<number | null> {
@@ -420,6 +471,44 @@ export async function observe(opts: ObserveOptions): Promise<IsolationObservatio
 // ---------------------------------------------------------------------------
 // Reporting
 // ---------------------------------------------------------------------------
+
+/**
+ * The run record — SC2's "records the exact argv and the NAMES of the env vars
+ * it set (never their values)".
+ *
+ * The never-their-values half is the whole design constraint: this env carries
+ * `ANTHROPIC_API_KEY` and the record is written to disk, so it stores the key
+ * SET, never the value. A record that dumped the environment would be a
+ * credential file.
+ */
+export interface RunRecord {
+  startedAt: string;
+  target: string | null;
+  targetCarriedFiles: string[];
+  argv: string[];
+  sandboxEnvVarNames: string[];
+  channels: ChannelVerdict[];
+  negativeControl: ChannelVerdict[];
+  preconditionFailures: string[];
+  transcriptPath: string | null;
+  transcriptRedactions: number;
+}
+
+/**
+ * Env var names the sandbox SETS, sorted. Names only — see `RunRecord`.
+ *
+ * Derived by diffing against the base environment rather than from a hardcoded
+ * list, so a variable added to `buildSandboxEnv` later cannot silently escape
+ * the record.
+ */
+export function sandboxEnvVarNames(
+  base: NodeJS.ProcessEnv,
+  sandboxed: NodeJS.ProcessEnv
+): string[] {
+  return Object.keys(sandboxed)
+    .filter((k) => sandboxed[k] !== base[k])
+    .sort();
+}
 
 export function renderVerdicts(title: string, verdicts: ChannelVerdict[]): string {
   const lines = [title];
@@ -486,6 +575,31 @@ async function resolveAnthropicKey(): Promise<string> {
  * are writes to state this run does not own. A container is created and
  * destroyed whole.
  */
+/**
+ * A port nothing is listening on, found by asking rather than by arithmetic.
+ *
+ * The previous `45000 + (nowMs % 2000)` is a hash of the clock, not a check:
+ * two runs in the same millisecond-mod-2000 window collide, and the failure
+ * surfaces as "Postgres never became ready" — indistinguishable from a broken
+ * image pull.
+ */
+export function findFreePort(
+  isBusy: (port: number) => boolean,
+  start = 45000,
+  span = 2000
+): number {
+  for (let i = 0; i < span; i++) {
+    const port = start + i;
+    if (!isBusy(port)) return port;
+  }
+  throw new Error(`no free port in ${start}..${start + span}`);
+}
+
+function portIsBusy(port: number): boolean {
+  // `nc -z` exits 0 when something accepts, non-zero when nothing does.
+  return spawnSync("nc", ["-z", "127.0.0.1", String(port)], { timeout: 5_000 }).status === 0;
+}
+
 function startDisposablePostgres(port: number): { url: string; containerName: string } {
   const containerName = `mt5012-pg-${port}`;
   const password = `pw${Math.random().toString(36).slice(2, 12)}`;
@@ -569,14 +683,30 @@ function targetColdness(targetDir: string): string[] {
 export interface RunOptions {
   execute: boolean;
   target: string | null;
+  outDir: string;
   nowMs: number;
 }
 
+/**
+ * Where run records land. Outside the repository by default — a run record is
+ * durable, not committed, and the transcript it points at carries the target
+ * project's content.
+ */
+export const DEFAULT_OUT_DIR = join(homedir(), ".local", "state", "minsky", "cold-agent-runs");
+
+function flagValue(argv: string[], flag: string): string | null {
+  const i = argv.indexOf(flag);
+  if (i < 0) return null;
+  const next = argv[i + 1];
+  // A value that is itself a flag means the value was omitted.
+  return next === undefined || next.startsWith("--") ? null : next;
+}
+
 export function parseArgs(argv: string[], nowMs: number = Date.now()): RunOptions {
-  const targetIdx = argv.indexOf("--target");
   return {
     execute: argv.includes("--execute"),
-    target: targetIdx >= 0 ? (argv[targetIdx + 1] ?? null) : null,
+    target: flagValue(argv, "--target"),
+    outDir: flagValue(argv, "--out-dir") ?? DEFAULT_OUT_DIR,
     nowMs,
   };
 }
@@ -600,7 +730,20 @@ async function main(argv: string[]): Promise<number> {
 
   const failures: string[] = [];
   let pgContainer: string | null = null;
+  let transcriptPath: string | null = null;
+  let transcriptRedactions = 0;
+  let targetCarried: string[] = [];
+  let dispatchArgv: string[] = [];
+  let envVarNames: string[] = [];
+  let sandboxed: ChannelVerdict[] = [];
+  let unsandboxed: ChannelVerdict[] = [];
+  let preconditions: string[] = [];
   try {
+    const missingTools = [
+      ...REQUIRED_TOOLS.always,
+      ...(opts.execute ? REQUIRED_TOOLS.execute : []),
+    ].filter((tool) => resolveBinary(process.env, tool) === null);
+
     const apiKey = await resolveAnthropicKey();
     const operatorMinskyPath = resolveBinary(process.env, "minsky");
 
@@ -619,24 +762,25 @@ async function main(argv: string[]): Promise<number> {
       daemonTokenPath: paths.daemonTokenPath,
       strictMcpConfig: true,
     });
-    const sandboxed = evaluateIsolation(sandboxedObs);
+    envVarNames = sandboxEnvVarNames(process.env, env);
+    sandboxed = evaluateIsolation(sandboxedObs);
     console.log(renderVerdicts("AT1 — under the sandbox:", sandboxed));
     for (const v of sandboxed) {
       if (!v.isolated) failures.push(`AT1: channel still open — ${v.label} (${v.detail})`);
     }
 
-    const preconditions = preconditionFailures(sandboxedObs);
+    preconditions = preconditionFailures(sandboxedObs, missingTools);
     console.log(
       preconditions.length === 0
-        ? `  PRECONDITION  bun available at ${sandboxedObs.bunBinaryPath}`
-        : `  PRECONDITION  FAILED`
+        ? `  PRECONDITION  bun at ${sandboxedObs.bunBinaryPath}; harness tools present`
+        : `  PRECONDITION  FAILED: ${preconditions.join("; ")}`
     );
     failures.push(...preconditions.map((p) => `precondition: ${p}`));
 
     // --- AT2: the same suite must FAIL without the sandbox ----------------
     const operatorConfigHome =
       process.env.XDG_CONFIG_HOME ?? join(process.env.HOME ?? "", ".config");
-    const unsandboxed = evaluateIsolation(
+    unsandboxed = evaluateIsolation(
       await observe({
         env: process.env,
         claudeConfigDir: join(process.env.HOME ?? "", ".claude"),
@@ -664,14 +808,14 @@ async function main(argv: string[]): Promise<number> {
 
       const workspace = join(paths.root, "workspace");
       cloneTarget(opts.target, workspace);
-      const carried = targetColdness(workspace);
+      targetCarried = targetColdness(workspace);
       console.log(
-        `\nTarget ${opts.target} carries ${carried.length} tracked onboarding file(s)${
-          carried.length > 0 ? `: ${carried.join(", ")} — NOT a cold repo` : " — cold"
+        `\nTarget ${opts.target} carries ${targetCarried.length} tracked onboarding file(s)${
+          targetCarried.length > 0 ? `: ${targetCarried.join(", ")} — NOT a cold repo` : " — cold"
         }`
       );
 
-      const pg = startDisposablePostgres(45000 + (opts.nowMs % 2000));
+      const pg = startDisposablePostgres(findFreePort(portIsBusy));
       pgContainer = pg.containerName;
       if (!waitForPostgres(pg.containerName)) {
         throw new Error(`disposable Postgres never became ready (${pg.containerName})`);
@@ -679,6 +823,22 @@ async function main(argv: string[]): Promise<number> {
       console.log(`Disposable empty Postgres ready in container ${pg.containerName}`);
 
       const started = new Date(opts.nowMs).toISOString();
+      // Captured for the run record BEFORE dispatch. The prompt carries the
+      // throwaway connection string, so the recorded argv is scrubbed the same
+      // way the transcript is — see where the record is written.
+      dispatchArgv = [
+        "claude",
+        "-p",
+        "<prompt>",
+        "--strict-mcp-config",
+        "--model",
+        "fable",
+        "--permission-mode",
+        "bypassPermissions",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+      ];
       const r = spawnSync(
         "claude",
         [
@@ -701,12 +861,28 @@ async function main(argv: string[]): Promise<number> {
         ],
         { cwd: workspace, env, encoding: "utf8", timeout: 1_800_000 }
       );
-      const transcript = (r.stdout ?? "") + (r.stderr ?? "");
-      writeFileSync(paths.transcriptPath, transcript);
-      console.log(`\nRun started ${started}; transcript at ${paths.transcriptPath}`);
+      const raw = (r.stdout ?? "") + (r.stderr ?? "");
+
+      // Scrub BEFORE persisting. The transcript records an agent that was handed
+      // a connection string and told to configure a database with it, so it can
+      // carry credentials by construction — and this run's whole point is that
+      // its output gets read by people and pasted into task specs. The vetted
+      // shape list is reused rather than hand-rolled: a pattern written here
+      // would be a hypothesis about the text, and one that matches nothing emits
+      // its input unchanged, indistinguishable from a redaction that fired.
+      const { scrubText } = await import("@minsky/domain/transcripts/credential-scrubber");
+      const scrubbed = scrubText(raw);
+      transcriptRedactions = scrubbed.redactions.length;
+
+      writeFileSync(paths.transcriptPath, scrubbed.text);
+      transcriptPath = paths.transcriptPath;
+      console.log(
+        `\nRun started ${started}; transcript at ${paths.transcriptPath}` +
+          ` (${transcriptRedactions} redaction(s))`
+      );
       // Exit status is NOT the success signal: a "Not logged in" failure exits 0
       // (measured 2026-09-05). Assert on content.
-      if (/Not logged in/i.test(transcript) || transcript.trim().length === 0) {
+      if (/Not logged in/i.test(scrubbed.text) || scrubbed.text.trim().length === 0) {
         failures.push("run produced no usable transcript (check auth and the target path)");
       }
     }
@@ -715,8 +891,32 @@ async function main(argv: string[]): Promise<number> {
     // port and a password, and leaving one running is a side effect on the
     // operator's machine that AT4 forbids.
     if (pgContainer) stopDisposablePostgres(pgContainer);
+
+    // The run record is written on every path too, including a failed one — a
+    // run that fell over is exactly the one whose argv and channel verdicts
+    // someone will want to read. It goes to `--out-dir`, which defaults OUTSIDE
+    // the repository: the transcript is scrubbed but not sanitised of the
+    // target project's content, and a durable record is not the same thing as
+    // a committed one.
+    const record: RunRecord = {
+      startedAt: new Date(opts.nowMs).toISOString(),
+      target: opts.target,
+      targetCarriedFiles: targetCarried,
+      argv: dispatchArgv,
+      sandboxEnvVarNames: envVarNames,
+      channels: sandboxed,
+      negativeControl: unsandboxed,
+      preconditionFailures: preconditions,
+      transcriptPath,
+      transcriptRedactions,
+    };
+    mkdirSync(opts.outDir, { recursive: true });
+    const recordPath = join(opts.outDir, `run-${opts.nowMs}.json`);
+    writeFileSync(recordPath, `${JSON.stringify(record, null, 2)}\n`);
+    console.log(`\nRun record: ${recordPath}`);
+
     // The sandbox root survives an --execute run on purpose — it holds the
-    // transcript, which is the deliverable.
+    // transcript the record points at.
     if (!opts.execute) rmSync(root, { recursive: true, force: true });
   }
 

@@ -4,13 +4,18 @@ import {
   buildSandboxEnv,
   buildSandboxPath,
   CHANNELS,
+  DEFAULT_OUT_DIR,
   evaluateIsolation,
+  findFreePort,
   negativeControlGaps,
   NEGATIVE_CONTROL_CHANNELS,
   parseArgs,
+  parseMcpServerNames,
   POSTGRES_ENV_VARS,
   preconditionFailures,
   renderVerdicts,
+  REQUIRED_TOOLS,
+  sandboxEnvVarNames,
   sandboxPathsUnder,
   stripPathEntry,
   type IsolationObservations,
@@ -298,6 +303,21 @@ describe("parseArgs", () => {
   test("takes the clock as a parameter so a run record is reproducible", () => {
     expect(parseArgs([], 1_700_000_000_000).nowMs).toBe(1_700_000_000_000);
   });
+
+  test("defaults the run-record directory outside the repository", () => {
+    expect(parseArgs([], 0).outDir).toBe(DEFAULT_OUT_DIR);
+    expect(DEFAULT_OUT_DIR).not.toContain("/minsky/scripts");
+  });
+
+  test("reads --out-dir", () => {
+    expect(parseArgs(["--out-dir", "/tmp/records"], 0).outDir).toBe("/tmp/records");
+  });
+
+  test("treats a flag following --target as an omitted value, not as the value", () => {
+    // `--target --execute` used to yield target "--execute", which would then
+    // be cloned as a repo path.
+    expect(parseArgs(["--target", "--execute"], 0).target).toBeNull();
+  });
 });
 
 describe("buildColdAgentPrompt", () => {
@@ -328,6 +348,109 @@ describe("buildColdAgentPrompt", () => {
     expect(prompt).not.toContain("minsky init");
     expect(prompt).not.toContain("minsky setup");
     expect(prompt).not.toContain("bun add");
+  });
+});
+
+describe("parseMcpServerNames", () => {
+  // The failure DIRECTION is what these pin. A missed name reads as an absent
+  // server, which reports the channel ISOLATED when it is not — a false pass in
+  // the one direction the harness exists to prevent.
+  test("reads the name from the standard '<name>: <command>' shape", () => {
+    expect(parseMcpServerNames("minsky: bun run shim.ts\ngithub: bunx gh-mcp")).toEqual([
+      "minsky",
+      "github",
+    ]);
+  });
+
+  test("keeps a name containing spaces, which the old character class dropped", () => {
+    expect(parseMcpServerNames("my minsky server: bun run shim.ts")).toEqual(["my minsky server"]);
+  });
+
+  test("keeps a name the old anchored pattern would have missed after indentation", () => {
+    expect(parseMcpServerNames("    minsky: bun run shim.ts")).toEqual(["minsky"]);
+  });
+
+  test("skips a bare URL line, whose scheme colon is not a name", () => {
+    expect(parseMcpServerNames("https://example.com/mcp")).toEqual([]);
+  });
+
+  test("skips blank and comment lines", () => {
+    expect(parseMcpServerNames("\n\n# Configured servers\n")).toEqual([]);
+  });
+
+  test("surfaces an entry-shaped line it cannot name rather than dropping it", () => {
+    // Dropping it would close the channel silently; surfacing it opens the
+    // channel and makes a human look.
+    const names = parseMcpServerNames("  : bun run shim.ts");
+    expect(names).toHaveLength(1);
+    expect(names[0]).toStartWith("UNPARSED:");
+  });
+});
+
+describe("sandboxEnvVarNames", () => {
+  test("reports the names of variables the sandbox set", () => {
+    const names = sandboxEnvVarNames({ PATH: "/usr/bin" }, { PATH: "/sbx:/usr/bin", FOO: "1" });
+    expect(names).toEqual(["FOO", "PATH"]);
+  });
+
+  test("NEVER reports a value — the record is written to disk beside an API key", () => {
+    const secret = "sk-ant-".padEnd(40, "x");
+    const names = sandboxEnvVarNames({}, { ANTHROPIC_API_KEY: secret });
+    expect(names).toEqual(["ANTHROPIC_API_KEY"]);
+    expect(JSON.stringify(names)).not.toContain(secret);
+  });
+
+  test("is derived by diff, so a variable added to buildSandboxEnv cannot escape it", () => {
+    const paths = sandboxPathsUnder("/tmp/sbx");
+    const env = buildSandboxEnv({}, paths, "sk-ant-".padEnd(40, "x"), null);
+    const names = sandboxEnvVarNames({}, env);
+    for (const expected of ["CLAUDE_CONFIG_DIR", "MINSKY_STATE_DIR", "BUN_INSTALL", "PATH"]) {
+      expect(names).toContain(expected);
+    }
+  });
+
+  test("omits a variable the sandbox left untouched", () => {
+    expect(sandboxEnvVarNames({ HOME: "/h" }, { HOME: "/h" })).toEqual([]);
+  });
+});
+
+describe("findFreePort", () => {
+  test("returns the first port nothing is listening on", () => {
+    expect(findFreePort((p) => p < 45003, 45000, 10)).toBe(45003);
+  });
+
+  test("returns the base port when it is already free", () => {
+    expect(findFreePort(() => false, 45000, 10)).toBe(45000);
+  });
+
+  test("throws rather than returning a busy port when the span is exhausted", () => {
+    // The old arithmetic could not fail visibly: a collision surfaced as
+    // "Postgres never became ready", indistinguishable from a bad image pull.
+    expect(() => findFreePort(() => true, 45000, 5)).toThrow("no free port");
+  });
+});
+
+describe("preconditionFailures — harness tools", () => {
+  test("names each missing tool the harness itself invokes", () => {
+    const failures = preconditionFailures(SANDBOXED, ["docker", "git"]);
+    expect(failures).toHaveLength(2);
+    expect(failures.join(" ")).toContain("docker");
+    expect(failures.join(" ")).toContain("git");
+  });
+
+  test("passes when nothing is missing", () => {
+    expect(preconditionFailures(SANDBOXED, [])).toEqual([]);
+  });
+
+  test("reports a missing tool alongside a missing prerequisite, not instead of it", () => {
+    const failures = preconditionFailures({ ...SANDBOXED, bunBinaryPath: null }, ["docker"]);
+    expect(failures).toHaveLength(2);
+  });
+
+  test("scopes docker and git to the execute path", () => {
+    // Requiring them in assertion mode would refuse a run that would work.
+    expect(REQUIRED_TOOLS.always).not.toContain("docker");
+    expect(REQUIRED_TOOLS.execute).toContain("docker");
   });
 });
 
