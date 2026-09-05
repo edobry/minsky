@@ -27,7 +27,15 @@
 
 import "reflect-metadata";
 import { spawnSync } from "child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "fs";
 import { tmpdir } from "os";
 import { delimiter, dirname, join } from "path";
 
@@ -57,6 +65,14 @@ export interface IsolationObservations {
   mcpServerNames: string[];
   /** Absolute path `minsky` resolves to on this PATH, or null. */
   minskyBinaryPath: string | null;
+  /**
+   * Absolute path `bun` resolves to on this PATH, or null. NOT a contamination
+   * channel — the README names Bun a prerequisite, so its ABSENCE is a broken
+   * sandbox rather than a clean one. Checked as a precondition (see
+   * `preconditionFailures`) so the run cannot fail for the wrong reason and be
+   * read as a Minsky finding.
+   */
+  bunBinaryPath: string | null;
   /** Whether an operator Minsky config file is readable at this XDG root. */
   minskyConfigPresent: boolean;
   /** Whether a local-daemon bearer token is readable at this token path. */
@@ -178,6 +194,25 @@ export function evaluateIsolation(obs: IsolationObservations): ChannelVerdict[] 
 }
 
 /**
+ * Preconditions on the sandbox itself — things whose ABSENCE would make the run
+ * fail for a reason that has nothing to do with what is being measured.
+ *
+ * A run that dies because Bun is missing produces a transcript full of
+ * install-a-runtime friction, and every finding read off it would be a finding
+ * about the harness. Fail loudly here instead.
+ */
+export function preconditionFailures(obs: IsolationObservations): string[] {
+  const failures: string[] = [];
+  if (obs.bunBinaryPath === null) {
+    failures.push(
+      "bun is not on the sandboxed PATH — the README names it a prerequisite, " +
+        "so the sandbox must carry it forward rather than strip it with minsky"
+    );
+  }
+  return failures;
+}
+
+/**
  * AT2's shape, as a pure function: which channels the negative control must
  * show OPEN when the sandbox is absent.
  *
@@ -214,6 +249,12 @@ export interface SandboxPaths {
   minskyStateDir: string;
   daemonTokenPath: string;
   transcriptPath: string;
+  /** Holds symlinks to the prerequisites a new user already has (bun). */
+  binDir: string;
+  /** `BUN_INSTALL`, so `bun add -g` lands here and not in the operator's dir. */
+  bunInstallDir: string;
+  /** `npm config prefix`, for the same reason on the README's npm branch. */
+  npmPrefixDir: string;
 }
 
 export function sandboxPathsUnder(root: string): SandboxPaths {
@@ -226,6 +267,9 @@ export function sandboxPathsUnder(root: string): SandboxPaths {
     minskyStateDir: join(root, "minsky-state"),
     daemonTokenPath: join(root, "minsky-state", "local-mcp-token"),
     transcriptPath: join(root, "transcript.txt"),
+    binDir: join(root, "bin"),
+    bunInstallDir: join(root, "bun-install"),
+    npmPrefixDir: join(root, "npm-prefix"),
   };
 }
 
@@ -246,6 +290,26 @@ export function stripPathEntry(pathValue: string, binaryPath: string | null): st
     .split(delimiter)
     .filter((entry) => entry !== "" && entry !== dir)
     .join(delimiter);
+}
+
+/**
+ * The sandbox's PATH: the operator's, minus the directory holding `minsky`,
+ * plus the sandbox's own bin directories in front.
+ *
+ * The strip has to take the whole DIRECTORY — there is no per-binary hiding on
+ * PATH — and on this machine `bun` lives in that same directory
+ * (`~/.bun/bin`). But the README treats Bun as a PREREQUISITE rather than part
+ * of Minsky's onboarding, so removing it would make the run measure Bun
+ * installation instead. `binDir` carries a symlink to the real `bun` back in,
+ * which keeps the prerequisite and drops only the thing under test.
+ */
+export function buildSandboxPath(
+  basePath: string,
+  minskyBinaryPath: string | null,
+  prepend: string[]
+): string {
+  const stripped = stripPathEntry(basePath, minskyBinaryPath);
+  return [...prepend, ...(stripped === "" ? [] : stripped.split(delimiter))].join(delimiter);
 }
 
 /**
@@ -273,7 +337,18 @@ export function buildSandboxEnv(
   env.MINSKY_STATE_DIR = paths.minskyStateDir;
   env.MINSKY_LOCAL_MCP_TOKEN_PATH = paths.daemonTokenPath;
   env.ANTHROPIC_API_KEY = apiKey;
-  env.PATH = stripPathEntry(base.PATH ?? "", minskyBinaryPath);
+
+  // Global installs must land in the sandbox. Without these, the cold agent
+  // following the README's `bun add -g @edobry/minsky` would install into the
+  // OPERATOR's `~/.bun/bin` — contaminating the machine the run is supposed to
+  // leave untouched (AT4), and leaving a stray global package behind.
+  env.BUN_INSTALL = paths.bunInstallDir;
+  env.NPM_CONFIG_PREFIX = paths.npmPrefixDir;
+  env.PATH = buildSandboxPath(base.PATH ?? "", minskyBinaryPath, [
+    paths.binDir,
+    join(paths.bunInstallDir, "bin"),
+    join(paths.npmPrefixDir, "bin"),
+  ]);
   return env;
 }
 
@@ -333,6 +408,7 @@ export async function observe(opts: ObserveOptions): Promise<IsolationObservatio
   return {
     mcpServerNames: listMcpServers(opts.env, opts.strictMcpConfig),
     minskyBinaryPath: resolveBinary(opts.env, "minsky"),
+    bunBinaryPath: resolveBinary(opts.env, "bun"),
     minskyConfigPresent: existsSync(opts.minskyConfigPath),
     daemonTokenPresent: existsSync(opts.daemonTokenPath),
     daemonUnauthenticatedMcpStatus: await probeDaemonUnauthenticated(),
@@ -422,6 +498,9 @@ async function main(argv: string[]): Promise<number> {
     paths.xdgDataHome,
     paths.xdgStateHome,
     paths.minskyStateDir,
+    paths.binDir,
+    join(paths.bunInstallDir, "bin"),
+    join(paths.npmPrefixDir, "bin"),
   ]) {
     mkdirSync(dir, { recursive: true });
   }
@@ -430,22 +509,35 @@ async function main(argv: string[]): Promise<number> {
   try {
     const apiKey = await resolveAnthropicKey();
     const operatorMinskyPath = resolveBinary(process.env, "minsky");
+
+    // Carry the prerequisite across the strip. `bun` shares a directory with
+    // `minsky` here, and PATH can only drop whole directories.
+    const operatorBunPath = resolveBinary(process.env, "bun");
+    if (operatorBunPath) symlinkSync(operatorBunPath, join(paths.binDir, "bun"));
+
     const env = buildSandboxEnv(process.env, paths, apiKey, operatorMinskyPath);
 
     // --- AT1: the sandbox closes every channel ---------------------------
-    const sandboxed = evaluateIsolation(
-      await observe({
-        env,
-        claudeConfigDir: paths.claudeConfigDir,
-        minskyConfigPath: join(paths.xdgConfigHome, "minsky", "config.yaml"),
-        daemonTokenPath: paths.daemonTokenPath,
-        strictMcpConfig: true,
-      })
-    );
+    const sandboxedObs = await observe({
+      env,
+      claudeConfigDir: paths.claudeConfigDir,
+      minskyConfigPath: join(paths.xdgConfigHome, "minsky", "config.yaml"),
+      daemonTokenPath: paths.daemonTokenPath,
+      strictMcpConfig: true,
+    });
+    const sandboxed = evaluateIsolation(sandboxedObs);
     console.log(renderVerdicts("AT1 — under the sandbox:", sandboxed));
     for (const v of sandboxed) {
       if (!v.isolated) failures.push(`AT1: channel still open — ${v.label} (${v.detail})`);
     }
+
+    const preconditions = preconditionFailures(sandboxedObs);
+    console.log(
+      preconditions.length === 0
+        ? `  PRECONDITION  bun available at ${sandboxedObs.bunBinaryPath}`
+        : `  PRECONDITION  FAILED`
+    );
+    failures.push(...preconditions.map((p) => `precondition: ${p}`));
 
     // --- AT2: the same suite must FAIL without the sandbox ----------------
     const operatorConfigHome =

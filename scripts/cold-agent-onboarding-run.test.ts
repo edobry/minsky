@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildSandboxEnv,
+  buildSandboxPath,
   CHANNELS,
   evaluateIsolation,
   negativeControlGaps,
   NEGATIVE_CONTROL_CHANNELS,
   parseArgs,
   POSTGRES_ENV_VARS,
+  preconditionFailures,
   renderVerdicts,
   sandboxPathsUnder,
   stripPathEntry,
@@ -17,6 +19,7 @@ import {
 const SANDBOXED: IsolationObservations = {
   mcpServerNames: [],
   minskyBinaryPath: null,
+  bunBinaryPath: "/tmp/sbx/bin/bun",
   minskyConfigPresent: false,
   daemonTokenPresent: false,
   daemonUnauthenticatedMcpStatus: 401,
@@ -38,12 +41,17 @@ const SANDBOXED: IsolationObservations = {
 const OPERATOR_MACHINE: IsolationObservations = {
   mcpServerNames: ["minsky"],
   minskyBinaryPath: "/Users/someone/.bun/bin/minsky",
+  bunBinaryPath: "/Users/someone/.bun/bin/bun",
   minskyConfigPresent: true,
   daemonTokenPresent: true,
   daemonUnauthenticatedMcpStatus: 401,
   claudeCustomizationEntries: ["CLAUDE.md", "skills", "plugins", "commands"],
   postgresEnvVarsPresent: [],
 };
+
+/** The operator's install location, shared by the PATH-stripping tests. */
+const OPERATOR_BIN_DIR = "/home/u/.bun/bin";
+const OPERATOR_MINSKY_BIN = `${OPERATOR_BIN_DIR}/minsky`;
 
 function verdictFor(obs: IsolationObservations, channel: string) {
   const v = evaluateIsolation(obs).find((entry) => entry.channel === channel);
@@ -194,12 +202,80 @@ describe("buildSandboxEnv", () => {
 
   test("removes the operator's minsky install from PATH", () => {
     const env = buildSandboxEnv(
-      { PATH: "/usr/bin:/home/u/.bun/bin" },
+      { PATH: `/usr/bin:${OPERATOR_BIN_DIR}` },
       paths,
       "sk-ant-".padEnd(40, "x"),
-      "/home/u/.bun/bin/minsky"
+      OPERATOR_MINSKY_BIN
     );
-    expect(env.PATH).toBe("/usr/bin");
+    // Asserted as absence plus retention, not as an exact string: the sandbox
+    // bin dirs are prepended, so an equality check here would break every time
+    // one is added and would say nothing about what this test is for.
+    const entries = (env.PATH ?? "").split(":");
+    expect(entries).not.toContain(OPERATOR_BIN_DIR);
+    expect(entries).toContain("/usr/bin");
+  });
+});
+
+describe("buildSandboxPath", () => {
+  // `bun` and `minsky` share a directory on this machine, so the strip that
+  // removes one removes the other. These assert the prerequisite comes back.
+  test("prepends the sandbox bin dirs ahead of the operator's PATH", () => {
+    const result = buildSandboxPath("/usr/bin:/bin", null, ["/sbx/bin", "/sbx/bun/bin"]);
+    expect(result).toBe("/sbx/bin:/sbx/bun/bin:/usr/bin:/bin");
+  });
+
+  test("still removes the directory holding minsky", () => {
+    const result = buildSandboxPath(`/usr/bin:${OPERATOR_BIN_DIR}`, OPERATOR_MINSKY_BIN, [
+      "/sbx/bin",
+    ]);
+    expect(result).toBe("/sbx/bin:/usr/bin");
+    expect(result).not.toContain(OPERATOR_BIN_DIR);
+  });
+
+  test("yields only the prepended dirs when the operator PATH is empty", () => {
+    expect(buildSandboxPath("", null, ["/sbx/bin"])).toBe("/sbx/bin");
+  });
+});
+
+describe("preconditionFailures", () => {
+  test("passes when bun is reachable in the sandbox", () => {
+    expect(preconditionFailures(SANDBOXED)).toEqual([]);
+  });
+
+  test("fails when the strip took bun along with minsky", () => {
+    const failures = preconditionFailures({ ...SANDBOXED, bunBinaryPath: null });
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain("prerequisite");
+  });
+
+  test("a missing bun is NOT reported as a contamination channel", () => {
+    // It is the opposite of contamination — a broken sandbox, not a clean one.
+    // Reading it as an isolated channel would let a harness failure be written
+    // up as a Minsky onboarding finding.
+    const verdicts = evaluateIsolation({ ...SANDBOXED, bunBinaryPath: null });
+    expect(verdicts.every((v) => v.isolated)).toBe(true);
+  });
+});
+
+describe("buildSandboxEnv global-install redirection", () => {
+  const paths = sandboxPathsUnder("/tmp/sbx");
+
+  test("points BUN_INSTALL at the sandbox so `bun add -g` cannot touch the operator's bin", () => {
+    const env = buildSandboxEnv({}, paths, "sk-ant-".padEnd(40, "x"), null);
+    expect(env.BUN_INSTALL).toBe(paths.bunInstallDir);
+  });
+
+  test("points npm's prefix at the sandbox too, for the README's npm branch", () => {
+    const env = buildSandboxEnv({}, paths, "sk-ant-".padEnd(40, "x"), null);
+    expect(env.NPM_CONFIG_PREFIX).toBe(paths.npmPrefixDir);
+  });
+
+  test("puts both sandbox install dirs on PATH ahead of everything else", () => {
+    const env = buildSandboxEnv({ PATH: "/usr/bin" }, paths, "sk-ant-".padEnd(40, "x"), null);
+    const entries = (env.PATH ?? "").split(":");
+    expect(entries[0]).toBe(paths.binDir);
+    expect(entries).toContain(`${paths.bunInstallDir}/bin`);
+    expect(entries).toContain(`${paths.npmPrefixDir}/bin`);
   });
 });
 
