@@ -120,6 +120,18 @@ async function main(): Promise<void> {
       const found = spawnSync("lsof", ["-ti", `tcp:${SCRATCH_PORT}`, "-sTCP:LISTEN"], {
         encoding: "utf-8",
       });
+      if (found.error !== undefined) {
+        // `lsof` is a POSIX-developer-machine assumption, and this script is a
+        // developer-machine verifier — but a cleanup that silently does nothing
+        // would leave a daemon running on the scratch port and the NEXT run
+        // would "SKIP: something is already serving", reading as an environment
+        // quirk rather than a leak (PR #3658 R1).
+        console.error(
+          `\ncleanup FAILED: could not run lsof (${found.error.message}). A daemon may still be ` +
+            `listening on port ${SCRATCH_PORT} — stop it manually.`
+        );
+        process.exit(1);
+      }
       const pids = (found.stdout ?? "")
         .trim()
         .split("\n")

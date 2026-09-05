@@ -51,6 +51,44 @@ describe("mt#4707 — translating the daemon-ensuring result", () => {
     expect(outcome.reason).toContain("already answered by something else");
   });
 
+  it("PR #3658 R1 — the daemon layer's write claim never reaches the operator", async () => {
+    // `ensureDaemonRunning` ends every refusal with "Nothing has been written."
+    // That is true for its own caller and FALSE here: `setup`/`init` write the
+    // client config regardless, so forwarding it verbatim produced two
+    // contradictory sentences in one message. The diagnosis is kept; the claim
+    // is not.
+    const outcome = await ensureLocalDaemonForSetup("/repo", {
+      argv: ARGV,
+      ensure: async () => {
+        throw new Error(
+          "Refusing to migrate onto the local MCP daemon at http://127.0.0.1:48765/health: " +
+            "it reports unhealthy. Restart the daemon and re-run once /health reports ready. " +
+            "Nothing has been written."
+        );
+      },
+    });
+
+    if (outcome.kind !== "unavailable") throw new Error("expected an unavailable outcome");
+    expect(outcome.reason).not.toContain("Nothing has been written");
+    // The useful half survives — the operator still learns which URL and why.
+    expect(outcome.reason).toContain("http://127.0.0.1:48765/health");
+    expect(outcome.reason).toContain("reports unhealthy");
+  });
+
+  it("leaves a message that carries no write claim untouched", async () => {
+    // The stripper must be a no-op on messages that never had the sentence,
+    // rather than mangling them — the failure mode of a filter nobody checks.
+    const outcome = await ensureLocalDaemonForSetup("/repo", {
+      argv: ARGV,
+      ensure: async () => {
+        throw new Error("spawn ENOENT: bun not found on PATH");
+      },
+    });
+
+    if (outcome.kind !== "unavailable") throw new Error("expected an unavailable outcome");
+    expect(outcome.reason).toBe("spawn ENOENT: bun not found on PATH");
+  });
+
   it("passes the repo path through to the spawn command", async () => {
     // The daemon is machine-wide but its spawn line carries a `--repo`, and
     // which repo it picked is a real choice the operator can be shown.

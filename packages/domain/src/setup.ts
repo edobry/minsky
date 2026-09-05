@@ -173,14 +173,27 @@ export async function performSetup(
   let localDaemon: LocalDaemonEnsureOutcome | undefined;
   if (client === "claude-code" && setupDeps.ensureLocalDaemon !== undefined) {
     localDaemon = await setupDeps.ensureLocalDaemon(repoPath);
+    if (localDaemon.kind === "started") {
+      // Said out loud (PR #3658 R1): this starts a long-lived background process
+      // the operator did not ask for by name. Silent process creation is the
+      // kind of thing someone later finds in `ps` and cannot account for.
+      log.cli(
+        `Started the shared Minsky MCP daemon — your ${client} config talks to it over ` +
+          `http://127.0.0.1:48765. Check it any time with \`minsky mcp status\`.`
+      );
+    }
     if (localDaemon.kind === "unavailable") {
       // Surfaced, never swallowed — same posture as `initializeProject`'s
       // observability-hook block: a project that is otherwise correctly set up
       // must not fail because one machine-local process could not be started,
       // but an operator whose tool calls will stall for 15s per call has to
       // hear about it.
+      // No command name in the prefix (PR #3658 R1): `performSetup` is reached
+      // from BOTH `minsky setup` and `minsky init` Phase 2, so naming either one
+      // is wrong half the time — and an operator who ran `init` being told
+      // "minsky setup:" has to work out whether they mis-read their own command.
       log.cliWarn(
-        `minsky setup: the shared MCP daemon is not running and could not be started — ` +
+        `The shared MCP daemon is not running and could not be started — ` +
           `${localDaemon.reason}\nYour ${client} config was written and is correct, but every ` +
           `MCP tool call will retry for ~15s and fail until a daemon is serving. ` +
           `Start one with \`minsky mcp start --http --local-daemon\`, or run ` +

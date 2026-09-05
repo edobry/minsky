@@ -69,9 +69,41 @@ export async function ensureLocalDaemonForSetup(
     // Every failure lands here as a REASON, never as a thrown refusal — see the
     // module docblock. `ensureDaemonRunning` distinguishes `foreign` (something
     // else holds the port) from `not-ready` (a daemon that cannot serve), and
-    // both messages already name the condition and the health URL, so the
-    // message is forwarded rather than re-derived. A spawn that never becomes
-    // healthy within the retry budget arrives here too.
-    return { kind: "unavailable", reason: error instanceof Error ? error.message : String(error) };
+    // both messages already name the condition and the health URL, which is
+    // worth keeping. What must NOT survive is the write claim they end with.
+    return {
+      kind: "unavailable",
+      reason: stripWriteClaim(error instanceof Error ? error.message : String(error)),
+    };
   }
+}
+
+/**
+ * The sentence `ensureDaemonRunning` appends to every refusal, verbatim.
+ *
+ * Its three throw sites all end with this, and it is TRUE for its original
+ * caller — `runSetupLocalHttp` calls it before its only write. It is false here:
+ * `setup`/`init` go on to write the client config regardless, so forwarding it
+ * hands the operator two contradictory sentences in one message ("Nothing has
+ * been written." immediately followed by "your config was written").
+ *
+ * Caught by review on PR #3658 — the module docblock argued for exactly this
+ * boundary and the first implementation then forwarded the message verbatim,
+ * which put the claim across it anyway.
+ */
+const WRITE_CLAIM = "Nothing has been written.";
+
+/**
+ * Drop the daemon layer's write claim, keeping its diagnosis.
+ *
+ * Deliberately NOT a regex over the message shape: a hand-written pattern that
+ * matches nothing passes its input through UNCHANGED and is indistinguishable
+ * from one that fired (mem#808, mem#972). This is an exact-substring removal of
+ * a constant that lives beside the site that emits it, and
+ * `ensure-local-daemon-for-setup.test.ts` asserts the phrase never survives into
+ * an `unavailable` reason — so a reworded upstream message fails a test rather
+ * than silently reintroducing the contradiction.
+ */
+function stripWriteClaim(message: string): string {
+  return message.split(WRITE_CLAIM).join("").replace(/\s+$/, "").trim();
 }
