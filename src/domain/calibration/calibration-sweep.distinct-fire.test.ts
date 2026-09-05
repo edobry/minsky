@@ -17,6 +17,7 @@
  */
 import { describe, test, expect } from "bun:test";
 
+import { JUDGED_TEXT_HASH_FIELD } from "../../../.minsky/hooks/judged-input-capture";
 import { countDistinctFires, distinctFireFields, parseCalibrationLines } from "./calibration-sweep";
 
 const KIND = "ask-routing-deferral" as const;
@@ -30,10 +31,15 @@ const KIND = "ask-routing-deferral" as const;
 const SHARED_DIGEST = "a698ea3cbbbdc11c";
 
 /** One record as the detector actually writes it, post-mt#3866. */
-function record(opts: { timestamp: string; hash?: string; context?: string }): string {
+function record(opts: {
+  timestamp: string;
+  hash?: string;
+  context?: string;
+  sessionId?: string;
+}): string {
   return JSON.stringify({
     timestamp: opts.timestamp,
-    session_id: "131d7153-0000-4000-8000-000000000000",
+    session_id: opts.sessionId ?? "131d7153-0000-4000-8000-000000000000",
     injection_enabled: true,
     captureSchema: 1,
     ...(opts.hash !== undefined ? { judged_text_hash: opts.hash } : {}),
@@ -152,5 +158,42 @@ describe("mt#3866 — distinctFireFields maps to the result's own field names", 
       distinctFiresSinceLastReview: 0,
       ungroupableSinceLastReview: 0,
     });
+  });
+});
+
+describe("mt#3866 — the grouping key is SESSION-scoped (PR #3656 R1, BLOCKING)", () => {
+  test("the identical sentence in TWO sessions is two distinct fires, not one", () => {
+    // The regression the reviewer caught. A digest-only key collapses these,
+    // and this corpus is full of sentences an agent emits every session — a
+    // turn-end closing line, "Say the word". Two conversations are two fires
+    // however identical their prose.
+    const lines = [
+      record({ timestamp: "2026-09-04T16:57:19.553Z", hash: SHARED_DIGEST, sessionId: "sess-a" }),
+      record({ timestamp: "2026-09-04T17:20:00.000Z", hash: SHARED_DIGEST, sessionId: "sess-b" }),
+    ].join("\n");
+
+    const { distinct, ungroupable } = countDistinctFires(parseCalibrationLines(lines, KIND));
+    expect(distinct).toBe(2);
+    expect(ungroupable).toBe(0);
+  });
+
+  test("the control: the same sentence in ONE session is still one fire", () => {
+    // Without this, the fix above could be "never group anything" and pass.
+    const lines = [
+      record({ timestamp: "2026-09-04T16:57:19.553Z", hash: SHARED_DIGEST, sessionId: "sess-a" }),
+      record({ timestamp: "2026-09-04T16:58:26.797Z", hash: SHARED_DIGEST, sessionId: "sess-a" }),
+    ].join("\n");
+
+    expect(countDistinctFires(parseCalibrationLines(lines, KIND)).distinct).toBe(1);
+  });
+});
+
+describe("mt#3866 — the duplicated field name cannot drift (PR #3656 R1)", () => {
+  test("the sweep's key and the hook's constant are the same string", () => {
+    // `calibration-sweep.ts` duplicates the name rather than importing it — the
+    // domain tree does not depend on the hook tree, the same convention
+    // `CAPTURE_SCHEMA_KEY` already follows. A duplicated constant with no test
+    // is how the two drift; this is the test.
+    expect(JUDGED_TEXT_HASH_FIELD).toBe("judged_text_hash");
   });
 });

@@ -2264,6 +2264,22 @@ function readJudgedTextHash(record: CalibrationRecord): string | undefined {
 }
 
 /**
+ * Read a record's conversation id, or `""` when it carries none.
+ *
+ * `session_id` is declared on nine per-kind record interfaces and NOT on
+ * {@link SharedCalibrationFields}, so a union-wide read needs its own accessor.
+ * `""` is a deliberate sentinel rather than `undefined`: it makes every
+ * session-less record share one grouping bucket, which is the same conservative
+ * direction the rest of this function takes — those records were already
+ * indistinguishable from each other, and collapsing them changes nothing a
+ * caller could have relied on.
+ */
+function readSessionId(record: CalibrationRecord): string {
+  const value = (record as { session_id?: unknown }).session_id;
+  return typeof value === "string" ? value : "";
+}
+
+/**
  * Split a record set into DISTINCT fires and UN-GROUPABLE ones (mt#3866).
  *
  * ## The un-groupable column is the point, not a rounding detail
@@ -2290,14 +2306,28 @@ export function countDistinctFires(records: CalibrationRecord[]): {
   distinct: number;
   ungroupable: number;
 } {
-  const digests = new Set<string>();
+  const keys = new Set<string>();
   let ungroupable = 0;
   for (const record of records) {
     const digest = readJudgedTextHash(record);
-    if (digest === undefined) ungroupable += 1;
-    else digests.add(digest);
+    if (digest === undefined) {
+      ungroupable += 1;
+      continue;
+    }
+    // PR #3656 R1 (BLOCKING): scope the key to the SESSION.
+    //
+    // A digest-only key collapses two different conversations that happened to
+    // emit the same sentence into one distinct fire — and this corpus is full
+    // of sentences an agent emits in every session ("Say the word", a turn-end
+    // report's closing line). That is an UNDER-count, the exact mirror of the
+    // over-count this function exists to remove, and just as unfounded: two
+    // sessions are two fires no matter how identical their prose.
+    //
+    // Same key shape `resolve-calibration-duplicate-groups.ts` already uses for
+    // its groups, which is why that script did not have the defect.
+    keys.add(`${readSessionId(record)}::${digest}`);
   }
-  return { distinct: digests.size, ungroupable };
+  return { distinct: keys.size, ungroupable };
 }
 
 /**

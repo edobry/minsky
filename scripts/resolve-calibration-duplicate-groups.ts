@@ -132,20 +132,49 @@ function loadCalibration(detector: string): CalibrationEntry[] {
   });
 }
 
+/**
+ * Group the oracle by session once, so the join is not O(records x oracle).
+ *
+ * PR #3656 R1 (non-blocking). The scan was linear over all 659 oracle entries
+ * per record; at the corpus sizes this reads — 1,556 records against 659 oracle
+ * entries is the largest pairing today — that is fine, and it is fine only
+ * because the corpus is small. Both grow monotonically (these logs are
+ * append-only), so the index is the version that stays correct rather than the
+ * version that is currently fast enough.
+ */
+function indexBySession(oracle: OracleEntry[]): Map<string, OracleEntry[]> {
+  const bySession = new Map<string, OracleEntry[]>();
+  for (const o of oracle) {
+    const bucket = bySession.get(o.sessionId);
+    if (bucket === undefined) bySession.set(o.sessionId, [o]);
+    else bucket.push(o);
+  }
+  // Sorted so the windowed scan below can stop early rather than read the
+  // whole session's history for every record.
+  for (const bucket of bySession.values()) bucket.sort((x, y) => x.atMs - y.atMs);
+  return bySession;
+}
+
 /** Nearest oracle entry in the same session within `toleranceMs`, or undefined. */
 function borrowDigest(
   entry: CalibrationEntry,
-  oracle: OracleEntry[],
+  bySession: Map<string, OracleEntry[]>,
   toleranceMs: number
 ): OracleEntry | undefined {
+  const bucket = bySession.get(entry.sessionId);
+  if (bucket === undefined) return undefined;
+
   let best: OracleEntry | undefined;
   let bestDelta = Number.POSITIVE_INFINITY;
-  for (const o of oracle) {
-    if (o.sessionId !== entry.sessionId) continue;
-    const delta = Math.abs(o.atMs - entry.atMs);
-    if (delta <= toleranceMs && delta < bestDelta) {
+  for (const o of bucket) {
+    const delta = o.atMs - entry.atMs;
+    // Sorted ascending, so once an entry is past the window every later one is
+    // too.
+    if (delta > toleranceMs) break;
+    const absDelta = Math.abs(delta);
+    if (absDelta <= toleranceMs && absDelta < bestDelta) {
       best = o;
-      bestDelta = delta;
+      bestDelta = absDelta;
     }
   }
   return best;
@@ -163,6 +192,7 @@ function main(): void {
 
   const oracle = loadOracle();
   const records = loadCalibration(detector);
+  const oracleBySession = indexBySession(oracle);
 
   // A GROUP is records sharing a session AND a byte-identical match context —
   // the shape a reviewer sees and cannot resolve. Singletons are not ambiguous
@@ -186,7 +216,7 @@ function main(): void {
   let unresolvable = 0;
 
   for (const group of duplicates) {
-    const borrowed = group.map((e) => ({ e, o: borrowDigest(e, oracle, toleranceMs) }));
+    const borrowed = group.map((e) => ({ e, o: borrowDigest(e, oracleBySession, toleranceMs) }));
     const digests = new Set(borrowed.map(({ o }) => o?.hash).filter((h): h is string => !!h));
     const missing = borrowed.filter(({ o }) => o === undefined).length;
 

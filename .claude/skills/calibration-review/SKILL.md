@@ -165,6 +165,33 @@ never reached the operator and is NOT a fire for cadence purposes),
 unreviewed matches), and `openAskId` (mt#2659 — set when a prior pass filed a
 disposition Ask for this log that hasn't been resolved yet).
 
+**`distinctFiresSinceLastReview` and `ungroupableSinceLastReview` bound the fire
+count to a RANGE — read them as a pair, never singly (mt#3866).** `firesSinceLastReview`
+is a RECORD count, and a record is not a fire: one message re-scanned across
+several turns writes several records. Measured on `ask-routing-deferral`, 6 of
+its duplicate groups resolved to 5 re-scans and 1 genuinely-distinct pair, so a
+raw count over such a window overstates by roughly 18%.
+
+- **`distinctFiresSinceLastReview`** — records grouped by `(session_id,
+  judged-text digest)`. Session-scoped deliberately: the identical closing
+  sentence in two conversations is two fires, and a digest-only key would
+  collapse them.
+- **`ungroupableSinceLastReview`** — records carrying NO digest, i.e. written
+  before mt#3866 or by a writer that has not adopted `captureFields`. These are
+  in NEITHER column, because an un-groupable record is not evidence of a
+  distinct fire and not evidence of a duplicate.
+
+So `distinct: 3, ungroupable: 8` means the true count is somewhere in `[3, 11]`
+and only the first number is measured. **Quote the range, not a point estimate**,
+whenever `ungroupableSinceLastReview` is non-zero — and note that on a
+pre-mt#3866 window `distinctFires` is 0 and says nothing at all.
+
+To resolve a historical group that carries no digest, run
+`bun scripts/resolve-calibration-duplicate-groups.ts <detector>` — it borrows a
+digest from a sibling evaluation stream on `(session_id, timestamp ± 1s)`. Only
+`causal-premise` hashes its judged input today, so `unresolvable` is the common
+verdict and means "no oracle covered that turn", never "these are distinct".
+
 ### Step 1a — Reconcile any already-open disposition ask (mt#2659)
 
 Before doing new FP-classification work, check any log whose `openAskId` is
