@@ -644,14 +644,18 @@ function startDisposablePostgres(port: number): { url: string; containerName: st
   return { url: url.toString(), containerName };
 }
 
-function waitForPostgres(containerName: string): boolean {
+async function waitForPostgres(containerName: string): Promise<boolean> {
   for (let i = 0; i < 60; i++) {
     const r = spawnSync("docker", ["exec", containerName, "pg_isready", "-U", "postgres"], {
       encoding: "utf8",
       timeout: 10_000,
     });
     if (r.status === 0) return true;
-    spawnSync("sleep", ["1"]);
+    // An in-process delay, not `spawnSync("sleep", ["1"])`. A reviewer caught
+    // `sleep` as an undeclared dependency — the THIRD tool this list has been
+    // missing — and the lesson is not to lengthen the list: a shell-out that a
+    // language primitive does just as well is a dependency bought for nothing.
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   }
   return false;
 }
@@ -827,7 +831,7 @@ async function main(argv: string[]): Promise<number> {
 
       const pg = startDisposablePostgres(findFreePort(portIsBusy));
       pgContainer = pg.containerName;
-      if (!waitForPostgres(pg.containerName)) {
+      if (!(await waitForPostgres(pg.containerName))) {
         throw new Error(`disposable Postgres never became ready (${pg.containerName})`);
       }
       console.log(`Disposable empty Postgres ready in container ${pg.containerName}`);
