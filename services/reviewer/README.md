@@ -563,7 +563,7 @@ Outbound model and GitHub API calls are wrapped with `AbortController` timeouts.
 
 **Defaults and production latency (calibrated 2026-05-24):**
 
-- `REVIEWER_MODEL_TIMEOUT_MS=120000` — model API calls (OpenAI / Anthropic / Google). 120s per tool-loop round. Successful reviews complete in 50-60s. Transient timeouts (provider-side latency spikes) are recovered by `callToolloopWithRetry` in 10-20s; a second retry layer in `callReviewerWithRetry` catches any that propagate (mt#2083).
+- `REVIEWER_MODEL_TIMEOUT_MS=120000` — model API calls (OpenAI / Anthropic / Google). 120s per tool-loop round. Timing-out rounds are recovered by `callToolloopWithRetry`; a second retry layer in `callReviewerWithRetry` catches any that propagate (mt#2083). **Two figures in this bullet were re-calibrated 2026-09-05 (mt#4996) and the originals are left here only as a pointer to what changed.** "Successful reviews complete in 50-60s" was a 2026-05-24 figure; over all history a clean review runs p50 99.6s / p95 244.7s, and a single completing tool-loop _round_ runs p50 7.7s / p99.9 105.0s. And the recovered cases are not "provider-side latency spikes" — see the settled-decision subsection below.
 - `REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS=120000` — retry ceiling when a tool-loop round times out. Matches the primary timeout. Tunable at call time without redeploy.
 - `REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT=true` — enable/disable the per-round timeout retry. Default `"true"`.
 - `REVIEWER_GITHUB_TIMEOUT_MS=30000` — GitHub REST and GraphQL calls. 30s is generous; happy-path GitHub calls return in <5s. Lower it if you want to surface GitHub-side latency faster.
@@ -574,7 +574,46 @@ Outbound model and GitHub API calls are wrapped with `AbortController` timeouts.
 
 **Observing timeouts:** when a call exceeds its budget, a structured-shape JSON log is emitted to stderr with `event: "timeout"`, the operation name (e.g. `openai.chat.completions.create.toolloop`, `github.pulls.listFiles`), the configured `timeoutMs`, and elapsed `durationMs`. Then a typed `TimeoutError` propagates through `runReview` where `callReviewerWithRetry` retries once (mt#2083). If the retry also fails, the error is caught by the detached-review handler in `server.ts` and logged as `review_error`. The webhook returns 200 immediately on receipt regardless (ack-immediate per mt#1191); the sweeper (mt#1260) catches missed reviews on its next pass, so GitHub-level retry is not required here.
 
-**Tuning advice:** start with the defaults. If model timeouts fire on legitimate review activity, the right move is usually to lower `reasoning_effort` rather than to raise the timeout — a model that needs >2 min on a Tier-3 PR is usually exhausting reasoning budget without producing useful output. If GitHub timeouts fire, check that the reviewer App's installation token is current and that you aren't rate-limited.
+**Tuning advice:** start with the defaults, and for the model timeout specifically, do not change it at all — see the next subsection. **The advice this paragraph used to give for model timeouts was wrong and is corrected here (mt#4996, 2026-09-05):** it said to lower `reasoning_effort` rather than raise the timeout, on the theory that "a model that needs >2 min on a Tier-3 PR is usually exhausting reasoning budget without producing useful output." A timing-out round is not a round that ran long — it is one that returned nothing at all, so trimming reasoning budget would degrade review quality without reducing timeouts. If GitHub timeouts fire, check that the reviewer App's installation token is current and that you aren't rate-limited.
+
+### The 120s model timeout is settled — do not tune it (mt#4996)
+
+Decided 2026-09-05 after mt#1897 measured the failure and mt#4996 chose the remedy. The chosen
+remedy is **the existing retry stack**; no code changed. Recorded here because the question was
+re-opened three times and twice answered from percentiles that were artifacts of this very cap
+(mem#1373).
+
+**What the cap is doing, over 53,038 completing rounds across all reviewer history:** p50 7.7s,
+p95 38.2s, p99 62.3s, p99.9 105.0s, max 118.0s. Only 33 rounds (0.062%) exceed 110s.
+
+- **Do not lower it.** It already sits above p99.9. Lowering it starts truncating real work, and a
+  truncated round has already spent its reasoning tokens and must start over.
+- **Do not raise it.** A round at the cap produced _nothing_, not something slow. Every observed
+  failure is at `round=0`, and PR #3625 burned four consecutive 120s attempts across two retry
+  layers without completing a single round. More budget makes each failure longer and recovers
+  nothing.
+- **The retry layers are the remedy, and they work.** 134 timeout events all-time, **133
+  recovered** — one unrecovered row in 103 days. Recovered retries land in 2.7s–95.3s on a fresh
+  connection, which is the same finding from the other side: the connection is stuck, the work is
+  not slow.
+- **Bursts recur and have been survived.** Eight days in 103 carry ≥5 timeout events, roughly one
+  every 13 days. The heaviest (2026-08-18, 27 events across 15 of 103 reviews) recovered 27 of 27.
+
+**The remedy that was declined, and why it is not a config change.** Stall detection — a
+time-to-first-token or stream-idle budget — is what the failure shape points at, since a hung
+request emits zero bytes and could be abandoned in seconds. It is not reachable from configuration:
+the tool loop calls `chat.completions.create` **non-streaming**, so no byte arrives before the whole
+completion does. There is no first token to time. Adopting it means converting the loop to
+streaming, alongside tool-call accumulation, the emission guards (mt#2828 / mt#2863) and usage
+accounting. Migrating to the Responses API is tracked separately as a **cost** lever under mt#2718,
+where its justification (cache utilization) is stronger than the timeout question supplies.
+
+**Reopen the question — do not re-derive the measurement — if any of these hold over a rolling 30
+days:** ≥2 `timeout-unrecovered` rows (baseline: 1 in 103 days); event-level recovery below 95%
+(baseline 99.25%); or completing-round p99.9 crossing 115s (baseline 105.0s), which is the one
+condition that would make the cap genuinely tight against real work. The unrecovered case also pages
+on its own via `reviewer-pre-submit-failure/v1` (mt#4881). Full reasoning and the queries:
+mt#4996 `## DECISION 2026-09-05`.
 
 ## Running a model A/B on production traffic (mt#4569)
 
