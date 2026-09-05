@@ -336,7 +336,12 @@ export async function initializeProject(
     //
     // `claude-rules` is unconditional: it is the channel that now carries both
     // tiers, and it is the one Claude Code always reads.
-    const initTargets = (await claudeMdIsOurs(repoPath))
+    // `fileSystem`, not the real disk: `initializeProject` is driven by an
+    // injected `FsLike`, and reaching past it made this decision depend on
+    // whatever happened to be at `<repoPath>/CLAUDE.md` on the machine running
+    // the tests (PR #3646 CI — green locally on a stale `/tmp/test-repo`, red in
+    // CI without one).
+    const initTargets = (await claudeMdIsOurs(repoPath, fileSystem))
       ? ["claude.md", "claude-rules"]
       : ["claude-rules"];
 

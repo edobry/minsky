@@ -30,8 +30,24 @@
 
 import realFs from "fs/promises";
 import { join } from "path";
-import type { MinskyCompileFsDeps } from "./types";
+
 import { GENERATION_BANNER_PATTERNS } from "../rules/compile/banner-constants";
+
+/**
+ * The only capability this module needs: read a file as text.
+ *
+ * Narrower than `MinskyCompileFsDeps` on purpose (PR #3646 CI). Both that type
+ * and `FsLike` — the interface `init.ts` is handed — satisfy it structurally, so
+ * every caller can inject the filesystem it already has rather than falling back
+ * to the real one. An earlier revision took `MinskyCompileFsDeps`, which
+ * `init.ts` does not have, so its call ran against the REAL disk while the rest
+ * of `initializeProject` ran on an injected mock. That made four init tests
+ * depend on whether `/tmp/test-repo/CLAUDE.md` happened to exist on the machine:
+ * green locally where a stale one did, red in CI where it did not.
+ */
+export interface MonolithicOwnershipFs {
+  readFile(path: string, encoding: "utf-8"): Promise<string>;
+}
 
 /**
  * How many leading lines are scanned for the banner.
@@ -106,9 +122,9 @@ export function hasGenerationBanner(content: string): boolean {
  */
 export async function readMonolithicOwnership(
   outputPath: string,
-  fsDeps?: MinskyCompileFsDeps
+  fsDeps?: MonolithicOwnershipFs
 ): Promise<MonolithicOwnership> {
-  const fs = fsDeps ?? (realFs as MinskyCompileFsDeps);
+  const fs: MonolithicOwnershipFs = fsDeps ?? (realFs as MonolithicOwnershipFs);
   let content: string;
   try {
     content = await fs.readFile(outputPath, "utf-8");
@@ -128,7 +144,7 @@ export async function readMonolithicOwnership(
  */
 export async function isForeignMonolith(
   outputPath: string,
-  fsDeps?: MinskyCompileFsDeps
+  fsDeps?: MonolithicOwnershipFs
 ): Promise<boolean> {
   const ownership = await readMonolithicOwnership(outputPath, fsDeps);
   return ownership === "foreign" || ownership === "unreadable";
@@ -154,7 +170,7 @@ export async function isForeignMonolith(
  */
 export async function claudeMdIsOurs(
   workspacePath: string,
-  fsDeps?: MinskyCompileFsDeps
+  fsDeps?: MonolithicOwnershipFs
 ): Promise<boolean> {
   const claudeMdPath = join(workspacePath, MONOLITHIC_TARGET_OUTPUTS["claude.md"]);
   return (await readMonolithicOwnership(claudeMdPath, fsDeps)) === "generated";
@@ -170,7 +186,7 @@ export async function claudeMdIsOurs(
  */
 export async function monolithicSkipIfNotOurs(
   outputPath: string,
-  fsDeps?: MinskyCompileFsDeps
+  fsDeps?: MonolithicOwnershipFs
 ): Promise<{ path: string; reason: string } | undefined> {
   const ownership = await readMonolithicOwnership(outputPath, fsDeps);
   if (ownership === "generated" || ownership === "absent") return undefined;
