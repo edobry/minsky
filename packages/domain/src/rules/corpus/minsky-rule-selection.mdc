@@ -1,0 +1,55 @@
+---
+name: Minsky Rule Selection
+description: After minsky init, walk the user through the optional rules it installed and record what they decline.
+alwaysApply: true
+tags:
+  - minsky
+  - init
+  - rules
+plane: product
+tier: base
+minimumRung: T1
+---
+# Walk the user through the rules Minsky installed
+
+`minsky init` installs Minsky's **base** rules plus its **optional** ones, and returns the
+optional list. Base rules cannot be declined — Minsky does not work without them. The optional
+ones are the user's call, and **they stay installed until someone asks.** Asking is your job.
+
+## When this fires
+
+Right after `minsky init` runs in this project, and any time the user asks what rules they have
+or wants to change them. If `init` reported no optional rules, there is nothing to ask about —
+say so in one line and move on.
+
+## What to do
+
+1. **Read the optional list from `init`'s result.** It carries each rule's id and a one-line
+   description. Under the MCP tool the list is the `declinable` field; on the command line it is
+   printed in the output. Do not go looking for the files — the list is handed to you.
+2. **Present it to the user in one pass, not one question per rule.** Give each rule its id and
+   its description in a single message, and ask which — if any — they want to turn off. Use
+   whatever question affordance your harness has. A user who says "keep them all" is finished.
+3. **Record each choice as they make it:** `minsky rules disable <id>` to decline,
+   `minsky rules enable <id>` to re-enable one they declined earlier.
+4. **Recompile once, at the end:** `minsky compile`. This is what actually removes a declined
+   rule from the files your harness reads. Skipping it leaves the config saying one thing and
+   the harness loading another.
+
+## What not to do
+
+- **Do not decline anything on the user's behalf**, and do not recommend a default set. Which
+  rules a project wants is a preference, not a technical judgment, and the whole point of the
+  list is that they chose it.
+- **Do not hand-edit `.claude/rules/`, `.cursor/rules/`, `AGENTS.md`, or `CLAUDE.md`.** Those are
+  compiled outputs; the next `minsky compile` overwrites them. Selection lives in
+  `.minsky/config.yaml`, written by `rules enable|disable`.
+- **Do not treat a refusal as an error.** Declining a base rule is refused on purpose, with a
+  reason — relay the reason rather than retrying.
+
+## Reversal
+
+Every choice here is reversible at any time: `minsky rules enable <id>` then `minsky compile`
+restores a rule the user declined, and `minsky rules config` shows what is currently selected.
+Say so when you ask — a user deciding under the impression that a choice is permanent will
+decline nothing.

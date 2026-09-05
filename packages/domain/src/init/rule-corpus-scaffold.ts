@@ -9,9 +9,11 @@
  * `base` tier of `../rules/corpus` — rules that are reachable by construction,
  * because a rule earns `base` only if it is emitted always-apply.
  *
- * Only `base` is written. `opinionated` rules ship in the corpus and are
- * deliberately withheld until Phase 2 (mt#573) gives a user a way to decline
- * them; writing them now would put rules into a project nobody was asked about.
+ * The TIER DEFAULTS are written — `base` and `opinionated`, `style` opt-in —
+ * resolved through `selectScaffoldableRules` rather than decided here (mt#4872
+ * SC1). Only `base` was written until then; the principal chose "propose then
+ * decline" (ask#11764), so the user is TOLD what is declinable rather than
+ * having it withheld until asked.
  *
  * ## Overwrite is content-aware (SC7)
  *
@@ -28,7 +30,13 @@ import { createHash } from "crypto";
 import path from "path";
 
 import type { FsLike } from "../interfaces/fs-like";
-import { loadRuleCorpus, selectScaffoldableRules, type CorpusRule } from "../rules/corpus";
+import {
+  loadRuleCorpus,
+  selectDeclinableRules,
+  selectScaffoldableRules,
+  type CorpusRule,
+} from "../rules/corpus";
+import type { RuleSelectionConfig } from "../rules/selection-resolution";
 import { HISTORICAL_SCAFFOLD_HASHES } from "./scaffold-history";
 
 /** SHA-256 of a scaffolded rule file's bytes, as recorded in the hash table. */
@@ -43,12 +51,44 @@ export type ScaffoldOutcome =
   | { id: string; action: "kept-existing" }
   | { id: string; action: "diverged"; reason: string };
 
+/** One rule the user may turn off, with the line that says what it is for. */
+export interface DeclinableRule {
+  readonly id: string;
+  /** The rule's own frontmatter `description` — what declining it gives up. */
+  readonly description: string;
+}
+
 export interface ScaffoldResult {
   readonly outcomes: ScaffoldOutcome[];
   /** Ids left alone because their on-disk content is not a version we shipped. */
   readonly diverged: string[];
-  /** Ids present in the corpus but withheld from this project (non-base tiers). */
+  /**
+   * Ids present in the corpus but NOT written into this project.
+   *
+   * Since mt#4872 this is `style`-tier rules plus anything the project already
+   * declined — no longer the whole opinionated tier, which is now installed by
+   * default and declined afterwards (ask#11764).
+   */
   readonly withheld: string[];
+  /**
+   * Rules that WERE written and that the user may turn off (mt#4872 SC2).
+   *
+   * This is the list the conversation is about, and the reason `init` now
+   * returns a structured result at all: on the MCP path stdout never reaches
+   * the agent, so a printed list is not a reportable one.
+   */
+  readonly declinable: DeclinableRule[];
+  /**
+   * Scaffolded ids that declare `onDemand: true` (mt#3107) — reachable ONLY
+   * through an explicit `rules_get <name>`, and deliberately so.
+   *
+   * Reported because `init`'s reachability warning cannot tell "lands in no
+   * automatic channel" from "is not supposed to". Before mt#4872 that gap was
+   * invisible: every on-demand rule in the corpus is `opinionated`, and
+   * opinionated rules were never written, so the warning had nothing to
+   * misclassify. Proposing them makes it fire on a healthy init.
+   */
+  readonly deliberatelyOnDemand: string[];
   /** What the retired template system left behind, and what became of it. */
   readonly retired: {
     /** Retired-scaffold files found on disk. */
@@ -88,12 +128,30 @@ export async function scaffoldRulesFromCorpus(
    * key that was never there means deleting it, and getting that wrong leaks
    * into whatever test runs next.
    */
-  knownHashes: Readonly<Record<string, readonly string[]>> = HISTORICAL_SCAFFOLD_HASHES
+  knownHashes: Readonly<Record<string, readonly string[]>> = HISTORICAL_SCAFFOLD_HASHES,
+  /**
+   * The project's existing rule selection (mt#4872 SC1/SC5).
+   *
+   * Defaulted rather than required so every existing caller keeps compiling and
+   * gets the fresh-project answer. On an `--overwrite` re-run `init` reads the
+   * committed config and passes it, which is what keeps a rule the user already
+   * declined from being written back — the config is read BEFORE `init`
+   * rewrites it, so this sees the user's choices and not the ones init is about
+   * to propose.
+   */
+  selection?: RuleSelectionConfig
 ): Promise<ScaffoldResult> {
   const corpus = await loadRuleCorpus(corpusDir);
-  const scaffoldable = selectScaffoldableRules(corpus);
+  const scaffoldable = selectScaffoldableRules(corpus, selection);
   const withheld = corpus
     .filter((r) => !scaffoldable.includes(r))
+    .map((r) => r.id)
+    .sort();
+  const declinable = selectDeclinableRules(scaffoldable)
+    .map((r) => ({ id: r.id, description: r.rule.description }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const deliberatelyOnDemand = scaffoldable
+    .filter((r) => r.rule.onDemand === true)
     .map((r) => r.id)
     .sort();
 
@@ -141,7 +199,14 @@ export async function scaffoldRulesFromCorpus(
 
   const retired = await sweepRetiredScaffolds(rulesDirPath, overwrite, fs, knownHashes);
 
-  return { outcomes, diverged: diverged.sort(), withheld, retired };
+  return {
+    outcomes,
+    diverged: diverged.sort(),
+    withheld,
+    declinable,
+    deliberatelyOnDemand,
+    retired,
+  };
 }
 
 /**
@@ -234,15 +299,29 @@ export function describeScaffoldResult(result: ScaffoldResult): {
   const written = result.outcomes.filter((o) => o.action === "written").length;
   const refreshed = result.outcomes.filter((o) => o.action === "refreshed").length;
 
-  if (written > 0) info.push(`minsky init: wrote ${written} base rule(s) to .minsky/rules.`);
+  if (written > 0) info.push(`minsky init: wrote ${written} rule(s) to .minsky/rules.`);
   if (refreshed > 0) {
     info.push(`minsky init: refreshed ${refreshed} rule(s) that still had shipped content.`);
   }
+  // mt#4872 SC6. This block said the OPPOSITE until "propose then decline"
+  // (ask#11764) — "were NOT installed … nothing writes them into your project
+  // until you choose them". Under the chosen shape they ARE installed, so the
+  // cost the principal accepted is that a project nobody asks keeps them. That
+  // makes saying so load-bearing rather than informational: this message and
+  // the conversation it points at are the entire mechanism by which the user
+  // finds out there is something to decline.
+  if (result.declinable.length > 0) {
+    info.push(
+      `minsky init: installed ${result.declinable.length} optional rule(s) you can turn off — ` +
+        `${result.declinable.map((r) => r.id).join(", ")}. Ask your agent to walk you through ` +
+        `them, or run \`minsky rules disable <id>\` for any you do not want, then ` +
+        `\`minsky compile\`. They stay until you remove them.`
+    );
+  }
   if (result.withheld.length > 0) {
     info.push(
-      `minsky init: ${result.withheld.length} declinable rule(s) ship with Minsky but were ` +
-        `NOT installed — ${result.withheld.join(", ")}. They are opt-in; nothing writes them ` +
-        `into your project until you choose them.`
+      `minsky init: ${result.withheld.length} rule(s) ship with Minsky and were NOT installed — ` +
+        `${result.withheld.join(", ")}. Opt in with \`minsky rules enable <id>\`.`
     );
   }
   for (const outcome of result.outcomes) {

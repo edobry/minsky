@@ -21,13 +21,18 @@
  * ## Tiering: what ships is not the same question as what is emitted
  *
  * Each rule carries a `tier` (ask#11286): `base` is on and not declinable,
- * `opinionated` is on and declinable, `style` is off and opt-in. **This module
- * emits only `base`** (`selectScaffoldableRules`), because until Phase 2 (mt#573)
- * wires selection there is no mechanism for a user to decline anything — and
- * writing a declinable rule into a project that was never asked is exactly the
- * "never emit more than the user chose" invariant this slice must not break.
- * Opinionated rules are PRESENT here and deliberately unscaffolded; they become
- * emittable when a user can answer for them.
+ * `opinionated` is on and declinable, `style` is off and opt-in.
+ * `selectScaffoldableRules` emits the TIER DEFAULTS — base and opinionated —
+ * by delegating to the same `resolveActiveRules` both readers of
+ * `.minsky/rules/` use.
+ *
+ * It emitted only `base` until mt#4872, on the reasoning that writing a
+ * declinable rule into a project nobody asked would break the "never emit more
+ * than the user chose" invariant. The principal decided otherwise (ask#11764,
+ * "propose then decline"): the invariant is now satisfied by TELLING the user
+ * what was installed and how to remove it, not by withholding. The cost he
+ * accepted, and the reason `describeScaffoldResult` says what it says: a
+ * project that is never asked keeps all of them.
  *
  * ## Resolution
  *
@@ -47,6 +52,8 @@ import { extractRuleDefinitionFromMdc } from "../compile/rule-sources";
 import type { RuleDefinition, RuleTier } from "../definitions/types";
 import type { FsLike } from "../interfaces/fs-like";
 import { createRealFs } from "../interfaces/real-fs";
+import { deriveRulePresets, resolveActiveRules, type RuleTierInfo } from "./rule-selection";
+import type { RuleSelectionConfig } from "./selection-resolution";
 
 /**
  * The filesystem surface the corpus reader needs.
@@ -153,14 +160,62 @@ export async function loadRuleCorpus(
 }
 
 /**
- * The rules `init` actually writes into a project.
+ * The rules `init` actually writes into a project (mt#4872 SC1).
  *
- * Only `base` today — see the module docblock. Phase 2 (mt#573) widens this to
- * `base` plus whatever the project selected, at which point this function grows
- * a selection argument rather than a new caller.
+ * **This is the resolver's answer, not a second tier test.** It delegates to
+ * `resolveActiveRules` — the same function both readers of `.minsky/rules/` use
+ * — so "which rules does this project get" is decided in exactly one place. The
+ * shape is the one this function's previous docblock specified: it grew a
+ * selection ARGUMENT rather than a new caller.
+ *
+ * Writing the widening as `tier !== "style"` here would have been a one-line
+ * change and the wrong one: it re-creates a hard-coded tier test beside the
+ * resolver, which is how the `tier === "base"` test it replaced came to outlive
+ * its own stated expiry ("until Phase 2 wires selection" — mt#4974 SC5; Phase 2
+ * merged and nobody widened it).
+ *
+ * With the default empty selection — a fresh project, no `.minsky/config.yaml`
+ * yet — the resolver returns the TIER DEFAULTS: `base` and `opinionated` on,
+ * `style` off. That is "propose then decline" (ask#11764), and the declining
+ * happens afterwards through `rules disable`, which the resolver already
+ * honours. On an `--overwrite` re-run the caller passes the project's existing
+ * selection, so a rule the user already declined is not re-installed.
  */
-export function selectScaffoldableRules(corpus: readonly CorpusRule[]): CorpusRule[] {
-  return corpus.filter((r) => r.rule.tier === "base");
+export function selectScaffoldableRules(
+  corpus: readonly CorpusRule[],
+  selection: RuleSelectionConfig = EMPTY_SELECTION
+): CorpusRule[] {
+  const tiers = corpusTierInfo(corpus);
+  const ids = corpus.map((r) => r.id);
+  const presets = deriveRulePresets(tiers, ids, selection.rung);
+  const active = resolveActiveRules(ids, selection, { tiers, presets });
+  return corpus.filter((r) => active.has(r.id));
+}
+
+/** The selection a project with no `.minsky/config.yaml` expresses: none. */
+const EMPTY_SELECTION: RuleSelectionConfig = { presets: [], enabled: [], disabled: [] };
+
+/** Project the corpus onto the tier metadata the resolver reads. */
+export function corpusTierInfo(corpus: readonly CorpusRule[]): RuleTierInfo[] {
+  return corpus.map((r) => ({
+    id: r.id,
+    tier: r.rule.tier,
+    minimumRung: r.rule.minimumRung,
+  }));
+}
+
+/**
+ * The rules a project received that it is allowed to turn off (mt#4872 SC2).
+ *
+ * Not "the opinionated tier" — a `base` rule is non-declinable by definition
+ * (ask#11286), and a rule that was never installed is not something the user
+ * can decline. So this is the INTERSECTION: what was scaffolded, minus what
+ * cannot be refused. That distinction is the whole point of reporting it — the
+ * list exists so the user can act on it, and an entry they cannot act on is
+ * worse than no list.
+ */
+export function selectDeclinableRules(scaffolded: readonly CorpusRule[]): CorpusRule[] {
+  return scaffolded.filter((r) => r.rule.tier !== undefined && r.rule.tier !== "base");
 }
 
 /** Group the corpus by tier, for reporting what shipped versus what was withheld. */

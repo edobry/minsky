@@ -8151,6 +8151,16 @@
           "flags": ["--mcp-host"],
           "description": "Host for MCP network transports",
           "takesValue": true
+        },
+        {
+          "flags": ["--enable"],
+          "description": "Rule ids to enable, comma-separated (non-interactive selection; see `minsky rules list`)",
+          "takesValue": true
+        },
+        {
+          "flags": ["--disable"],
+          "description": "Rule ids to decline, comma-separated (non-interactive selection; base rules cannot be declined)",
+          "takesValue": true
         }
       ],
       "commandId": "init"
