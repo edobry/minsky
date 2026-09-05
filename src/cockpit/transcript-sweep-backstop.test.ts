@@ -17,6 +17,25 @@
  * @see mt#2321 — cockpit-daemon transcript sweep backstop
  */
 
+/**
+ * **Every `startTranscriptSweepBackstop` call here passes `schemaReadiness: false`
+ * (mt#3575).** Without it the tick calls `refreshSchemaReadinessFromDb()` and then
+ * `isSchemaBehind()` — PROCESS-GLOBAL state in `src/cockpit/schema-readiness.ts` —
+ * and returns `{ ok: false }` before ever reaching `runIngest`. `bun test` shares
+ * one process across files, so whether these tests' injected `runIngest` is called
+ * at all depended on what an earlier file left that state as.
+ *
+ * That is failure shape 4 in `docs/testing-patterns.md`: a test asserting a
+ * precondition it never establishes. None of these tests exercises the schema gate
+ * — they all inject `runIngest`/`runEmbeddings`/`tracker` and assert on those — so
+ * opting out of it is establishing the precondition, not masking a failure.
+ *
+ * Measured: under seed 1's order on 2026-09-02, "overlapping ticks are skipped"
+ * failed 3 runs out of 3 at ~504ms — its `waitFor(() => ingestCount >= 1, 500)`
+ * timing out because the tick skipped. Deterministic to the millisecond, which is
+ * what distinguishes this from the load-sensitive class mt#3501 owns (that one's
+ * failure COUNT rotates run to run on identical code).
+ */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 // mt#4489: scanning the real source tree IS the contract here (same rationale as
 // epoch-cache-coverage.test.ts). Scoped to this import and the single read below
@@ -106,6 +125,7 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
     const stop = startTranscriptSweepBackstop(memoryJournal(), {
       intervalMs: 60_000, // Don't tick again during the test.
       deps,
+      schemaReadiness: false,
     });
 
     try {
@@ -149,7 +169,11 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
       tracker,
     };
 
-    const stop = startTranscriptSweepBackstop(memoryJournal(), { intervalMs: 20, deps });
+    const stop = startTranscriptSweepBackstop(memoryJournal(), {
+      intervalMs: 20,
+      deps,
+      schemaReadiness: false,
+    });
 
     try {
       await waitFor(() => ingestCount >= 2, 2000);
@@ -180,7 +204,11 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
     };
 
     // Interval of 1ms so a second tick fires immediately.
-    const stop = startTranscriptSweepBackstop(memoryJournal(), { intervalMs: 1, deps });
+    const stop = startTranscriptSweepBackstop(memoryJournal(), {
+      intervalMs: 1,
+      deps,
+      schemaReadiness: false,
+    });
 
     try {
       // Wait until at least one ingest call is in flight.
@@ -211,7 +239,11 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
       tracker,
     };
 
-    const stop = startTranscriptSweepBackstop(memoryJournal(), { intervalMs: 60_000, deps });
+    const stop = startTranscriptSweepBackstop(memoryJournal(), {
+      intervalMs: 60_000,
+      deps,
+      schemaReadiness: false,
+    });
 
     try {
       // Wait for the tick to finish (sweepsRun stays 0 when ingest throws —
@@ -239,7 +271,11 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
       tracker,
     };
 
-    const stop = startTranscriptSweepBackstop(memoryJournal(), { intervalMs: 60_000, deps });
+    const stop = startTranscriptSweepBackstop(memoryJournal(), {
+      intervalMs: 60_000,
+      deps,
+      schemaReadiness: false,
+    });
 
     try {
       // Ingest succeeds → recordSweepCompleted fires → sweepsRun becomes 1.
@@ -267,7 +303,11 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
       tracker,
     };
 
-    const stop = startTranscriptSweepBackstop(memoryJournal(), { intervalMs: 60_000, deps });
+    const stop = startTranscriptSweepBackstop(memoryJournal(), {
+      intervalMs: 60_000,
+      deps,
+      schemaReadiness: false,
+    });
 
     try {
       await waitFor(() => tracker.getSummary().sweepsRun >= 1, 500);
@@ -311,7 +351,11 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
       tracker,
     };
 
-    const stop = startTranscriptSweepBackstop(memoryJournal(), { intervalMs: 60_000, deps });
+    const stop = startTranscriptSweepBackstop(memoryJournal(), {
+      intervalMs: 60_000,
+      deps,
+      schemaReadiness: false,
+    });
 
     try {
       // Default 5 s deadline, not the 500 ms its neighbours pass: mt#3501
@@ -352,7 +396,11 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
       tracker,
     };
 
-    const stop = startTranscriptSweepBackstop(memoryJournal(), { intervalMs: 60_000, deps });
+    const stop = startTranscriptSweepBackstop(memoryJournal(), {
+      intervalMs: 60_000,
+      deps,
+      schemaReadiness: false,
+    });
     try {
       // Default deadline — see the mt#3501 note on the sibling test above.
       await waitFor(() => tracker.getSummary().sweepsRun >= 1);
@@ -382,7 +430,11 @@ describe("startTranscriptSweepBackstop (mt#2321)", () => {
       tracker,
     };
 
-    const stop = startTranscriptSweepBackstop(memoryJournal(), { intervalMs: 10, deps });
+    const stop = startTranscriptSweepBackstop(memoryJournal(), {
+      intervalMs: 10,
+      deps,
+      schemaReadiness: false,
+    });
 
     // Wait for the boot pass to complete.
     await waitFor(() => ingestCount >= 1, 500);
@@ -747,7 +799,7 @@ describe("transcript sweep journal wiring (mt#4532)", () => {
     const store = createMemoryJournalStore();
     const stop = startTranscriptSweepBackstop(
       new TranscriptSweepJournalRecorder(store, INGEST_SWEEP_LABEL),
-      { intervalMs: 60_000, deps }
+      { intervalMs: 60_000, deps, schemaReadiness: false }
     );
     return { store, stop };
   }
@@ -870,7 +922,7 @@ describe("transcript sweep journal wiring (mt#4532)", () => {
 
     const stop = startTranscriptSweepBackstop(
       new TranscriptSweepJournalRecorder(store, INGEST_SWEEP_LABEL),
-      { intervalMs: 60_000, deps }
+      { intervalMs: 60_000, deps, schemaReadiness: false }
     );
 
     try {

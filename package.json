@@ -76,6 +76,7 @@
     "test:components": "bun test --preload ./tests/dom-setup.ts --preload ./tests/setup.ts --timeout=15000 --path-ignore-patterns='services/**' --path-ignore-patterns='src/cockpit/web/dist/**' ./src/cockpit/web",
     "test:hooks": "bun test --preload ./tests/setup.ts --timeout=15000 ./.minsky/hooks",
     "test:clock-shifted": "bun scripts/run-tests-clock-shifted.ts",
+    "test:seed-sweep": "bun scripts/run-tests-seed-sweep.ts",
     "test:eslint-rules": "bun test --timeout=15000 eslint-rules/",
     "audit:interceptors": "bun scripts/audit-settings-hook-coverage.ts && bun scripts/audit-interceptor-source-join.ts && bun scripts/audit-observer-roster.ts",
     "audit:interceptors:corpus": "bun scripts/audit-interceptor-descriptions.ts && bun scripts/audit-interceptor-coordinates.ts",
