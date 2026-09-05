@@ -50,6 +50,7 @@ import type { NominationDeps } from "../../packages/domain/src/detectors/embeddi
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput } from "./types";
 import type { DispatchContext } from "./registry";
+import { JUDGED_TEXT_HASH_FIELD } from "./judged-input-capture";
 
 const PRINCIPAL_RESERVED = "principal-reserved" as const;
 const DEFERRAL_MENU = "deferral-menu" as const;
@@ -2088,5 +2089,80 @@ describe("mt#4702 — an escape hatch on a stated commitment is an override, not
     expect(findOfferShape("I'll wait unless you'd rather I proceed")).not.toBeNull();
     // ...while the continuing form is the override.
     expect(findOfferShape("I'll proceed unless you'd rather I wait")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3866 — record identity: the digest, and the turn key where one exists
+// ---------------------------------------------------------------------------
+
+describe("mt#3866 — run() stamps a distinct-fire identity", () => {
+  /** A turn that fires the principal-reserved class, so a record is written. */
+  const DEFERRAL_TURN = "The tier naming needs your call before anything ships.";
+
+  function calibrationOf(outcome: Awaited<ReturnType<typeof run>>): Record<string, unknown> {
+    expect(outcome?.calibration).toBeDefined();
+    return outcome?.calibration as unknown as Record<string, unknown>;
+  }
+
+  test("the record carries BOTH the capture marker and the judged-text digest", async () => {
+    const lines = [makeRunUserLine(), makeRunAssistantLine(DEFERRAL_TURN), makeRunUserLine()];
+    const cal = calibrationOf(await run(RUN_HOOK_INPUT, makeCtx(lines)));
+
+    // The measured pre-mt#3866 shape was the marker WITHOUT the digest, on all
+    // 58 records in the live window. Both halves are asserted so a regression
+    // that drops one is visible.
+    expect(cal["captureSchema"]).toBe(1);
+    expect(typeof cal[JUDGED_TEXT_HASH_FIELD]).toBe("string");
+  });
+
+  test("two runs over the SAME turn text produce the same digest", async () => {
+    const lines = [makeRunUserLine(), makeRunAssistantLine(DEFERRAL_TURN), makeRunUserLine()];
+    const first = calibrationOf(await run(RUN_HOOK_INPUT, makeCtx(lines)));
+    const second = calibrationOf(await run(RUN_HOOK_INPUT, makeCtx(lines)));
+
+    // This is the ambiguity the task exists to remove, at the write side: a
+    // re-scan of one message now announces itself.
+    expect(second[JUDGED_TEXT_HASH_FIELD]).toBe(first[JUDGED_TEXT_HASH_FIELD] as string);
+  });
+
+  test("a DIFFERENT turn produces a different digest — the control", async () => {
+    const a = calibrationOf(
+      await run(
+        RUN_HOOK_INPUT,
+        makeCtx([makeRunUserLine(), makeRunAssistantLine(DEFERRAL_TURN), makeRunUserLine()])
+      )
+    );
+    const b = calibrationOf(
+      await run(
+        RUN_HOOK_INPUT,
+        makeCtx([
+          makeRunUserLine(),
+          makeRunAssistantLine("The panel copy needs your call before anything ships."),
+          makeRunUserLine(),
+        ])
+      )
+    );
+    expect(b[JUDGED_TEXT_HASH_FIELD]).not.toBe(a[JUDGED_TEXT_HASH_FIELD] as string);
+  });
+
+  test("SC1's second half: a recorded turn anchor is stamped as `turn_key`", async () => {
+    const lines = [makeRunUserLine(), makeRunAssistantLine(DEFERRAL_TURN), makeRunUserLine()];
+    const cal = calibrationOf(
+      await run(RUN_HOOK_INPUT, {
+        ...makeCtx(lines),
+        recordedAnchor: { turnKey: "turn-uuid-1234", lastAssistantMessage: DEFERRAL_TURN },
+      })
+    );
+    expect(cal["turn_key"]).toBe("turn-uuid-1234");
+  });
+
+  test("no anchor -> the key is ABSENT, not an empty string", async () => {
+    // An empty string would group every anchorless record together, which is
+    // the opposite error from the over-count and equally unfounded. `makeCtx`
+    // sets no `recordedAnchor`, which is the standalone-path shape.
+    const lines = [makeRunUserLine(), makeRunAssistantLine(DEFERRAL_TURN), makeRunUserLine()];
+    const cal = calibrationOf(await run(RUN_HOOK_INPUT, makeCtx(lines)));
+    expect("turn_key" in cal).toBe(false);
   });
 });

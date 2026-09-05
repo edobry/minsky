@@ -2018,6 +2018,23 @@ export async function run(
       // marker and no identifier, so four byte-identical records could not be
       // told apart from four genuine emissions of one sentence.
       ...captureFields(assistantText),
+      // mt#3866 SC1's second half — "where the writer has it, a turn anchor".
+      // This path HAS one: the dispatcher resolves `recordedAnchor` once per
+      // invocation, and its `turnKey` is the opening prompt line's uuid.
+      //
+      // Stamped BESIDE the digest rather than instead of it, because the two
+      // answer different questions and only one is universal. The digest
+      // answers "same TEXT" and is available on every path; `turn_key` answers
+      // "same TURN", which is strictly what the ambiguity was about — two
+      // genuinely distinct turns emitting the identical sentence hash the same
+      // and would group as one, a limitation `captureFields`' own docblock
+      // names. The sweep still groups on the digest (see `countDistinctFires`)
+      // because a window mixing records with and without a turn key would
+      // split one turn across two grouping keys; this field is here for a
+      // reader or a replay that wants the finer answer.
+      ...(ctx.recordedAnchor?.turnKey !== undefined
+        ? { turn_key: ctx.recordedAnchor.turnKey }
+        : {}),
       matches: calibrationMatches(matches),
       suppressionReasons,
       // ADR-024's degraded MARKER. Present only when a nomination was attempted
