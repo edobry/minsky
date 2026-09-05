@@ -200,6 +200,62 @@ service start. If you see `merge_state_sweeper.missing_credentials` or
 `merge_state_sweeper.disabled` instead, the recovery layer is NOT active and
 bypass-merge PRs will not auto-sync.
 
+#### Timeout-regime watch (mt#4988)
+
+Watches the three conditions under which mt#4996's accept of the 120s toolloop-timeout cadence
+should be REOPENED. Reads `review_timing` only — no Railway credentials, no outbound call — and
+notifies through the configured alert sink at `warn` when one crosses. **It is not an incident
+channel and does not page:** a crossed trigger means a documented baseline moved, not that the
+reviewer is down.
+
+**Ships disabled.** Nothing starts unless you set the first variable, so a deploy that carries this
+code is a runtime no-op until you opt in.
+
+```bash
+# OPTIONAL — off by default. Set to "true" to start the watch.
+# railway variable set TIMEOUT_REGIME_WATCH_ENABLED=true
+
+# OPTIONAL — cycle cadence. Default 86400000 (24h). The triggers are 30-day
+# aggregates; they do not move hourly, so a shorter interval buys nothing.
+# railway variable set TIMEOUT_REGIME_WATCH_INTERVAL_MS=86400000
+
+# OPTIONAL — rolling window, in days. Default 30 — the window mt#4996 stated its
+# triggers over. Shortening it makes a single bad day able to reopen a decision.
+# railway variable set TIMEOUT_REGIME_WATCH_WINDOW_DAYS=30
+
+# OPTIONAL — completing-round cutoff, in ms. Default 118000. A round recorded at
+# or above this was censored by the 120s timeout rather than measured, so it is
+# excluded from the p99.9 (mem#1373). Raising it past the cap reintroduces the
+# censored-percentile error mt#1897 made three times.
+# railway variable set TIMEOUT_REGIME_WATCH_CAP_MS=118000
+
+# OPTIONAL — trigger 1. Crossed at or above this many unrecovered timeout events
+# in the window. Default 2; baseline is 1 in 103 days. Set to 1 and it will
+# duplicate the per-occurrence ask reviewer-pre-submit-failure/v1 already sends.
+# railway variable set TIMEOUT_REGIME_MAX_UNRECOVERED=2
+
+# OPTIONAL — trigger 2. Crossed BELOW this event-level recovery rate, in basis
+# points (9500 = 95.00%). Default 9500; baseline is 99.25%. Basis points because
+# the shared strict-positive parser is integer-only.
+# railway variable set TIMEOUT_REGIME_MIN_RECOVERY_BP=9500
+
+# OPTIONAL — trigger 3. Crossed ABOVE this completing-round p99.9, in ms.
+# Default 115000; baseline is 105000. This is the one condition that would mean
+# the 120s cap has become tight against real work.
+# railway variable set TIMEOUT_REGIME_MAX_P999_MS=115000
+```
+
+Verify activation after deploy: tail the logs and confirm `{"event":"timeout_regime.enabled", ...}`
+shortly after service start. `timeout_regime.disabled` means it is off;
+`timeout_regime.missing_db` means it was enabled but no DB is configured. Each cycle emits
+`timeout_regime.cycle_complete` carrying every reading against its threshold, so the margin is
+visible without waiting for a crossing.
+
+**Known bound:** the once-per-crossing suppression is in-process, so a redeploy re-arms it and a
+still-crossed trigger notifies again on the next cycle. `timeout_regime.trigger_crossed` carries
+`suppressionScope: "process-local"` so a repeat can be correlated against a restart rather than read
+as flapping.
+
 #### Reliability budget (mt#1810)
 
 The recovery layer carries a measurable reliability target so the next drift instance
