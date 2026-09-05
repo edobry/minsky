@@ -380,7 +380,7 @@ describe("isRetryableAIError", () => {
  * object the test already caught, adds no clock dependency, and leaves the real
  * stalled server in place — the design this suite's docblock below insists on.
  */
-export function timeoutVerdict(err: unknown): string {
+function timeoutVerdict(err: unknown): string {
   if (isRequestTimeoutError(err)) return "TimeoutError";
   const e = err as { name?: unknown; message?: unknown } | null | undefined;
   const name = typeof e?.name === "string" && e.name ? e.name : "(no name)";
@@ -440,10 +440,14 @@ describe("OpenAIEmbeddingService request timeout (mt#3444)", () => {
       "AbortError: This operation was aborted"
     );
 
-    // Non-Error rejections still describe themselves rather than rendering as
-    // "[object Object]" or an empty string.
+    // Non-Error rejections fall back to `String(err)`, which is an improvement for
+    // the primitives below and NOT a general guarantee: a plain object still
+    // stringifies to "[object Object]", as the last case pins. That is acceptable
+    // here — the rejections this suite can actually produce are Errors and
+    // DOMExceptions — but the fallback should not be read as more than it is.
     expect(timeoutVerdict("boom")).toBe("(no name): boom");
     expect(timeoutVerdict(null)).toBe("(no name): null");
+    expect(timeoutVerdict({})).toBe("(no name): [object Object]");
   });
 
   it("AT1: a stalled single request rejects within the bound instead of hanging", async () => {
