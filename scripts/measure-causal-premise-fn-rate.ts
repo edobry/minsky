@@ -39,9 +39,22 @@
  */
 
 import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
 import { isCanaryRecord } from "../.minsky/hooks/canary-runner";
+import { evaluationLogPath } from "../.minsky/hooks/dispatcher";
 
-const DEFAULT_LOG = ".minsky/causal-premise-evaluations.jsonl";
+const REPO_ROOT = join(import.meta.dir, "..");
+
+/**
+ * Resolved through the WRITER's own resolver, never a repo-rooted literal (mt#4972).
+ *
+ * mt#4748 moved this stream to `<state dir>/projects/<key>/`, and the old
+ * `.minsky/`-rooted default outlived it, so every run with no `--log` failed on
+ * a path nothing has written to since 2026-08-30. `fallbackCwd` (not
+ * `projectDir`) keeps the resolver's `CLAUDE_PROJECT_DIR` tier ahead of this
+ * checkout, which matters when the script runs from a session workspace.
+ */
+const DEFAULT_LOG = evaluationLogPath("causal-premise", { fallbackCwd: REPO_ROOT });
 
 /** How a hand-classified record was judged. See `--labels`. */
 export type Label =
@@ -492,7 +505,10 @@ async function main(): Promise<void> {
 
   if (!existsSync(logPath)) {
     console.error(`FAIL: no evaluation stream at ${logPath}`);
-    console.error("The stream is gitignored local telemetry — point --log at the main workspace.");
+    console.error(
+      "The stream is local telemetry under the state dir, keyed by repo root. If this resolved " +
+        "to the wrong project, set CLAUDE_PROJECT_DIR to the main checkout or pass --log."
+    );
     process.exit(1);
   }
 

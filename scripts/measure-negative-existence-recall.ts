@@ -6,7 +6,8 @@
  *
  * ## Why this cannot read the evaluation stream alone
  *
- * `.minsky/negative-existence-claim-evaluations.jsonl` records one row per
+ * `<state dir>/projects/<key>/negative-existence-claim-evaluations.jsonl`
+ * (mt#4748; was `.minsky/`-rooted) records one row per
  * evaluated turn, but its fields are counts and flags — `claimPresent`,
  * `thinSearchPresent`, `proseChars`, `session_id` — and **no text**. The
  * question this task asks is "does a `claimPresent: false` turn actually carry
@@ -63,6 +64,7 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
+import { evaluationLogPath } from "../.minsky/hooks/dispatcher";
 import { evaluateTurn } from "../.minsky/hooks/negative-existence-claim-detector";
 import {
   buildArtifactProseCorpus,
@@ -75,7 +77,17 @@ import {
 } from "../.minsky/hooks/transcript";
 
 const REPO_ROOT = join(import.meta.dir, "..");
-const DEFAULT_LOG = ".minsky/negative-existence-claim-evaluations.jsonl";
+/**
+ * Resolved through the WRITER's own resolver, never a repo-rooted literal (mt#4972).
+ *
+ * mt#4748 moved this stream to `<state dir>/projects/<key>/`, and the old
+ * `.minsky/`-rooted default outlived it: the file was simply absent, so this
+ * script reported a complete analysis in which every cell was zero — a probe
+ * that cannot fail (mem#704) rather than an error. `fallbackCwd` (not
+ * `projectDir`) keeps the resolver's `CLAUDE_PROJECT_DIR` tier ahead of this
+ * checkout, which matters when the script runs from a session workspace.
+ */
+const DEFAULT_LOG = evaluationLogPath("negative-existence-claim", { fallbackCwd: REPO_ROOT });
 const ARGV = process.argv.slice(2);
 
 function flag(name: string): string | undefined {
