@@ -33,6 +33,7 @@ export function createInitCommand(): Command {
   // reaches the MCP surface and never appears on the CLI at all. Same
   // parallel-implementation shape as `compileCheckTargets` in mt#4866 — caught
   // here by regenerating the completion manifest and finding the flags absent.
+
   cmd.option(
     "--enable <ids>",
     "Rule ids to enable, comma-separated (non-interactive selection; see `minsky rules list`)"

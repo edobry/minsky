@@ -14,7 +14,10 @@
 
 import { describe, it, expect } from "bun:test";
 
-import { formatInitMessage, parseRuleIds } from "./init";
+import { createInitCommand } from "../../../commands/init";
+import { sharedCommandRegistry } from "../command-registry";
+import { paramNameToFlag } from "../schema-bridge";
+import { formatInitMessage, parseRuleIds, registerInitCommands } from "./init";
 
 const DECLINABLE = [
   { id: "json-parsing", description: "Use jq, never grep, when parsing JSON output." },
@@ -70,5 +73,39 @@ describe("mt#4872 SC4 — non-interactive rule ids", () => {
     expect(parseRuleIds("json-parsing,,")).toEqual(["json-parsing"]);
     expect(parseRuleIds("")).toEqual([]);
     expect(parseRuleIds(undefined)).toEqual([]);
+  });
+});
+
+describe("mt#4872 — the CLI command and the shared definition must not drift", () => {
+  /**
+   * `src/commands/init/index.ts` is a hand-written Commander command, registered
+   * top-level because the INIT category is hidden from CLI auto-generation
+   * (`init-customizations.ts`). So `init` has TWO option lists, and nothing
+   * connected them: `--enable` / `--disable` were added to the shared
+   * definition, reached the MCP surface, and did not appear on the CLI at all.
+   *
+   * Same parallel-mapping shape as `compileCheckTargets` in mt#4866, and the
+   * same remedy: a test that fails when one side is edited without the other.
+   * Reviewer-suggested (PR #3655 R1); the drift it describes had already
+   * happened once in this task.
+   */
+  it("every shared init parameter has a matching CLI flag", () => {
+    registerInitCommands();
+    const commandDef = sharedCommandRegistry.getCommand("init");
+    if (commandDef === undefined) throw new Error("init is not registered in the shared registry");
+
+    const cliFlags = new Set(
+      createInitCommand()
+        .options.map((option) => option.long)
+        .filter((long): long is string => typeof long === "string")
+    );
+
+    const missing = Object.keys(commandDef.parameters ?? {})
+      .map((name) => `--${paramNameToFlag(name)}`)
+      // `session` is a shared parameter with no CLI surface on this command.
+      .filter((flag) => flag !== "--session")
+      .filter((flag) => !cliFlags.has(flag));
+
+    expect(missing).toEqual([]);
   });
 });

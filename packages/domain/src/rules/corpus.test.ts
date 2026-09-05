@@ -254,13 +254,15 @@ describe("SC8 — the corpus and this repository's own rules must not drift apar
    * slice, and the reason is structural rather than effort: de-always-applying a
    * twin drops the rule out of THIS repository's `CLAUDE.md`, and the only way to
    * put it back is to have the compile pipeline read the package corpus as a
-   * source. Doing that unconditionally would emit all 17 shipped rules into every
+   * source. Doing that unconditionally would emit every shipped rule into every
    * managed project regardless of what its user selected — the one invariant
    * mt#4964 §Sequencing says every intermediate state must hold. Gating that read
    * on selection IS Phase 2 (mt#573).
    *
-   * So the corpus is a second copy until Phase 2, and a second copy that nothing
-   * checks is how the retired templates drifted from reality in the first place.
+   * Phase 2 merged 2026-09-05 and did NOT retire the twins; mt#4974 SC8 assigns
+   * that to it and it remains outstanding. So the corpus is still a second copy,
+   * and a second copy that nothing checks is how the retired templates drifted
+   * from reality in the first place.
    * This asserts the two cannot diverge silently: same BODY, byte for byte.
    * Frontmatter deliberately differs — the corpus copies carry plane/tier/rung.
    */
