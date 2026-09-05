@@ -61,7 +61,22 @@ interface Case {
   /** Where the text comes from, so a reader can re-derive it. */
   readonly provenance: string;
   readonly text: string;
-  /** True when mem#367 elided mid-quote. Never inside a matched clause. */
+  /**
+   * True when mem#367 elided mid-quote.
+   *
+   * **The invariant this flag asserts, stated where the flag lives (PR #3654 R1).**
+   * Every pattern in `PRINCIPAL_RESERVED_PATTERNS` is sentence-local — the widest
+   * spans a bounded phrase like `your call to make`, none crosses a sentence
+   * boundary — so an ellipsis BETWEEN sentences or clauses cannot change a
+   * verdict. One INSIDE a matched clause could, by removing the very words a
+   * pattern needs or by joining two fragments into a phrase neither contained.
+   *
+   * No case in this corpus has that shape, checked by hand against each quote
+   * rather than assumed: R8.halt's ellipsis sits between two clauses of the
+   * citation, and R10's between two complete sentences. **A new case with an
+   * intra-clause ellipsis must not be added without re-deriving its text from
+   * the transcript** — the flag would be true and the verdict would be junk.
+   */
   readonly elided?: boolean;
 }
 
@@ -231,13 +246,32 @@ function main(): void {
 
   // Distinct INCIDENTS, not cases: R8 contributes two texts from one incident,
   // and a rate over cases would overstate recurrence by counting it twice.
+  //
+  // PR #3654 R1 flagged this as fragile "if ids adopt deeper dot-separated
+  // forms". Checked rather than adopted: `split(".")[0]` takes the FIRST
+  // segment at any depth — `"R8.a.b"` yields `"R8"` exactly as `"R8.offer"`
+  // does — so the stated mechanism does not hold and no fix is made for it.
+  //
+  // The real coupling, which the finding is right to point at even though its
+  // mechanism is wrong: this derivation assumes `<incidentId>.<variant>`, so a
+  // corpus that switched separators (`R8-offer`) or nested a dot INSIDE an
+  // incident id would silently split incidents apart and inflate the headline
+  // count. That invariant is now stated here; the ids are a closed set defined
+  // twenty lines up, so a test would only restate the constant.
   const incident = (o: Outcome): string => o.c.id.split(".")[0] ?? o.c.id;
   const invisibleIncidents = new Set(invisible.map(incident));
   const reachedIncidents = new Set([...correct, ...wrongClass].map(incident));
   for (const id of reachedIncidents) invisibleIncidents.delete(id);
 
+  // PR #3654 R1: report the COMPUTED count, not `controls.length` twice. The
+  // early exit above means the two are equal whenever this line is reached, so
+  // the old form could never print anything but "N of N" — a metric that cannot
+  // disagree with itself carries no information (mem#704), and it would go on
+  // reading correct if the exit above were ever relaxed to a warning.
+  const firingControls = controls.filter((o) => o.verdict === "principal-reserved").length;
+
   console.log("\n--- Recall measurement ---");
-  console.log(`  controls firing principal-reserved: ${controls.length} of ${controls.length}`);
+  console.log(`  controls firing principal-reserved: ${firingControls} of ${controls.length}`);
   console.log(`  recurrence texts tested:            ${recurrences.length}`);
   console.log(
     `    matched principal-reserved:       ${correct.length}  (${correct.map((o) => o.c.id).join(", ") || "-"})`
