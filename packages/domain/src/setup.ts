@@ -50,8 +50,16 @@ export interface SetupOptions {
  * `src/mcp/setup/ensure-local-daemon-for-setup.ts`.
  */
 export type LocalDaemonEnsureOutcome =
-  | { kind: "already-running" }
-  | { kind: "started" }
+  /**
+   * `url` is supplied by the adapter rather than rebuilt here (PR #3658 R3).
+   * `packages/domain` cannot import `localDaemonMcpUrl`, so the alternative was
+   * a fifth hand-maintained copy of `http://127.0.0.1:48765` — in a task whose
+   * own spec flags that literal's four existing copies as a divergence risk.
+   * Carrying it on the outcome means the layer that already knows the endpoint
+   * is the one that names it.
+   */
+  | { kind: "already-running"; url: string }
+  | { kind: "started"; url: string }
   | { kind: "unavailable"; reason: string };
 
 /**
@@ -251,8 +259,8 @@ export async function performSetup(
     // did not name. Silent process creation is what someone later finds in `ps`
     // and cannot account for.
     log.cli(
-      `Started the shared Minsky MCP daemon — your ${client} config talks to it over ` +
-        `http://127.0.0.1:48765. Check it any time with \`minsky mcp status\`.`
+      `Started the shared Minsky MCP daemon — your ${client} config talks to it at ` +
+        `${localDaemon.url}. Check it any time with \`minsky mcp status\`.`
     );
   }
   if (localDaemon?.kind === "unavailable") {

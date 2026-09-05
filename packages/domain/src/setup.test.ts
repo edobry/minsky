@@ -566,12 +566,22 @@ describe("performSetup — project-row provisioning (mt#2934)", () => {
 
 describe("mt#4707 — ensuring the shared local daemon at setup time", () => {
   /**
+   * A stand-in endpoint. The real one is supplied by the `src/`-side adapter,
+   * which derives it from the canonical host/port constants — the domain never
+   * builds this string, which is the point of carrying it on the outcome
+   * (PR #3658 R3).
+   */
+  const DAEMON_URL = "http://127.0.0.1:48765/mcp";
+
+  /**
    * A recording seam. `performSetup` cannot construct the real
    * `ensureLocalDaemonForSetup` (it lives under `src/`), so what is asserted
    * here is the DECISION: whether the step is invoked, for which client, and
    * at what point relative to the config write.
    */
-  function recordingDaemonDep(outcome: LocalDaemonEnsureOutcome = { kind: "started" }) {
+  function recordingDaemonDep(
+    outcome: LocalDaemonEnsureOutcome = { kind: "started", url: DAEMON_URL }
+  ) {
     const calls: string[] = [];
     return {
       calls,
@@ -586,7 +596,7 @@ describe("mt#4707 — ensuring the shared local daemon at setup time", () => {
 
   test("SC1: a claude-code setup ensures the daemon and reports what happened", async () => {
     const mockFs = makeMockFs();
-    const { calls, dep } = recordingDaemonDep({ kind: "started" });
+    const { calls, dep } = recordingDaemonDep({ kind: "started", url: DAEMON_URL });
 
     const result = await performSetup(
       { repoPath: REPO_PATH, client: "claude-code" },
@@ -597,12 +607,12 @@ describe("mt#4707 — ensuring the shared local daemon at setup time", () => {
     );
 
     expect(calls).toEqual([REPO_PATH]);
-    expect(result.localDaemon).toEqual({ kind: "started" });
+    expect(result.localDaemon).toEqual({ kind: "started", url: DAEMON_URL });
   });
 
   test("SC2: an already-serving daemon is reported, not started again", async () => {
     const mockFs = makeMockFs();
-    const { dep } = recordingDaemonDep({ kind: "already-running" });
+    const { dep } = recordingDaemonDep({ kind: "already-running", url: DAEMON_URL });
 
     const result = await performSetup(
       { repoPath: REPO_PATH, client: "claude-code" },
@@ -615,7 +625,7 @@ describe("mt#4707 — ensuring the shared local daemon at setup time", () => {
     // Idempotence is enforced inside `ensureDaemonRunning`, which probes health
     // before spawning; what this layer owes is reporting the distinction rather
     // than flattening both into "done".
-    expect(result.localDaemon).toEqual({ kind: "already-running" });
+    expect(result.localDaemon).toEqual({ kind: "already-running", url: DAEMON_URL });
   });
 
   test("SC3: the other registrars do not gain a daemon dependency", async () => {
@@ -660,7 +670,7 @@ describe("mt#4707 — ensuring the shared local daemon at setup time", () => {
       {
         ensureLocalDaemon: async () => {
           order.push("ensure-daemon");
-          return { kind: "started" } as const;
+          return { kind: "started", url: DAEMON_URL } as const;
         },
       }
     );

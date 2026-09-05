@@ -34,6 +34,7 @@ import {
   daemonSpawnCommand,
   ensureDaemonRunning,
   localDaemonHealthUrl,
+  localDaemonMcpUrl,
   resolveSelfInvocation,
 } from "./local-http-apply";
 import type { LocalDaemonEnsureOutcome } from "@minsky/domain/setup";
@@ -64,7 +65,11 @@ export async function ensureLocalDaemonForSetup(
     const result = await ensure(daemonSpawnCommand(resolveSelfInvocation(argv), repoPath), {
       healthUrl: localDaemonHealthUrl(),
     });
-    return result.spawned ? { kind: "started" } : { kind: "already-running" };
+    // The MCP endpoint, not the health URL: it is what the written shim entry
+    // actually targets, so it is the address an operator would check or paste.
+    // Derived from the canonical host/port constants rather than restated.
+    const url = localDaemonMcpUrl();
+    return result.spawned ? { kind: "started", url } : { kind: "already-running", url };
   } catch (error) {
     // Every failure lands here as a REASON, never as a thrown refusal — see the
     // module docblock. `ensureDaemonRunning` distinguishes `foreign` (something

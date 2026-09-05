@@ -20,7 +20,12 @@ describe("mt#4707 — translating the daemon-ensuring result", () => {
       ensure: async () => ({ spawned: true, status: { state: "running" } }) as never,
     });
 
-    expect(outcome).toEqual({ kind: "started" });
+    expect(outcome.kind).toBe("started");
+    // The endpoint travels WITH the outcome so the domain can name it without a
+    // fifth hand-maintained copy of the address (PR #3658 R3).
+    if (outcome.kind !== "started") throw new Error("expected a started outcome");
+    expect(outcome.url).toContain("/mcp");
+    expect(outcome.url).toContain("48765");
   });
 
   it("SC2 — reports an existing daemon as `already-running`, so nothing is spawned twice", async () => {
@@ -29,7 +34,7 @@ describe("mt#4707 — translating the daemon-ensuring result", () => {
       ensure: async () => ({ spawned: false, status: { state: "running" } }) as never,
     });
 
-    expect(outcome).toEqual({ kind: "already-running" });
+    expect(outcome.kind).toBe("already-running");
   });
 
   it("converts a refusal into a reason instead of letting it throw", async () => {
