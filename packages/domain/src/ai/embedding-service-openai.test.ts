@@ -353,6 +353,42 @@ describe("isRetryableAIError", () => {
 });
 
 /**
+ * mt#4985 — the timeout classification's verdict, or a DESCRIPTION of whatever
+ * error arrived instead.
+ *
+ * ## Why this exists
+ *
+ * `isRequestTimeoutError` is `error?.name === "TimeoutError"`, so a bare
+ * `expect(isRequestTimeoutError(err)).toBe(true)` fails with
+ * `Expected: true, Received: false` and says NOTHING about what actually
+ * rejected. On 2026-09-04 this test failed once under the full gated suite
+ * (2570 tests / 199 files) and passed 3/3 in isolation, and the record it left
+ * behind was exactly those two words — so the cause could not be determined
+ * afterwards, and the flake is too rare to reproduce on demand.
+ *
+ * Routing the assertion through this function makes the SAME failure carry the
+ * error's `name` and `message`, so the next occurrence diagnoses itself in one
+ * shot instead of requiring a reproduction.
+ *
+ * The failure line the incident DID leave is worth keeping in view: `[5.56ms]`
+ * against a 150ms `TIMEOUT_MS`. The request rejected ~27x faster than the
+ * timeout it should have hit, so the abort never fired — a startup- or
+ * connection-shaped failure rather than a slow one. That is a direction, not a
+ * diagnosis, which is why this ships instrumentation and not a fix.
+ *
+ * Deliberately NOT a timing change and NOT a mock: it reads only the error
+ * object the test already caught, adds no clock dependency, and leaves the real
+ * stalled server in place — the design this suite's docblock below insists on.
+ */
+function timeoutVerdict(err: unknown): string {
+  if (isRequestTimeoutError(err)) return "TimeoutError";
+  const e = err as { name?: unknown; message?: unknown } | null | undefined;
+  const name = typeof e?.name === "string" && e.name ? e.name : "(no name)";
+  const message = typeof e?.message === "string" && e.message ? e.message : String(err);
+  return `${name}: ${message}`;
+}
+
+/**
  * mt#3444 — the request timeout, exercised against a REAL stalled server.
  *
  * These deliberately do NOT mock `fetch`: the defect was that the real
@@ -380,6 +416,40 @@ describe("OpenAIEmbeddingService request timeout (mt#3444)", () => {
     stalled = null;
   });
 
+  // mt#4985 AT1. The instrumentation's own check, and deliberately deterministic:
+  // it constructs the errors rather than waiting for the rare flake to recur, so
+  // the diagnostic is verified in one run. This does NOT replace the real-socket
+  // tests below — it only pins what they will report when they fail.
+  it("mt#4985: the timeout verdict names the error that actually arrived", () => {
+    // The passing shape: a real timeout collapses to the bare verdict, so the
+    // assertion below reads identically to the classification it replaced.
+    expect(timeoutVerdict(new DOMException("The operation timed out.", "TimeoutError"))).toBe(
+      "TimeoutError"
+    );
+
+    // The failing shapes: each names itself. The first is not invented — it is the
+    // VERBATIM rejection bun produces for an unreachable port, captured by running
+    // this suite against a dead one (mt#4985's negative control). Note its `name`
+    // is plain `Error`, not `TypeError`, which is exactly why a name-based
+    // classification silently rejects it.
+    expect(
+      timeoutVerdict(new Error("Unable to connect. Is the computer able to access the url?"))
+    ).toBe("Error: Unable to connect. Is the computer able to access the url?");
+    expect(timeoutVerdict(new TypeError("fetch failed"))).toBe("TypeError: fetch failed");
+    expect(timeoutVerdict(new DOMException("This operation was aborted", "AbortError"))).toBe(
+      "AbortError: This operation was aborted"
+    );
+
+    // Non-Error rejections fall back to `String(err)`, which is an improvement for
+    // the primitives below and NOT a general guarantee: a plain object still
+    // stringifies to "[object Object]", as the last case pins. That is acceptable
+    // here — the rejections this suite can actually produce are Errors and
+    // DOMExceptions — but the fallback should not be read as more than it is.
+    expect(timeoutVerdict("boom")).toBe("(no name): boom");
+    expect(timeoutVerdict(null)).toBe("(no name): null");
+    expect(timeoutVerdict({})).toBe("(no name): [object Object]");
+  });
+
   it("AT1: a stalled single request rejects within the bound instead of hanging", async () => {
     const url = startStalledServer();
     const svc = new OpenAIEmbeddingService(
@@ -400,7 +470,9 @@ describe("OpenAIEmbeddingService request timeout (mt#3444)", () => {
     const elapsed = performance.now() - started;
 
     expect(err).toBeTruthy();
-    expect(isRequestTimeoutError(err)).toBe(true);
+    // mt#4985: routed through `timeoutVerdict` so a failure names the error that
+    // actually arrived. Same pass/fail behaviour as the bare classification check.
+    expect(timeoutVerdict(err)).toBe("TimeoutError");
     // Bounded: well under the 1800s hang this replaces, and comfortably above
     // the configured bound. Generous upper bound to stay non-flaky under load.
     expect(elapsed).toBeLessThan(5000);
@@ -430,7 +502,10 @@ describe("OpenAIEmbeddingService request timeout (mt#3444)", () => {
       err = e;
     }
     expect(err).toBeTruthy();
-    expect(isRequestTimeoutError(err)).toBe(true);
+    // mt#4985: same instrumentation as AT1 — this test stands up the same real
+    // stalled server and carries the same failure mode, so it gets the same
+    // diagnostic rather than waiting to be the next one that fails opaquely.
+    expect(timeoutVerdict(err)).toBe("TimeoutError");
   });
 
   it("AT2: the timeout is retried by the retry service (not a single-shot failure)", async () => {
