@@ -626,23 +626,29 @@ export async function nominatePendingClaims(
   // The adjacent-sentence case the paragraph above protects is exactly the case
   // where the segment names NOTHING, and that falls through unchanged.
   //
-  // Measured over this detector's own calibration corpus (295 records, 119
-  // fires, 599 claims) before shipping this:
-  //
-  //   - 301 of 599 claims had a segment naming at least one ref — the half this
-  //     rule can decide. Of those, 221 (73%) were charged against a ref the
-  //     segment does not name while naming a different one.
-  //   - Applying the rule: 599 claims → 378, and **zero** fires lose all their
-  //     claims, so no detection is silenced (ADR-032's invariant).
-  //   - The 298 segments naming no ref are untouched, which is mt#4580's case.
+  // The measured effect on this detector's own corpus is recorded in mt#5008's
+  // `## Findings` rather than inlined here — it is a point-in-time number and
+  // this comment is not where it should go stale.
   //
   // Joined on `EntityRef.id`, not the raw ref text, because `collectEntityRefs`
   // normalises `mt#N` and a `minsky://task/mt%23N` link target to the same id.
+  //
+  // PR #3648 R1 (BLOCKING, adopted): the narrowing FALLS BACK when it would
+  // select nothing. A segment's refs are drawn from the same elided prose as
+  // `refs`, so the intersection is non-empty for every fire in the corpus — but
+  // that is a measurement, not a guarantee: it holds only while the nominator
+  // returns verbatim substrings, which is its business and not ours. Without
+  // the fallback, a segmentation change that mangled a ref would silently
+  // convert a firing detection into no claims at all — the one outcome
+  // ADR-032 forbids ("a move may never silence a fire the operator acted on").
+  // Falling back to the prior all-refs pairing makes "no detection is silenced"
+  // structural instead of empirical.
   const claims: PendingClaim[] = [];
   for (const nomination of result.nominations) {
     const namedIds = new Set(collectEntityRefs(nomination.segment).map((e) => e.id));
-    for (const entity of refs) {
-      if (namedIds.size > 0 && !namedIds.has(entity.id)) continue;
+    const narrowed = refs.filter((entity) => namedIds.has(entity.id));
+    const scoped = narrowed.length > 0 ? narrowed : refs;
+    for (const entity of scoped) {
       claims.push({
         entity,
         assertion: {

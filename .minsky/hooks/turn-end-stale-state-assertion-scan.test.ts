@@ -806,6 +806,23 @@ describe("mt#5008 — segment-named refs bound the attribution", () => {
     expect(idsFrom(out.claims)).toEqual(["mt#4993", "mt#4998"]);
   });
 
+  test("PR #3648 R1: a segment naming ONLY refs absent from the tail falls back, it does not silence", async () => {
+    const tail = "Shipped mt#4993 today. Separately mt#1897 is still open.";
+    const out = await nominatePendingClaims(tail, {
+      resolve: resolveOk,
+      // Names a ref that is NOT among the tail's refs. Cannot arise while the
+      // nominator returns verbatim substrings of the same prose, which is why
+      // the corpus shows zero such fires — but that is its invariant to keep,
+      // not ours to depend on.
+      run: runWith("Shipped mt#9999 today."),
+    });
+
+    // The narrowing selects nothing, so it yields to the prior all-refs pairing
+    // rather than dropping the fire's claims entirely (ADR-032: a move may
+    // never silence a fire the operator acted on).
+    expect(idsFrom(out.claims)).toEqual(["mt#1897", "mt#4993"]);
+  });
+
   test("the join is on the normalised id, so a minsky:// link form matches a short ref", async () => {
     const tail = "Shipped mt#4993 today. Separately mt#1897 is still open.";
     const out = await nominatePendingClaims(tail, {
