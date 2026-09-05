@@ -28,7 +28,7 @@ const SANDBOXED: IsolationObservations = {
   bunBinaryPath: "/tmp/sbx/bin/bun",
   minskyConfigPresent: false,
   daemonTokenPresent: false,
-  daemonUnauthenticatedMcpStatus: 401,
+  daemonProbe: { kind: "status", code: 401 },
   claudeCustomizationEntries: [],
   postgresEnvVarsPresent: [],
 };
@@ -50,7 +50,7 @@ const OPERATOR_MACHINE: IsolationObservations = {
   bunBinaryPath: "/Users/someone/.bun/bin/bun",
   minskyConfigPresent: true,
   daemonTokenPresent: true,
-  daemonUnauthenticatedMcpStatus: 401,
+  daemonProbe: { kind: "status", code: 401 },
   claudeCustomizationEntries: ["CLAUDE.md", "skills", "plugins", "commands"],
   postgresEnvVarsPresent: [],
 };
@@ -99,22 +99,40 @@ describe("the daemon channel asserts unusability, not unreachability", () => {
   // The port is a fixed contract (ADR-038) and macOS loopback is shared, so a
   // reachable daemon is expected. What must not happen is an unauthenticated
   // caller getting served.
-  test("401 is isolated — reachable but refused", () => {
-    expect(
-      verdictFor({ ...SANDBOXED, daemonUnauthenticatedMcpStatus: 401 }, "daemon").isolated
-    ).toBe(true);
+  test("401 is isolated — reachable but refused, which is what AT1(d) requires", () => {
+    const obs = { ...SANDBOXED, daemonProbe: { kind: "status", code: 401 } as const };
+    expect(verdictFor(obs, "daemon").isolated).toBe(true);
   });
 
-  test("no daemon answering is isolated — nothing to use", () => {
-    expect(
-      verdictFor({ ...SANDBOXED, daemonUnauthenticatedMcpStatus: null }, "daemon").isolated
-    ).toBe(true);
+  test("nothing listening is isolated — there is no daemon to use", () => {
+    const obs = { ...SANDBOXED, daemonProbe: { kind: "refused" } as const };
+    expect(verdictFor(obs, "daemon").isolated).toBe(true);
   });
 
   test("200 is OPEN — an unauthenticated caller was served", () => {
-    expect(
-      verdictFor({ ...SANDBOXED, daemonUnauthenticatedMcpStatus: 200 }, "daemon").isolated
-    ).toBe(false);
+    const obs = { ...SANDBOXED, daemonProbe: { kind: "status", code: 200 } as const };
+    expect(verdictFor(obs, "daemon").isolated).toBe(false);
+  });
+
+  test("a probe that did not COMPLETE is OPEN, not a pass", () => {
+    // The finding a reviewer caught on R3: the previous shape collapsed
+    // "nothing listening" and "the probe failed" into one null, so a timeout
+    // against a live, usable daemon reported ISOLATED — mem#704's can't-fail
+    // probe, in the one direction this harness exists to prevent.
+    const obs = {
+      ...SANDBOXED,
+      daemonProbe: { kind: "error", reason: "TimeoutError: signal timed out" } as const,
+    };
+    const v = verdictFor(obs, "daemon");
+    expect(v.isolated).toBe(false);
+    expect(v.detail).toContain("did not complete");
+  });
+
+  test("names which of the three outcomes it saw, so the detail is diagnosable", () => {
+    const refused = { ...SANDBOXED, daemonProbe: { kind: "refused" } as const };
+    const unauth = { ...SANDBOXED, daemonProbe: { kind: "status", code: 401 } as const };
+    expect(verdictFor(refused, "daemon").detail).toContain("nothing listening");
+    expect(verdictFor(unauth, "daemon").detail).toContain("401");
   });
 });
 

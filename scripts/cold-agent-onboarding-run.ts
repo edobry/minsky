@@ -61,6 +61,12 @@ export const CHANNELS = {
 
 export type ChannelId = keyof typeof CHANNELS;
 
+/** See `IsolationObservations.daemonProbe`. */
+export type DaemonProbeResult =
+  | { kind: "status"; code: number }
+  | { kind: "refused" }
+  | { kind: "error"; reason: string };
+
 /**
  * What the shell observed. Deliberately plain data with no methods: the
  * verdict logic below is pure and unit-testable in both directions without
@@ -84,12 +90,18 @@ export interface IsolationObservations {
   /** Whether a local-daemon bearer token is readable at this token path. */
   daemonTokenPresent: boolean;
   /**
-   * HTTP status from an unauthenticated POST to the daemon's /mcp, or null if
-   * no daemon answered. 401 is the PASS: the daemon's port is a fixed contract
-   * (ADR-038) and macOS loopback is shared, so it stays reachable — the
-   * assertion is that it cannot be USED.
+   * Outcome of an unauthenticated POST to the daemon's /mcp.
+   *
+   * Three cases, and collapsing the last two is a false pass. `status` carries
+   * what the daemon answered — 401 is the PASS, because the port is a fixed
+   * contract (ADR-038) on shared loopback, so the assertion is that the daemon
+   * cannot be USED rather than that it is unreachable. `refused` means nothing
+   * is listening, which is genuinely isolated. `error` means the probe did not
+   * complete — a timeout, a DNS failure, anything — and says NOTHING about the
+   * daemon; treating it as a pass is exactly mem#704's can't-fail probe, so it
+   * fails closed.
    */
-  daemonUnauthenticatedMcpStatus: number | null;
+  daemonProbe: DaemonProbeResult;
   /** Customization entries found in the Claude config dir (CLAUDE.md, skills, ...). */
   claudeCustomizationEntries: string[];
   /** Names of Postgres connection env vars still set. */
@@ -132,8 +144,18 @@ export const POSTGRES_ENV_VARS = [
  */
 export function evaluateIsolation(obs: IsolationObservations): ChannelVerdict[] {
   const minskyServers = obs.mcpServerNames.filter((n) => /minsky/i.test(n));
+  // AT1(d) requires a 401. "Nothing listening" also isolates — there is then no
+  // daemon to use — but a probe that did not COMPLETE is not evidence either
+  // way and must not read as a pass.
   const daemonRefused =
-    obs.daemonUnauthenticatedMcpStatus === null || obs.daemonUnauthenticatedMcpStatus === 401;
+    (obs.daemonProbe.kind === "status" && obs.daemonProbe.code === 401) ||
+    obs.daemonProbe.kind === "refused";
+  const daemonDetail =
+    obs.daemonProbe.kind === "status"
+      ? `unauthenticated /mcp -> ${obs.daemonProbe.code}`
+      : obs.daemonProbe.kind === "refused"
+        ? "nothing listening on the daemon port"
+        : `probe did not complete (${obs.daemonProbe.reason}) — cannot be read as isolated`;
 
   return [
     {
@@ -164,10 +186,7 @@ export function evaluateIsolation(obs: IsolationObservations): ChannelVerdict[] 
       channel: "daemon",
       label: CHANNELS.daemon,
       isolated: daemonRefused,
-      detail:
-        obs.daemonUnauthenticatedMcpStatus === null
-          ? "no daemon answered"
-          : `unauthenticated /mcp -> ${obs.daemonUnauthenticatedMcpStatus}`,
+      detail: daemonDetail,
     },
     {
       channel: "claudeCustomizations",
@@ -436,7 +455,7 @@ function listMcpServers(env: NodeJS.ProcessEnv, strict: boolean): string[] {
   return parseMcpServerNames((r.stdout ?? "") + (r.stderr ?? ""));
 }
 
-async function probeDaemonUnauthenticated(): Promise<number | null> {
+async function probeDaemonUnauthenticated(): Promise<DaemonProbeResult> {
   try {
     const res = await fetch(DAEMON_MCP_URL, {
       method: "POST",
@@ -444,9 +463,15 @@ async function probeDaemonUnauthenticated(): Promise<number | null> {
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
       signal: AbortSignal.timeout(5_000),
     });
-    return res.status;
-  } catch {
-    return null;
+    return { kind: "status", code: res.status };
+  } catch (err) {
+    // A refused connection means nothing is listening — a real, informative
+    // negative. Everything else (timeout, abort, DNS) means the probe failed,
+    // which is NOT the same thing and must not be reported as isolation.
+    const reason = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    return /ECONNREFUSED|connection refused|Unable to connect/i.test(reason)
+      ? { kind: "refused" }
+      : { kind: "error", reason };
   }
 }
 
@@ -472,7 +497,7 @@ export async function observe(opts: ObserveOptions): Promise<IsolationObservatio
     bunBinaryPath: resolveBinary(opts.env, "bun"),
     minskyConfigPresent: existsSync(opts.minskyConfigPath),
     daemonTokenPresent: existsSync(opts.daemonTokenPath),
-    daemonUnauthenticatedMcpStatus: await probeDaemonUnauthenticated(),
+    daemonProbe: await probeDaemonUnauthenticated(),
     claudeCustomizationEntries: customizationEntriesIn(opts.claudeConfigDir),
     postgresEnvVarsPresent: POSTGRES_ENV_VARS.filter((n) => Boolean(opts.env[n])),
   };
@@ -837,54 +862,46 @@ async function main(argv: string[]): Promise<number> {
       console.log(`Disposable empty Postgres ready in container ${pg.containerName}`);
 
       const started = new Date(opts.nowMs).toISOString();
-      // Captured for the run record BEFORE dispatch. The prompt carries the
-      // throwaway connection string, so the recorded argv is scrubbed the same
-      // way the transcript is — see where the record is written.
-      dispatchArgv = [
-        "claude",
+      const claudeArgs = [
         "-p",
-        "<prompt>",
+        buildColdAgentPrompt(pg.url),
         "--strict-mcp-config",
         "--model",
         "fable",
         "--permission-mode",
         "bypassPermissions",
+        // The tool-by-tool trace, not just the last message. `-p`'s default
+        // output format returns ONLY the final turn, which makes every friction
+        // point a matter of the agent's own account of what it did —
+        // `strong-evidence` about its own behaviour rather than a record of it.
+        // The 2026-09-05 run was captured that way and its classification
+        // carries that bound; this is what removes it for the next one.
         "--output-format",
         "stream-json",
         "--verbose",
       ];
-      const r = spawnSync(
-        "claude",
-        [
-          "-p",
-          buildColdAgentPrompt(pg.url),
-          "--strict-mcp-config",
-          "--model",
-          "fable",
-          "--permission-mode",
-          "bypassPermissions",
-          // The tool-by-tool trace, not just the last message. `-p`'s default
-          // output format returns ONLY the final turn, which makes every
-          // friction point a matter of the agent's own account of what it did
-          // — `strong-evidence` about its own behaviour rather than a record of
-          // it. The 2026-09-05 run was captured that way and its classification
-          // carries that bound; this is what removes it for the next one.
-          "--output-format",
-          "stream-json",
-          "--verbose",
-        ],
-        { cwd: workspace, env, encoding: "utf8", timeout: 1_800_000 }
-      );
+
+      // The vetted scrubber, loaded before dispatch because BOTH the argv and
+      // the transcript go through it. A hand-rolled pattern would be a
+      // hypothesis about the text, and one that matches nothing emits its input
+      // unchanged — indistinguishable from a redaction that fired (mem#808).
+      const { scrubText } = await import("@minsky/domain/transcripts/credential-scrubber");
+
+      // SC2 asks for the EXACT argv. It is recorded in full and scrubbed, not
+      // replaced with a `<prompt>` placeholder: the placeholder satisfied the
+      // secret constraint by discarding the thing the criterion asks for, which
+      // is a worse answer than scrubbing. What survives is every flag plus the
+      // prompt with any credential shape redacted.
+      dispatchArgv = ["claude", ...claudeArgs].map((arg) => scrubText(arg).text);
+
+      const r = spawnSync("claude", claudeArgs, {
+        cwd: workspace,
+        env,
+        encoding: "utf8",
+        timeout: 1_800_000,
+      });
       const raw = (r.stdout ?? "") + (r.stderr ?? "");
 
-      // Scrub BEFORE persisting. The transcript records an agent that was handed
-      // a connection string and told to configure a database with it, so it can
-      // carry credentials by construction — and this run's whole point is that
-      // its output gets read by people and pasted into task specs. The vetted
-      // shape list is reused rather than hand-rolled: a pattern written here
-      // would be a hypothesis about the text, and one that matches nothing emits
-      // its input unchanged, indistinguishable from a redaction that fired.
-      const { scrubText } = await import("@minsky/domain/transcripts/credential-scrubber");
       const scrubbed = scrubText(raw);
       transcriptRedactions = scrubbed.redactions.length;
 
