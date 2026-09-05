@@ -59,6 +59,14 @@ import {
  * exceed 110s. **The cap sits above p99.9, so it is not truncating legitimate
  * work, and lowering it would begin to.**
  *
+ * Those figures are a **2026-09-05 snapshot and will age**. They are recorded as
+ * the BASIS for this decision, not as a live signal, and nothing reads them at
+ * runtime — so do not refresh them casually. What to re-measure is the reopen
+ * triggers at the end of this block; their queries live in mt#4996
+ * `## DECISION 2026-09-05`. The numbers are here rather than behind a pointer on
+ * purpose: a pointer is what the three mt#1897 passes had, and each re-derived
+ * the population from scratch and got it wrong.
+ *
  * Nor should it be raised: a round that hits this cap is not a slow round, it is
  * a request that returned NOTHING. Every observed failure is at round 0, and a
  * retry on a fresh connection has succeeded in as little as 2.7s. PR #3625

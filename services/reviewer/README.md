@@ -583,6 +583,11 @@ remedy is **the existing retry stack**; no code changed. Recorded here because t
 re-opened three times and twice answered from percentiles that were artifacts of this very cap
 (mem#1373).
 
+**This is guidance, not a lock.** `REVIEWER_MODEL_TIMEOUT_MS` stays configurable at boot and is
+deliberately not hard-coded — the knob exists for an incident, and for whoever reopens this on the
+triggers below. It should simply not be tuned in normal operation, and the figures in this section
+are a 2026-09-05 snapshot rather than a live signal.
+
 **What the cap is doing, over 53,038 completing rounds across all reviewer history:** p50 7.7s,
 p95 38.2s, p99 62.3s, p99.9 105.0s, max 118.0s. Only 33 rounds (0.062%) exceed 110s.
 
