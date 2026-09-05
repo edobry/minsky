@@ -383,7 +383,10 @@ describe("parseMcpServerNames", () => {
     // channel and makes a human look.
     const names = parseMcpServerNames("  : bun run shim.ts");
     expect(names).toHaveLength(1);
-    expect(names[0]).toStartWith("UNPARSED:");
+    // `startsWith` rather than a `toStartWith` matcher: the matcher works on
+    // this Bun but is not part of the standard expect surface, and a test that
+    // fails on a runner upgrade for matcher reasons is noise.
+    expect(names[0]?.startsWith("UNPARSED:")).toBe(true);
   });
 });
 
@@ -451,6 +454,15 @@ describe("preconditionFailures — harness tools", () => {
     // Requiring them in assertion mode would refuse a run that would work.
     expect(REQUIRED_TOOLS.always).not.toContain("docker");
     expect(REQUIRED_TOOLS.execute).toContain("docker");
+  });
+
+  test("declares every tool the execute path shells out to, including nc", () => {
+    // R1 generalized the precondition check and still missed `nc`, which the
+    // free-port probe invokes. The declared set is only useful if it is
+    // complete.
+    for (const tool of ["docker", "git", "nc"]) {
+      expect(REQUIRED_TOOLS.execute).toContain(tool);
+    }
   });
 });
 

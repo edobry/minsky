@@ -25,6 +25,12 @@
  * Exit 0 = pass, non-zero = fail.
  */
 
+// Side-effect import, NOT unused: `resolveAnthropicKey` dynamically imports
+// `@minsky/domain/configuration`, which reaches tsyringe, which throws
+// "tsyringe requires a reflect polyfill. Please add 'import
+// \"reflect-metadata\"' to the top of your entry point." without it. Observed
+// while building this script. It references no symbol, which is exactly why it
+// looks removable — a reviewer flagged it as unused on PR #3661 R2.
 import "reflect-metadata";
 import { spawnSync } from "child_process";
 import {
@@ -202,8 +208,12 @@ export function evaluateIsolation(obs: IsolationObservations): ChannelVerdict[] 
  * them in assertion mode would refuse a run that would have worked.
  */
 export const REQUIRED_TOOLS = {
+  // `nc` is used by the free-port probe, which only runs under --execute. It is
+  // listed because R1's generalization missed it: the point of moving from a
+  // per-tool check to a declared set is that the set is the ONE place to look,
+  // and a tool invoked but undeclared defeats that.
   always: ["claude"],
-  execute: ["docker", "git"],
+  execute: ["docker", "git", "nc"],
 } as const;
 
 /**
