@@ -186,9 +186,26 @@ function main(): void {
     console.error("usage: bun scripts/resolve-calibration-duplicate-groups.ts <detector-name>");
     process.exit(1);
   }
+  // PR #3656 R1 (non-blocking): `--tolerance-ms` with no value made
+  // `Number(undefined)` → NaN, and every `delta <= NaN` is false — so the join
+  // would find nothing and print a clean "unresolvable: N" that reads exactly
+  // like a genuine coverage gap. A flag typo silently inverting the result is
+  // worse than an error, so this fails loudly instead.
   const toleranceIdx = process.argv.indexOf("--tolerance-ms");
-  const toleranceMs =
-    toleranceIdx > 0 ? Number(process.argv[toleranceIdx + 1]) : DEFAULT_TOLERANCE_MS;
+  let toleranceMs = DEFAULT_TOLERANCE_MS;
+  if (toleranceIdx > 0) {
+    const raw = process.argv[toleranceIdx + 1];
+    const parsed = raw === undefined ? Number.NaN : Number(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      console.error(
+        `[resolve-duplicate-groups] --tolerance-ms needs a non-negative number, got ${
+          raw === undefined ? "(nothing)" : JSON.stringify(raw)
+        }`
+      );
+      process.exit(1);
+    }
+    toleranceMs = parsed;
+  }
 
   const oracle = loadOracle();
   const records = loadCalibration(detector);
