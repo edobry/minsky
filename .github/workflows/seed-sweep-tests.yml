@@ -1,0 +1,128 @@
+name: Seed-Sweep Tests
+
+# mt#3575 — run the suite under several random seeds and report tests that pass
+# in one order and fail in another.
+#
+# THIS JOB IS INFORMATIONAL AND MUST NOT BECOME A REQUIRED CHECK. It does not run
+# on pull_request at all, so branch protection cannot select it. Modelled on
+# `clock-shifted-tests.yml` (mt#4726), which is the repo's precedent for a
+# deliberately non-blocking scheduled run on a different axis.
+#
+# ## Why a sweep at all, when every CI run is already randomized
+#
+# `bunfig.toml` sets `[test] randomize = true`, so the per-PR `build` job already
+# executes in a random order with a fresh seed each time, and bun prints that
+# seed. That catches order-dependence with probability — ONE sample per PR. A
+# test that only fails in 1-in-20 orders will pass most PRs and land anyway, then
+# surface later as an unattributable "flake". The sweep buys more samples, off
+# the critical path.
+#
+# ## The self-check is the point, not the seed count
+#
+# The obvious form of this job — a shell loop over `bun test --seed=$i` — is a
+# probe that CANNOT FAIL. Measured on Bun 1.3.14 (mt#3575): `--seed` does nothing
+# unless `[test] randomize` is true in bunfig, and the `--randomize` CLI flag does
+# not override it. So the loop would report a clean sweep while shuffling
+# nothing. `scripts/run-tests-seed-sweep.ts` therefore refuses to report anything
+# until it has PROVEN both halves — the repo's bunfig enables randomization, and
+# a probe run genuinely produces different orders under different seeds.
+#
+# ## Variance alone over-reports, so every failing seed is re-run at that seed
+#
+# A cross-seed difference says a test's outcome VARIES; it does not say the order
+# caused it, because a load-sensitive test varies too. The first 4-seed sweep
+# (2026-09-02) reported three findings, two of which mt#3501's spec names
+# verbatim as its own load-dependent population. So the harness re-runs each
+# failing seed a second time — same seed, same order — and only calls a failure
+# order-dependent when it reproduces under its own order (mem#942). One that
+# comes and goes under a FIXED order is contention, reported separately and
+# owned by mt#3501 / mt#3494.
+#
+# Exit codes: 0 = no order-dependent failure found; 1 = at least one failure
+# reproduced under its own seed, or a finding could not be classified because no
+# fixed-seed repeat covered it; 2 = the sweep could not establish that
+# randomization is active, so it proves nothing and its silence must not be read
+# as a pass. Load-sensitive findings do not fail the job — they are out of
+# mt#3575's scope — but they are printed in full.
+#
+# GitHub's documented `schedule` behaviour shapes the same three choices the
+# clock-shifted job records: scheduled runs use the default branch (use
+# workflow_dispatch from a branch), high-load delays make :00 a bad minute, and
+# a public repo's scheduled workflows are disabled after 60 days of inactivity.
+
+on:
+  schedule:
+    # 05:23 UTC daily — off the hour per the delay guidance, and well clear of
+    # the clock-shifted job at 07:37 so the two never contend for a runner.
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+    inputs:
+      seeds:
+        description: "How many random seeds to run (each is a full suite pass)"
+        required: false
+        default: "5"
+
+env:
+  # Same mt#3623 install-flake hedge every other workflow in this repo carries.
+  BUN_FEATURE_FLAG_DISABLE_STREAMING_INSTALL: "1"
+
+permissions:
+  contents: read
+
+jobs:
+  seed-sweep:
+    runs-on: ubuntu-latest
+    # The sweep runs the suite once per seed, plus a second run for each seed
+    # that produced a failure — so 5 seeds is 5 runs when the suite is clean and
+    # 10 in the worst case. At the observed ~6 min per full run that worst case
+    # is ~60 min, which is exactly why the cap is not 60: a limit equal to the
+    # worst case kills the run that most needs to finish. 90 leaves headroom for
+    # a slow runner without letting a hung run sit all day.
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The pin is a floor with a reason, not a copied constant (PR #3590 R1).
+      # `[test] randomize` only takes effect from Bun **v1.2.23**
+      # (https://bun.com/blog/bun-v1.2.23); on anything older it is silently
+      # ignored and this whole job becomes a probe that cannot fail. The harness
+      # is the drift guard rather than this pin: `randomizationIsLive()` runs a
+      # sandbox probe before any suite and exits 2 if two seeds produce the same
+      # order, so a downgrade below the floor FAILS the job instead of passing
+      # it. Raise this pin freely to match the repo's Bun; do not lower it below
+      # 1.2.23, and do not remove the pin without keeping the self-check.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Cache Bun install (shared root + services/reviewer)
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock', 'services/reviewer/bun.lock') }}
+          restore-keys: |
+            bun-install-${{ runner.os }}-
+
+      - name: Install dependencies
+        timeout-minutes: 15
+        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
+
+      # ripgrep is a runtime dependency of session.grep_search (mt#3163); the
+      # sweep runs the same corpus as `build`'s test step, so it needs the same
+      # install. Kept identical to that step on purpose.
+      - name: Install ripgrep (required by session.grep_search)
+        timeout-minutes: 12
+        run: |
+          for i in 1 2 3; do
+            if sudo timeout 90 apt-get update && sudo timeout 90 apt-get install -y ripgrep; then break; fi
+            if [ "$i" = 3 ]; then exit 1; fi
+            echo "ripgrep install failed or hung (mt#4300) - retry $i"; sleep 10
+          done
+
+      # The harness refuses to start unless it has first PROVEN randomization is
+      # active. Exit 2 means the sweep itself is broken; exit 1 means a real
+      # order-dependent test was found.
+      - name: Sweep the suite across random seeds
+        run: bun scripts/run-tests-seed-sweep.ts --seeds ${{ github.event.inputs.seeds || '5' }}

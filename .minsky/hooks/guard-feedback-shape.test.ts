@@ -63,6 +63,34 @@ import type { CanaryResult } from "./canary-runner";
  * survey round while authoring this file.
  */
 const CANARY_STATE_DIR = mkdtempSync(join(tmpdir(), "mt3479-feedback-shape-"));
+
+/**
+ * What these three held before this file touched them (mt#3575).
+ *
+ * Setting them at module scope is REQUIRED — several guards read them at module
+ * load, so the assignments must precede the dynamic imports below — but the
+ * assignments were never undone, and `bun test` shares one process across files.
+ * So every file that ran after this one inherited `MINSKY_CANARY_MODE=1`, which
+ * silently changes guard BEHAVIOUR: `block-concurrent-bulk-mutation`'s canary
+ * branch returns `{ outcome: "clean" }` before it ever checks its override, so
+ * that file's two override tests failed with `expected "overridden", received
+ * "clean"` whenever randomization put this file first.
+ *
+ * Deterministic reproducer for the old shape, seed-free:
+ *
+ *   bun test --preload ./tests/setup.ts \
+ *     ./.minsky/hooks/guard-feedback-shape.test.ts \
+ *     ./.minsky/hooks/block-concurrent-bulk-mutation.test.ts
+ *
+ * (the leading `./` is load-bearing — bun reads a bare `.minsky/...` argument as
+ * a NAME filter and silently runs nothing; mem#1038.)
+ */
+const PRIOR_ENV: Record<string, string | undefined> = {
+  MINSKY_STATE_DIR: process.env["MINSKY_STATE_DIR"],
+  CLAUDE_PROJECT_DIR: process.env["CLAUDE_PROJECT_DIR"],
+  MINSKY_CANARY_MODE: process.env["MINSKY_CANARY_MODE"],
+};
+
 process.env["MINSKY_STATE_DIR"] = CANARY_STATE_DIR;
 process.env["CLAUDE_PROJECT_DIR"] = CANARY_STATE_DIR;
 process.env["MINSKY_CANARY_MODE"] = "1";
@@ -228,6 +256,13 @@ beforeAll(async () => {
 
 afterAll(() => {
   rmSync(CANARY_STATE_DIR, { recursive: true, force: true });
+  // Hand the process env back as this file found it (mt#3575). An absent key
+  // owes a delete, a present one owes its original string — collapsing the two
+  // would leave this file's canary mode set for whatever runs next.
+  for (const [key, prior] of Object.entries(PRIOR_ENV)) {
+    if (prior === undefined) delete process.env[key];
+    else process.env[key] = prior;
+  }
 });
 
 describe("guard feedback — coverage receipt (mt#3479)", () => {
