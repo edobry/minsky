@@ -46,8 +46,8 @@ expensive", because an agent proposing work has an interest in its cost reading 
 
 Correct shape: the figure, its assumptions, and its sensitivity, then stop — *"$100/month, assuming
 ~2,000 input tokens per call; ±50% on that moves it to $50–$150."* Compare only to another MEASURED
-figure ("~1/6th of the reviewer's current bill"), never to a threshold you invented. When the cost
-is decision-relevant, surface it with the decision it bears on and ask; do not pre-resolve it.
+figure ("~1/6th of the reviewer's current bill"), never to a threshold you invented. When any
+trigger below fires, surface the cost with the decision it bears on and ask; do not pre-resolve it.
 **A relayed verdict is still a verdict** — an advisor saying "self-financing" is that agent's
 judgment, and repeating it unmarked adopts it (`claim-confidence.mdc §A relayed claim is never
 verified`).
@@ -55,7 +55,47 @@ verified`).
 This does not weaken `communication-contract.mdc §Judgment calls are load-bearing`: that governs a
 call you HAD to make and must surface; this governs one that was never yours. Reservation:
 `principal-context.mdc §Decisions Eugene reserves` (vendor commitments), applied to spend at
-mem#625. Incident: mt#4564 (2026-08-25).
+mem#625. Incidents: mt#4564 (2026-08-25), mt#5019 (2026-09-05).
+
+#### When to ask: enumerated triggers, because "decision-relevant" is self-assessed
+
+This clause used to read *"when the cost is decision-relevant, ask."* **That is a predicate the
+agent about to overspend evaluates about itself**, and it fails the way
+`communication-contract.mdc §Severity pierces the register` already says its own predicate fails:
+*"severity is not agent self-assessed."* Neither is this. **Ask when ANY of these holds, whatever
+your reading of relevance:**
+
+- **(a) A non-metered path may cover the same work** — a subscription, an already-paid plan, an
+  in-repo gateway. **Look before you bill**, and ask when the look finds one. Having looked and
+  found none is a passing answer; not having looked is not. Check at decision time rather than
+  trusting what is written here or in a memory — a vendor's billing terms change, and this rule
+  cannot track them.
+- **(b) The spend follows from a design choice YOU made**, rather than one the task specified. The
+  task asked for an outcome; the price tag on the means is yours, and so is surfacing it.
+- **(c) The spend is avoidable by accepting a documented residual** — a limitation the artifact
+  already has somewhere to record. If the free version of the work ships with one more line in a
+  known-limitations list, that is a trade the principal makes.
+
+**Zero marginal cost is a different KIND of cost, not a smaller one.** Work absorbed by a plan
+already paid for and work that mints a new charge are not two points on one scale — so "$8 is
+small" answers the wrong question when the alternative is $0. Say which kind before you say how
+much.
+
+**Write the purchase sentence, both halves.** A price with no benefit beside it can only be felt,
+and small numbers feel affordable: *"$X buys <this>; $0 buys <that>."* Write both and the sentence
+often answers itself — in mt#5019's case the metered path bought one documented residual in place
+of another, which is not something a price alone would have shown.
+
+**Consent to an OUTCOME is not consent to a MEANS with a price.** *"The principal proposed this
+task"* authorizes the result, not a resource commitment they never saw — the same split
+`/plan-task` draws when it says selecting an option endorses its LABEL, not a side-commitment
+buried in the preview text. If the price was not in what they agreed to, their agreement does not
+cover it.
+
+**Standing preference, stated by the principal twice:** *"use the subscription if possible"*
+(2026-07-13, mem#618) and *"you really should have been using the Claude subscription"*
+(2026-09-05). Prefer the non-metered path; when only the metered one is available, that is the
+choice to surface.
 
 ## Escalation packaging
 
