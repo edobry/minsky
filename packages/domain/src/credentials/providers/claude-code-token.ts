@@ -25,25 +25,52 @@
  * What IS checked is the one error with a real consequence: pasting the
  * metered API key into the subscription field, which would silently bill the
  * wrong account for every run.
+ *
+ * ## The paragraph above was written, and then violated, in the same file
+ *
+ * The original check tested `sk-ant-` — the FAMILY prefix both credentials
+ * share — and so rejected every subscription token. The operator pasted a real
+ * one and was told it was an API key (mt#5023). The reasoning that produced it
+ * is worth keeping visible: the format of a subscription token was treated as
+ * unknowable and left unchecked, while the format of an API key was treated as
+ * known and checked. Both were guesses; only one was labelled as one.
+ *
+ * The general shape, for whoever edits this next: a check you are confident
+ * about deserves the same sourcing as the one you declined to write.
  */
 import type { CredentialProvider, CredentialCheckResult } from "../types";
 
 /**
- * Anthropic API keys carry this prefix. Used ONLY to catch a paste into the
- * wrong field — never to validate a subscription token, whose format is not
- * documented and must not be guessed at.
+ * `sk-ant-` is the FAMILY prefix, shared by both credentials — it discriminates
+ * nothing. The kind is carried by the segment after it: `api03` for a Console
+ * API key, `oat01` for the OAuth access token `claude setup-token` mints.
+ *
+ * Testing the family prefix rejected exactly the credential this provider
+ * exists to hold, which is how it shipped (mt#5023): the operator pasted a real
+ * subscription token and was told it was an API key. Match the SEGMENT.
  */
-const ANTHROPIC_API_KEY_PREFIX = "sk-ant-";
+const API_KEY_SEGMENT = /^sk-ant-api\d*-/;
+const SUBSCRIPTION_TOKEN_SEGMENT = /^sk-ant-oat\d*-/;
 
 /**
  * The shortest plausible credential. Deliberately loose: this exists to catch
- * an empty or truncated paste, not to assert a format nobody has published.
+ * an empty or truncated paste, not to assert a length nobody has published.
  */
 const MIN_TOKEN_LENGTH = 20;
 
 const NOT_YET_VALIDATED_DETAIL =
-  "stored; NOT checked against a live endpoint — no endpoint is known to accept " +
-  "a subscription token, so no check is claimed (mt#5022 SC3)";
+  "stored; NOT checked against a live endpoint — knowing the FORMAT does not tell " +
+  "us what accepts it, so no check is claimed (mt#5022 SC3)";
+
+/**
+ * An `sk-ant-` value matching neither known segment. ACCEPTED, deliberately:
+ * refusing a shape Anthropic may add is the same error as refusing `oat01`
+ * was, one format later. Say it is unrecognized; do not block on it.
+ */
+const UNRECOGNIZED_SHAPE_DETAIL =
+  "stored; the shape is not one this provider recognizes (neither `sk-ant-api…` " +
+  "nor `sk-ant-oat…`). Accepted rather than refused — a format we do not know is " +
+  "not a format that is wrong (mt#5023 SC3)";
 
 /**
  * Shape check only. Returns `ok: true` for anything that could be a token,
@@ -57,14 +84,14 @@ async function checkShape(token: string): Promise<CredentialCheckResult> {
     return { ok: false, detail: "empty — no token provided" };
   }
 
-  if (trimmed.startsWith(ANTHROPIC_API_KEY_PREFIX)) {
+  if (API_KEY_SEGMENT.test(trimmed)) {
     return {
       ok: false,
       detail:
-        `that is an Anthropic API key (\`${ANTHROPIC_API_KEY_PREFIX}…\`), not a subscription ` +
-        "token. Storing it here would bill API credits rather than the subscription — which " +
-        "is the whole distinction this provider exists for. Use the `anthropic` provider for " +
-        "an API key, or run `claude setup-token` for a subscription token.",
+        "that is an Anthropic API key (`sk-ant-api…`), not a subscription token. Storing it " +
+        "here would bill API credits rather than the subscription — which is the whole " +
+        "distinction this provider exists for. Use the `anthropic` provider for an API key, " +
+        "or run `claude setup-token` for a subscription token (`sk-ant-oat…`).",
     };
   }
 
@@ -75,7 +102,12 @@ async function checkShape(token: string): Promise<CredentialCheckResult> {
     };
   }
 
-  return { ok: true, detail: NOT_YET_VALIDATED_DETAIL };
+  return {
+    ok: true,
+    detail: SUBSCRIPTION_TOKEN_SEGMENT.test(trimmed)
+      ? NOT_YET_VALIDATED_DETAIL
+      : UNRECOGNIZED_SHAPE_DETAIL,
+  };
 }
 
 export const claudeCodeTokenProvider: CredentialProvider = {

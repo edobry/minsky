@@ -5,11 +5,22 @@ import { getCredentialProvider, KNOWN_PROVIDER_IDS, listCredentialProviders } fr
 /** The provider id, shared so the registration assertions cannot drift apart. */
 const PROVIDER_ID = "claude-code-token";
 
-/** A plausible subscription token: long, and not API-key-shaped. */
-const PLAUSIBLE_TOKEN = `oat-${"x".repeat(40)}`;
+/**
+ * A REAL-shaped subscription token from `claude setup-token`.
+ *
+ * The `sk-ant-oat01-` prefix is the point. The original fixture was
+ * `"sk-ant-oat01-".replace("sk-ant-", "oat-")` — the true prefix, rewritten so
+ * it would survive a check that rejected the whole `sk-ant-` family. That edit
+ * is what let the bug ship: a fixture reshaped to pass cannot represent the
+ * input the code will actually see (mt#5023 SC5).
+ */
+const SUBSCRIPTION_TOKEN = `sk-ant-oat01-${"x".repeat(95)}`;
 
-/** An Anthropic API key, which must be REJECTED here — see the billing tests. */
-const API_KEY = `sk-ant-${"a".repeat(40)}`;
+/** An Anthropic API key, which must be REJECTED — see the billing tests. */
+const API_KEY = `sk-ant-api03-${"a".repeat(95)}`;
+
+/** An `sk-ant-` shape matching neither known segment. Must be ACCEPTED. */
+const UNRECOGNIZED_TOKEN = `sk-ant-future9-${"z".repeat(40)}`;
 
 describe("registration", () => {
   test("is reachable by id, which is what `credentials add <id>` needs", () => {
@@ -58,6 +69,41 @@ describe("the API-key paste is rejected — the one error with a billing consequ
   });
 });
 
+describe("the segment discriminates, not the family prefix (mt#5023)", () => {
+  // Both credentials start `sk-ant-`. Testing that prefix rejected every
+  // subscription token — the shipped bug, reported by the operator pasting a
+  // real one. These three are the regression.
+  test("ACCEPTS a real sk-ant-oat01- subscription token", async () => {
+    const result = await claudeCodeTokenProvider.validate(SUBSCRIPTION_TOKEN);
+    expect(result.ok).toBe(true);
+  });
+
+  test("still REJECTS an sk-ant-api03- API key", async () => {
+    const result = await claudeCodeTokenProvider.validate(API_KEY);
+    expect(result.ok).toBe(false);
+    expect(result.detail).toContain("API key");
+  });
+
+  test("both share the sk-ant- prefix, which is why it cannot be the test", () => {
+    expect(SUBSCRIPTION_TOKEN.startsWith("sk-ant-")).toBe(true);
+    expect(API_KEY.startsWith("sk-ant-")).toBe(true);
+  });
+
+  test("ACCEPTS an unrecognized sk-ant- shape, and says it is unrecognized", async () => {
+    // Refusing a format Anthropic may add is the same error as refusing oat01
+    // was, one format later.
+    const result = await claudeCodeTokenProvider.validate(UNRECOGNIZED_TOKEN);
+    expect(result.ok).toBe(true);
+    expect(result.detail).toContain("not one this provider recognizes");
+  });
+
+  test("the recognized and unrecognized details differ, so the log says which", async () => {
+    const known = await claudeCodeTokenProvider.validate(SUBSCRIPTION_TOKEN);
+    const unknown = await claudeCodeTokenProvider.validate(UNRECOGNIZED_TOKEN);
+    expect(known.detail).not.toBe(unknown.detail);
+  });
+});
+
 describe("shape checks", () => {
   test("rejects empty", async () => {
     expect((await claudeCodeTokenProvider.validate("")).ok).toBe(false);
@@ -74,11 +120,11 @@ describe("shape checks", () => {
   });
 
   test("accepts a plausible token", async () => {
-    expect((await claudeCodeTokenProvider.validate(PLAUSIBLE_TOKEN)).ok).toBe(true);
+    expect((await claudeCodeTokenProvider.validate(SUBSCRIPTION_TOKEN)).ok).toBe(true);
   });
 
   test("tolerates surrounding whitespace, which a paste routinely carries", async () => {
-    expect((await claudeCodeTokenProvider.validate(`  ${PLAUSIBLE_TOKEN}\n`)).ok).toBe(true);
+    expect((await claudeCodeTokenProvider.validate(`  ${SUBSCRIPTION_TOKEN}\n`)).ok).toBe(true);
   });
 });
 
@@ -86,20 +132,20 @@ describe("the success detail does not claim a validation that did not happen", (
   // This is the property the whole design rests on: an unvalidatable credential
   // and a validated one must not look alike to a reader of the output.
   test("says NOT checked, in the success path", async () => {
-    const result = await claudeCodeTokenProvider.validate(PLAUSIBLE_TOKEN);
+    const result = await claudeCodeTokenProvider.validate(SUBSCRIPTION_TOKEN);
     expect(result.ok).toBe(true);
     expect(result.detail).toContain("NOT checked");
   });
 
   test("cites the task that owns adding the real check", async () => {
-    const result = await claudeCodeTokenProvider.validate(PLAUSIBLE_TOKEN);
+    const result = await claudeCodeTokenProvider.validate(SUBSCRIPTION_TOKEN);
     expect(result.detail).toContain("mt#5022");
   });
 
   test("never reports an identity or a count, which would imply a live call", async () => {
     // The sibling anthropic provider returns "N models accessible" — a real
     // response. Anything shaped like that here would be a fabrication.
-    const result = await claudeCodeTokenProvider.validate(PLAUSIBLE_TOKEN);
+    const result = await claudeCodeTokenProvider.validate(SUBSCRIPTION_TOKEN);
     expect(result.detail).not.toMatch(/\d+ model/);
     expect(result.detail).not.toContain("accessible");
   });
@@ -107,8 +153,8 @@ describe("the success detail does not claim a validation that did not happen", (
   test("never echoes the token itself into the detail string", async () => {
     // The detail is surfaced in the cockpit and the CLI, and both are
     // transcript-adjacent surfaces.
-    const result = await claudeCodeTokenProvider.validate(PLAUSIBLE_TOKEN);
-    expect(result.detail).not.toContain(PLAUSIBLE_TOKEN);
+    const result = await claudeCodeTokenProvider.validate(SUBSCRIPTION_TOKEN);
+    expect(result.detail).not.toContain(SUBSCRIPTION_TOKEN);
   });
 });
 

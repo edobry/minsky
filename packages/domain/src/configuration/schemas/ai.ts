@@ -90,9 +90,16 @@ export const anthropicConfigSchema = aiProviderConfigSchema.extend({
    * shows it (mt#5019).
    *
    * Consumed by a headless `claude` run whose config dir is relocated, where
-   * the OAuth session does not follow — see `claude --help`'s `--bare`:
-   * "Anthropic auth is strictly ANTHROPIC_API_KEY or apiKeyHelper via
-   * --settings".
+   * the OAuth session does not follow. The consumption path is the
+   * **`CLAUDE_CODE_OAUTH_TOKEN`** environment variable, which is what
+   * `claude setup-token` mints this value for.
+   *
+   * An earlier version of this docblock named `apiKeyHelper via --settings`,
+   * read off `claude --help`'s `--bare` text. That text is about `--bare`'s
+   * auth restrictions and is not the documented path for a setup-token; the
+   * error mattered because mt#5018's harness design was written against it
+   * (mt#5023). Format: `sk-ant-oat01-…`, distinct from `apiKey`'s
+   * `sk-ant-api03-…`.
    */
   authToken: baseSchemas.optionalNonEmptyString,
 });
