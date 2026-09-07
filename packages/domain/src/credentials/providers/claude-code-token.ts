@@ -79,22 +79,46 @@ import type { CredentialProvider, CredentialCheckResult } from "../types";
  * #1316, titled "claude_code_oauth_token (sk-ant-oat01-*) fails with Header 14
  * invalid value".
  *
- * `\d*` tolerates the VERSION digits, which vary within the token kind
- * (`oat01` → `oat02`). It is deliberately not a wildcard over the segment
- * itself: a different segment is a different KIND of credential, and this
- * provider holds one kind.
+ * The two quantifiers differ, and the difference is the point — an ACCEPT
+ * predicate and a REJECT predicate have opposite safe directions:
+ *
+ *   - `SUBSCRIPTION_TOKEN_SEGMENT` decides what gets STORED, so loose is
+ *     dangerous. `\d+` requires at least one version digit, matching every
+ *     token ever observed (`oat01`) and tolerating a version bump (`oat02`)
+ *     without also admitting a version-less `sk-ant-oat-` that no one has seen.
+ *   - `API_KEY_SEGMENT` decides which REFUSAL MESSAGE an already-refused value
+ *     gets, so loose is safe. `\d*` also catches a hypothetical `sk-ant-api-`,
+ *     which then gets the billing-specific message instead of the generic
+ *     one. Tightening it could only make an error message worse, never let
+ *     something through — the shape gate below refuses it either way.
+ *
+ * Neither is a wildcard over the segment itself: a different segment is a
+ * different KIND of credential, and this provider holds one kind.
  */
 const API_KEY_SEGMENT = /^sk-ant-api\d*-/;
-const SUBSCRIPTION_TOKEN_SEGMENT = /^sk-ant-oat\d*-/;
+const SUBSCRIPTION_TOKEN_SEGMENT = /^sk-ant-oat\d+-/;
 
 /**
- * The shortest plausible credential. Deliberately loose: this exists to catch a
- * truncated paste of a REAL token, not to assert a length nobody has published
- * — which is why it is checked only AFTER the shape matches. A value that is
- * not a subscription token at all gets the shape message; "too short" would be
- * a misleading thing to tell someone who pasted the wrong kind of secret.
+ * Floor for a token that already matched the shape — so this catches a
+ * truncated paste of a REAL token, and never speaks to a value that is not a
+ * subscription token at all (that one gets the shape message; "too short"
+ * would send someone who pasted the wrong secret looking for a longer wrong
+ * secret).
+ *
+ * DERIVATION, because a number picked by feel is what put 20 here: the only
+ * length ever observed is 108 — `sk-ant-oat01-` (13) plus a 95-char body. Half
+ * that body is ~48, so 13 + 48 ≈ 60. A paste that lost more than half its body
+ * is a truncation by any reading.
+ *
+ * NOT set to ~108, deliberately, and this is the asymmetry that governs the
+ * whole file: refusing a real credential has a victim (mt#5022 did exactly
+ * that), while storing an obviously truncated one costs a confusing auth error
+ * at first use. The 108 figure is `strong-evidence` from third-party
+ * write-ups, not Anthropic's own reference, so a floor pinned to it would
+ * convert any shorter real variant into the mt#5022 failure. 60 leaves a real
+ * token ~1.8x headroom. Raise it if a primary source ever fixes the length.
  */
-const MIN_TOKEN_LENGTH = 20;
+const MIN_TOKEN_LENGTH = 60;
 
 const NOT_YET_VALIDATED_DETAIL =
   "stored; NOT checked against a live endpoint — knowing the FORMAT does not tell " +
@@ -126,11 +150,13 @@ async function checkShape(token: string): Promise<CredentialCheckResult> {
   if (!SUBSCRIPTION_TOKEN_SEGMENT.test(trimmed)) {
     return {
       ok: false,
+      // Operator-facing: what is wrong, what the right thing looks like, how to
+      // get one, and that nothing was written. The reasoning for refusing
+      // rather than storing-with-a-caveat belongs in the docblock above, not in
+      // a dialog — a message that argues with the reader is a worse message.
       detail:
         "not a Claude subscription token — those start `sk-ant-oat…`. Run `claude setup-token` " +
-        "to mint one; it requires an active Claude subscription. Nothing was stored: this " +
-        "provider holds exactly one credential type, so a value it cannot recognize as that " +
-        "type is refused rather than kept with a caveat (mt#5026).",
+        "to mint one; it requires an active Claude subscription. Nothing was stored.",
     };
   }
 

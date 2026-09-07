@@ -19,6 +19,12 @@ const SETUP_TOKEN_COMMAND = "claude setup-token";
 const SUBSCRIPTION_PREFIX = "sk-ant-oat";
 
 /**
+ * The phrase that makes an API-key refusal specific rather than generic. It is
+ * the whole reason that branch exists, so the assertions share one spelling.
+ */
+const BILLING_CONSEQUENCE = "bill API credits";
+
+/**
  * A REAL-shaped subscription token from `claude setup-token`.
  *
  * PROVENANCE (mem#968): the `sk-ant-oat01-` prefix is transcribed from the
@@ -105,8 +111,8 @@ describe("the API-key paste is rejected — the one error with a billing consequ
     // provider to use, not that their value is unrecognizable.
     const apiKey = await claudeCodeTokenProvider.validate(API_KEY);
     const gibberish = await claudeCodeTokenProvider.validate(GIBBERISH);
-    expect(apiKey.detail).toContain("bill API credits");
-    expect(gibberish.detail).not.toContain("bill API credits");
+    expect(apiKey.detail).toContain(BILLING_CONSEQUENCE);
+    expect(gibberish.detail).not.toContain(BILLING_CONSEQUENCE);
   });
 });
 
@@ -132,10 +138,63 @@ describe("the segment discriminates, not the family prefix (mt#5023)", () => {
 
   test("tolerates a different VERSION within the same token kind", async () => {
     // `oat01` -> `oat02` is a version bump on the credential this provider
-    // holds. That is the axis `\d*` exists for, and it is NOT the axis mt#5026
+    // holds. That is the axis `\d+` exists for, and it is NOT the axis mt#5026
     // closed — a different SEGMENT is a different kind of credential.
     const result = await claudeCodeTokenProvider.validate(`sk-ant-oat02-${"x".repeat(95)}`);
     expect(result.ok).toBe(true);
+  });
+
+  test("REJECTS a version-LESS sk-ant-oat- , which no observed token has", async () => {
+    // `\d*` would have accepted this. Tolerating a version bump is not the same
+    // as tolerating no version at all: the second is a shape nobody has seen,
+    // and the accept predicate is where loose is dangerous.
+    const result = await claudeCodeTokenProvider.validate(`sk-ant-oat-${"x".repeat(95)}`);
+    expect(result.ok).toBe(false);
+  });
+
+  test("a version-LESS sk-ant-api- still gets the BILLING message", async () => {
+    // The mirror case, and the reason API_KEY_SEGMENT keeps `\d*` while the
+    // subscription one takes `\d+`. This predicate picks which REFUSAL an
+    // already-refused value gets, so a loose match can only improve the
+    // message. Both are refused either way — that is what the second assertion
+    // pins down, so the looseness cannot quietly become an acceptance.
+    const result = await claudeCodeTokenProvider.validate(`sk-ant-api-${"a".repeat(95)}`);
+    expect(result.ok).toBe(false);
+    expect(result.detail).toContain(BILLING_CONSEQUENCE);
+  });
+});
+
+describe("the length floor, which is checked only after the shape matches", () => {
+  // The floor is 60: `sk-ant-oat01-` (13) plus roughly half the 95-char body of
+  // the only token length ever observed. These lock both sides of it so a
+  // future edit cannot drift the floor without a test saying so.
+  const PREFIX = "sk-ant-oat01-";
+
+  test("REJECTS the reviewer's case — correct shape, 20 chars total", async () => {
+    const token = `${PREFIX}${"x".repeat(7)}`;
+    expect(token.length).toBe(20);
+    const result = await claudeCodeTokenProvider.validate(token);
+    expect(result.ok).toBe(false);
+    expect(result.detail).toContain("truncated");
+  });
+
+  test("REJECTS one character below the floor", async () => {
+    const token = `${PREFIX}${"x".repeat(46)}`;
+    expect(token.length).toBe(59);
+    expect((await claudeCodeTokenProvider.validate(token)).ok).toBe(false);
+  });
+
+  test("ACCEPTS exactly at the floor", async () => {
+    const token = `${PREFIX}${"x".repeat(47)}`;
+    expect(token.length).toBe(60);
+    expect((await claudeCodeTokenProvider.validate(token)).ok).toBe(true);
+  });
+
+  test("ACCEPTS a real-length token, which is what the floor must never refuse", async () => {
+    // 108 chars — the only length ever observed. The floor sits well below it
+    // on purpose: refusing a real credential is the failure with a victim.
+    expect(SUBSCRIPTION_TOKEN.length).toBe(108);
+    expect((await claudeCodeTokenProvider.validate(SUBSCRIPTION_TOKEN)).ok).toBe(true);
   });
 });
 
