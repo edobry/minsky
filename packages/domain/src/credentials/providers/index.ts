@@ -9,6 +9,7 @@ import { supabaseProvider } from "./supabase";
 import { supabaseServiceRoleProvider } from "./supabase-service-role";
 import { githubProvider } from "./github";
 import { anthropicProvider } from "./anthropic";
+import { claudeCodeTokenProvider } from "./claude-code-token";
 import { railwayProvider } from "./railway";
 import { googleProvider } from "./google";
 import { telegramProvider } from "./telegram";
@@ -18,6 +19,7 @@ const REGISTRY: ReadonlyMap<string, CredentialProvider> = new Map([
   [supabaseServiceRoleProvider.id, supabaseServiceRoleProvider],
   [githubProvider.id, githubProvider],
   [anthropicProvider.id, anthropicProvider],
+  [claudeCodeTokenProvider.id, claudeCodeTokenProvider],
   [railwayProvider.id, railwayProvider],
   [googleProvider.id, googleProvider],
   [telegramProvider.id, telegramProvider],

@@ -79,7 +79,22 @@ export const openaiConfigSchema = aiProviderConfigSchema.extend({
  * Anthropic-specific configuration
  */
 export const anthropicConfigSchema = aiProviderConfigSchema.extend({
-  // Anthropic-specific settings can be added here
+  /**
+   * A long-lived subscription token from `claude setup-token`, distinct from
+   * `apiKey` in the one way that matters: **billing**. `apiKey` is metered
+   * against API credits; this authenticates against a Claude subscription.
+   *
+   * The distinction is carried in the key NAMES on purpose. Nothing else in
+   * the config vocabulary separates "already paid for" from "new spend", and
+   * an agent choosing between them can only see that difference if the schema
+   * shows it (mt#5019).
+   *
+   * Consumed by a headless `claude` run whose config dir is relocated, where
+   * the OAuth session does not follow — see `claude --help`'s `--bare`:
+   * "Anthropic auth is strictly ANTHROPIC_API_KEY or apiKeyHelper via
+   * --settings".
+   */
+  authToken: baseSchemas.optionalNonEmptyString,
 });
 
 /**
