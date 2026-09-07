@@ -4984,7 +4984,7 @@
                     {
                       "name": "provider",
                       "required": true,
-                      "description": "Credential provider id (supabase | supabase-service-role | github | anthropic | railway | google | telegram)"
+                      "description": "Credential provider id (supabase | supabase-service-role | github | anthropic | claude-code-token | railway | google | telegram)"
                     }
                   ]
                 }
@@ -5025,7 +5025,7 @@
                     {
                       "name": "provider",
                       "required": true,
-                      "description": "Credential provider id (supabase | supabase-service-role | github | anthropic | railway | google | telegram)"
+                      "description": "Credential provider id (supabase | supabase-service-role | github | anthropic | claude-code-token | railway | google | telegram)"
                     }
                   ]
                 }
@@ -5046,7 +5046,7 @@
                     },
                     {
                       "flags": ["--provider"],
-                      "description": "Credential provider id (supabase | supabase-service-role | github | anthropic | railway | google | telegram). Omit to recheck all configured providers.",
+                      "description": "Credential provider id (supabase | supabase-service-role | github | anthropic | claude-code-token | railway | google | telegram). Omit to recheck all configured providers.",
                       "takesValue": true
                     }
                   ]
@@ -5081,7 +5081,7 @@
                     {
                       "name": "provider",
                       "required": true,
-                      "description": "Credential provider id (supabase | supabase-service-role | github | anthropic | railway | google | telegram)"
+                      "description": "Credential provider id (supabase | supabase-service-role | github | anthropic | claude-code-token | railway | google | telegram)"
                     }
                   ]
                 }
