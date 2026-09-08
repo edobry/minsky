@@ -50,9 +50,23 @@ function parseArgs(argv: readonly string[]): Args {
 }
 
 /**
- * Thresholds. The busy-affordance one is deliberately tied to the component's
- * own delay rather than restated: if `BUSY_AFFORDANCE_DELAY_MS` moves, a probe
- * carrying a stale copy would keep passing while the behaviour changed.
+ * There is deliberately NO busy-duration threshold here.
+ *
+ * The first version carried one (120 ms) under a comment claiming it was "tied
+ * to the component's own delay rather than restated" — while the component used
+ * 150 ms. The comment described an intention the code did not implement, which
+ * is worse than an honest magic number: it tells the next reader the coupling
+ * exists, so nobody checks.
+ *
+ * The fix is to drop the number rather than sync it. This probe always drives
+ * the FAST path (a token every provider refuses, resolved well inside the
+ * delay), so the correct assertion is absolute and needs no constant: a fast
+ * operation must show **no** busy affordance at all. That holds however the
+ * component's delay is later tuned, and cannot drift out of sync with it.
+ *
+ * A probe for the SLOW path — "work that outruns the delay does show a busy
+ * state" — would need the constant, and is not attempted here; the component
+ * test covers that direction.
  */
 const MAX_LAYOUT_JUMP_PX = 8;
 
@@ -76,6 +90,17 @@ interface Cdp {
 }
 
 async function openTab(cdpPort: number, url: string): Promise<Cdp> {
+  // PUT, not GET — and this is REQUIRED, not stylistic. A reviewer flagged GET
+  // as the conventional verb (PR #3677); that convention predates Chrome's
+  // change and modern Chrome refuses it. Measured against Chrome 152 rather
+  // than argued, because the claim is about a third party's behaviour:
+  //
+  //   $ curl -X GET 'http://127.0.0.1:9337/json/new?about:blank'
+  //   Using unsafe HTTP verb GET to invoke /json/new. This action supports only PUT verb.
+  //   $ curl -X PUT 'http://127.0.0.1:9337/json/new?about:blank'
+  //   { "description": "", "devtoolsFrontendUrl": … }
+  //
+  // Switching to GET would break the script on every current Chrome.
   const res = await fetch(`http://127.0.0.1:${cdpPort}/json/new?${url}`, { method: "PUT" });
   const tab = (await res.json()) as { id: string; webSocketDebuggerUrl: string };
   const ws = new WebSocket(tab.webSocketDebuggerUrl);
@@ -121,22 +146,37 @@ async function openTab(cdpPort: number, url: string): Promise<Cdp> {
   };
 }
 
+/**
+ * Every query is scoped to `#credentials-add-form`, and busy-ness is read from
+ * `aria-busy` rather than from the Add button's label.
+ *
+ * Both were reviewer findings on PR #3677 and both are real. A global
+ * `[role="status"]` sweep counts any live-region on the page — the settings
+ * page has others — so an unrelated status node would have been read as this
+ * form's feedback block. And keying busy-ness to the literal string "Add"
+ * makes the probe fail the first time that copy is edited, reporting a flicker
+ * regression for a rename.
+ *
+ * The form now carries the id and `aria-busy` as a deliberate contract for
+ * exactly this; see the comment on its container.
+ */
 const INSTALL_SAMPLER = `
 (() => {
-  const input = document.querySelector('#cred-token-input');
-  const addBtn = document.querySelector('[aria-label="Validate and save token"]');
-  const form = input.closest('.space-y-3');
+  const form = document.querySelector('#credentials-add-form');
+  const input = form.querySelector('#cred-token-input');
   const w = window;
   w.__probe = { t0: performance.now(), samples: [], firstBlockNode: null };
+  const blocksIn = () => form.querySelectorAll('[role="status"], [role="alert"]');
   const sample = () => {
-    const block = document.querySelector('[role="status"], [role="alert"]');
+    const found = blocksIn();
+    const block = found[0] || null;
     if (block && !w.__probe.firstBlockNode) w.__probe.firstBlockNode = block;
     w.__probe.samples.push({
       t: +(performance.now() - w.__probe.t0).toFixed(1),
       opacity: getComputedStyle(input).opacity,
-      btn: addBtn.textContent.trim(),
+      busy: form.getAttribute('aria-busy') === 'true',
       formH: +form.getBoundingClientRect().height.toFixed(1),
-      blocks: document.querySelectorAll('[role="status"], [role="alert"]').length,
+      blocks: found.length,
       sameBlock: block && w.__probe.firstBlockNode ? block === w.__probe.firstBlockNode : null,
     });
     if (performance.now() - w.__probe.t0 < 5000) requestAnimationFrame(sample);
@@ -203,6 +243,23 @@ async function main(): Promise<void> {
       }
       await Bun.sleep(500);
     }
+
+    // The form's `id` + `aria-busy` are the contract every query below depends
+    // on, and they arrived WITH the fix. A build predating them would otherwise
+    // die on a null dereference inside an in-page expression — an error that
+    // reads like a broken probe rather than an unsupported target. Say which.
+    if (ready) {
+      const hasContract = await tab
+        .evaluate(`!!document.querySelector('#credentials-add-form')`)
+        .catch(() => false);
+      if (hasContract !== true) {
+        console.error(
+          "this cockpit predates the #credentials-add-form contract (mt#5032) — " +
+            "the probe cannot measure it; point at a build that includes the fix"
+        );
+        process.exit(2);
+      }
+    }
     // Fail LOUDLY rather than measuring an unrendered page: every assertion
     // below would otherwise read as a clean pass over nothing.
     if (!ready) {
@@ -219,7 +276,9 @@ async function main(): Promise<void> {
     let seeded = false;
     for (let i = 0; i < 40; i++) {
       const blocks = await tab
-        .evaluate(`document.querySelectorAll('[role="status"], [role="alert"]').length`)
+        .evaluate(
+          `document.querySelectorAll('#credentials-add-form [role="status"], #credentials-add-form [role="alert"]').length`
+        )
         .catch(() => 0);
       if (Number(blocks) > 0) {
         seeded = true;
@@ -245,7 +304,7 @@ async function main(): Promise<void> {
       samples: Array<{
         t: number;
         opacity: string;
-        btn: string;
+        busy: boolean;
         formH: number;
         blocks: number;
         sameBlock: boolean | null;
@@ -253,7 +312,9 @@ async function main(): Promise<void> {
     };
 
     const after = samples.filter((s) => s.t >= clickAt);
-    const busyFrames = after.filter((s) => s.opacity !== "1" || s.btn !== "Add");
+    // Either signal counts: the form declaring itself busy, or the input
+    // visibly faded. Neither depends on copy.
+    const busyFrames = after.filter((s) => s.busy || s.opacity !== "1");
     const busyMs =
       busyFrames.length === 0
         ? 0
@@ -268,9 +329,9 @@ async function main(): Promise<void> {
     const layoutJump = +(Math.max(...heights) - Math.min(...heights)).toFixed(1);
 
     const failures: string[] = [];
-    if (busyMs > 0 && busyMs < 120) {
+    if (busyFrames.length > 0) {
       failures.push(
-        `busy affordance flashed for ${busyMs}ms — under the delay, it should not show at all`
+        `busy affordance appeared for ${busyMs}ms on a fast operation — it should not show at all`
       );
     }
     if (blockDroppedOut) failures.push("feedback block unmounted during the transition");

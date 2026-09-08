@@ -232,7 +232,13 @@ function AddCredentialForm() {
   }
 
   return (
-    <div className="space-y-3">
+    // `id` and `aria-busy` are a stable contract for anything observing this
+    // form (mt#5032). `scripts/verify-credentials-add-flicker.ts` scopes every
+    // query to the id rather than to a Tailwind class, and reads the busy state
+    // off `aria-busy` rather than off the button's label — a probe keyed to
+    // English copy breaks the first time the copy is edited. `aria-busy` also
+    // does the accessibility job the delayed affordance would otherwise skip.
+    <div className="space-y-3" id="credentials-add-form" aria-busy={showBusy}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
         <div className="flex flex-col gap-1.5 sm:w-48">
           <label
@@ -357,6 +363,13 @@ function AddCredentialForm() {
            the first result costs no layout shift. The extra rows a successful
            add adds (stored path, smoke test) still grow the region; reserving
            for the WORST case would leave a permanent hole for the common one.
+
+        The 1.75rem is DERIVED from the row it reserves, not picked: a
+        `CredentialValidationResult` is `text-xs` (line-height 1rem) with
+        `py-1.5` (0.375rem top and bottom), so one line occupies exactly
+        1 + 0.375 + 0.375 = 1.75rem. It tracks that row's own padding and
+        line-height, so it is only wrong if those change — and the probe's
+        layout-jump check fails loudly if they do.
       */}
       <div className="min-h-[1.75rem] space-y-1">
         {primaryFeedback && (

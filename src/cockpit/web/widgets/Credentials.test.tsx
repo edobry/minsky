@@ -721,9 +721,22 @@ describe("Credentials widget — Add interaction rendering (mt#5032)", () => {
     await userEvent.click(screen.getByLabelText("Validate and save token"));
     await waitFor(() => expect(screen.getByText(/persisted-verdict/)).toBeDefined());
 
-    // Past the 3 s the old timer used. Real time, not a fake clock: the
-    // assertion is that NO timer exists, and a fake clock that nobody advances
-    // would pass whether or not one did.
+    // Past the 3 s the old timer used. REAL time, deliberately — and a reviewer
+    // asked for fake timers here (PR #3677), so the reason is measured rather
+    // than asserted.
+    //
+    // bun does support them. But `advanceTimersByTime` only fires timers
+    // scheduled AFTER `useFakeTimers()`, verified directly:
+    //
+    //   setTimeout(fn, 3000);            // real clock
+    //   jest.useFakeTimers();
+    //   jest.advanceTimersByTime(5000);  // fn does NOT fire
+    //
+    // The component schedules its reset during the click, and installing the
+    // fake clock before that breaks the `waitFor` polling the setup needs. So a
+    // fake-timer version would pass whether or not the timer existed — a test
+    // that cannot fail, which is the thing this suite is most careful about.
+    // 3.3 s once is the price of an assertion that can actually fail.
     await new Promise((r) => setTimeout(r, 3300));
     expect(screen.getByText(/persisted-verdict/)).toBeDefined();
     expect(screen.getByText(/Stored at/)).toBeDefined();
