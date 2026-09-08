@@ -2,6 +2,12 @@ import fs from "fs";
 import path from "path";
 import { createServer } from "http";
 import { Command } from "commander";
+// mt#5029: the server's advertised version tracks `package.json`. It was a
+// `"1.0.0"` literal — a number this package has never carried — so every MCP
+// client completing an `initialize` handshake was told something that was not
+// merely stale but had never been true. See `advertised-version.ts` for why the
+// value is named there rather than read inline.
+import { MCP_ADVERTISED_VERSION } from "./advertised-version";
 // mt#1719 Intervention 2: `express`, `launchInspector`/`isInspectorAvailable`,
 // and `resolveOAuthProvider` were top-level imports. They are HTTP-only
 // (express, OAuth) or inspector-only (inspector-launcher) — pulling them
@@ -1607,7 +1613,7 @@ export function createStartCommand(
         // Prepare server configuration
         const serverConfig = {
           name: "Minsky MCP Server",
-          version: "1.0.0", // TODO: Import from package.json
+          version: MCP_ADVERTISED_VERSION,
           projectContext,
           transportType: transportType as "stdio" | "http",
           connectionTracker,
