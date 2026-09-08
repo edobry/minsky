@@ -21,6 +21,10 @@ import {
   PgvectorUnavailableError,
   PGVECTOR_UNAVAILABLE_SUMMARY,
   PGVECTOR_DOCKER_IMAGE,
+  PLAIN_POSTGRES_IMAGE,
+  PGVECTOR_APT_PACKAGE,
+  POSTGRES_MAJOR_VERSION,
+  postgresMajorFromPgvectorImage,
   PGVECTOR_AVAILABILITY_QUERY,
   type PgvectorProbeClient,
 } from "./pgvector-preflight";
@@ -161,5 +165,57 @@ describe("PGVECTOR_UNAVAILABLE_SUMMARY survives the CLI's first-line truncation"
 
   test("still names the cause", () => {
     expect(PGVECTOR_UNAVAILABLE_SUMMARY).toContain("pgvector is not available");
+  });
+});
+
+// PR #3678 R1. The reviewer caught `PGVECTOR_UNAVAILABLE_SUMMARY` hard-coding
+// `postgres:17` beside an interpolated PGVECTOR_DOCKER_IMAGE — a drift vector
+// inside the mechanism built to prevent drift. A class scan found three more:
+// the detail message's contrasted tag, its apt package name (which encodes the
+// same major), and the wizard's prose. All four are derived now.
+describe("every version-bearing string derives from PGVECTOR_DOCKER_IMAGE", () => {
+  test.each([
+    ["pgvector/pgvector:pg17", "17"],
+    ["pgvector/pgvector:pg16", "16"],
+    ["pgvector/pgvector:pg18-trixie", "18"],
+    ["pgvector/pgvector:pg15-bookworm", "15"],
+  ])("parses %s as major %s", (image, expected) => {
+    expect(postgresMajorFromPgvectorImage(image)).toBe(expected);
+  });
+
+  // Throws rather than defaulting: a silently wrong major prints a confidently
+  // wrong remedy, which is worse than the visibly-stale literal it replaced.
+  test.each([
+    ["a plain postgres image", "postgres:17"],
+    ["a floating tag", "pgvector/pgvector:latest"],
+    ["no tag at all", "pgvector/pgvector"],
+    ["an empty string", ""],
+    ["a non-numeric major", "pgvector/pgvector:pgXX"],
+  ])("throws on %s", (_label, image) => {
+    expect(() => postgresMajorFromPgvectorImage(image)).toThrow(
+      /Cannot derive a Postgres major version/
+    );
+  });
+
+  test("the plain image and apt package both carry the derived major", () => {
+    expect(PLAIN_POSTGRES_IMAGE).toBe(`postgres:${POSTGRES_MAJOR_VERSION}`);
+    expect(PGVECTOR_APT_PACKAGE).toBe(`postgresql-${POSTGRES_MAJOR_VERSION}-pgvector`);
+  });
+
+  // THIS is the assertion that would have caught R1. Every content assertion in
+  // this file passed while the summary said "plain postgres:17" next to a
+  // templated pg17 image — they agreed by coincidence, and a bump to pg18 would
+  // have silently broken the agreement without failing anything. Scanning for a
+  // major that is NOT the derived one catches the disagreement itself.
+  test.each([
+    ["the one-line summary", () => PGVECTOR_UNAVAILABLE_SUMMARY],
+    ["the multi-line detail", () => pgvectorUnavailableMessage()],
+  ])("%s mentions no Postgres major other than the derived one", (_label, produce) => {
+    const foreign = new Set<string>();
+    for (const match of produce().matchAll(/postgres(?:ql)?[:-](\d+)/gi)) {
+      const major = match[1];
+      if (major !== undefined && major !== POSTGRES_MAJOR_VERSION) foreign.add(major);
+    }
+    expect([...foreign]).toEqual([]);
   });
 });

@@ -21,7 +21,7 @@ import {
   type SetupDbDeps,
   type ResolveExistingConnectionDeps,
 } from "./setup-db";
-import { PGVECTOR_DOCKER_IMAGE } from "./persistence/pgvector-preflight";
+import { PGVECTOR_DOCKER_IMAGE, PLAIN_POSTGRES_IMAGE } from "./persistence/pgvector-preflight";
 
 const GOOD = "postgresql://postgres:secret@localhost:5432/postgres";
 const CONFIG_PATH = "/tmp/config.yaml";
@@ -130,10 +130,12 @@ describe("buildDockerPostgresOneLiner / dockerLocalConnectionString", () => {
   // mt#5016. The assertion that matters is the NEGATIVE one: a plain
   // `postgres:NN` image does not ship pgvector, so the wizard printing it hands
   // a new user a container that cannot run the migrations the wizard itself is
-  // about to run. `pgvector/pgvector:pg17` does not contain the substring
-  // `postgres:17`, so this genuinely discriminates rather than passing trivially.
+  // about to run. Derived from PLAIN_POSTGRES_IMAGE rather than written out, so
+  // a version bump moves the assertion with the constant (PR #3678 R1) — and it
+  // still discriminates, because `pgvector/pgvector:pgNN` never contains the
+  // substring `postgres:NN`.
   test("does NOT print a plain postgres image, which cannot run the migrations", () => {
-    expect(buildDockerPostgresOneLiner("hunter2")).not.toContain("postgres:17");
+    expect(buildDockerPostgresOneLiner("hunter2")).not.toContain(PLAIN_POSTGRES_IMAGE);
   });
 
   test("local connection string matches the one-liner password", () => {

@@ -5,6 +5,7 @@ import {
   buildSandboxPath,
   CHANNELS,
   DEFAULT_OUT_DIR,
+  DISPOSABLE_POSTGRES_IMAGE,
   evaluateIsolation,
   findFreePort,
   negativeControlGaps,
@@ -20,6 +21,23 @@ import {
   stripPathEntry,
   type IsolationObservations,
 } from "./cold-agent-onboarding-run";
+import { PGVECTOR_DOCKER_IMAGE } from "../packages/domain/src/persistence/pgvector-preflight";
+
+// mt#5016 / PR #3678 R1. The harness deliberately imports nothing from the
+// domain — it stands in for a machine that has no Minsky installed — so its
+// Postgres image is a duplicated literal. A comment saying "keep these in sync"
+// is not a mechanism; this is. The test file has no such constraint, so the
+// invariant lives here.
+//
+// This is load-bearing beyond tidiness: hand the cold agent an image without
+// pgvector and it cannot migrate, so it improvises an `apt-get` — which the
+// harness then faithfully records as an onboarding defect that the harness
+// itself caused. That is what happened on 2026-09-05.
+describe("the disposable Postgres image tracks what `minsky setup db` prints", () => {
+  test("harness image equals PGVECTOR_DOCKER_IMAGE", () => {
+    expect(DISPOSABLE_POSTGRES_IMAGE).toBe(PGVECTOR_DOCKER_IMAGE);
+  });
+});
 
 /** What the sandbox is supposed to look like: every channel closed. */
 const SANDBOXED: IsolationObservations = {

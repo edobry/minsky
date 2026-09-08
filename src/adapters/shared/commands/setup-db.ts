@@ -25,6 +25,12 @@ import {
   dockerLocalConnectionString,
   type SetupDbFailedStep,
 } from "@minsky/domain/setup-db";
+// Version-bearing wizard copy is derived, never written out (PR #3678 R1) — a
+// bump to PGVECTOR_DOCKER_IMAGE must move the prose that contrasts against it.
+import {
+  POSTGRES_MAJOR_VERSION,
+  PLAIN_POSTGRES_IMAGE,
+} from "@minsky/domain/persistence/pgvector-preflight";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -122,7 +128,10 @@ export async function promptForConnectionString(): Promise<string | null> {
     log.cli("");
     log.cli(`  ${buildDockerPostgresOneLiner(pw)}`);
     log.cli("");
-    log.cli("The image is pgvector's build of Postgres 17 — the plain `postgres:17` image");
+    log.cli(
+      `The image is pgvector's build of Postgres ${POSTGRES_MAJOR_VERSION} — the plain ` +
+        `\`${PLAIN_POSTGRES_IMAGE}\` image`
+    );
     log.cli("does not ship pgvector, and Minsky's migrations cannot be applied without it.");
     log.cli("");
     log.cli("Once it is running, confirm or edit the connection string below.");

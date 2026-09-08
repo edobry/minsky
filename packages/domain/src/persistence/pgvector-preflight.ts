@@ -51,8 +51,54 @@
 
 import { log } from "@minsky/shared/logger";
 
-/** The image `minsky setup db` prints, and the remedy this preflight names. */
+/**
+ * The image `minsky setup db` prints, and the remedy this preflight names.
+ *
+ * **Everything version-bearing below is DERIVED from this string** (PR #3678 R1).
+ * The first draft templated only the recommended image and hard-coded its three
+ * companions — the contrasted plain tag, the wizard's prose, and the apt package
+ * — which put a drift vector inside the mechanism built to prevent drift: a bump
+ * to `pg18` would have left the failure advertising `postgres:17` and
+ * `postgresql-17-pgvector`. One constant now moves them all.
+ */
 export const PGVECTOR_DOCKER_IMAGE = "pgvector/pgvector:pg17";
+
+/**
+ * Extract the Postgres major version from a `pgvector/pgvector:pgNN` tag.
+ *
+ * THROWS on an unrecognised shape rather than falling back. A silent wrong
+ * derivation is worse than the hard-coded literal this replaces: the literal was
+ * at least visibly stale, whereas a defaulted major would print a confidently
+ * wrong remedy. Called at module load, so a malformed constant fails every
+ * importer immediately instead of at the moment an operator needs the message.
+ */
+export function postgresMajorFromPgvectorImage(image: string): string {
+  const match = /:pg(\d+)(?:-|$)/.exec(image);
+  if (!match?.[1]) {
+    throw new Error(
+      `Cannot derive a Postgres major version from pgvector image "${image}". ` +
+        "Expected a tag of the form `pgvector/pgvector:pgNN` (optionally suffixed, " +
+        "e.g. `pg17-trixie`). Update postgresMajorFromPgvectorImage if the upstream " +
+        "tag scheme changed — do not hard-code the version at the call sites."
+    );
+  }
+  return match[1];
+}
+
+/** Postgres major version {@link PGVECTOR_DOCKER_IMAGE} builds on, e.g. `"17"`. */
+export const POSTGRES_MAJOR_VERSION = postgresMajorFromPgvectorImage(PGVECTOR_DOCKER_IMAGE);
+
+/**
+ * The plain upstream image {@link PGVECTOR_DOCKER_IMAGE} replaces — what the
+ * wizard used to print, and what the failure message contrasts against.
+ */
+export const PLAIN_POSTGRES_IMAGE = `postgres:${POSTGRES_MAJOR_VERSION}`;
+
+/**
+ * The Debian package that adds pgvector to an already-running container of that
+ * major. Version-bearing for the same reason the image tag is.
+ */
+export const PGVECTOR_APT_PACKAGE = `postgresql-${POSTGRES_MAJOR_VERSION}-pgvector`;
 
 /** What the availability probe actually told us. */
 export type PgvectorAvailability =
@@ -120,8 +166,8 @@ export function classifyPgvectorAvailability(rows: unknown): PgvectorAvailabilit
  */
 export const PGVECTOR_UNAVAILABLE_SUMMARY =
   "pgvector is not available on this Postgres server, so Minsky's migrations cannot be " +
-  `applied. Use the ${PGVECTOR_DOCKER_IMAGE} image instead of plain postgres:17, or enable ` +
-  "the extension on your server — see the detail above.";
+  `applied. Use the ${PGVECTOR_DOCKER_IMAGE} image instead of plain ${PLAIN_POSTGRES_IMAGE}, ` +
+  "or enable the extension on your server — see the detail above.";
 
 /**
  * The operator-facing failure detail: what is wrong, and what to do about it.
@@ -141,10 +187,11 @@ export function pgvectorUnavailableMessage(): string {
     "Docker images do NOT ship it.",
     "",
     "Remedies:",
-    `  - Local Docker: use \`${PGVECTOR_DOCKER_IMAGE}\` instead of \`postgres:17\`.`,
+    `  - Local Docker: use \`${PGVECTOR_DOCKER_IMAGE}\` instead of \`${PLAIN_POSTGRES_IMAGE}\`.`,
     "    `minsky setup db` prints the full command.",
     "  - Existing container you want to keep: install it in place, e.g.",
-    "    `docker exec <container> sh -c 'apt-get update && apt-get install -y postgresql-17-pgvector'`",
+    "    `docker exec <container> sh -c 'apt-get update && apt-get install -y " +
+      `${PGVECTOR_APT_PACKAGE}'\``,
     "  - Hosted Postgres (Supabase, RDS, Cloud SQL): pgvector is generally available —",
     "    enable it in the provider's console, or run `CREATE EXTENSION vector;` as a",
     "    privileged role.",
