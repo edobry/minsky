@@ -23,6 +23,7 @@ import {
   type CredentialListing,
   CredentialApiError,
   isManaged,
+  credentialStatusLine,
   fetchCredentials,
   fetchProviders,
   validateCredential,
@@ -304,6 +305,11 @@ function CredentialRow({
   onRemove: () => void;
   isRemoving: boolean;
 }) {
+  // The column shows a STATE, never the stored `lastValidationDetail` — that
+  // string answers "what just happened" and is sized for inline feedback, not
+  // for a 276px column (mt#5031). The full sentence stays reachable as a
+  // tooltip, so truncating it here is never the only way to see it.
+  const statusLine = credentialStatusLine(listing);
   return (
     <div className="flex items-center gap-4 py-2.5 border-b border-border last:border-0">
       <span
@@ -319,9 +325,14 @@ function CredentialRow({
       </div>
 
       <div className="flex-1 min-w-0">
-        {listing.lastValidationDetail && (
-          <span className="text-xs text-muted-foreground truncate block">
-            {listing.lastValidationDetail}
+        {statusLine && (
+          <span
+            // `truncate` stays as a backstop for an unbounded interpolation (a
+            // very long account name), not as the normal case it used to be.
+            className="text-xs text-muted-foreground truncate block"
+            title={listing.lastValidationDetail}
+          >
+            {statusLine}
           </span>
         )}
       </div>

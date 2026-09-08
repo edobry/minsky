@@ -50,7 +50,10 @@ async function callMe(token: string): Promise<CredentialCheckResult> {
   if (!me) {
     return { ok: false, detail: "unexpected response shape — no me field" };
   }
-  return { ok: true, detail: `railway:${me.name ?? me.email ?? "authenticated"}` };
+  const line = `railway:${me.name ?? me.email ?? "authenticated"}`;
+  // Already state-shaped — `status` repeats it (mt#5031). Bounded in practice by
+  // the account's own display name; the class test asserts the budget holds.
+  return { ok: true, detail: line, status: line };
 }
 
 export const railwayProvider: CredentialProvider = {

@@ -104,7 +104,9 @@ export async function checkServiceRoleKey(
   if (!Array.isArray(body)) {
     return { ok: false, detail: "unexpected response shape — expected a bucket list" };
   }
-  return { ok: true, detail: `${body.length} bucket${body.length === 1 ? "" : "s"} visible` };
+  const line = `${body.length} bucket${body.length === 1 ? "" : "s"} visible`;
+  // Already state-shaped and short — `status` repeats it (mt#5031).
+  return { ok: true, detail: line, status: line };
 }
 
 /**

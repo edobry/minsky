@@ -33,7 +33,9 @@ async function callModels(token: string): Promise<CredentialCheckResult> {
     return { ok: false, detail: "response was not valid JSON" };
   }
   const count = Array.isArray(body.models) ? body.models.length : 0;
-  return { ok: true, detail: `${count} model${count === 1 ? "" : "s"} accessible` };
+  const line = `${count} model${count === 1 ? "" : "s"} accessible`;
+  // Already state-shaped and short — `status` repeats it (mt#5031).
+  return { ok: true, detail: line, status: line };
 }
 
 export const googleProvider: CredentialProvider = {

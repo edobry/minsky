@@ -48,7 +48,9 @@ async function validateUser(token: string): Promise<CredentialCheckResult> {
     return { ok: false, detail: "response was not valid JSON" };
   }
   const login = typeof user.login === "string" ? user.login : "(unknown)";
-  return { ok: true, detail: `authenticated as @${login}` };
+  const line = `authenticated as @${login}`;
+  // Already state-shaped and short — `status` repeats it (mt#5031).
+  return { ok: true, detail: line, status: line };
 }
 
 async function testRepoScope(token: string): Promise<CredentialCheckResult> {
@@ -77,6 +79,11 @@ async function testRepoScope(token: string): Promise<CredentialCheckResult> {
     return {
       ok: true,
       detail: `${userCheck.detail}; missing \`repo\` scope — repo operations will fail`,
+      // The consequence clause is what makes the detail long, and a consequence
+      // is not a state. The column carries the gap itself; the identity and the
+      // consequence stay in `detail` (mt#5031). Fixed-length rather than
+      // interpolating the login, which is unbounded.
+      status: "authenticated; no `repo` scope",
       scopeGap: true,
     };
   }
@@ -84,7 +91,14 @@ async function testRepoScope(token: string): Promise<CredentialCheckResult> {
     return { ok: false, detail: `HTTP ${response.status} ${response.statusText}` };
   }
 
-  return { ok: true, detail: `${userCheck.detail}; \`repo\` scope present` };
+  // `detail` appends the scope confirmation (46 chars — the measured column
+  // boundary, with no headroom). The column takes the identity alone; "the
+  // scope is present" is the unremarkable case and does not need saying there.
+  return {
+    ok: true,
+    detail: `${userCheck.detail}; \`repo\` scope present`,
+    status: userCheck.status ?? userCheck.detail,
+  };
 }
 
 export const githubProvider: CredentialProvider = {

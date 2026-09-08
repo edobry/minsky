@@ -140,6 +140,25 @@ const NOT_YET_VALIDATED_DETAIL =
   "saved — format matches; a subscription token can't be tested until something uses it";
 
 /**
+ * The same fact as a STATE, for the providers table's Detail column.
+ *
+ * This string is the one the principal actually hit. The detail above is
+ * correct where it was designed to be shown — inline, immediately after you
+ * press Add — and wrong in a column that is 276px wide and read as a status:
+ * it was truncated to about 59% of itself, and "saved" reports an EVENT where
+ * a column wants a CONDITION.
+ *
+ * The previous correction shortened the sentence, which could not have fixed
+ * this: at ~13 words it satisfied the word bound it was given and still needed
+ * 465px. The unit was wrong, and so was the assumption that one string could
+ * serve both surfaces.
+ *
+ * "stored" is what is true of the credential; "unverified" is what is not yet
+ * true of it. Neither claims a check that did not run.
+ */
+const NOT_YET_VALIDATED_STATUS = "stored, unverified";
+
+/**
  * Shape check only. `ok: true` means "this looks like the credential this
  * provider holds, store it", with a detail that says no live check ran — so a
  * caller cannot read it as a validation it is not.
@@ -181,7 +200,7 @@ async function checkShape(token: string): Promise<CredentialCheckResult> {
     };
   }
 
-  return { ok: true, detail: NOT_YET_VALIDATED_DETAIL };
+  return { ok: true, detail: NOT_YET_VALIDATED_DETAIL, status: NOT_YET_VALIDATED_STATUS };
 }
 
 export const claudeCodeTokenProvider: CredentialProvider = {
