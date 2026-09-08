@@ -120,9 +120,24 @@ const SUBSCRIPTION_TOKEN_SEGMENT = /^sk-ant-oat\d+-/;
  */
 const MIN_TOKEN_LENGTH = 60;
 
+/**
+ * The success message, in the register every sibling provider already uses:
+ * `authenticated as @octocat`, `3 projects visible`, `12 models accessible`.
+ * Short, and a RESULT rather than an argument.
+ *
+ * It carries the two facts a person needs here — the value was saved, and it is
+ * unverified. The REASON it is unverified (no endpoint is known to accept a
+ * subscription token; mt#5022 SC3 owns adding a real check once one is) belongs
+ * in this comment and the docblock above, which is where it now lives.
+ *
+ * What it replaced argued for its own design and cited a task id and a
+ * success-criterion number at the reader. The operator being a developer does
+ * not make `mt#5022 SC3` useful in a dialog — "would understand it" and "is
+ * served by it" are different tests, and only the second one is the bar for
+ * copy a user reads (mt#5027).
+ */
 const NOT_YET_VALIDATED_DETAIL =
-  "stored; NOT checked against a live endpoint — knowing the FORMAT does not tell " +
-  "us what accepts it, so no check is claimed (mt#5022 SC3)";
+  "saved — format matches; a subscription token can't be tested until something uses it";
 
 /**
  * Shape check only. `ok: true` means "this looks like the credential this
@@ -140,10 +155,9 @@ async function checkShape(token: string): Promise<CredentialCheckResult> {
     return {
       ok: false,
       detail:
-        "that is an Anthropic API key (`sk-ant-api…`), not a subscription token. Storing it " +
-        "here would bill API credits rather than the subscription — which is the whole " +
-        "distinction this provider exists for. Use the `anthropic` provider for an API key, " +
-        "or run `claude setup-token` for a subscription token (`sk-ant-oat…`).",
+        "that's an Anthropic API key (`sk-ant-api…`), not a subscription token — storing it " +
+        "here would bill API credits instead of your subscription. Use the `anthropic` " +
+        "provider for an API key, or run `claude setup-token` for a subscription one.",
     };
   }
 
@@ -156,7 +170,7 @@ async function checkShape(token: string): Promise<CredentialCheckResult> {
       // a dialog — a message that argues with the reader is a worse message.
       detail:
         "not a Claude subscription token — those start `sk-ant-oat…`. Run `claude setup-token` " +
-        "to mint one; it requires an active Claude subscription. Nothing was stored.",
+        "to get one; it needs an active Claude subscription. Nothing was saved.",
     };
   }
 
@@ -176,10 +190,11 @@ export const claudeCodeTokenProvider: CredentialProvider = {
   configPath: "ai.providers.anthropic.authToken",
   acquireUrl: "https://code.claude.com/docs/en/settings",
   scopeGuidance:
-    "Run `claude setup-token` in a terminal — it mints a long-lived token (`sk-ant-oat…`) and " +
-    "requires an active Claude subscription. This bills the SUBSCRIPTION, not API credits; for " +
+    "Run `claude setup-token` in a terminal — it creates a long-lived token (`sk-ant-oat…`) and " +
+    "needs an active Claude subscription. This bills the SUBSCRIPTION, not API credits; for " +
     "a metered API key use the `anthropic` provider instead. There are no scopes to select. " +
-    "Note that this value is not verified against a live endpoint when stored — see mt#5022.",
+    "Note that this value is not verified when saved — nothing here can test a subscription " +
+    "token, so a bad one shows up the first time something tries to use it.",
   validate: checkShape,
   test: checkShape,
 };

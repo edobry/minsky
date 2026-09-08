@@ -275,15 +275,27 @@ describe("shape checks", () => {
 describe("the success detail does not claim a validation that did not happen", () => {
   // This is the property the whole design rests on: an unvalidatable credential
   // and a validated one must not look alike to a reader of the output.
-  test("says NOT checked, in the success path", async () => {
+  test("says it was saved AND that it is unverified", async () => {
     const result = await claudeCodeTokenProvider.validate(SUBSCRIPTION_TOKEN);
     expect(result.ok).toBe(true);
-    expect(result.detail).toContain("NOT checked");
+    expect(result.detail).toContain("saved");
+    expect(result.detail).toContain("can't be tested");
   });
 
-  test("cites the task that owns adding the real check", async () => {
+  test("stays in the sibling providers' register — short, and a result", async () => {
+    // `authenticated as @octocat`, `3 projects visible`, `12 models accessible`.
+    // What this replaced was 26 words and spent most of them arguing for its own
+    // design. The bound is a proxy for register, not an aesthetic rule: a
+    // message this short cannot fit a justification (mt#5027).
     const result = await claudeCodeTokenProvider.validate(SUBSCRIPTION_TOKEN);
-    expect(result.detail).toContain("mt#5022");
+    expect(result.detail.split(/\s+/).length).toBeLessThanOrEqual(15);
+  });
+
+  test("carries no task id — the class invariant lives in user-facing-copy.test.ts", async () => {
+    // Kept here as well because this provider is where the defect shipped, and
+    // a per-provider assertion names the culprit directly when it regresses.
+    const result = await claudeCodeTokenProvider.validate(SUBSCRIPTION_TOKEN);
+    expect(result.detail).not.toMatch(/mt#\d+/);
   });
 
   test("never reports an identity or a count, which would imply a live call", async () => {
