@@ -18,9 +18,12 @@
  * when the sandbox is absent before its passing run means anything.
  *
  * `--execute` additionally provisions a disposable Postgres, dispatches the
- * agent, and writes the transcript. It costs metered Anthropic API tokens
- * rather than subscription usage — see `## The cost this shape carries` on
- * mt#5012 — which is why it is opt-in per `operational-safety-dry-run-first`.
+ * agent, and writes the transcript. It is opt-in per
+ * `operational-safety-dry-run-first` because it runs a real agent against a real
+ * repo, not because of what it costs: since mt#5018 it authenticates with the
+ * operator's Claude subscription when one is configured, which is $0 marginal
+ * within plan limits. Metered API credits are the FALLBACK, used only when no
+ * subscription token is stored, and every run prints which one it is using.
  *
  * Exit 0 = pass, non-zero = fail.
  */
@@ -44,6 +47,15 @@ import {
 } from "fs";
 import { homedir, tmpdir } from "os";
 import { delimiter, dirname, join } from "path";
+// PR #3680 R1. A git remote can carry credentials in its userinfo
+// (`https://user:token@github.com/...`), and this harness both LOGS its
+// workspace origin and PERSISTS it in a record whose stated design constraint is
+// "names, never values". Imported rather than re-implemented: this function's
+// own docblock is explicit that it is the single source of truth, "centralized
+// so the masking regex cannot drift between call sites" — and the drift it
+// records (a copy that failed to mask an EMPTY username, `://:pass@host`) is
+// exactly what a fresh local regex here would have reproduced.
+import { maskConnectionString } from "@minsky/domain/persistence/connection-string";
 
 // ---------------------------------------------------------------------------
 // The six contamination channels (mt#5012 §The contamination problem)
@@ -367,15 +379,41 @@ export function buildSandboxPath(
  * The sandboxed environment handed to `claude`.
  *
  * `HOME` is deliberately NOT redirected. Measured 2026-09-05: a sandboxed HOME
- * (or config dir) loses Claude Code's OAuth session entirely — `claude -p` then
- * prints "Not logged in" and exits 0. `CLAUDE_CONFIG_DIR` plus an
- * `ANTHROPIC_API_KEY` is the vendor's documented auth for that case (see
- * `--bare`'s help text) and is what closes channel 5 without losing auth.
+ * (or config dir) loses Claude Code's OAuth **session** entirely — `claude -p`
+ * then prints "Not logged in" and exits 0. That session is Keychain-backed and
+ * does not follow a relocated config dir.
+ *
+ * **That does NOT force metered API auth (mt#5018).** The docblock here used to
+ * say `CLAUDE_CONFIG_DIR` plus an `ANTHROPIC_API_KEY` was "the vendor's
+ * documented auth for that case (see `--bare`'s help text)". Both halves were
+ * wrong. `--bare`'s sentence is about `--bare`'s OWN auth restrictions, not
+ * about relocated config dirs; and Anthropic documents a second mechanism for
+ * exactly this case — `CLAUDE_CODE_OAUTH_TOKEN`, a long-lived subscription token
+ * from `claude setup-token`, passed in the environment. A token in the env is
+ * not a session on disk, so relocating the config dir does not disturb it.
+ *
+ * Verified live 2026-09-08: sandboxed config dir + `CLAUDE_CODE_OAUTH_TOKEN` +
+ * no `ANTHROPIC_API_KEY` → authenticated, exit 0. So channel 5 closes AND the
+ * run bills the subscription; those were never in tension.
+ *
+ * The two credentials are mutually exclusive by vendor design — an
+ * `ANTHROPIC_API_KEY` present in `-p` mode is "always used", overriding the
+ * subscription — so exactly one is set here and the other is deleted from the
+ * inherited environment. Deleting matters: the operator's own shell very often
+ * exports `ANTHROPIC_API_KEY`, and inheriting it would silently bill the metered
+ * path while this function believed it had chosen the subscription.
+ *
+ * **The deletion is from a COPY, never from `process.env`** (PR #3680 R1 asked).
+ * `{ ...base }` is taken on the first line and every mutation below is against
+ * that object, so nothing else in this process sees a changed environment — the
+ * result is handed to `spawnSync` as the child's env and nowhere else. A test
+ * asserts the caller's object is unmodified, since "it takes a copy" is the kind
+ * of claim that stays true only until someone adds a line above it.
  */
 export function buildSandboxEnv(
   base: NodeJS.ProcessEnv,
   paths: SandboxPaths,
-  apiKey: string,
+  credential: HarnessCredential,
   minskyBinaryPath: string | null
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...base };
@@ -387,7 +425,14 @@ export function buildSandboxEnv(
   env.XDG_STATE_HOME = paths.xdgStateHome;
   env.MINSKY_STATE_DIR = paths.minskyStateDir;
   env.MINSKY_LOCAL_MCP_TOKEN_PATH = paths.daemonTokenPath;
-  env.ANTHROPIC_API_KEY = apiKey;
+
+  if (credential.kind === "subscription") {
+    env.CLAUDE_CODE_OAUTH_TOKEN = credential.value;
+    delete env.ANTHROPIC_API_KEY;
+  } else {
+    env.ANTHROPIC_API_KEY = credential.value;
+    delete env.CLAUDE_CODE_OAUTH_TOKEN;
+  }
 
   // Global installs must land in the sandbox. Without these, the cold agent
   // following the README's `bun add -g @edobry/minsky` would install into the
@@ -512,9 +557,11 @@ export async function observe(opts: ObserveOptions): Promise<IsolationObservatio
  * it set (never their values)".
  *
  * The never-their-values half is the whole design constraint: this env carries
- * `ANTHROPIC_API_KEY` and the record is written to disk, so it stores the key
- * SET, never the value. A record that dumped the environment would be a
- * credential file.
+ * a credential — `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` — and the
+ * record is written to disk, so it stores the NAMES set, never the values. A
+ * record that dumped the environment would be a credential file. `credentialKind`
+ * below names which of the two was used, which is a fact about billing rather
+ * than a secret.
  */
 export interface RunRecord {
   startedAt: string;
@@ -525,6 +572,23 @@ export interface RunRecord {
   channels: ChannelVerdict[];
   negativeControl: ChannelVerdict[];
   preconditionFailures: string[];
+  /**
+   * Which credential the run authenticated with — so a reader can tell a
+   * subscription-billed run from a metered one without re-deriving it (SC4).
+   * The KIND only; the value is a credential and never enters this record.
+   * `null` when the run failed before resolving one.
+   */
+  credentialKind: HarnessCredentialKind | null;
+  /**
+   * The `origin` of the workspace the cold agent actually ran in (SC6).
+   *
+   * Recorded because a remote-dependent finding cannot be read without it. The
+   * 2026-09-05 run reported sessions as unusable and ranked it the most severe
+   * of six findings; the cause was that the harness's own local clone had left
+   * `origin` pointing at a filesystem path, which `session start` refuses. That
+   * was invisible until someone read the detection code two days later.
+   */
+  workspaceOrigin: string | null;
   transcriptPath: string | null;
   transcriptRedactions: number;
 }
@@ -586,20 +650,103 @@ export function buildColdAgentPrompt(databaseUrl: string): string {
 // Main
 // ---------------------------------------------------------------------------
 
-async function resolveAnthropicKey(): Promise<string> {
+/**
+ * Which credential the run is authenticating with — and therefore who pays.
+ *
+ * `subscription` bills the operator's Claude plan; `api-key` bills metered API
+ * credits. The distinction is reported in the run record and on the console
+ * (SC4), because a run that quietly picked the metered path is exactly what
+ * mt#5019's retrospective was about.
+ */
+export type HarnessCredentialKind = "subscription" | "api-key";
+
+export interface HarnessCredential {
+  kind: HarnessCredentialKind;
+  value: string;
+}
+
+/** Operator-facing phrase naming who pays for the run. */
+export function describeCredentialBilling(kind: HarnessCredentialKind): string {
+  return kind === "subscription"
+    ? "your Claude subscription (no metered API spend)"
+    : "metered Anthropic API credits — no subscription token configured";
+}
+
+/**
+ * Pick the credential for the sandboxed `claude` run: **subscription first**.
+ *
+ * The original resolver read only `ai.providers.anthropic.apiKey` and justified
+ * it with "the sandboxed config dir loses Claude Code's OAuth session, so an API
+ * key is required." The first half is true and the second does not follow. What
+ * a relocated `CLAUDE_CONFIG_DIR` loses is the OAuth *session*; a **long-lived
+ * subscription token passed in the environment** is a different mechanism and is
+ * unaffected.
+ *
+ * Verified live 2026-09-08 (mt#5018 SC2): with a freshly-created temp
+ * `CLAUDE_CONFIG_DIR`, `ANTHROPIC_API_KEY` unset, and `CLAUDE_CODE_OAUTH_TOKEN`
+ * set from `ai.providers.anthropic.authToken`, `claude -p` authenticated and
+ * answered — exit 0, no "Not logged in".
+ *
+ * Anthropic documents both halves. On the token
+ * (`code.claude.com/docs/en/github-actions`): *"`CLAUDE_CODE_OAUTH_TOKEN`: an
+ * OAuth token that authenticates with your Claude subscription, available on
+ * Pro, Max, Team, and Enterprise plans. Generate one by running `claude
+ * setup-token` locally."* And on the cost: *"If you authenticate with an OAuth
+ * token, runs use your Claude subscription instead of API billing."*
+ *
+ * On why the API key cannot merely be left set as a fallback in the same env
+ * (`code.claude.com/docs/en/env-vars`, on `ANTHROPIC_API_KEY`): *"When set, this
+ * key is used instead of your Claude Pro, Max, Team, or Enterprise subscription
+ * even if you are logged in. In non-interactive mode (`-p`), the key is always
+ * used when present. … To use your subscription instead, run `unset
+ * ANTHROPIC_API_KEY`."* So the two are mutually exclusive by vendor design, and
+ * `buildSandboxEnv` deletes whichever one it is not using.
+ */
+export async function resolveHarnessCredential(): Promise<HarnessCredential> {
   const { initializeConfiguration, CustomConfigFactory, getConfiguration } = await import(
     "@minsky/domain/configuration"
   );
   await initializeConfiguration(new CustomConfigFactory(), { workingDirectory: process.cwd() });
-  const cfg = getConfiguration() as { ai?: { providers?: { anthropic?: { apiKey?: string } } } };
-  const key = cfg?.ai?.providers?.anthropic?.apiKey;
-  if (typeof key !== "string" || key.length < 20) {
-    throw new Error(
-      "No usable Anthropic API key at ai.providers.anthropic.apiKey. " +
-        "The sandboxed config dir loses Claude Code's OAuth session, so an API key is required."
-    );
+  const cfg = getConfiguration() as {
+    ai?: { providers?: { anthropic?: { apiKey?: string; authToken?: string } } };
+  };
+
+  const token = cfg?.ai?.providers?.anthropic?.authToken;
+  if (typeof token === "string" && token.length >= 20) {
+    // WARN, never reject (PR #3680 R1 suggested stricter prefix validation).
+    // mt#5023 is the reason this is not a hard check: the provider REJECTED the
+    // exact token it exists for, because `sk-ant-` is the shared family prefix
+    // rather than an API-key discriminator. A prefix test that refuses is one
+    // upstream tag change away from repeating that. What a prefix CAN do
+    // usefully is notice the likely paste error — an API key in the
+    // subscription field, which would otherwise fail later as a confusing auth
+    // error — and say so while still trying.
+    if (token.startsWith("sk-ant-api")) {
+      console.warn(
+        "warning: ai.providers.anthropic.authToken looks like an API key " +
+          "(sk-ant-api… prefix), not a subscription token (sk-ant-oat…). Proceeding with it as " +
+          "the subscription credential; if auth fails, re-run `claude setup-token` and store " +
+          "that value instead."
+      );
+    }
+    return { kind: "subscription", value: token };
   }
-  return key;
+
+  const key = cfg?.ai?.providers?.anthropic?.apiKey;
+  if (typeof key === "string" && key.length >= 20) {
+    return { kind: "api-key", value: key };
+  }
+
+  throw new Error(
+    "No credential for the cold-agent run.\n" +
+      "\n" +
+      "Preferred (bills your Claude subscription, no metered spend):\n" +
+      "  1. Run `claude setup-token` — it mints a long-lived subscription token.\n" +
+      "  2. Store it: `minsky config credentials add claude-code-token`\n" +
+      "     (writes `ai.providers.anthropic.authToken`).\n" +
+      "\n" +
+      "Fallback (bills metered API credits): set `ai.providers.anthropic.apiKey`."
+  );
 }
 
 /**
@@ -716,14 +863,92 @@ function stopDisposablePostgres(containerName: string): void {
  * unchanged, and a clone is the only way to keep that true while still
  * measuring against a real repository rather than a synthetic one.
  */
-function cloneTarget(source: string, destination: string): void {
+/**
+ * `origin` of a git working tree, or null if it has none / is not one.
+ *
+ * Returns the RAW url — `cloneTarget` needs it verbatim to hand to
+ * `git remote set-url`. Every path that LOGS or PERSISTS the result masks it
+ * first; see {@link maskGitRemote}.
+ */
+export function readGitOrigin(dir: string): string | null {
+  const r = spawnSync("git", ["-C", dir, "remote", "get-url", "origin"], {
+    encoding: "utf8",
+    timeout: 30_000,
+  });
+  if (r.status !== 0) return null;
+  return (r.stdout ?? "").trim() || null;
+}
+
+/**
+ * A git remote safe to print or write to disk (PR #3680 R1).
+ *
+ * `https://user:token@github.com/o/r.git` is a perfectly ordinary remote for
+ * anyone who cloned with a PAT in the URL, and this harness reports the
+ * workspace origin on the console AND stores it in the run record. Masking the
+ * userinfo keeps what the field is FOR — the host, so a reader can tell whether
+ * a remote-dependent finding is real — while dropping the part that is a
+ * credential. SSH remotes (`git@github.com:o/r.git`) carry no secret and no
+ * `://`, so they pass through unchanged.
+ */
+export function maskGitRemote(remote: string | null): string | null {
+  return remote === null ? null : maskConnectionString(remote);
+}
+
+/**
+ * Clone the target into the sandbox, and give the clone the TARGET's own remote
+ * rather than the path we cloned from (SC5). Returns the resulting `origin`.
+ *
+ * Cloning from a local path sets the clone's `origin` to that path — and
+ * `session start` refuses any remote without `github.com` in it
+ * (`packages/domain/src/session/repository-backend-detection.ts:151`). The
+ * 2026-09-05 run therefore reported sessions as unusable and ranked it the most
+ * severe of six findings: *"blocked the entire second half of the product."* It
+ * blocked the second half of that RUN, for a reason the harness created. A real
+ * user clones from GitHub and never reaches it.
+ *
+ * The local clone STAYS — AT4 depends on it, because cloning from the operator's
+ * working tree is what keeps the operator's repo untouched. Only the remote is
+ * corrected afterwards. When `source` is already a URL rather than a path,
+ * `readGitOrigin` returns null for it and the clone's own origin is left alone,
+ * which is already correct.
+ *
+ * **The general lesson, worth carrying past this script:** a harness that alters
+ * the environment to protect the operator can alter the very property under
+ * measurement. Every deviation the sandbox introduces is a candidate explanation
+ * for any finding that follows.
+ */
+export function cloneTarget(source: string, destination: string): string | null {
   const r = spawnSync("git", ["clone", "--quiet", source, destination], {
     encoding: "utf8",
     timeout: 300_000,
   });
+  // Every string below is masked before it escapes: `source` is operator-supplied
+  // and may itself be a credential-bearing URL, and git's own stderr echoes the
+  // remote it failed on.
   if (r.status !== 0) {
-    throw new Error(`could not clone ${source}: ${(r.stderr ?? "").trim()}`);
+    throw new Error(
+      `could not clone ${maskGitRemote(source)}: ${maskConnectionString((r.stderr ?? "").trim())}`
+    );
   }
+
+  const targetOwnOrigin = readGitOrigin(source);
+  if (targetOwnOrigin) {
+    const set = spawnSync(
+      "git",
+      ["-C", destination, "remote", "set-url", "origin", targetOwnOrigin],
+      { encoding: "utf8", timeout: 30_000 }
+    );
+    if (set.status !== 0) {
+      throw new Error(
+        `cloned ${maskGitRemote(source)} but could not point the clone at the target's own ` +
+          `origin (${maskGitRemote(targetOwnOrigin)}): ` +
+          `${maskConnectionString((set.stderr ?? "").trim())}. Refusing to run — a workspace ` +
+          "whose remote is the harness's clone path manufactures findings about remotes."
+      );
+    }
+  }
+
+  return maskGitRemote(readGitOrigin(destination));
 }
 
 function targetColdness(targetDir: string): string[] {
@@ -791,6 +1016,8 @@ async function main(argv: string[]): Promise<number> {
   let transcriptPath: string | null = null;
   let transcriptRedactions = 0;
   let targetCarried: string[] = [];
+  let credentialKind: HarnessCredentialKind | null = null;
+  let workspaceOrigin: string | null = null;
   let dispatchArgv: string[] = [];
   let envVarNames: string[] = [];
   let sandboxed: ChannelVerdict[] = [];
@@ -802,7 +1029,8 @@ async function main(argv: string[]): Promise<number> {
       ...(opts.execute ? REQUIRED_TOOLS.execute : []),
     ].filter((tool) => resolveBinary(process.env, tool) === null);
 
-    const apiKey = await resolveAnthropicKey();
+    const credential = await resolveHarnessCredential();
+    credentialKind = credential.kind;
     const operatorMinskyPath = resolveBinary(process.env, "minsky");
 
     // Carry the prerequisite across the strip. `bun` shares a directory with
@@ -810,7 +1038,7 @@ async function main(argv: string[]): Promise<number> {
     const operatorBunPath = resolveBinary(process.env, "bun");
     if (operatorBunPath) symlinkSync(operatorBunPath, join(paths.binDir, "bun"));
 
-    const env = buildSandboxEnv(process.env, paths, apiKey, operatorMinskyPath);
+    const env = buildSandboxEnv(process.env, paths, credential, operatorMinskyPath);
 
     // --- AT1: the sandbox closes every channel ---------------------------
     const sandboxedObs = await observe({
@@ -858,20 +1086,28 @@ async function main(argv: string[]): Promise<number> {
 
     if (!opts.execute) {
       console.log(
-        "\nAssertion mode only. Pass --execute --target <path> to run the metered agent run " +
-          "(billed to the Anthropic API key, not the subscription)."
+        `\nAssertion mode only. Pass --execute --target <path> to run the agent, billed to ` +
+          `${describeCredentialBilling(credential.kind)}.`
       );
     } else {
+      // SC4: say who pays, every run, before any of it is spent — not in a flag
+      // the operator has to think to pass.
+      console.log(`\nAgent run will be billed to ${describeCredentialBilling(credential.kind)}.`);
       if (!opts.target) throw new Error("--execute requires --target <path or url of a cold repo>");
 
       const workspace = join(paths.root, "workspace");
-      cloneTarget(opts.target, workspace);
+      workspaceOrigin = cloneTarget(opts.target, workspace);
       targetCarried = targetColdness(workspace);
       console.log(
-        `\nTarget ${opts.target} carries ${targetCarried.length} tracked onboarding file(s)${
+        `\nTarget ${maskGitRemote(opts.target)} carries ${
+          targetCarried.length
+        } tracked onboarding file(s)${
           targetCarried.length > 0 ? `: ${targetCarried.join(", ")} — NOT a cold repo` : " — cold"
         }`
       );
+      // SC6: state the remote the agent will actually see. A remote-dependent
+      // finding is unreadable without it.
+      console.log(`Workspace origin: ${workspaceOrigin ?? "(none)"}`);
 
       const pg = startDisposablePostgres(findFreePort(portIsBusy));
       pgContainer = pg.containerName;
@@ -950,13 +1186,17 @@ async function main(argv: string[]): Promise<number> {
     // a committed one.
     const record: RunRecord = {
       startedAt: new Date(opts.nowMs).toISOString(),
-      target: opts.target,
+      // Masked for the same reason `workspaceOrigin` is: `--target` accepts a
+      // URL, and a URL can carry userinfo (PR #3680 R1).
+      target: maskGitRemote(opts.target),
       targetCarriedFiles: targetCarried,
       argv: dispatchArgv,
       sandboxEnvVarNames: envVarNames,
       channels: sandboxed,
       negativeControl: unsandboxed,
       preconditionFailures: preconditions,
+      credentialKind,
+      workspaceOrigin,
       transcriptPath,
       transcriptRedactions,
     };
