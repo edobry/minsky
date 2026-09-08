@@ -44,6 +44,7 @@ type MockCredentialListing = {
   source?: "provider" | "schema";
   lastValidatedAt?: string;
   lastValidationDetail?: string;
+  lastValidationStatus?: string;
 };
 
 const MOCK_CREDENTIALS: MockCredentialListing[] = [
@@ -364,5 +365,107 @@ describe("Credentials widget", () => {
       .find((el) => el.classList.contains("font-medium"));
     const githubRow = githubLabel!.closest("div[class*='flex items-center']") as HTMLElement;
     expect(within(githubRow).getByText("Remove")).toBeDefined();
+  });
+});
+
+/**
+ * The Detail column's four states, at the COMPONENT level (mt#5031).
+ *
+ * `credentials-api.test.ts` covers the RULE that decides the text. This covers
+ * the WIRING — that `CredentialRow` asks that rule rather than reaching for
+ * `lastValidationDetail`, which is the specific defect that shipped. A green
+ * rule test is compatible with a row that never calls it.
+ */
+describe("Credentials widget — Detail column states (mt#5031)", () => {
+  /** The string the principal reported as cut off and weird. 84 chars. */
+  const LONG_DETAIL =
+    "saved — format matches; a subscription token can't be tested until something uses it";
+
+  const STATE_FIXTURES: MockCredentialListing[] = [
+    {
+      // 1. Provider supplied a status — shown verbatim, and the long detail it
+      //    sits beside is NOT shown.
+      provider: "claude-code-token",
+      displayName: "Claude Code",
+      configPath: "ai.providers.anthropic.authToken",
+      configured: true,
+      lastValidatedAt: new Date().toISOString(),
+      lastValidationDetail: LONG_DETAIL,
+      lastValidationStatus: "stored, unverified",
+    },
+    {
+      // 2. Pre-split row: a long stored detail and no status. Must NOT render
+      //    the prose — this is the regression, asserted through the component.
+      provider: "telegram",
+      displayName: "Telegram",
+      configPath: "telegram.botToken",
+      configured: true,
+      lastValidatedAt: new Date().toISOString(),
+      lastValidationDetail: LONG_DETAIL,
+    },
+    {
+      // 3. Configured, never checked — used to render an empty cell.
+      provider: "anthropic",
+      displayName: "Anthropic",
+      configPath: "ai.providers.anthropic.apiKey",
+      configured: true,
+    },
+    {
+      // 4. Presence-only row — nothing to say, and that is correct.
+      provider: "openai",
+      displayName: "OpenAI",
+      configPath: "ai.providers.openai.apiKey",
+      configured: true,
+      source: "schema",
+    },
+  ];
+
+  function rowFor(displayName: string): HTMLElement {
+    const label = screen
+      .getAllByText(displayName)
+      .find((el) => el.classList.contains("font-medium"));
+    const row = label?.closest("div[class*='flex items-center']");
+    if (!row) throw new Error(`no row rendered for ${displayName}`);
+    return row as HTMLElement;
+  }
+
+  test("renders a state per row and never the transient detail prose", async () => {
+    mockFetchCredentials(STATE_FIXTURES, MOCK_PROVIDERS);
+    renderWithQuery(<CredentialsManager />);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Loading...")).toBeNull();
+    });
+
+    // 1. The provider's own status wins.
+    expect(within(rowFor("Claude Code")).getByText("stored, unverified")).toBeDefined();
+
+    // 2. A pre-split long detail falls through to a derived state.
+    expect(within(rowFor("Telegram")).getByText("validated")).toBeDefined();
+
+    // 3. Configured but never checked is distinguishable from an empty cell.
+    expect(within(rowFor("Anthropic")).getByText("configured, never checked")).toBeDefined();
+
+    // 4. A schema row says nothing, and still carries its config-only marker.
+    expect(within(rowFor("OpenAI")).getByText("config-only")).toBeDefined();
+
+    // The load-bearing negative: the 84-char prose appears NOWHERE in the table.
+    // Asserted document-wide rather than per-row so it also catches the string
+    // leaking into some other cell.
+    expect(screen.queryByText(LONG_DETAIL)).toBeNull();
+  });
+
+  test("the full detail stays reachable as a tooltip", async () => {
+    // Truncation must never be the only way to see the sentence (SC6). The
+    // column shows the state; `title` carries what was shortened away.
+    mockFetchCredentials(STATE_FIXTURES, MOCK_PROVIDERS);
+    renderWithQuery(<CredentialsManager />);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Loading...")).toBeNull();
+    });
+
+    const status = within(rowFor("Claude Code")).getByText("stored, unverified");
+    expect(status.getAttribute("title")).toBe(LONG_DETAIL);
   });
 });
