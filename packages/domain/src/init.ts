@@ -5,6 +5,7 @@ import { createDirectoryIfNotExists, createFileIfNotExists } from "./init/file-s
 import type { FsLike } from "./interfaces/fs-like";
 import { createRealFs } from "./interfaces/real-fs";
 import { getMinskyConfigContentYaml } from "./init/config-content";
+import { ensurePathIgnored, LOCAL_CONFIG_GITIGNORE_ENTRY } from "./init/gitignore";
 import { mergeProjectConfigYaml, UnmergeableConfigError } from "./init/config-merge";
 import {
   describeScaffoldResult,
@@ -650,6 +651,39 @@ export async function initializeProject(
           `(attach and presence will read UNKNOWN). Re-run 'minsky init' after resolving the above.`
       );
     }
+  }
+
+  // mt#5014: keep the machine-local config out of git. `performSetup` above
+  // created `.minsky/config.local.yaml`, and `setup db` later writes the
+  // Postgres connection string — password included — into that same file. Until
+  // now nothing added it to `.gitignore`, so on a fresh repository it sat
+  // untracked-and-unignored: the state where `git add -A` commits a credential.
+  //
+  // Written here rather than when the secret arrives, because the file is
+  // committable from the moment it exists.
+  //
+  // Non-fatal, and deliberately outside the `mcp?.enabled !== false` block
+  // above: a project must not fail `init` because a `.gitignore` could not be
+  // written, but it must not look like success either — an un-ignored local
+  // config is the exact defect this exists to prevent, so the failure is
+  // surfaced with the manual remedy.
+  try {
+    const ignoreResult = await ensurePathIgnored(
+      repoPath,
+      LOCAL_CONFIG_GITIGNORE_ENTRY,
+      fileSystem
+    );
+    log.debug("minsky init: local config gitignore state", {
+      action: ignoreResult.action,
+      gitignorePath: ignoreResult.gitignorePath,
+    });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    warn(
+      `Could not add '${LOCAL_CONFIG_GITIGNORE_ENTRY}' to .gitignore: ${reason}\n` +
+        `That file holds machine-local settings and, after 'minsky setup db', your database ` +
+        `password. Add it to .gitignore by hand before committing.`
+    );
   }
 
   return { declinable, withheld, notices };
