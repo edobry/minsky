@@ -34,6 +34,8 @@
  *   exit 2 = the probe itself could not complete (never conflated with a pass)
  */
 
+import { safeTruncate } from "@minsky/shared/safe-truncate";
+
 interface Args {
   cockpit: string;
   cdpPort: number;
@@ -102,7 +104,23 @@ async function openTab(cdpPort: number, url: string): Promise<Cdp> {
   //
   // Switching to GET would break the script on every current Chrome.
   const res = await fetch(`http://127.0.0.1:${cdpPort}/json/new?${url}`, { method: "PUT" });
-  const tab = (await res.json()) as { id: string; webSocketDebuggerUrl: string };
+  // Check the response before parsing it. Chrome answers this endpoint with
+  // PLAIN TEXT on refusal (see the verb error quoted above), so `.json()` on a
+  // non-2xx throws a JSON parse error — which reads as "the probe is broken"
+  // rather than "Chrome refused to open a tab", and buries the actual reason
+  // Chrome already told us. Reviewer finding, PR #3677.
+  if (!res.ok) {
+    const detail = safeTruncate((await res.text().catch(() => "")).trim(), 200, "head");
+    throw new Error(`CDP refused to open a tab (HTTP ${res.status})${detail ? `: ${detail}` : ""}`);
+  }
+  const tab = (await res.json().catch((err: unknown) => {
+    throw new Error(
+      `CDP returned a non-JSON body for /json/new: ${err instanceof Error ? err.message : String(err)}`
+    );
+  })) as { id: string; webSocketDebuggerUrl: string };
+  if (!tab?.webSocketDebuggerUrl) {
+    throw new Error("CDP opened a tab with no webSocketDebuggerUrl — cannot attach");
+  }
   const ws = new WebSocket(tab.webSocketDebuggerUrl);
   const pending = new Map<number, (v: unknown) => void>();
   let id = 0;
