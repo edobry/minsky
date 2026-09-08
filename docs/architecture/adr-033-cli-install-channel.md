@@ -102,7 +102,9 @@ Provisioning state as of mt#3616's execution (2026-08-03):
 
 ## Release state (kept current — this is the in-repo record)
 
-**Open release work: mt#5028.** Added by mt#5013.
+**No open release work.** Last release: **0.2.0**, published 2026-09-08 (tag `v0.2.0` on
+`25773a53d`, `Publish to npm` run `34185329932`, `conclusion: success`). Added by mt#5013, closed
+out by mt#5028.
 
 The channel decided above only works if someone cuts releases through it, and for 27 days nobody
 did. This section exists so the state of the published artifact is answerable from the repository
@@ -115,31 +117,34 @@ rather than from npm plus somebody's memory.
 | **Staleness signal** | `.github/workflows/npm-staleness.yml`, daily; logic and threshold in `scripts/check-npm-staleness.ts`                |
 | **Version bump**     | manual today. mt#233 owns automating it, and its own spec carries two stale premises (see the note in item 4 above)  |
 
-### Owed as of 2026-09-07 (mt#5013 → mt#5028)
+### The dev-suffix convention, which is what keeps this section from going stale again
 
-mt#5013 shipped the staleness signal and set main's `package.json` to **`0.2.0-dev.0`**.
+main's `package.json` carries a **prerelease suffix** at all times (`0.2.1-dev.0` today). While it
+does, main can never equal a published version, so the defect that started this — `npm view` and
+`package.json` both reading `0.1.2`, leaving a user on a stale install for whom "upgrade to the
+latest" was already satisfied — cannot recur by drift.
 
-**The dev suffix is the convention from here on, and it is load-bearing.** While main carries one it
-can never equal a published version, so the defect that started this — `npm view` and `package.json`
-both reading `0.1.2`, leaving a user on a stale install for whom "upgrade to the latest" was already
-satisfied — cannot recur by drift. A release removes it only momentarily: `publish-npm.yml` verifies
-the tagged commit's version equals the tag exactly, so the commit being tagged carries the bare
-`0.2.0` and main returns to a suffix immediately after.
+A release removes the suffix only momentarily. `publish-npm.yml` verifies the tagged commit's
+version equals the tag exactly, so the release commit carries the bare version and main returns to a
+suffix immediately after. That is two PRs per release today; mt#233 (automated bump) is what would
+collapse it to one.
 
-Two things remain owed, and neither is doable before this merges:
+**Falsifier for a future reader:** if `npm view @edobry/minsky version` and main's `package.json`
+ever read the SAME string, the convention has lapsed and the original defect is live again.
 
-1. **Cut the release** — set `package.json` to `0.2.0`, tag `v0.2.0`, push; the workflow publishes
-   via OIDC. Then return main to `0.2.1-dev.0`. Authorized by the principal on 2026-09-07 as a
-   shared/production state change.
-2. **Verify against the PUBLISHED artifact.** mt#5013 pre-flighted the _packed tarball_: it reaches
-   a real `ECONNREFUSED` on `setup db --connection-string` where published `0.1.2` still errors
-   `Non-interactive mode: pass --connection-string`. Strong evidence, and not the artifact npm
-   serves — which is the distinction mt#5013's SC4 draws, and the reason no pre-publish change can
-   close it.
+### Release log
 
-**mt#5028 owns both.** Falsifier for a future reader: if `npm view @edobry/minsky version` and main's
-`package.json` ever read the SAME string, the dev-suffix convention has lapsed and the original
-defect is live again.
+| Version | Published  | Tag → commit           | Workflow run  | Notes                                                                                                                                                                                                                                                                |
+| ------- | ---------- | ---------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0.1.0   | 2026-08-10 | manual publish         | —             | mt#3874. mt#3616 shipped the workflow and published nothing.                                                                                                                                                                                                         |
+| 0.1.1   | 2026-08-10 | `v0.1.1`               | `31404298781` | first OIDC publish                                                                                                                                                                                                                                                   |
+| 0.1.2   | 2026-08-11 | `v0.1.2`               | `31525535545` | then 27 days of silence — the gap mt#5013 was filed for                                                                                                                                                                                                              |
+| 0.2.0   | 2026-09-08 | `v0.2.0` → `25773a53d` | `34185329932` | mt#5028. Verified against the PUBLISHED artifact: a clean-sandbox `bun add @edobry/minsky@0.2.0` runs `setup db --connection-string` past the argument check to a real `ECONNREFUSED`, where `0.1.2` still errored `Non-interactive mode: pass --connection-string`. |
+
+_This section is the in-repo record and goes stale the moment a release lands without updating it —
+which happened once already, on this very section: `minsky-reviewer[bot]` caught it still saying
+"Open release work" one commit after that work completed (PR #3674 R1). Update it in the same change
+that cuts a release._
 
 ## Relationship to the hosted/self-host fork
 
