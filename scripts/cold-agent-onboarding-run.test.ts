@@ -21,6 +21,7 @@ import {
   describeCredentialBilling,
   DISPOSABLE_POSTGRES_IMAGE,
   type HarnessCredential,
+  maskGitRemote,
   readGitOrigin,
   evaluateIsolation,
   findFreePort,
@@ -49,75 +50,145 @@ import { PGVECTOR_DOCKER_IMAGE } from "../packages/domain/src/persistence/pgvect
 // pgvector and it cannot migrate, so it improvises an `apt-get` — which the
 // harness then faithfully records as an onboarding defect that the harness
 // itself caused. That is what happened on 2026-09-05.
-describe("cloneTarget gives the clone the TARGET's remote, not the clone path (mt#5018 AT4)", () => {
-  const madeDirs: string[] = [];
+// PR #3680 R1 (non-blocking): these shell out to a real `git`. It is already a
+// declared prerequisite of the harness under test — `REQUIRED_TOOLS.execute`
+// names it, and `preconditionFailures` fails a run without it — so the
+// dependency is the subject's, not this suite's invention. Skipped rather than
+// failed where the binary is genuinely absent, so a constrained CI cannot turn a
+// missing tool into a red test.
+const GIT_AVAILABLE =
+  spawnSync("git", ["--version"], { encoding: "utf8", timeout: 30_000 }).status === 0;
 
-  function tempDir(prefix: string): string {
-    const dir = mkdtempSync(join(tmpdir(), prefix));
-    madeDirs.push(dir);
-    return dir;
+describe.skipIf(!GIT_AVAILABLE)(
+  "cloneTarget gives the clone the TARGET's remote, not the clone path (mt#5018 AT4)",
+  () => {
+    const madeDirs: string[] = [];
+
+    function tempDir(prefix: string): string {
+      const dir = mkdtempSync(join(tmpdir(), prefix));
+      madeDirs.push(dir);
+      return dir;
+    }
+
+    /** A real git repo with one commit and a GitHub-shaped origin. */
+    function makeTargetRepo(): string {
+      const dir = tempDir("mt5018-target-");
+      const run = (...args: string[]) =>
+        spawnSync("git", ["-C", dir, ...args], { encoding: "utf8", timeout: 30_000 });
+      spawnSync("git", ["init", "--quiet", dir], { encoding: "utf8", timeout: 30_000 });
+      run("config", "user.email", "t@example.com");
+      run("config", "user.name", "T");
+      writeFileSync(join(dir, "README.md"), "# target\n");
+      run("add", "README.md");
+      run("commit", "--quiet", "-m", "init");
+      run("remote", "add", "origin", "https://github.com/edobry/minsky.git");
+      return dir;
+    }
+
+    afterAll(() => {
+      for (const dir of madeDirs) rmSync(dir, { recursive: true, force: true });
+    });
+
+    test("the clone's origin is the target's own remote", () => {
+      const target = makeTargetRepo();
+      const dest = join(tempDir("mt5018-dest-"), "workspace");
+
+      const origin = cloneTarget(target, dest);
+
+      expect(origin).toBe("https://github.com/edobry/minsky.git");
+      expect(readGitOrigin(dest)).toBe("https://github.com/edobry/minsky.git");
+    });
+
+    // The negative control, in the same test file rather than as a manual step:
+    // this is what the harness did before the fix, and it is why the 2026-09-05
+    // run reported sessions as unusable. `session start` refuses any remote
+    // without `github.com` in it, and a filesystem path has none.
+    test("negative control: a plain clone leaves origin as the local path", () => {
+      const target = makeTargetRepo();
+      const dest = join(tempDir("mt5018-plain-"), "workspace");
+
+      spawnSync("git", ["clone", "--quiet", target, dest], { encoding: "utf8", timeout: 30_000 });
+
+      expect(readGitOrigin(dest)).toBe(target);
+      expect(readGitOrigin(dest)).not.toContain("github.com");
+    });
+
+    test("a target with no origin of its own leaves the clone's own origin alone", () => {
+      const bare = tempDir("mt5018-noremote-");
+      spawnSync("git", ["init", "--quiet", bare], { encoding: "utf8", timeout: 30_000 });
+      const run = (...args: string[]) =>
+        spawnSync("git", ["-C", bare, ...args], { encoding: "utf8", timeout: 30_000 });
+      run("config", "user.email", "t@example.com");
+      run("config", "user.name", "T");
+      writeFileSync(join(bare, "f.txt"), "x\n");
+      run("add", "f.txt");
+      run("commit", "--quiet", "-m", "init");
+
+      const dest = join(tempDir("mt5018-noremote-dest-"), "workspace");
+      expect(cloneTarget(bare, dest)).toBe(bare);
+    });
+
+    test("readGitOrigin returns null for a directory that is not a repo", () => {
+      expect(readGitOrigin(tempDir("mt5018-notrepo-"))).toBeNull();
+    });
+
+    // PR #3680 R1 BLOCKING. A remote can carry credentials in its userinfo, and
+    // this value is both printed and written to disk. End-to-end through the real
+    // `cloneTarget`, not just the mask helper — the leak was in what the function
+    // RETURNS, so asserting the helper alone would have missed it.
+    test("a credential-bearing remote is masked in what cloneTarget returns", () => {
+      const target = tempDir("mt5018-cred-");
+      spawnSync("git", ["init", "--quiet", target], { encoding: "utf8", timeout: 30_000 });
+      const run = (...args: string[]) =>
+        spawnSync("git", ["-C", target, ...args], { encoding: "utf8", timeout: 30_000 });
+      run("config", "user.email", "t@example.com");
+      run("config", "user.name", "T");
+      writeFileSync(join(target, "f.txt"), "x\n");
+      run("add", "f.txt");
+      run("commit", "--quiet", "-m", "init");
+      run("remote", "add", "origin", "https://someone:ghp_notarealtokenvalue@github.com/o/r.git");
+
+      const origin = cloneTarget(target, join(tempDir("mt5018-cred-dest-"), "workspace"));
+
+      expect(origin).toBe("https://***:***@github.com/o/r.git");
+      expect(origin).not.toContain("ghp_notarealtokenvalue");
+      // The host survives: that is what the field is FOR — telling whether a
+      // remote-dependent finding is real.
+      expect(origin).toContain("github.com");
+    });
   }
+);
 
-  /** A real git repo with one commit and a GitHub-shaped origin. */
-  function makeTargetRepo(): string {
-    const dir = tempDir("mt5018-target-");
-    const run = (...args: string[]) =>
-      spawnSync("git", ["-C", dir, ...args], { encoding: "utf8", timeout: 30_000 });
-    spawnSync("git", ["init", "--quiet", dir], { encoding: "utf8", timeout: 30_000 });
-    run("config", "user.email", "t@example.com");
-    run("config", "user.name", "T");
-    writeFileSync(join(dir, "README.md"), "# target\n");
-    run("add", "README.md");
-    run("commit", "--quiet", "-m", "init");
-    run("remote", "add", "origin", "https://github.com/edobry/minsky.git");
-    return dir;
-  }
-
-  afterAll(() => {
-    for (const dir of madeDirs) rmSync(dir, { recursive: true, force: true });
+describe("maskGitRemote", () => {
+  test("masks userinfo in an https remote", () => {
+    expect(maskGitRemote("https://u:tok@github.com/o/r.git")).toBe(
+      "https://***:***@github.com/o/r.git"
+    );
   });
 
-  test("the clone's origin is the target's own remote", () => {
-    const target = makeTargetRepo();
-    const dest = join(tempDir("mt5018-dest-"), "workspace");
-
-    const origin = cloneTarget(target, dest);
-
-    expect(origin).toBe("https://github.com/edobry/minsky.git");
-    expect(readGitOrigin(dest)).toBe("https://github.com/edobry/minsky.git");
+  // The empty-username case is the specific drift `maskConnectionString`'s
+  // docblock records a hand-rolled copy getting wrong — asserted here so the
+  // import cannot be quietly replaced by a local regex that reintroduces it.
+  test("masks an empty username too", () => {
+    expect(maskGitRemote("https://:tok@github.com/o/r.git")).toBe(
+      "https://***:***@github.com/o/r.git"
+    );
   });
 
-  // The negative control, in the same test file rather than as a manual step:
-  // this is what the harness did before the fix, and it is why the 2026-09-05
-  // run reported sessions as unusable. `session start` refuses any remote
-  // without `github.com` in it, and a filesystem path has none.
-  test("negative control: a plain clone leaves origin as the local path", () => {
-    const target = makeTargetRepo();
-    const dest = join(tempDir("mt5018-plain-"), "workspace");
-
-    spawnSync("git", ["clone", "--quiet", target, dest], { encoding: "utf8", timeout: 30_000 });
-
-    expect(readGitOrigin(dest)).toBe(target);
-    expect(readGitOrigin(dest)).not.toContain("github.com");
+  test("leaves a credential-free https remote alone", () => {
+    expect(maskGitRemote("https://github.com/o/r.git")).toBe("https://github.com/o/r.git");
   });
 
-  test("a target with no origin of its own leaves the clone's own origin alone", () => {
-    const bare = tempDir("mt5018-noremote-");
-    spawnSync("git", ["init", "--quiet", bare], { encoding: "utf8", timeout: 30_000 });
-    const run = (...args: string[]) =>
-      spawnSync("git", ["-C", bare, ...args], { encoding: "utf8", timeout: 30_000 });
-    run("config", "user.email", "t@example.com");
-    run("config", "user.name", "T");
-    writeFileSync(join(bare, "f.txt"), "x\n");
-    run("add", "f.txt");
-    run("commit", "--quiet", "-m", "init");
-
-    const dest = join(tempDir("mt5018-noremote-dest-"), "workspace");
-    expect(cloneTarget(bare, dest)).toBe(bare);
+  test("leaves an ssh remote alone — it carries no secret and no scheme", () => {
+    expect(maskGitRemote("git@github.com:o/r.git")).toBe("git@github.com:o/r.git");
   });
 
-  test("readGitOrigin returns null for a directory that is not a repo", () => {
-    expect(readGitOrigin(tempDir("mt5018-notrepo-"))).toBeNull();
+  test("leaves a local path alone", () => {
+    expect(maskGitRemote("/Users/someone/Projects/minsky")).toBe("/Users/someone/Projects/minsky");
+  });
+
+  test("passes null through", () => {
+    expect(maskGitRemote(null)).toBeNull();
   });
 });
 
@@ -386,6 +457,17 @@ describe("buildSandboxEnv", () => {
   test("falls back to ANTHROPIC_API_KEY when that is the resolved credential", () => {
     const env = buildSandboxEnv({}, paths, API_KEY, null);
     expect(env.ANTHROPIC_API_KEY).toBe(API_KEY.value);
+  });
+
+  // PR #3680 R1 (non-blocking) asked whether the deletion can affect other
+  // consumers of the inherited env. It cannot — the function works on a copy —
+  // and this is the assertion that keeps that true, since a line added above
+  // the spread would silently change it.
+  test("deletes from a COPY: the caller's environment object is untouched", () => {
+    const base = { ANTHROPIC_API_KEY: "sk-ant-api03-operators-own", PATH: "/usr/bin" };
+    buildSandboxEnv(base, paths, SUBSCRIPTION, null);
+    expect(base.ANTHROPIC_API_KEY).toBe("sk-ant-api03-operators-own");
+    expect(base.PATH).toBe("/usr/bin");
   });
 
   test("does not leave a stale OAuth token behind on the API-key path either", () => {

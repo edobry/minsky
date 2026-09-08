@@ -47,6 +47,15 @@ import {
 } from "fs";
 import { homedir, tmpdir } from "os";
 import { delimiter, dirname, join } from "path";
+// PR #3680 R1. A git remote can carry credentials in its userinfo
+// (`https://user:token@github.com/...`), and this harness both LOGS its
+// workspace origin and PERSISTS it in a record whose stated design constraint is
+// "names, never values". Imported rather than re-implemented: this function's
+// own docblock is explicit that it is the single source of truth, "centralized
+// so the masking regex cannot drift between call sites" — and the drift it
+// records (a copy that failed to mask an EMPTY username, `://:pass@host`) is
+// exactly what a fresh local regex here would have reproduced.
+import { maskConnectionString } from "@minsky/domain/persistence/connection-string";
 
 // ---------------------------------------------------------------------------
 // The six contamination channels (mt#5012 §The contamination problem)
@@ -393,6 +402,13 @@ export function buildSandboxPath(
  * inherited environment. Deleting matters: the operator's own shell very often
  * exports `ANTHROPIC_API_KEY`, and inheriting it would silently bill the metered
  * path while this function believed it had chosen the subscription.
+ *
+ * **The deletion is from a COPY, never from `process.env`** (PR #3680 R1 asked).
+ * `{ ...base }` is taken on the first line and every mutation below is against
+ * that object, so nothing else in this process sees a changed environment — the
+ * result is handed to `spawnSync` as the child's env and nowhere else. A test
+ * asserts the caller's object is unmodified, since "it takes a copy" is the kind
+ * of claim that stays true only until someone adds a line above it.
  */
 export function buildSandboxEnv(
   base: NodeJS.ProcessEnv,
@@ -697,6 +713,22 @@ export async function resolveHarnessCredential(): Promise<HarnessCredential> {
 
   const token = cfg?.ai?.providers?.anthropic?.authToken;
   if (typeof token === "string" && token.length >= 20) {
+    // WARN, never reject (PR #3680 R1 suggested stricter prefix validation).
+    // mt#5023 is the reason this is not a hard check: the provider REJECTED the
+    // exact token it exists for, because `sk-ant-` is the shared family prefix
+    // rather than an API-key discriminator. A prefix test that refuses is one
+    // upstream tag change away from repeating that. What a prefix CAN do
+    // usefully is notice the likely paste error — an API key in the
+    // subscription field, which would otherwise fail later as a confusing auth
+    // error — and say so while still trying.
+    if (token.startsWith("sk-ant-api")) {
+      console.warn(
+        "warning: ai.providers.anthropic.authToken looks like an API key " +
+          "(sk-ant-api… prefix), not a subscription token (sk-ant-oat…). Proceeding with it as " +
+          "the subscription credential; if auth fails, re-run `claude setup-token` and store " +
+          "that value instead."
+      );
+    }
     return { kind: "subscription", value: token };
   }
 
@@ -831,7 +863,13 @@ function stopDisposablePostgres(containerName: string): void {
  * unchanged, and a clone is the only way to keep that true while still
  * measuring against a real repository rather than a synthetic one.
  */
-/** `origin` of a git working tree, or null if it has none / is not one. */
+/**
+ * `origin` of a git working tree, or null if it has none / is not one.
+ *
+ * Returns the RAW url — `cloneTarget` needs it verbatim to hand to
+ * `git remote set-url`. Every path that LOGS or PERSISTS the result masks it
+ * first; see {@link maskGitRemote}.
+ */
 export function readGitOrigin(dir: string): string | null {
   const r = spawnSync("git", ["-C", dir, "remote", "get-url", "origin"], {
     encoding: "utf8",
@@ -839,6 +877,21 @@ export function readGitOrigin(dir: string): string | null {
   });
   if (r.status !== 0) return null;
   return (r.stdout ?? "").trim() || null;
+}
+
+/**
+ * A git remote safe to print or write to disk (PR #3680 R1).
+ *
+ * `https://user:token@github.com/o/r.git` is a perfectly ordinary remote for
+ * anyone who cloned with a PAT in the URL, and this harness reports the
+ * workspace origin on the console AND stores it in the run record. Masking the
+ * userinfo keeps what the field is FOR — the host, so a reader can tell whether
+ * a remote-dependent finding is real — while dropping the part that is a
+ * credential. SSH remotes (`git@github.com:o/r.git`) carry no secret and no
+ * `://`, so they pass through unchanged.
+ */
+export function maskGitRemote(remote: string | null): string | null {
+  return remote === null ? null : maskConnectionString(remote);
 }
 
 /**
@@ -869,8 +922,13 @@ export function cloneTarget(source: string, destination: string): string | null 
     encoding: "utf8",
     timeout: 300_000,
   });
+  // Every string below is masked before it escapes: `source` is operator-supplied
+  // and may itself be a credential-bearing URL, and git's own stderr echoes the
+  // remote it failed on.
   if (r.status !== 0) {
-    throw new Error(`could not clone ${source}: ${(r.stderr ?? "").trim()}`);
+    throw new Error(
+      `could not clone ${maskGitRemote(source)}: ${maskConnectionString((r.stderr ?? "").trim())}`
+    );
   }
 
   const targetOwnOrigin = readGitOrigin(source);
@@ -882,14 +940,15 @@ export function cloneTarget(source: string, destination: string): string | null 
     );
     if (set.status !== 0) {
       throw new Error(
-        `cloned ${source} but could not point the clone at the target's own origin ` +
-          `(${targetOwnOrigin}): ${(set.stderr ?? "").trim()}. Refusing to run — a workspace ` +
+        `cloned ${maskGitRemote(source)} but could not point the clone at the target's own ` +
+          `origin (${maskGitRemote(targetOwnOrigin)}): ` +
+          `${maskConnectionString((set.stderr ?? "").trim())}. Refusing to run — a workspace ` +
           "whose remote is the harness's clone path manufactures findings about remotes."
       );
     }
   }
 
-  return readGitOrigin(destination);
+  return maskGitRemote(readGitOrigin(destination));
 }
 
 function targetColdness(targetDir: string): string[] {
@@ -1040,7 +1099,9 @@ async function main(argv: string[]): Promise<number> {
       workspaceOrigin = cloneTarget(opts.target, workspace);
       targetCarried = targetColdness(workspace);
       console.log(
-        `\nTarget ${opts.target} carries ${targetCarried.length} tracked onboarding file(s)${
+        `\nTarget ${maskGitRemote(opts.target)} carries ${
+          targetCarried.length
+        } tracked onboarding file(s)${
           targetCarried.length > 0 ? `: ${targetCarried.join(", ")} — NOT a cold repo` : " — cold"
         }`
       );
@@ -1125,7 +1186,9 @@ async function main(argv: string[]): Promise<number> {
     // a committed one.
     const record: RunRecord = {
       startedAt: new Date(opts.nowMs).toISOString(),
-      target: opts.target,
+      // Masked for the same reason `workspaceOrigin` is: `--target` accepts a
+      // URL, and a URL can carry userinfo (PR #3680 R1).
+      target: maskGitRemote(opts.target),
       targetCarriedFiles: targetCarried,
       argv: dispatchArgv,
       sandboxEnvVarNames: envVarNames,
