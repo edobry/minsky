@@ -62,6 +62,54 @@ function formatRelative(isoTimestamp: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Delayed busy affordance
+// ---------------------------------------------------------------------------
+
+/**
+ * How long work must run before the form is allowed to LOOK busy (mt#5032).
+ *
+ * MEASURED, not chosen. Instrumenting a real Add against the live cockpit put
+ * the visible pending phase at **83 ms** — the token input faded to 50% opacity
+ * and back inside about five frames. That is a flash, not feedback.
+ *
+ * The obvious explanation was that this provider's check is uniquely fast (a
+ * regex, no network). It IS: 2.5 ms of server time against 33–78 ms for the
+ * network-backed providers. But the pending phase was 83 ms against that 2.5 ms
+ * call, so ~80 ms of it is client-side and roughly constant — every provider
+ * flashes, the fast one just flashes alone. A threshold keyed to provider speed
+ * would have fixed nothing.
+ *
+ * 150 ms sits above the ~80 ms floor with headroom, and below the ~115–160 ms
+ * a network provider actually takes, so those still show a busy state. It is
+ * also the low end of the range UX literature treats as the threshold at which
+ * a delay becomes perceptible at all — under it, there is nothing to reassure
+ * the user about.
+ */
+const BUSY_AFFORDANCE_DELAY_MS = 150;
+
+/**
+ * `true` only once `active` has been continuously true for `delayMs`.
+ *
+ * Deliberately decoupled from the `disabled` state that shares its trigger:
+ * disabling inputs is a CORRECTNESS concern (it prevents a double submit) and
+ * must be immediate, while looking busy is a COMMUNICATION concern and is worth
+ * suppressing when the work outruns the eye. Tying both to one flag is what
+ * produced the flash.
+ */
+function useDelayedFlag(active: boolean, delayMs: number): boolean {
+  const [engaged, setEngaged] = useState(false);
+  useEffect(() => {
+    if (!active) {
+      setEngaged(false);
+      return;
+    }
+    const timer = setTimeout(() => setEngaged(true), delayMs);
+    return () => clearTimeout(timer);
+  }, [active, delayMs]);
+  return engaged;
+}
+
+// ---------------------------------------------------------------------------
 // Validate/add result inline feedback
 // ---------------------------------------------------------------------------
 
@@ -122,15 +170,43 @@ function AddCredentialForm() {
     },
   });
 
-  useEffect(() => {
-    if (!addMutation.isSuccess) return;
-    const timer = setTimeout(() => addMutation.reset(), 3000);
-    return () => clearTimeout(timer);
-  }, [addMutation.isSuccess, addMutation.reset]);
+  // The confirmation used to erase itself after 3 s (mt#5032). Removed: content
+  // vanishing on a timer is the same class of defect as content appearing on
+  // one, and it took away the only record of what happened while the reader was
+  // still looking at it. Every path that starts a NEW action already resets the
+  // mutation — editing the token, switching provider, submitting again — so the
+  // block clears exactly when it stops being true, and not before.
 
   const providerMeta = providers.find((p) => p.id === selectedProvider);
   const canSubmit = selectedProvider && token.length > 0;
   const isWorking = validateMutation.isPending || addMutation.isPending;
+  // Two flags, deliberately: `isWorking` gates `disabled` (immediate, prevents a
+  // double submit); `showBusy` gates how the form LOOKS (delayed, so work that
+  // finishes in under a tenth of a second never announces itself). mt#5032.
+  const showBusy = useDelayedFlag(isWorking, BUSY_AFFORDANCE_DELAY_MS);
+
+  /**
+   * The ONE verdict the feedback region shows, chosen by precedence so a single
+   * node can serve every state (mt#5032).
+   *
+   * Ordering: a completed add outranks a bare validate, and within an add the
+   * post-store smoke test outranks the pre-store check — it is the later and
+   * stricter of the two.
+   *
+   * A successful add used to render BOTH rows. Dropping the validate row is not
+   * a loss of information: for a provider whose validate and test are the same
+   * function the two lines were identical, and for `github` the test detail
+   * literally embeds the validate detail (`${userCheck.detail}; \`repo\` scope
+   * present`). The richer line is the one kept.
+   */
+  const primaryFeedback: { result: CredentialCheckResult; label: string } | null =
+    addMutation.isSuccess && addMutation.data?.test
+      ? { result: addMutation.data.test, label: "Smoke test" }
+      : addMutation.isSuccess && addMutation.data?.validate
+        ? { result: addMutation.data.validate, label: "Validate" }
+        : validateResult
+          ? { result: validateResult, label: "Validate" }
+          : null;
 
   if (providersQuery.isLoading) {
     return <LoadingState message="Loading providers..." />;
@@ -140,22 +216,29 @@ function AddCredentialForm() {
     return <ErrorState prefix="Failed to load providers" error={providersQuery.error} />;
   }
 
+  // Neither handler clears the previous result up front any more (mt#5032).
+  // Clearing at click UNMOUNTED the feedback block, and the incoming result
+  // then mounted a DIFFERENT node ~17 ms later — measured: same text, gone and
+  // back inside one frame. The result is replaced when the new one ARRIVES, so
+  // the node persists and only its content changes.
   function handleValidate() {
     if (!canSubmit || isWorking) return;
-    setValidateResult(null);
-    setValidateError(null);
     validateMutation.mutate({ provider: selectedProvider, token });
   }
 
   function handleAdd() {
     if (!canSubmit || isWorking) return;
-    setValidateResult(null);
-    setValidateError(null);
     addMutation.mutate({ provider: selectedProvider, token });
   }
 
   return (
-    <div className="space-y-3">
+    // `id` and `aria-busy` are a stable contract for anything observing this
+    // form (mt#5032). `scripts/verify-credentials-add-flicker.ts` scopes every
+    // query to the id rather than to a Tailwind class, and reads the busy state
+    // off `aria-busy` rather than off the button's label — a probe keyed to
+    // English copy breaks the first time the copy is edited. `aria-busy` also
+    // does the accessibility job the delayed affordance would otherwise skip.
+    <div className="space-y-3" id="credentials-add-form" aria-busy={showBusy}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
         <div className="flex flex-col gap-1.5 sm:w-48">
           <label
@@ -214,7 +297,12 @@ function AddCredentialForm() {
               "h-9 rounded-md border border-input bg-background px-3 py-1 text-sm",
               "ring-offset-background focus-visible:outline-none focus-visible:ring-2",
               "focus-visible:ring-ring focus-visible:ring-offset-2",
-              "disabled:pointer-events-none disabled:opacity-50",
+              // `disabled:opacity-50` used to live here, which tied the fade to
+              // the disabled attribute and made an 83 ms operation flash the
+              // whole field. Pointer-events still key off `disabled`; the fade
+              // keys off the delayed flag (mt#5032).
+              "disabled:pointer-events-none",
+              showBusy && "opacity-50",
               "placeholder:text-muted-foreground"
             )}
             disabled={isWorking}
@@ -230,7 +318,7 @@ function AddCredentialForm() {
             disabled={!canSubmit || isWorking}
             aria-label="Validate token without saving"
           >
-            {validateMutation.isPending ? "Validating..." : "Validate"}
+            {showBusy && validateMutation.isPending ? "Validating..." : "Validate"}
           </Button>
           <Button
             size="sm"
@@ -238,7 +326,7 @@ function AddCredentialForm() {
             disabled={!canSubmit || isWorking}
             aria-label="Validate and save token"
           >
-            {addMutation.isPending ? "Adding..." : "Add"}
+            {showBusy && addMutation.isPending ? "Adding..." : "Add"}
           </Button>
         </div>
       </div>
@@ -258,36 +346,56 @@ function AddCredentialForm() {
         </div>
       )}
 
-      {validateResult && (
-        <CredentialValidationResult result={validateResult} label="Validate" />
-      )}
+      {/*
+        ONE feedback region, always mounted, with its height reserved (mt#5032).
 
-      {validateError && !validateResult && (
-        <div
-          className="flex items-start gap-2 rounded px-2 py-1.5 text-xs bg-destructive/10 text-destructive"
-          role="alert"
-          aria-live="assertive"
-        >
-          <span className="flex-shrink-0 font-mono select-none" aria-hidden="true">{"✗"}</span>
-          <span>{validateError}</span>
-        </div>
-      )}
+        Two defects came from what was here before — three sibling blocks, each
+        conditionally mounted:
 
-      {addMutation.isSuccess && addMutation.data && (
-        <div className="space-y-1">
-          {addMutation.data.validate && (
-            <CredentialValidationResult result={addMutation.data.validate} label="Validate" />
-          )}
-          {addMutation.data.stored && (
-            <div className="text-xs text-muted-foreground px-2">
-              Stored at {addMutation.data.stored.configFilePath}
-            </div>
-          )}
-          {addMutation.data.test && (
-            <CredentialValidationResult result={addMutation.data.test} label="Smoke test" />
-          )}
-        </div>
-      )}
+        1. Pressing Add tore down the block that was showing and built a
+           different one for the incoming result. Measured: the node was gone
+           for ~17 ms and came back as a new element with near-identical text.
+           Now a single `CredentialValidationResult` renders at a single
+           position from `primaryFeedback`, so React reuses the DOM node across
+           the transition and only its content changes.
+        2. The form grew 40 px the moment a result appeared — 102 → 142 px,
+           measured — shoving everything below it. `min-h` reserves the row, so
+           the first result costs no layout shift. The extra rows a successful
+           add adds (stored path, smoke test) still grow the region; reserving
+           for the WORST case would leave a permanent hole for the common one.
+
+        The 1.75rem is DERIVED from the row it reserves, not picked: a
+        `CredentialValidationResult` is `text-xs` (line-height 1rem) with
+        `py-1.5` (0.375rem top and bottom), so one line occupies exactly
+        1 + 0.375 + 0.375 = 1.75rem. It tracks that row's own padding and
+        line-height, so it is only wrong if those change — and the probe's
+        layout-jump check fails loudly if they do.
+      */}
+      <div className="min-h-[1.75rem] space-y-1">
+        {primaryFeedback && (
+          <CredentialValidationResult
+            result={primaryFeedback.result}
+            label={primaryFeedback.label}
+          />
+        )}
+
+        {validateError && !primaryFeedback && (
+          <div
+            className="flex items-start gap-2 rounded px-2 py-1.5 text-xs bg-destructive/10 text-destructive"
+            role="alert"
+            aria-live="assertive"
+          >
+            <span className="flex-shrink-0 font-mono select-none" aria-hidden="true">{"✗"}</span>
+            <span>{validateError}</span>
+          </div>
+        )}
+
+        {addMutation.isSuccess && addMutation.data?.stored && (
+          <div className="text-xs text-muted-foreground px-2">
+            Stored at {addMutation.data.stored.configFilePath}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

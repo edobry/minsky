@@ -289,8 +289,14 @@ describe("Credentials widget", () => {
     await userEvent.type(tokenInput, "test-token-value");
     await userEvent.click(addBtn);
 
+    // The SMOKE-TEST verdict is what the region shows on success, not the
+    // pre-store validate line (mt#5032). One node now serves every feedback
+    // state so it can persist across the transition instead of being torn down
+    // and rebuilt; the smoke test wins the precedence because it is the later
+    // and stricter of the two checks. The mock returns "stub-ok" for validate
+    // and "smoke-ok" for test.
     await waitFor(() => {
-      expect(screen.getByText("stub-ok")).toBeDefined();
+      expect(screen.getByText(/smoke-ok/)).toBeDefined();
     });
 
     const storedText = screen.getByText(/Stored at/);
@@ -521,4 +527,218 @@ describe("Credentials widget — Detail column states (mt#5031)", () => {
     const status = within(rowFor("Claude Code")).getByText("stored, unverified");
     expect(status.getAttribute("title")).toBe(LONG_DETAIL);
   });
+});
+
+/**
+ * The Add interaction's render sequencing (mt#5032).
+ *
+ * Separate from the Detail-column block above: that one is about the providers
+ * TABLE, these are about the Add FORM. Both were reported in the same message
+ * and they are different surfaces.
+ *
+ * Each assertion here corresponds to something measured against the live
+ * cockpit before the fix — see mt#5032's `## Reproduction`.
+ */
+/**
+ * A response the test releases by hand, so the pending window is observable
+ * rather than raced. Declared this way (not `let x: F | null`) because TS
+ * cannot see the executor run and narrows the nullable form to `null` at every
+ * call site.
+ */
+function deferredResponse(): { promise: Promise<Response>; release: (v: Response) => void } {
+  let release!: (v: Response) => void;
+  const promise = new Promise<Response>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
+}
+
+describe("Credentials widget — Add interaction rendering (mt#5032)", () => {
+  test("the feedback node PERSISTS across Add instead of being rebuilt", async () => {
+    // The H2 regression, asserted on DOM-node IDENTITY rather than on text —
+    // text alone cannot tell "the same block updated" from "one block replaced
+    // by an equivalent one", and the second is what the flicker was (mt#5032:
+    // measured gone for ~17 ms, then back as a different element).
+    const addGate = deferredResponse();
+    globalThis.fetch = mock((url: string, init?: RequestInit) => {
+      const pathname = typeof url === "string" ? new URL(url, "http://localhost").pathname : "";
+      if (pathname === "/api/credentials/providers") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ providers: MOCK_PROVIDERS }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        );
+      }
+      if (pathname === "/api/credentials/validate" && init?.method === "POST") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, detail: "first-verdict" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        );
+      }
+      if (pathname === "/api/credentials/add" && init?.method === "POST") {
+        // Held open so the pending window is observable rather than raced.
+        return addGate.promise;
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ credentials: MOCK_CREDENTIALS }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+    }) as unknown as typeof globalThis.fetch;
+
+    renderWithQuery(<CredentialsManager />);
+    await waitFor(() => expect(screen.queryByText("Loading...")).toBeNull());
+
+    const tokenInput = await screen.findByLabelText("Paste credential token");
+    await userEvent.type(tokenInput, "some-token");
+    await userEvent.click(screen.getByLabelText("Validate token without saving"));
+
+    await waitFor(() => expect(screen.getByText(/first-verdict/)).toBeDefined());
+    const nodeBefore = screen.getByRole("status");
+
+    await userEvent.click(screen.getByLabelText("Validate and save token"));
+
+    // DURING the pending window the block must still be mounted — this is the
+    // exact ~17 ms hole the old code opened by clearing the result at click.
+    expect(nodeBefore.isConnected).toBe(true);
+    expect(screen.getByRole("status")).toBe(nodeBefore);
+
+    addGate.release(
+      new Response(
+        JSON.stringify({
+          provider: "github",
+          validate: { ok: true, detail: "second-verdict" },
+          test: { ok: true, detail: "second-verdict" },
+          stored: { configFilePath: "/mock/config.yaml" },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    // And AFTER it settles the very same element carries the new text.
+    await waitFor(() => expect(screen.getByText(/second-verdict/)).toBeDefined());
+    expect(nodeBefore.isConnected).toBe(true);
+    expect(screen.getByRole("status")).toBe(nodeBefore);
+  });
+
+  test("work that finishes fast never announces itself as busy", async () => {
+    // The H1 regression. `disabled` still engages immediately (it prevents a
+    // double submit); only the LOOK of being busy is delayed, so an operation
+    // that outruns the eye shows nothing at all.
+    const addGate = deferredResponse();
+    globalThis.fetch = mock((url: string, init?: RequestInit) => {
+      const pathname = typeof url === "string" ? new URL(url, "http://localhost").pathname : "";
+      if (pathname === "/api/credentials/providers") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ providers: MOCK_PROVIDERS }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        );
+      }
+      if (pathname === "/api/credentials/add" && init?.method === "POST") {
+        return addGate.promise;
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ credentials: MOCK_CREDENTIALS }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+    }) as unknown as typeof globalThis.fetch;
+
+    renderWithQuery(<CredentialsManager />);
+    await waitFor(() => expect(screen.queryByText("Loading...")).toBeNull());
+
+    const tokenInput = await screen.findByLabelText("Paste credential token");
+    await userEvent.type(tokenInput, "some-token");
+    const addBtn = screen.getByLabelText("Validate and save token") as HTMLButtonElement;
+    await userEvent.click(addBtn);
+
+    // Mid-flight, well inside the delay: disabled for correctness, but the form
+    // does not LOOK busy. Before mt#5032 this read "Adding..." here.
+    expect(addBtn.disabled).toBe(true);
+    expect(addBtn.textContent?.trim()).toBe("Add");
+    expect((tokenInput as HTMLInputElement).className).not.toContain("opacity-50");
+
+    addGate.release(
+      new Response(
+        JSON.stringify({
+          provider: "github",
+          validate: { ok: true, detail: "quick-ok" },
+          test: { ok: true, detail: "quick-ok" },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    await waitFor(() => expect(screen.getByText(/quick-ok/)).toBeDefined());
+  });
+
+  test("the confirmation does not erase itself on a timer", async () => {
+    // SC5: a flicker fix must not make the confirmation vanish faster. The old
+    // code reset the mutation 3 s after success, wiping the only record of what
+    // happened while the reader was still looking at it.
+    globalThis.fetch = mock((url: string, init?: RequestInit) => {
+      const pathname = typeof url === "string" ? new URL(url, "http://localhost").pathname : "";
+      if (pathname === "/api/credentials/providers") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ providers: MOCK_PROVIDERS }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        );
+      }
+      if (pathname === "/api/credentials/add" && init?.method === "POST") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              provider: "github",
+              validate: { ok: true, detail: "persisted-verdict" },
+              test: { ok: true, detail: "persisted-verdict" },
+              stored: { configFilePath: "/mock/config.yaml" },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ credentials: MOCK_CREDENTIALS }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+    }) as unknown as typeof globalThis.fetch;
+
+    renderWithQuery(<CredentialsManager />);
+    await waitFor(() => expect(screen.queryByText("Loading...")).toBeNull());
+
+    const tokenInput = await screen.findByLabelText("Paste credential token");
+    await userEvent.type(tokenInput, "some-token");
+    await userEvent.click(screen.getByLabelText("Validate and save token"));
+    await waitFor(() => expect(screen.getByText(/persisted-verdict/)).toBeDefined());
+
+    // Past the 3 s the old timer used. REAL time, deliberately — and a reviewer
+    // asked for fake timers here (PR #3677), so the reason is measured rather
+    // than asserted.
+    //
+    // bun does support them. But `advanceTimersByTime` only fires timers
+    // scheduled AFTER `useFakeTimers()`, verified directly:
+    //
+    //   setTimeout(fn, 3000);            // real clock
+    //   jest.useFakeTimers();
+    //   jest.advanceTimersByTime(5000);  // fn does NOT fire
+    //
+    // The component schedules its reset during the click, and installing the
+    // fake clock before that breaks the `waitFor` polling the setup needs. So a
+    // fake-timer version would pass whether or not the timer existed — a test
+    // that cannot fail, which is the thing this suite is most careful about.
+    // 3.3 s once is the price of an assertion that can actually fail.
+    await new Promise((r) => setTimeout(r, 3300));
+    expect(screen.getByText(/persisted-verdict/)).toBeDefined();
+    expect(screen.getByText(/Stored at/)).toBeDefined();
+  }, 15000);
 });
