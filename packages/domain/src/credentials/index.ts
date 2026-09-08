@@ -6,6 +6,7 @@
  * cockpit `/credentials` page both consume this module.
  */
 export type { CredentialProvider, CredentialCheckResult } from "./types";
+export { MAX_STATUS_LENGTH } from "./types";
 export {
   KNOWN_PROVIDER_IDS,
   getCredentialProvider,

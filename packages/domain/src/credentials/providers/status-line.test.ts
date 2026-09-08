@@ -233,6 +233,38 @@ describe("provider status lines fit the column they render in (mt#5031)", () => 
     });
   }
 
+  test("the cockpit's mirrored budget has not drifted from this one", () => {
+    // `src/cockpit/web/lib/credentials-api.ts` deliberately MIRRORS
+    // MAX_STATUS_LENGTH instead of importing it, so the browser bundle stays
+    // free of server code. The reviewer flagged the resulting drift risk on
+    // PR #3676, correctly.
+    //
+    // The obvious repair — import the domain constant into the cockpit-web test
+    // — was tried and REVERTED: a static import pulls the domain barrel into
+    // the `src/cockpit/web` TypeScript project, where `telegram.ts` (which
+    // reads `process.env`) does not typecheck against that project's Vite
+    // config. Two real errors, and a demonstration of exactly why the mirror
+    // convention exists.
+    //
+    // So the guard READS the literal rather than importing it. No cross-project
+    // import, no bundle impact, and the two values can no longer diverge
+    // silently.
+    const repoRoot = join(PROVIDERS_DIR, "..", "..", "..", "..", "..");
+    const mirrorPath = join(repoRoot, "src", "cockpit", "web", "lib", "credentials-api.ts");
+
+    const project = new Project({ skipAddingFilesFromTsConfig: true });
+    const mirrorFile = project.addSourceFileAtPath(mirrorPath);
+    const declaration = mirrorFile.getVariableDeclaration("MAX_STATUS_LENGTH");
+
+    // Liveness: a moved file or a renamed constant must FAIL here, not silently
+    // pass by finding nothing to compare.
+    expect(declaration).toBeDefined();
+    const mirrored = Number(declaration?.getInitializer()?.getText());
+    expect(Number.isNaN(mirrored)).toBe(false);
+
+    expect(mirrored).toBe(MAX_STATUS_LENGTH);
+  });
+
   test("claude-code-token reports a status distinct from its detail", () => {
     // The one provider whose success path is pure (a regex shape check, no
     // network), so it can be exercised rather than parsed — which checks the
