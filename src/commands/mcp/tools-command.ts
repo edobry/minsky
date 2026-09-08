@@ -4,6 +4,12 @@ import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import { resolveMinskyServerSpawn } from "../../mcp/resolve-server-command";
 import { exit } from "@minsky/shared/process";
+// mt#5029 SC4: this `clientInfo` names the PRODUCT (`minsky-cli`) acting as an
+// MCP client, so its version is a claim about Minsky and must track the package.
+// The `clientInfo` literals in `scripts/*` are deliberately NOT changed — each
+// names a per-probe identity (`deploy-verify`, `mt2677-progress-probe`), so its
+// version describes that probe, which does not ship with the package.
+import { MCP_ADVERTISED_VERSION } from "./advertised-version";
 
 /**
  * Create the MCP "tools" subcommand for listing available tools.
@@ -47,7 +53,7 @@ export function createToolsCommand(): Command {
             params: {
               protocolVersion: "2025-01-07",
               capabilities: {},
-              clientInfo: { name: "minsky-cli", version: "1.0.0" },
+              clientInfo: { name: "minsky-cli", version: MCP_ADVERTISED_VERSION },
             },
           })}\n`;
 
