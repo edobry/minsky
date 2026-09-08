@@ -81,7 +81,7 @@ Skills/agents under `.claude/` are repo-development artifacts, not runtime asset
 1. **Bun is a target-machine prerequisite regardless of channel.** The provisioned hooks carry `#!/usr/bin/env bun` shebangs and are executed by the harness as standalone Bun scripts; sessions and the test-runner also assume Bun. The single-file binary's headline advantage — no runtime dependency — therefore does not hold for Minsky's product surface today. Requiring `bun add -g` adds no prerequisite that the product doesn't already impose.
 2. **The npm layout preserves the already-shipped resolver contract.** A global npm/bun install materializes the package directory verbatim: `node_modules/minsky/dist/minsky.js` with `dist/hooks` and `dist/storage/migrations` beside it — exactly the bundled-layout candidate both resolvers try first. No new resolution mechanism is needed; the cold-start smoke in this PR proves the whole chain.
 3. **The binary channel needs real design work before it is honest to offer.** Authoritative-source check (gate l): Bun's single-file-executable docs (bun.com/docs/bundler/executables, read 2026-08-03) document embedding assets via `with { type: "file" }` imports, `Bun.embeddedFiles`, and an `--asset` flag for directory trees under a `/$bunfs/` virtual path. Hook sources must ultimately exist as REAL files the harness can execute by path, so a binary channel needs an extract-on-first-run step on top of embedding — a design, not a flag. Deviation from "just ship the binary" is deliberate and recorded here.
-4. **Name availability is a fact, not an assumption.** `npm view minsky` returned 404 (unclaimed) on 2026-08-03. Claiming it is cheap now and may not be later.
+4. **Name availability is a fact, not an assumption.** ~~`npm view minsky` returned 404 (unclaimed) on 2026-08-03. Claiming it is cheap now and may not be later.~~ **FALSIFIED — the 404 did not mean what this said it meant.** npm refuses `minsky` at PUT as too similar to the existing `minify` (mt#3915), so the name was never claimable and the 404 is permanent. The reasoning is worth keeping visible because the check was real and the INFERENCE was wrong: a read endpoint returning "not found" is evidence about the registry's contents, never about whether a write will be accepted — the two are different operations with different rules, and only the write can answer. The channel ships as the scoped `@edobry/minsky`, which is unaffected.
 
 ## Alternatives considered
 
@@ -94,9 +94,52 @@ Skills/agents under `.claude/` are repo-development artifacts, not runtime asset
 Provisioning state as of mt#3616's execution (2026-08-03):
 
 1. **npm account** — PROVISIONED: principal ran `npm login` (verified `npm whoami` → `edobry`, 2026-08-03T21:57Z). No long-lived publish token is used — see (4).
-2. **Claim of the `minsky` package name** — executed by mt#3616's manual first publish (0.1.0).
+2. **Package name** — the published package is the SCOPED **`@edobry/minsky`**. _Corrected 2026-09-07 (mt#5013)._ This item previously read "Claim of the `minsky` package name — executed by mt#3616's manual first publish (0.1.0)," which is wrong on both counts. mt#3616 shipped the workflow and closed **without publishing anything**; `0.1.0` was published manually on 2026-08-10 under **mt#3874**. And the unscoped name was never claimed: npm rejects `minsky` at PUT as too similar to `minify` (**mt#3915**), so `npm view minsky` returning 404 — verified again 2026-09-07 — is the expected steady state, **not** a signal that the name is available. See Rationale 4, corrected for the same reason.
 3. **Version source** — `package.json` now carries `"version"` (added by mt#3616; `src/cli.ts` reads it, retiring the hardcoded `1.0.0`); mt#233 (TODO) owns automating the bump + `v*` tag.
-4. **Publish automation** — `.github/workflows/publish-npm.yml` (mt#3616) publishes on `v*` tags via npm **trusted publishing** (OIDC, docs.npmjs.com/trusted-publishers): short-lived workflow-specific credentials, automatic provenance, no `NPM_TOKEN` secret. ONE-TIME OPERATOR STEP still open: register the trusted publisher (repo `edobry/minsky`, workflow `publish-npm.yml`) in the package's npmjs.com settings — until then the workflow fails at the publish step by design.
+4. **Publish automation** — `.github/workflows/publish-npm.yml` (mt#3616) publishes on `v*` tags via npm **trusted publishing** (OIDC, docs.npmjs.com/trusted-publishers): short-lived workflow-specific credentials, automatic provenance, no `NPM_TOKEN` secret. **SATISFIED 2026-08-10 (mt#3874)** — the trusted publisher (repo `edobry/minsky`, workflow `publish-npm.yml`) is registered in the package's npmjs.com settings, and the pipeline has published successfully twice: run `31404298781` on tag `v0.1.1` and run `31525535545` on tag `v0.1.2`, both `conclusion: success`. If the registration is ever removed the workflow fails at the publish step with an auth error; that means "precondition gone", not a code defect.
+
+   _Corrected 2026-09-07 (mt#5013)._ This item previously read "ONE-TIME OPERATOR STEP still open … until then the workflow fails at the publish step by design," which was true when written (2026-08-03) and false a week later. It was still being read as current a month after that: mt#5013 was planned on the premise that the npm channel had no working release path, when in fact the pipeline works and simply had not been given a tag since 2026-08-11. An accepted decision record asserting a live blocker that was cleared is read as current by the next agent, and there is no error in it to notice — which is the same failure this ADR's own sibling had (mt#233's spec still says "this project has never published to npm").
+
+## Release state (kept current — this is the in-repo record)
+
+**Open release work: mt#5028.** Added by mt#5013.
+
+The channel decided above only works if someone cuts releases through it, and for 27 days nobody
+did. This section exists so the state of the published artifact is answerable from the repository
+rather than from npm plus somebody's memory.
+
+|                      |                                                                                                                      |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **Published**        | `@edobry/minsky` — see `npm view @edobry/minsky version`                                                             |
+| **Release trigger**  | push a `v<version>` tag; `publish-npm.yml` verifies the tag equals `package.json`'s version, then publishes via OIDC |
+| **Staleness signal** | `.github/workflows/npm-staleness.yml`, daily; logic and threshold in `scripts/check-npm-staleness.ts`                |
+| **Version bump**     | manual today. mt#233 owns automating it, and its own spec carries two stale premises (see the note in item 4 above)  |
+
+### Owed as of 2026-09-07 (mt#5013 → mt#5028)
+
+mt#5013 shipped the staleness signal and set main's `package.json` to **`0.2.0-dev.0`**.
+
+**The dev suffix is the convention from here on, and it is load-bearing.** While main carries one it
+can never equal a published version, so the defect that started this — `npm view` and `package.json`
+both reading `0.1.2`, leaving a user on a stale install for whom "upgrade to the latest" was already
+satisfied — cannot recur by drift. A release removes it only momentarily: `publish-npm.yml` verifies
+the tagged commit's version equals the tag exactly, so the commit being tagged carries the bare
+`0.2.0` and main returns to a suffix immediately after.
+
+Two things remain owed, and neither is doable before this merges:
+
+1. **Cut the release** — set `package.json` to `0.2.0`, tag `v0.2.0`, push; the workflow publishes
+   via OIDC. Then return main to `0.2.1-dev.0`. Authorized by the principal on 2026-09-07 as a
+   shared/production state change.
+2. **Verify against the PUBLISHED artifact.** mt#5013 pre-flighted the _packed tarball_: it reaches
+   a real `ECONNREFUSED` on `setup db --connection-string` where published `0.1.2` still errors
+   `Non-interactive mode: pass --connection-string`. Strong evidence, and not the artifact npm
+   serves — which is the distinction mt#5013's SC4 draws, and the reason no pre-publish change can
+   close it.
+
+**mt#5028 owns both.** Falsifier for a future reader: if `npm view @edobry/minsky version` and main's
+`package.json` ever read the SAME string, the dev-suffix convention has lapsed and the original
+defect is live again.
 
 ## Relationship to the hosted/self-host fork
 
