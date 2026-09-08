@@ -23,7 +23,10 @@ function fakeFs(initial: Record<string, string> = {}): FsLike & { files: Record<
   return {
     files,
     exists: async (p: string) => Object.prototype.hasOwnProperty.call(files, p),
-    readFile: async (p: string) => {
+    // `encoding` is declared even though this double ignores it: matching
+    // `FsLike`'s signature exactly means the double cannot drift from the
+    // interface and pass only by JS arity tolerance (PR #3682 R1).
+    readFile: async (p: string, _encoding: BufferEncoding) => {
       if (!Object.prototype.hasOwnProperty.call(files, p)) throw new Error(`ENOENT: ${p}`);
       return files[p] as string;
     },
@@ -146,6 +149,28 @@ describe("mt#5014 AT2 — an already-ignored path is left alone", () => {
     expect(readGitignore(fs)).toBe(
       `${LOCAL_CONFIG_GITIGNORE_ENTRY}.bak\n${LOCAL_CONFIG_GITIGNORE_ENTRY}\n`
     );
+  });
+});
+
+describe("PR #3682 R1 — a path is data, never shell syntax", () => {
+  // The probe used to interpolate `entry` into a shell string. It now goes
+  // through execFile's argv array, so a path carrying metacharacters is written
+  // and matched verbatim rather than being interpreted.
+  const HOSTILE = ".minsky/config.local.yaml; touch /tmp/pwned";
+
+  test("writes a metacharacter-bearing entry verbatim", async () => {
+    const fs = fakeFs();
+    await ensurePathIgnored(REPO, HOSTILE, fs, notIgnored);
+
+    expect(readGitignore(fs)).toBe(`${HOSTILE}\n`);
+  });
+
+  test("recognises that same entry on a second pass rather than duplicating it", async () => {
+    const fs = fakeFs({ [GITIGNORE]: `${HOSTILE}\n` });
+    const result = await ensurePathIgnored(REPO, HOSTILE, fs, notIgnored);
+
+    expect(result.action).toBe("already-ignored");
+    expect(readGitignore(fs)).toBe(`${HOSTILE}\n`);
   });
 });
 

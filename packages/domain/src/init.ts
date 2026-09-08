@@ -662,6 +662,13 @@ export async function initializeProject(
   // Written here rather than when the secret arrives, because the file is
   // committable from the moment it exists.
   //
+  // This writes a `.gitignore` even when the directory is not a git repository
+  // yet (PR #3682 R1). Deliberate: `minsky init` before `git init` is a real
+  // ordering, and gating on `.git` would leave that project's local config
+  // unignored the moment it becomes a repo — reopening the exposure for exactly
+  // the greenfield case this defect was found in. A `.gitignore` in a
+  // not-yet-repository is inert until it becomes one.
+  //
   // Non-fatal, and deliberately outside the `mcp?.enabled !== false` block
   // above: a project must not fail `init` because a `.gitignore` could not be
   // written, but it must not look like success either — an un-ignored local

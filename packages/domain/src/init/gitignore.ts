@@ -33,8 +33,23 @@
  */
 
 import * as path from "path";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import type { FsLike } from "../interfaces/fs-like";
-import { execGitWithTimeout } from "../utils/git-exec";
+
+/**
+ * `execFile`, NOT the repo's `execGitWithTimeout` (PR #3682 R1).
+ *
+ * That helper composes a shell string — `git -C ${workdir} ${command}` handed to
+ * `execAsync` — so interpolating a path into it is a shell-injection vector.
+ * `entry` is a module constant today, but `ensurePathIgnored` takes it as a
+ * parameter, so the exported surface would carry the hazard regardless.
+ *
+ * `execFile` spawns without a shell and passes each argv element verbatim, which
+ * makes the path uninterpretable as syntax. Same class as mt#1674 ("use
+ * execFile / argv array"), and the reason `--` is also present below.
+ */
+const execFileAsync = promisify(execFile);
 
 /**
  * The path `init` must keep out of git. Exported so the test and any future
@@ -70,10 +85,11 @@ export interface EnsurePathIgnoredResult {
  * because a probe errored is not. The one cost is a possible duplicate entry in
  * a non-repo directory, and the text check in `ensurePathIgnored` catches that.
  */
-export async function gitIgnoresPath(repoPath: string, entry: string): Promise<boolean> {
+async function gitIgnoresPath(repoPath: string, entry: string): Promise<boolean> {
   try {
-    await execGitWithTimeout("init-check-ignore", `check-ignore --quiet ${entry}`, {
-      workdir: repoPath,
+    // Argv array, and `--` so a path beginning with `-` cannot be read as a
+    // flag. Nothing here reaches a shell.
+    await execFileAsync("git", ["-C", repoPath, "check-ignore", "--quiet", "--", entry], {
       timeout: 5000,
     });
     return true;
@@ -85,7 +101,21 @@ export async function gitIgnoresPath(repoPath: string, entry: string): Promise<b
   }
 }
 
-/** Does this `.gitignore` text already carry `entry` as a line of its own? */
+/**
+ * Does this `.gitignore` text already carry `entry` as a line of its own?
+ *
+ * **Exact-line only, deliberately (PR #3682 R1).** A `.gitignore` already
+ * covering the path by PATTERN — `.minsky/*`, `*.local.yaml` — is not
+ * recognised here, so the entry would be appended redundantly.
+ *
+ * That is the correct trade because of WHEN this runs: it is reached only after
+ * `gitIgnoresPath` failed to confirm, which in practice means git is absent or
+ * the directory is not a repository. Whenever git IS available it is the
+ * authority and answers the pattern question properly, so the gap costs one
+ * redundant line in exactly the case where nothing is reading `.gitignore` yet.
+ * Implementing gitignore pattern semantics by hand to close it would be
+ * re-implementing git, badly, for that case alone.
+ */
 function textAlreadyLists(gitignoreText: string, entry: string): boolean {
   return gitignoreText
     .split("\n")
