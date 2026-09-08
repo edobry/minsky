@@ -10,6 +10,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { parse } from "yaml";
 import { log } from "@minsky/shared/logger";
+import type { LoadedProjectConfigFile } from "./project";
 
 /**
  * User configuration file locations
@@ -99,11 +100,18 @@ export function getUserConfiguration(): {
   metadata: {
     configDir: string;
     configFile: string | null;
+    configFiles: LoadedProjectConfigFile[];
     searchedPaths: string[];
   };
 } {
   const configDir = getUserConfigDir();
   const searchedPaths: string[] = [];
+  // mt#5033: per-key file provenance. This source stops at the first file it
+  // finds, so `configFile` is already accurate here and this list always has at
+  // most one entry — emitted anyway so every file-backed source exposes the same
+  // contract, and so a future change that merges user files cannot silently
+  // reintroduce the misattribution the project source had.
+  const configFiles: LoadedProjectConfigFile[] = [];
   let configFile: string | null = null;
   let config: Record<string, unknown> = {};
 
@@ -118,6 +126,7 @@ export function getUserConfiguration(): {
         if (loadedConfig) {
           config = loadedConfig;
           configFile = configPath;
+          configFiles.push({ path: configPath, topLevelKeys: Object.keys(loadedConfig) });
           break;
         }
       } catch (error) {
@@ -131,6 +140,7 @@ export function getUserConfiguration(): {
     metadata: {
       configDir,
       configFile,
+      configFiles,
       searchedPaths,
     },
   };

@@ -14,6 +14,10 @@ import { getUserConfiguration, userSourceMetadata } from "./sources/user";
 import { getEnvironmentConfiguration, environmentSourceMetadata } from "./sources/environment";
 import { log } from "@minsky/shared/logger";
 import { deepMergeConfigs } from "./deep-merge";
+import {
+  attributeUnknownTopLevelKey,
+  formatUnknownTopLevelKeyWarning,
+} from "./unknown-key-attribution";
 
 /**
  * Typed marker for schema-validation failures at config-load time. The CLI
@@ -135,7 +139,7 @@ export class ConfigurationLoader {
 
       // mt#2161: warn about unknown top-level keys BEFORE validation (runs
       // regardless of skipValidation so the signal is never silent).
-      this.warnUnknownTopLevelKeys(mergedConfig);
+      this.warnUnknownTopLevelKeys(mergedConfig, sourceResults);
 
       // Validate final configuration against the schema
       const validationResult = this.options.skipValidation
@@ -300,16 +304,28 @@ export class ConfigurationLoader {
   /**
    * mt#2161: warn about unknown top-level keys. Runs independently of
    * validation so the signal is never silent (even with skipValidation).
+   *
+   * mt#5033: one line PER KEY, each naming the source that contributed it.
+   * The previous single aggregated line named the keys and then prescribed a
+   * remedy — "fix the key name in your config file" — that is wrong whenever
+   * the key came from an unregistered `MINSKY_*` environment variable, which is
+   * the common case. Attribution reads `sourceResults`, which every source
+   * already populates; see `unknown-key-attribution.ts` for why nothing new had
+   * to be plumbed. Per-key rather than aggregated because two keys can have two
+   * different origins and therefore two different remedies.
    */
-  private warnUnknownTopLevelKeys(config: PartialConfiguration): void {
+  private warnUnknownTopLevelKeys(
+    config: PartialConfiguration,
+    sourceResults: readonly ConfigurationSourceResult[]
+  ): void {
     if (!config || typeof config !== "object") return;
     const unknownKeys = Object.keys(config).filter((k) => !KNOWN_TOP_LEVEL_KEYS.has(k));
     if (unknownKeys.length === 0) return;
-    log.error(
-      `Unrecognized top-level config key${unknownKeys.length > 1 ? "s" : ""}: ${unknownKeys.join(", ")}. ` +
-        `These keys will be ignored. If this is a typo, fix the key name in your config file. ` +
-        `If this key was added by a newer version, update your Minsky installation.`
-    );
+    for (const key of unknownKeys) {
+      log.error(
+        formatUnknownTopLevelKeyWarning(key, attributeUnknownTopLevelKey(key, sourceResults))
+      );
+    }
   }
 
   /**
