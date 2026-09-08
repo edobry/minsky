@@ -160,6 +160,13 @@ async function gatherInputs(): Promise<StalenessInputs> {
   >;
   const publishedAt = times[publishedVersion];
   if (!publishedAt) {
+    // Deliberately fatal rather than "resilient". The tempting fallbacks —
+    // `times.modified`, `times.created`, or skipping the check — each yield a
+    // staleness number that is WRONG rather than absent, and a wrong number
+    // here is indistinguishable from a right one at every downstream surface.
+    // That is the precise failure this whole check exists to catch, so it must
+    // not be the check's own behaviour under anomaly (mem#728: a failed
+    // measurement must not be typed as a measurement).
     throw new Error(
       `npm reports latest=${publishedVersion} but its time map has no entry for that ` +
         `version (keys: ${Object.keys(times).join(", ")}). Refusing to guess a date.`
