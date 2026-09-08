@@ -11,6 +11,7 @@ import { createHash } from "crypto";
 import { log } from "@minsky/shared/logger";
 import { logPostgresNotice } from "./postgres-notice-handler";
 import { maskConnectionString } from "./connection-string";
+import { assertPgvectorAvailableForMigration } from "./pgvector-preflight";
 // mt#4515: the drain budget for every teardown. These `end()` calls sit in
 // `finally` blocks on the migration path, which runs at boot under auto-migrate
 // and in the deploy-keyed runner — an unbounded one there stalls startup rather
@@ -892,6 +893,16 @@ export async function runPostgresSchemaMigrations(
       migrationsFolder,
       appliedHashes
     );
+
+    // ── pgvector preflight (mt#5016) ────────────────────────────────────────
+    // Runs BEFORE anything is printed as "Executing", and before the bootstrap
+    // branch below, because BOTH downstream paths need it and both fail badly
+    // without it: the bootstrap snapshot dies on its own first statement with a
+    // raw `0A000`, and the numbered-migration replay dies later at `0005`'s
+    // `vector(1536)` column with a `type "vector" does not exist` that names
+    // neither the extension nor a remedy. Throws only when the server has
+    // explicitly said it cannot load pgvector; an unreadable probe proceeds.
+    await assertPgvectorAvailableForMigration(sql);
 
     {
       log.cli("=== Persistence Schema Migration (postgres) ===");

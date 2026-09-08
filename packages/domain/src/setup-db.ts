@@ -22,6 +22,10 @@ import { getErrorMessage } from "./errors/index";
 import { createConfigWriter, type ConfigWriter } from "./configuration/config-writer";
 import { verifyPostgresConnectivity } from "./persistence/validation-operations";
 import { maskConnectionString } from "./persistence/connection-string";
+// Single definition of the image, shared with the migration preflight's remedy
+// message (mt#5016) — the wizard telling you to run one image while the failure
+// tells you to run another is the drift this import exists to prevent.
+import { PGVECTOR_DOCKER_IMAGE } from "./persistence/pgvector-preflight";
 import {
   runPostgresSchemaMigrations,
   getPostgresMigrationsStatus,
@@ -79,14 +83,24 @@ export function validatePostgresConnectionString(
  * Build the copy-paste Docker one-liner the wizard prints for the
  * Docker-present branch. Minsky does NOT run or supervise this container
  * (mt#2395 §Decision) — it only captures the resulting connection string.
+ *
+ * **The image is `pgvector/pgvector:pgNN`, not plain `postgres:NN` (mt#5016).**
+ * This one-liner pinned `postgres:17` from mt#2429 until 2026-09-08, and that
+ * image cannot run Minsky's migrations: the schema declares `vector` columns, so
+ * `persistence migrate` — step 1 of this very wizard's job — dies with
+ * `extension "vector" is not available`. A cold-agent onboarding run (mt#5012)
+ * hit it and had to `apt-get install postgresql-16-pgvector` inside the
+ * container to get past it, because there was no documented path that worked
+ * as-is. `pgvector/pgvector:pgNN` is pgvector's own published image and adds the
+ * extension to the identical upstream Postgres image, so nothing else about the
+ * container changes; it is also what CI has always used.
  */
 export function buildDockerPostgresOneLiner(password: string): string {
   return (
     `docker run -d --name minsky-pg ` +
     `-e POSTGRES_PASSWORD=${password} ` +
     `-p 5432:5432 ` +
-    `-v minsky-pgdata:/var/lib/postgresql/data ` +
-    `postgres:17`
+    `-v minsky-pgdata:/var/lib/postgresql/data ${PGVECTOR_DOCKER_IMAGE}`
   );
 }
 

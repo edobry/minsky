@@ -924,6 +924,13 @@ export class PostgresPersistenceProvider
       // first; migrate() below then applies only entries newer than the
       // snapshot. Non-empty databases never enter this branch.
       if (this.sql) {
+        // pgvector preflight (mt#5016): the schema's `vector` columns make the
+        // extension a hard prerequisite for BOTH branches below — the fresh-DB
+        // bootstrap and the plain `migrate()` replay. Fails with a named remedy
+        // instead of a raw `CREATE EXTENSION` / `type "vector" does not exist`.
+        const { assertPgvectorAvailableForMigration } = await import("../pgvector-preflight");
+        await assertPgvectorAvailableForMigration(this.sql);
+
         const { bootstrapFreshPostgres, isMigrationLedgerEmpty } = await import(
           "../postgres-bootstrap"
         );

@@ -129,9 +129,31 @@ and reuses that connection (printing which config source it came from — user
 config, repo config, or an environment variable — after a quick connectivity
 check); on a fresh machine with nothing configured, it falls straight into the
 same interactive wizard described below. Schema migrations are **not** a manual
-step — Minsky auto-migrates the schema on first connect (`MINSKY_AUTO_MIGRATE`
-defaults to `true`), so there is never a `minsky persistence migrate` command to
-run as part of onboarding.
+step — the wizard runs the pending migrations itself, as part of its
+validate → connect → write-config → migrate → verify chain, so there is never a
+separate `minsky persistence migrate` command to run as part of onboarding.
+(Migration on _boot_ is a different thing and is off by default:
+`MINSKY_AUTO_MIGRATE` is opt-in, because every binary points at the same shared
+Postgres and prod migrations are applied by a single deploy-keyed runner.)
+
+#### Postgres must have pgvector
+
+Minsky stores embeddings in `vector` columns — tasks, rules, memories, tools,
+knowledge, and transcripts — so **the migrations cannot be applied to a Postgres
+server that does not have the [pgvector](https://github.com/pgvector/pgvector)
+extension available.** This is a prerequisite, not a preference; a server without
+it fails at the migrate step.
+
+- **Local Docker** — use pgvector's own image, `pgvector/pgvector:pg17`. The
+  plain `postgres:17` image does **not** ship the extension. `minsky setup db`
+  prints the full command.
+- **Hosted Postgres** — Supabase, RDS, and Cloud SQL all offer pgvector; enable
+  it in the provider's console, or run `CREATE EXTENSION vector;` once as a
+  privileged role. (Minsky's own migrations create the extension when the server
+  makes it available, so enabling it is usually all that is needed.)
+
+`minsky setup db` and `minsky persistence migrate` both check for this before
+applying anything, and name the remedy if it is missing.
 
 ### Grant the GitHub App access to your repository
 
@@ -165,8 +187,9 @@ minsky setup db
 It offers three ways to get a connection string:
 
 - **Docker** (detected automatically) — prints a copy-paste one-liner to start a
-  local Postgres, then captures the resulting connection string. Minsky does not
-  manage the container; you run and stop it with your own Docker.
+  local Postgres on `pgvector/pgvector:pg17`, then captures the resulting
+  connection string. Minsky does not manage the container; you run and stop it
+  with your own Docker.
 - **Supabase free tier** — points you at the no-credit-card signup and prompts
   for the connection string.
 - **Bring your own** — paste any existing Postgres connection string.

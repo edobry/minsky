@@ -5,6 +5,48 @@ mt#1193: connection pool sizing, connection-exhaustion retry policy, and MCP gra
 For migrating between backends, see [SessionDB Migration Guide](./sessiondb-migration-guide.md).
 For common Postgres errors, see [SessionDB Troubleshooting Guide](./sessiondb-troubleshooting.md).
 
+## Server prerequisite: pgvector (mt#5016)
+
+**The Postgres server must have the `pgvector` extension available, or Minsky's migrations
+cannot be applied to it.** This is a hard prerequisite of the schema, not a feature flag: six
+tables declare `vector(1536)` columns (`tasks_embeddings`, `rules_embeddings`,
+`knowledge_embeddings`, `memories_embeddings`, `tool_embeddings`, plus
+`agent_transcripts.summary_embedding` and `agent_transcript_turns.embedding`) with six HNSW
+indexes over them.
+
+- **Available** means the server has pgvector's control file on disk (`pg_available_extensions`)
+  — the extension does not need to be created first. Minsky's fresh-database bootstrap snapshot
+  runs `CREATE EXTENSION IF NOT EXISTS vector` as its own first statement.
+- **Plain `postgres:NN` Docker images do NOT ship pgvector.** Use `pgvector/pgvector:pg17`,
+  pgvector's own published image, which adds the extension to the identical upstream Postgres
+  image. This is what `minsky setup db` prints and what CI has always used.
+- **Hosted Postgres** (Supabase, RDS, Cloud SQL) generally offers pgvector; enable it in the
+  provider's console or run `CREATE EXTENSION vector;` once as a privileged role.
+
+### The preflight, and the two failures it replaces
+
+`packages/domain/src/persistence/pgvector-preflight.ts` probes availability before either
+migration entry point does any work, and fails with a message naming the remedy. It sits in
+front of both because the two paths fail _differently_, and neither error names a fix:
+
+| Path                           | Where it dies without the preflight                                                           |
+| ------------------------------ | --------------------------------------------------------------------------------------------- |
+| Fresh DB → bootstrap snapshot  | `full-schema.sql`'s first statement: `extension "vector" is not available` (SQLSTATE `0A000`) |
+| Non-fresh DB → numbered replay | `0005`'s `vector(1536)` column: `type "vector" does not exist`                                |
+
+The second is the more opaque of the two, and it is the one nothing else covers: **no numbered
+migration creates the extension.** Production (Supabase) pre-enables it and the runtime vector
+layer runs its own `CREATE EXTENSION` on init, so the tree never needed to — which is exactly
+why `scripts/generate-bootstrap-snapshot.ts` has to prepend the statement to the snapshot it
+generates.
+
+The preflight **fails open** on an unreadable probe (a dropped connection, an unparseable
+catalog result). It exists to improve a message, so refusing to migrate on a question it could
+not ask would add a new failure mode in exchange for nothing; `CREATE EXTENSION` remains the
+backstop. This is deliberately the opposite of its sibling
+`vector-capability-probe.ts`, which throws on an inconclusive read because there the collapse
+silently downgraded a provider that was then memoized for the process lifetime (mt#3833).
+
 ## Behavior When Initialization Fails at Boot (mt#3636)
 
 If a Postgres connection string is configured but `initialize()` fails at startup — DNS failure,
