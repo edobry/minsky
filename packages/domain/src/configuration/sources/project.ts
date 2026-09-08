@@ -145,6 +145,23 @@ function findProjectRoot(startDir?: string): string | null {
 }
 
 /**
+ * One config file that actually contributed to the loaded config, with the
+ * top-level keys it carried (mt#5033).
+ *
+ * `configFile` below names a SINGLE file, but the canonical branch MERGES
+ * `.minsky/config.yaml` with `.minsky/config.local.yaml` and then reports only
+ * the local overlay when it exists. That is fine for "which file is the
+ * effective one" and wrong for "which file carried this key" — a key defined
+ * only in the base file would be attributed to the overlay, sending an operator
+ * to edit a file that does not contain it. Consumers that need per-key
+ * provenance read this instead.
+ */
+export interface LoadedProjectConfigFile {
+  readonly path: string;
+  readonly topLevelKeys: string[];
+}
+
+/**
  * Get project configuration with metadata
  */
 export function getProjectConfiguration(workingDir?: string): {
@@ -152,11 +169,13 @@ export function getProjectConfiguration(workingDir?: string): {
   metadata: {
     projectRoot: string | null;
     configFile: string | null;
+    configFiles: LoadedProjectConfigFile[];
     searchedPaths: string[];
   };
 } {
   const projectRoot = findProjectRoot(workingDir);
   const searchedPaths: string[] = [];
+  const configFiles: LoadedProjectConfigFile[] = [];
   let configFile: string | null = null;
   let config: Record<string, unknown> = {};
 
@@ -175,6 +194,14 @@ export function getProjectConfiguration(workingDir?: string): {
         (localConfig || {}) as Record<string, unknown>
       );
       configFile = localConfig ? localPath : basePath;
+      // mt#5033: record BOTH, so a key can be traced to the file that carried
+      // it rather than to whichever one `configFile` happens to name.
+      if (baseConfig) {
+        configFiles.push({ path: basePath, topLevelKeys: Object.keys(baseConfig) });
+      }
+      if (localConfig) {
+        configFiles.push({ path: localPath, topLevelKeys: Object.keys(localConfig) });
+      }
     } else {
       // Fall back to legacy paths
       for (const relativeConfigFile of projectConfigFiles.slice(2)) {
@@ -187,6 +214,7 @@ export function getProjectConfiguration(workingDir?: string): {
             if (loadedConfig) {
               config = loadedConfig;
               configFile = configPath;
+              configFiles.push({ path: configPath, topLevelKeys: Object.keys(loadedConfig) });
               break;
             }
           } catch (error) {
@@ -202,6 +230,7 @@ export function getProjectConfiguration(workingDir?: string): {
     metadata: {
       projectRoot,
       configFile,
+      configFiles,
       searchedPaths,
     },
   };

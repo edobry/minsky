@@ -45,7 +45,7 @@ export interface AttributableSourceResult {
 /** Where an unrecognized key came from, as far as the source metadata can say. */
 export type UnknownKeyOrigin =
   | { readonly kind: "environment"; readonly sourceName: string; readonly envVars: string[] }
-  | { readonly kind: "file"; readonly sourceName: string; readonly filePath: string }
+  | { readonly kind: "file"; readonly sourceName: string; readonly filePaths: string[] }
   | { readonly kind: "unattributed"; readonly sourceName: string };
 
 /**
@@ -73,6 +73,31 @@ function envVarsWritingKey(key: string, metadata: Record<string, unknown>): stri
     if (topLevelSegment(configPath) === key) matches.push(envVar);
   }
   return matches.sort();
+}
+
+/**
+ * The files this source loaded that actually carried `key` at the top level.
+ *
+ * Reads `metadata.configFiles` — the per-file key sets the file-backed sources
+ * publish. Returns `undefined` (distinct from an empty array) when the source
+ * does not publish that list at all, so the caller can tell "this source cannot
+ * answer" from "this source answered, and no file carried the key."
+ */
+function configFilesCarryingKey(
+  key: string,
+  metadata: Record<string, unknown>
+): string[] | undefined {
+  const configFiles = metadata.configFiles;
+  if (!Array.isArray(configFiles)) return undefined;
+
+  const matches: string[] = [];
+  for (const entry of configFiles) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const { path, topLevelKeys } = entry as Record<string, unknown>;
+    if (typeof path !== "string" || !Array.isArray(topLevelKeys)) continue;
+    if (topLevelKeys.includes(key)) matches.push(path);
+  }
+  return matches;
 }
 
 /** The config file this source actually loaded, when it names one. */
@@ -118,9 +143,25 @@ export function attributeUnknownTopLevelKey(
       continue;
     }
 
+    // Per-file provenance when the source publishes it. An EMPTY result here is
+    // deliberately not a licence to fall back to `configFile`: the source told
+    // us which files it read and none carried this key, so naming its
+    // "effective" file would be the misattribution this module exists to end.
+    const carryingFiles = configFilesCarryingKey(key, result.metadata);
+    if (carryingFiles !== undefined) {
+      if (carryingFiles.length > 0) {
+        origins.push({ kind: "file", sourceName, filePaths: carryingFiles });
+      } else {
+        origins.push({ kind: "unattributed", sourceName });
+      }
+      continue;
+    }
+
+    // A source that publishes no per-file list at all: its single `configFile`
+    // is the best available answer.
     const filePath = configFileOf(result.metadata);
     if (filePath) {
-      origins.push({ kind: "file", sourceName, filePath });
+      origins.push({ kind: "file", sourceName, filePaths: [filePath] });
       continue;
     }
 
@@ -133,19 +174,25 @@ export function attributeUnknownTopLevelKey(
 function describeOrigin(origin: UnknownKeyOrigin): string {
   switch (origin.kind) {
     case "environment": {
-      const label = origin.envVars.length === 1 ? "variable" : "variables";
+      const one = origin.envVars.length === 1;
+      const label = one ? "variable" : "variables";
+      const unset = one ? "Unset it" : "Unset them";
       return (
         `It came from the environment ${label} ${origin.envVars.join(", ")} — Minsky maps ` +
         `any unrecognized MINSKY_* variable to a config path, so this is usually a stale or ` +
-        `misspelled variable rather than anything wrong with your configuration files. Unset ` +
-        `it, or correct the spelling.`
+        `misspelled variable rather than anything wrong with your configuration files. ` +
+        `${unset}, or correct the spelling.`
       );
     }
-    case "file":
+    case "file": {
+      const one = origin.filePaths.length === 1;
+      const where = one ? origin.filePaths[0] : origin.filePaths.join(" and ");
+      const remedy = one ? "fix the key name there, or remove it" : "fix or remove the key in each";
       return (
-        `It came from ${origin.filePath} — fix the key name there, or remove it. If the key ` +
-        `was added by a newer Minsky version, update your installation.`
+        `It came from ${where} — ${remedy}. If the key was added by a newer Minsky version, ` +
+        `update your installation.`
       );
+    }
     case "unattributed":
       return `It came from the ${origin.sourceName} configuration source.`;
   }
