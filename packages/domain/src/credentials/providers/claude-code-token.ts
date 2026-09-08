@@ -11,9 +11,9 @@
  * ## Why there is no live validation yet
  *
  * The `anthropic` provider validates by calling `GET /v1/models` with an
- * `x-api-key` header. A subscription token is not an API key and may not
- * authenticate there under any header; nothing in Anthropic's published
- * settings documentation names an endpoint that accepts one.
+ * `x-api-key` header. A subscription token is not an API key and is rejected by
+ * the Messages API; nothing in Anthropic's published settings documentation
+ * names an endpoint that accepts one.
  *
  * Guessing the header has an asymmetric cost. A wrong guess reports a VALID
  * token as invalid, and the operator concludes their token is bad — worse than
@@ -22,21 +22,44 @@
  * adds the real check once a token is in the store and the response can be
  * OBSERVED rather than predicted.
  *
- * What IS checked is the one error with a real consequence: pasting the
- * metered API key into the subscription field, which would silently bill the
- * wrong account for every run.
+ * ## What `validate` MEANS here, which is why the shape check is a gate
  *
- * ## The paragraph above was written, and then violated, in the same file
+ * `CredentialProvider.validate` is documented in `../types.ts` as *"Called
+ * BEFORE persisting. A 401 here means 'do not store'."* So `ok` is not an
+ * advisory grade on the value — it is the decision to write it to the
+ * credential store. There is no third answer available: a value this provider
+ * cannot recognize as the one credential type it holds is refused, because the
+ * only alternative the contract offers is storing it.
  *
- * The original check tested `sk-ant-` — the FAMILY prefix both credentials
- * share — and so rejected every subscription token. The operator pasted a real
- * one and was told it was an API key (mt#5023). The reasoning that produced it
- * is worth keeping visible: the format of a subscription token was treated as
- * unknowable and left unchecked, while the format of an API key was treated as
- * known and checked. Both were guesses; only one was labelled as one.
+ * ## Two corrections got here, from opposite directions
  *
- * The general shape, for whoever edits this next: a check you are confident
- * about deserves the same sourcing as the one you declined to write.
+ * The check has been wrong twice, and reading only the nearer of the two is how
+ * the second one happened.
+ *
+ * mt#5023 fixed the FIRST: the original check tested `sk-ant-` — the FAMILY
+ * prefix both credentials share — and so rejected every subscription token. The
+ * operator pasted a real one and was told it was an API key. That fix was
+ * correct.
+ *
+ * mt#5026 fixed the SECOND, which the first one introduced: an unrecognized
+ * shape was ACCEPTED with a note, on the reasoning that refusing a format
+ * Anthropic might add is "the same class of error" as refusing `oat01` was. It
+ * is not the same class. The first error refused a real credential the operator
+ * was holding; the second accepted arbitrary text into a credential store — the
+ * operator typed gibberish into the cockpit and it validated. One had a victim;
+ * the other guarded a hypothetical future format that costs one line to add
+ * whenever it actually appears.
+ *
+ * The general shape, for whoever edits this next — two rules, and the second is
+ * the one that is easy to miss:
+ *
+ *   1. A check you are confident about deserves the same sourcing as the one
+ *      you declined to write.
+ *   2. After a correction, check whether you have restated the requirement or
+ *      merely inverted the last mistake. An inversion looks like a fix from
+ *      inside, because it is argued entirely from the failure it follows. The
+ *      requirement here is not "be less strict than mt#5022" — it is "hold one
+ *      credential type, and be able to tell whether you have one."
  */
 import type { CredentialProvider, CredentialCheckResult } from "../types";
 
@@ -48,34 +71,63 @@ import type { CredentialProvider, CredentialCheckResult } from "../types";
  * Testing the family prefix rejected exactly the credential this provider
  * exists to hold, which is how it shipped (mt#5023): the operator pasted a real
  * subscription token and was told it was an API key. Match the SEGMENT.
+ *
+ * SOURCE for `oat` (mem#968 — a literal restating an EXTERNAL vendor's format
+ * binds to a cited source or a real sample, never to recall): the operator's
+ * own `claude setup-token` output, pasted into the cockpit and observed to
+ * begin `sk-ant-oat01-`; corroborated by `anthropics/claude-code-action` issue
+ * #1316, titled "claude_code_oauth_token (sk-ant-oat01-*) fails with Header 14
+ * invalid value".
+ *
+ * The two quantifiers differ, and the difference is the point — an ACCEPT
+ * predicate and a REJECT predicate have opposite safe directions:
+ *
+ *   - `SUBSCRIPTION_TOKEN_SEGMENT` decides what gets STORED, so loose is
+ *     dangerous. `\d+` requires at least one version digit, matching every
+ *     token ever observed (`oat01`) and tolerating a version bump (`oat02`)
+ *     without also admitting a version-less `sk-ant-oat-` that no one has seen.
+ *   - `API_KEY_SEGMENT` decides which REFUSAL MESSAGE an already-refused value
+ *     gets, so loose is safe. `\d*` also catches a hypothetical `sk-ant-api-`,
+ *     which then gets the billing-specific message instead of the generic
+ *     one. Tightening it could only make an error message worse, never let
+ *     something through — the shape gate below refuses it either way.
+ *
+ * Neither is a wildcard over the segment itself: a different segment is a
+ * different KIND of credential, and this provider holds one kind.
  */
 const API_KEY_SEGMENT = /^sk-ant-api\d*-/;
-const SUBSCRIPTION_TOKEN_SEGMENT = /^sk-ant-oat\d*-/;
+const SUBSCRIPTION_TOKEN_SEGMENT = /^sk-ant-oat\d+-/;
 
 /**
- * The shortest plausible credential. Deliberately loose: this exists to catch
- * an empty or truncated paste, not to assert a length nobody has published.
+ * Floor for a token that already matched the shape — so this catches a
+ * truncated paste of a REAL token, and never speaks to a value that is not a
+ * subscription token at all (that one gets the shape message; "too short"
+ * would send someone who pasted the wrong secret looking for a longer wrong
+ * secret).
+ *
+ * DERIVATION, because a number picked by feel is what put 20 here: the only
+ * length ever observed is 108 — `sk-ant-oat01-` (13) plus a 95-char body. Half
+ * that body is ~48, so 13 + 48 ≈ 60. A paste that lost more than half its body
+ * is a truncation by any reading.
+ *
+ * NOT set to ~108, deliberately, and this is the asymmetry that governs the
+ * whole file: refusing a real credential has a victim (mt#5022 did exactly
+ * that), while storing an obviously truncated one costs a confusing auth error
+ * at first use. The 108 figure is `strong-evidence` from third-party
+ * write-ups, not Anthropic's own reference, so a floor pinned to it would
+ * convert any shorter real variant into the mt#5022 failure. 60 leaves a real
+ * token ~1.8x headroom. Raise it if a primary source ever fixes the length.
  */
-const MIN_TOKEN_LENGTH = 20;
+const MIN_TOKEN_LENGTH = 60;
 
 const NOT_YET_VALIDATED_DETAIL =
   "stored; NOT checked against a live endpoint — knowing the FORMAT does not tell " +
   "us what accepts it, so no check is claimed (mt#5022 SC3)";
 
 /**
- * An `sk-ant-` value matching neither known segment. ACCEPTED, deliberately:
- * refusing a shape Anthropic may add is the same error as refusing `oat01`
- * was, one format later. Say it is unrecognized; do not block on it.
- */
-const UNRECOGNIZED_SHAPE_DETAIL =
-  "stored; the shape is not one this provider recognizes (neither `sk-ant-api…` " +
-  "nor `sk-ant-oat…`). Accepted rather than refused — a format we do not know is " +
-  "not a format that is wrong (mt#5023 SC3)";
-
-/**
- * Shape check only. Returns `ok: true` for anything that could be a token,
- * with a detail that says no live check ran — so a caller cannot read this as
- * a validation it is not.
+ * Shape check only. `ok: true` means "this looks like the credential this
+ * provider holds, store it", with a detail that says no live check ran — so a
+ * caller cannot read it as a validation it is not.
  */
 async function checkShape(token: string): Promise<CredentialCheckResult> {
   const trimmed = token.trim();
@@ -95,6 +147,19 @@ async function checkShape(token: string): Promise<CredentialCheckResult> {
     };
   }
 
+  if (!SUBSCRIPTION_TOKEN_SEGMENT.test(trimmed)) {
+    return {
+      ok: false,
+      // Operator-facing: what is wrong, what the right thing looks like, how to
+      // get one, and that nothing was written. The reasoning for refusing
+      // rather than storing-with-a-caveat belongs in the docblock above, not in
+      // a dialog — a message that argues with the reader is a worse message.
+      detail:
+        "not a Claude subscription token — those start `sk-ant-oat…`. Run `claude setup-token` " +
+        "to mint one; it requires an active Claude subscription. Nothing was stored.",
+    };
+  }
+
   if (trimmed.length < MIN_TOKEN_LENGTH) {
     return {
       ok: false,
@@ -102,12 +167,7 @@ async function checkShape(token: string): Promise<CredentialCheckResult> {
     };
   }
 
-  return {
-    ok: true,
-    detail: SUBSCRIPTION_TOKEN_SEGMENT.test(trimmed)
-      ? NOT_YET_VALIDATED_DETAIL
-      : UNRECOGNIZED_SHAPE_DETAIL,
-  };
+  return { ok: true, detail: NOT_YET_VALIDATED_DETAIL };
 }
 
 export const claudeCodeTokenProvider: CredentialProvider = {
@@ -116,10 +176,10 @@ export const claudeCodeTokenProvider: CredentialProvider = {
   configPath: "ai.providers.anthropic.authToken",
   acquireUrl: "https://code.claude.com/docs/en/settings",
   scopeGuidance:
-    "Run `claude setup-token` in a terminal — it mints a long-lived token and requires an " +
-    "active Claude subscription. This bills the SUBSCRIPTION, not API credits; for a metered " +
-    "API key use the `anthropic` provider instead. There are no scopes to select. Note that " +
-    "this value is not verified against a live endpoint when stored — see mt#5022.",
+    "Run `claude setup-token` in a terminal — it mints a long-lived token (`sk-ant-oat…`) and " +
+    "requires an active Claude subscription. This bills the SUBSCRIPTION, not API credits; for " +
+    "a metered API key use the `anthropic` provider instead. There are no scopes to select. " +
+    "Note that this value is not verified against a live endpoint when stored — see mt#5022.",
   validate: checkShape,
   test: checkShape,
 };
