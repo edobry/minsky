@@ -102,6 +102,8 @@ Provisioning state as of mt#3616's execution (2026-08-03):
 
 ## Release state (kept current — this is the in-repo record)
 
+**Open release work: mt#5028.** Added by mt#5013.
+
 The channel decided above only works if someone cuts releases through it, and for 27 days nobody
 did. This section exists so the state of the published artifact is answerable from the repository
 rather than from npm plus somebody's memory.
