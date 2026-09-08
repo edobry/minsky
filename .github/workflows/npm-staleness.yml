@@ -1,0 +1,49 @@
+name: npm staleness
+
+# mt#5013 — make "the published package has fallen behind main" observable
+# without a human going to look.
+#
+# The npm tarball is the one artifact no other check exercises: contributors run
+# `bun run src/cli.ts`, CI builds from the checkout, and the bundle-boot smoke
+# builds its own bundle. So it drifted 27 days and ~3,200 commits behind main
+# while `package.json` and `npm view` both read 0.1.2 — a new user installed a
+# build whose `setup db --connection-string` silently dropped the flag, and
+# nothing anywhere said the code was old.
+#
+# This runs on a SCHEDULE rather than per-PR on purpose. Main being ahead of npm
+# is the normal state between releases; gating a PR on it would fire on every
+# PR, every day, and be turned off within a week. The threshold and its
+# derivation live in scripts/check-npm-staleness.ts.
+
+on:
+  schedule:
+    # 15:00 UTC daily — mid-morning US Eastern, so a failure lands while there
+    # is a day left to act on it rather than overnight.
+    - cron: "0 15 * * *"
+  workflow_dispatch:
+
+# Read-only: this reports, it does not publish. Releases go through
+# publish-npm.yml on a `v*` tag.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The check counts commits since the published version's tag, so it
+          # needs full history AND tags. A shallow clone reports a missing tag,
+          # which the script surfaces as -1 rather than as "in sync".
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # No `bun install` — the script imports nothing outside the standard
+      # library, and skipping the install keeps this job fast enough that a
+      # daily cadence costs nothing.
+      - name: Compare published npm version against main
+        run: bun scripts/check-npm-staleness.ts
