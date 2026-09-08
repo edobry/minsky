@@ -455,6 +455,59 @@ describe("Credentials widget — Detail column states (mt#5031)", () => {
     expect(screen.queryByText(LONG_DETAIL)).toBeNull();
   });
 
+  test("the transient surface still shows the sentence in full (SC3)", async () => {
+    // The other half of the split, and the one a fix could easily break by
+    // "shortening the copy": the string the column refuses to show must still
+    // be shown COMPLETE, untruncated, right after the action. mt#5027's
+    // accepted wording is protected by this task, not replaced by it.
+    globalThis.fetch = mock((url: string, init?: RequestInit) => {
+      const pathname = typeof url === "string" ? new URL(url, "http://localhost").pathname : "";
+      if (pathname === "/api/credentials/providers") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ providers: MOCK_PROVIDERS }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        );
+      }
+      if (pathname === "/api/credentials/add" && init?.method === "POST") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              provider: "github",
+              validate: { ok: true, detail: LONG_DETAIL, status: "stored, unverified" },
+              stored: { configFilePath: "/mock/config.yaml" },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ credentials: STATE_FIXTURES }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+    }) as unknown as typeof globalThis.fetch;
+
+    renderWithQuery(<CredentialsManager />);
+    await waitFor(() => {
+      expect(screen.queryByText("Loading...")).toBeNull();
+    });
+
+    const tokenInput = await screen.findByLabelText("Paste credential token");
+    await userEvent.type(tokenInput, "sk-ant-oat01-example");
+    await userEvent.click(screen.getByLabelText("Validate and save token"));
+
+    // The WHOLE sentence, not a prefix of it — `getByText` matches on the full
+    // normalized text content, so a truncated render would not satisfy this.
+    await waitFor(() => {
+      expect(screen.getByText(LONG_DETAIL, { exact: false })).toBeDefined();
+    });
+    const shown = screen.getByText(LONG_DETAIL, { exact: false });
+    expect(shown.textContent).toContain(LONG_DETAIL);
+  });
+
   test("the full detail stays reachable as a tooltip", async () => {
     // Truncation must never be the only way to see the sentence (SC6). The
     // column shows the state; `title` carries what was shortened away.
