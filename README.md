@@ -114,6 +114,12 @@ bun link
 
 ### Initialize a project
 
+> **Sessions require a GitHub remote.** GitHub is currently the only repository backend Minsky
+> implements, so `minsky session start`, PR creation and review need the repository's `origin` to
+> be a GitHub URL. A repository remoted anywhere else — including a local filesystem path — can
+> still create and track tasks, but cannot start a session. `minsky init` says so if your `origin`
+> is not GitHub, rather than letting you find out at the first `session start`.
+
 ```bash
 # Interactive setup — configures task backend and git hooks
 minsky init

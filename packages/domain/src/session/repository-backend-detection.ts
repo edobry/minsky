@@ -31,6 +31,24 @@ const defaultDeps: RepositoryBackendDetectionDeps = {
 };
 
 /**
+ * Is this remote URL one Minsky can actually start a session against? (mt#5015)
+ *
+ * GitHub is the only repository backend Minsky IMPLEMENTS — GitLab and Bitbucket
+ * are config-plumbing only, and mt#1018 is the standing task to make one of them
+ * real. So this is the single question "can sessions work here", and it is
+ * exported so the two places that ask it cannot drift: the error thrown by
+ * `resolveRepositoryAndBackend` when the answer is no, and the warning `minsky
+ * init` emits so a user learns it BEFORE investing in setup rather than at the
+ * first `session start`.
+ *
+ * A local filesystem path is a legitimate remote and correctly answers `false`
+ * here — that is the case the mt#5012 cold-agent run hit.
+ */
+export function isGitHubRemoteUrl(remoteUrl: string): boolean {
+  return remoteUrl.includes("github.com");
+}
+
+/**
  * Detect repository backend type directly from a repository URL.
  * GitHub, GitLab, and Bitbucket are recognized; other URLs throw an error.
  * Note: GitLab and Bitbucket are config-plumbing only — runtime operations (PR/CI/review) are
@@ -143,27 +161,63 @@ export async function resolveRepositoryAndBackend(
           `Run it from a project directory, or pass an explicit repository.`
       );
     }
+    // mt#5015: the remote LOOKUP and the is-it-GitHub DECISION are separate
+    // steps, and only the lookup belongs in a try.
+    //
+    // They used to share one: the not-a-GitHub-remote error was thrown INSIDE
+    // this try, so its own catch swallowed and re-wrapped it. A user with a
+    // local remote was told, verbatim:
+    //
+    //   Default repository backend is GitHub, but could not detect GitHub
+    //   remote: Default repository backend is GitHub, but current directory
+    //   does not have a GitHub remote.
+    //
+    // — doubled, and false in its outer half: detection did not fail, it
+    // succeeded and the answer was "not GitHub". Splitting them is what lets
+    // each case name an action instead of misdescribing what happened.
+    let remoteUrl: string;
     try {
-      const remoteUrl = deps
+      remoteUrl = deps
         .execSync("git remote get-url origin", { cwd, encoding: "utf8", stdio: "pipe" })
         .toString()
         .trim();
-      if (!remoteUrl.includes("github.com")) {
-        throw new Error(
-          "Default repository backend is GitHub, but current directory does not have a GitHub remote."
-        );
-      }
-      return { repoUrl: remoteUrl, backendType: RepositoryBackendType.GITHUB };
     } catch (error) {
       throw new ValidationError(
-        `Default repository backend is GitHub, but could not detect GitHub remote: ${getErrorMessage(error)}`
+        `Minsky sessions need a GitHub remote, but this repository has no 'origin' remote ` +
+          `(cwd: ${cwd}). Add one that points at GitHub — ` +
+          `'git remote add origin git@github.com:<owner>/<repo>.git' — then retry. ` +
+          `Creating and tracking tasks works without a remote; sessions, PRs and review do not. ` +
+          `(git: ${getErrorMessage(error)})`
       );
     }
+
+    if (!isGitHubRemoteUrl(remoteUrl)) {
+      throw new ValidationError(
+        `Minsky sessions need a GitHub remote, but 'origin' is ${remoteUrl}. ` +
+          `GitHub is currently the only repository backend Minsky implements, so a repository ` +
+          `remoted anywhere else — including a local path — cannot start a session. ` +
+          `Push this repository to GitHub and re-point origin at it ` +
+          `('git remote set-url origin git@github.com:<owner>/<repo>.git'), or work in a ` +
+          `repository that is already on GitHub. ` +
+          `Creating and tracking tasks works without this; sessions, PRs and review do not.`
+      );
+    }
+
+    return { repoUrl: remoteUrl, backendType: RepositoryBackendType.GITHUB };
   }
 
-  // Non-GitHub default: not supported
-  throw new Error(
-    `Only GitHub repository backend is supported. Configure repository.default_repo_backend=github.`
+  // Non-GitHub default: not supported.
+  //
+  // mt#5015: this used to say "Configure repository.default_repo_backend=github",
+  // naming a key whose value is the thing that is not true — setting it does not
+  // make a non-GitHub repository into a GitHub one, it just moves the user to the
+  // error above. Say what the setting actually is and what removing it does.
+  throw new ValidationError(
+    `GitHub is the only repository backend Minsky implements, but ` +
+      `repository.default_repo_backend is set to '${defaultBackend}'. ` +
+      `Remove that setting (or set it to 'github') to use the supported path — note that this ` +
+      `also requires the repository's 'origin' to be a GitHub URL. ` +
+      `Creating and tracking tasks works without this; sessions, PRs and review do not.`
   );
 }
 
