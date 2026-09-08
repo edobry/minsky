@@ -90,6 +90,10 @@ export function getMinskyConfigContentYaml(
   // client-registration path — `performSetup` and `mcp register`. Committing
   // them meant two developers on one repo could not differ. `performSetup` now
   // writes them to the gitignored `.minsky/config.local.yaml` overlay instead;
+  // "gitignored" is made true by `ensurePathIgnored` at the end of
+  // `initializeProject` (mt#5014) — until then this sentence asserted a
+  // property nothing established, and on a fresh repo the file was
+  // untracked-and-unignored;
   // it still reads this file's `mcp` section when present, so projects
   // initialized before this change keep working.
 
@@ -110,6 +114,12 @@ export function getMinskyConfigContentYaml(
 
 /**
  * Returns the content for the local (machine-specific, gitignored) Minsky config file.
+ *
+ * "gitignored" is a property `init` establishes, not one this function does:
+ * `initializeProject` calls `ensurePathIgnored` for this path (mt#5014). Before
+ * that, both this docblock and the comment above `config.repository` asserted it
+ * and nothing made it true — which mattered because `setup db` writes the
+ * Postgres password into this file.
  * Currently stores workspace.mainPath so session_start can use --reference cloning.
  */
 export function getLocalConfigContentYaml(repoPath: string): string {
