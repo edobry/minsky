@@ -170,6 +170,18 @@ export function createCredentialRequestResolverDeps(
       return listing.map((entry) => ({
         provider: entry.provider,
         configured: entry.configured,
+        // Carries `lastValidationDetail`, NOT `lastValidationStatus` — a
+        // deliberate choice, recorded because the split that introduced the
+        // second field (mt#5031) makes this an open question rather than an
+        // obvious inheritance.
+        //
+        // The two fields exist because a fixed-width column cannot hold a
+        // sentence. This payload is not that column: it is read by whoever is
+        // resolving a credential request, nothing truncates it, and the fuller
+        // explanation is strictly more useful for deciding whether the
+        // credential in hand is the one that was asked for. So the constraint
+        // that motivated `status` does not apply here, and the richer field
+        // wins.
         ...(entry.lastValidationDetail ? { detail: entry.lastValidationDetail } : {}),
       }));
     },

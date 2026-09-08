@@ -52,7 +52,10 @@ async function callModels(token: string): Promise<CredentialCheckResult> {
     return { ok: false, detail: "response was not valid JSON" };
   }
   const count = Array.isArray(body.data) ? body.data.length : 0;
-  return { ok: true, detail: `${count} model${count === 1 ? "" : "s"} accessible` };
+  const line = `${count} model${count === 1 ? "" : "s"} accessible`;
+  // Already a state rather than an event, and well inside the column budget, so
+  // `status` repeats it rather than saying something vaguer (mt#5031).
+  return { ok: true, detail: line, status: line };
 }
 
 export const anthropicProvider: CredentialProvider = {

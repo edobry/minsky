@@ -87,7 +87,9 @@ async function callGetMe(token: string): Promise<CredentialCheckResult> {
     return { ok: false, detail: `Telegram getMe failed (HTTP ${response.status})` };
   }
   const name = data.result?.username ?? data.result?.first_name ?? "bot";
-  return { ok: true, detail: `telegram:@${name}` };
+  const line = `telegram:@${name}`;
+  // Already state-shaped and short — `status` repeats it (mt#5031).
+  return { ok: true, detail: line, status: line };
 }
 
 async function callGetUpdatesSummary(token: string): Promise<CredentialCheckResult> {
@@ -116,6 +118,10 @@ async function callGetUpdatesSummary(token: string): Promise<CredentialCheckResu
       scopeGap: true,
       detail:
         "token valid, but a Telegram webhook is set on this bot — chat-id discovery (getUpdates) is blocked until it is deleted",
+      // The detail explains WHAT TO DO about it, which is right when it is
+      // shown to someone who just pressed Validate and wrong in a status
+      // column. The column takes the condition alone (mt#5031).
+      status: "valid; webhook blocks discovery",
     };
   }
   let body: unknown;
@@ -147,9 +153,17 @@ async function callGetUpdatesSummary(token: string): Promise<CredentialCheckResu
       ok: true,
       scopeGap: true,
       detail: `token valid; no chats visible yet — send ${botHint} one message so chat-id discovery can find you`,
+      // 95 chars — the longest string in the corpus, and an INSTRUCTION rather
+      // than a state. It was the worst offender in the column (~47% truncated)
+      // even though the reported one was Claude Code's (mt#5031).
+      status: "valid; no chats discovered yet",
     };
   }
-  return { ok: true, detail: `token valid; ${chatCount} chat(s) visible to discovery` };
+  return {
+    ok: true,
+    detail: `token valid; ${chatCount} chat(s) visible to discovery`,
+    status: `valid; ${chatCount} chat(s) visible`,
+  };
 }
 
 /** Store the token into the Pulumi stack config (value via STDIN — never argv). */

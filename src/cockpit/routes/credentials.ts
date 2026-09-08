@@ -123,7 +123,8 @@ export function mountCredentialRoutes(app: express.Express, opts: CredentialRout
    * POST /api/credentials/validate
    *
    * Body: { provider: string; token: string }
-   * Returns: { ok: boolean; detail: string; unauthorized?: boolean; scopeGap?: boolean }
+   * Returns: { ok: boolean; detail: string; status?: string; unauthorized?: boolean;
+   *            scopeGap?: boolean }
    *
    * Calls provider.validate(token) — read-only, never persists.
    * The token is consumed in memory and never echoed back.
@@ -161,6 +162,12 @@ export function mountCredentialRoutes(app: express.Express, opts: CredentialRout
       res.json({
         ok: result.ok,
         detail: result.detail,
+        // Deliberately an allowlist rather than a spread, so a field added to
+        // `CredentialCheckResult` cannot reach the wire without someone
+        // deciding it should. `status` is listed because the client type
+        // declares it (mt#5031) — omitting it would leave a field a caller can
+        // read and this route can never populate.
+        ...(result.status !== undefined ? { status: result.status } : {}),
         ...(result.unauthorized !== undefined ? { unauthorized: result.unauthorized } : {}),
         ...(result.scopeGap !== undefined ? { scopeGap: result.scopeGap } : {}),
       });

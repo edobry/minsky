@@ -22,7 +22,10 @@
 /** Result of a provider's own validation probe. Carries a status line, never a value. */
 export interface CredentialCheckResult {
   ok: boolean;
+  /** What just happened, in full. Rendered transiently and untruncated. */
   detail: string;
+  /** The same fact as a short state, for a status column. See `credentialStatusLine`. */
+  status?: string;
   unauthorized?: boolean;
   scopeGap?: boolean;
 }
@@ -63,7 +66,71 @@ export interface CredentialListing {
    */
   source?: "provider" | "schema";
   lastValidatedAt?: string;
+  /**
+   * The full sentence from the last successful check. Belongs in a tooltip or a
+   * transient surface — NOT in the providers table's Detail column, which is
+   * ~276px wide (mt#5031). Read it through `credentialStatusLine`.
+   */
   lastValidationDetail?: string;
+  /** Short state form of the last successful check. Absent on pre-mt#5031 rows. */
+  lastValidationStatus?: string;
+}
+
+/**
+ * Character budget for a value bound for the providers table's Detail column.
+ *
+ * Mirrors `MAX_STATUS_LENGTH` in `packages/domain/src/credentials/types.ts` —
+ * duplicated rather than imported, per this module's standing convention of
+ * mirroring domain types instead of importing server code (see the file
+ * docblock). The domain constant carries the derivation.
+ */
+export const MAX_STATUS_LENGTH = 40;
+
+/**
+ * What the providers table's Detail column should show for a row — or `null`
+ * when the honest answer is nothing.
+ *
+ * The column asks "what is currently TRUE of this credential", which is not the
+ * question `lastValidationDetail` answers ("what happened when it was last
+ * checked"). Rendering the latter there truncated two providers' strings to
+ * roughly half and showed the operator an event where a state belonged
+ * (mt#5031). So the column reads this function, and never
+ * `lastValidationDetail` directly.
+ *
+ * The precedence, and why each rung exists:
+ *
+ *   1. The provider's own `status`, when it supplied one — the most specific
+ *      thing anyone can say, and already sized for the column.
+ *   2. Nothing, for a presence-only (`schema`) row. No provider module backs
+ *      it, so no check has ever run and there is no check-status to report; the
+ *      row's Configured badge and its `config-only` marker already carry its
+ *      whole state. This is the one case where an empty cell is the correct
+ *      answer rather than a gap.
+ *   3. Nothing, for an unconfigured provider. The Status column says
+ *      "Not configured"; repeating it here is noise.
+ *   4. A SHORT stored detail, as a back-compat bridge. Every row written before
+ *      the split has a detail and no status, and most of those details are
+ *      already state-shaped and well inside the budget ("4 projects visible").
+ *      Dropping them all to a generic "validated" until each credential
+ *      happens to be rechecked would make the column WORSE for most rows in
+ *      order to fix it for two. The length test is what makes this safe: it
+ *      cannot truncate, because anything over budget takes rung 5 instead.
+ *   5. A state derived from what the listing already knows. Covers the long
+ *      pre-split details, a provider that supplies no status, and the
+ *      configured-but-never-checked row that used to render as an empty cell
+ *      indistinguishable from "nothing to report".
+ *
+ * Pure and exported so it can be tested without a DOM, alongside `isManaged`.
+ */
+export function credentialStatusLine(listing: CredentialListing): string | null {
+  if (listing.lastValidationStatus) return listing.lastValidationStatus;
+  if (listing.source === "schema") return null;
+  if (!listing.configured) return null;
+
+  const detail = listing.lastValidationDetail;
+  if (detail && detail.length <= MAX_STATUS_LENGTH) return detail;
+
+  return listing.lastValidatedAt ? "validated" : "configured, never checked";
 }
 
 /**

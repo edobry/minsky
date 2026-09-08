@@ -39,6 +39,17 @@ interface CredentialMeta {
   lastValidatedAt: string;
   /** Detail line from the most recent successful check (display only — no secrets). */
   lastValidationDetail?: string;
+  /**
+   * Short state form of the most recent successful check, for a status column
+   * (display only — no secrets). See `CredentialCheckResult.status`.
+   *
+   * Absent on every row written before mt#5031, and absent for a provider that
+   * supplies no `status`. Both are handled the same way and neither is a
+   * migration: the render site derives a state from `configured` /
+   * `lastValidatedAt` when this is missing. Nothing rewrites existing rows —
+   * the next successful check fills this in on its own.
+   */
+  lastValidationStatus?: string;
 }
 
 type MetaFile = { credentials: CredentialMeta[] };
@@ -154,6 +165,7 @@ export async function addCredential(
       provider: provider.id,
       lastValidatedAt: new Date().toISOString(),
       lastValidationDetail: test.detail,
+      lastValidationStatus: test.status,
     });
     // Successful re-add clears any prior invalidation for this provider.
     await clearInvalidation(provider.id);
@@ -199,8 +211,15 @@ export interface CredentialListing {
   source: CredentialListingSource;
   /** ISO-8601 timestamp of the most recent successful validate; undefined if never. */
   lastValidatedAt?: string;
-  /** Last successful-check detail line. */
+  /**
+   * Last successful-check detail line — the full sentence. Suitable for a
+   * tooltip or a transient surface; NOT for a status column, where it is
+   * truncated and reads as an event (mt#5031). Use `lastValidationStatus`
+   * there, or derive one.
+   */
   lastValidationDetail?: string;
+  /** Last successful-check state line, sized for a status column. */
+  lastValidationStatus?: string;
 }
 
 /**
@@ -237,6 +256,7 @@ export async function listCredentials(
         source: "provider" as const,
         lastValidatedAt: metaEntry?.lastValidatedAt,
         lastValidationDetail: metaEntry?.lastValidationDetail,
+        lastValidationStatus: metaEntry?.lastValidationStatus,
       };
     })
   );
@@ -340,6 +360,7 @@ export async function recheckCredential(providerId: string): Promise<RecheckResu
       provider: provider.id,
       lastValidatedAt: new Date().toISOString(),
       lastValidationDetail: test.detail,
+      lastValidationStatus: test.status,
     });
     await clearInvalidation(provider.id);
   }
