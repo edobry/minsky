@@ -1,11 +1,27 @@
-import { describe, expect, test } from "bun:test";
+/* eslint-disable custom/no-real-fs-in-tests -- mt#5018 AT4's subject is what
+   `git clone` does to a REAL working tree's `origin`. A mock filesystem would be
+   asserting the mock's behaviour rather than git's, which is precisely the
+   substitution that produced the wrong finding this task exists to correct
+   (a harness that alters the environment can alter the property under
+   measurement). Confined to `mkdtemp` dirs, each removed in `afterAll`; the rule's
+   race-condition concern does not apply, since `mkdtempSync` returns a unique
+   path per call rather than a shared fixed one. */
+import { afterAll, describe, expect, test } from "bun:test";
+import { spawnSync } from "child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import {
   buildColdAgentPrompt,
   buildSandboxEnv,
   buildSandboxPath,
   CHANNELS,
+  cloneTarget,
   DEFAULT_OUT_DIR,
+  describeCredentialBilling,
   DISPOSABLE_POSTGRES_IMAGE,
+  type HarnessCredential,
+  readGitOrigin,
   evaluateIsolation,
   findFreePort,
   negativeControlGaps,
@@ -33,6 +49,101 @@ import { PGVECTOR_DOCKER_IMAGE } from "../packages/domain/src/persistence/pgvect
 // pgvector and it cannot migrate, so it improvises an `apt-get` — which the
 // harness then faithfully records as an onboarding defect that the harness
 // itself caused. That is what happened on 2026-09-05.
+describe("cloneTarget gives the clone the TARGET's remote, not the clone path (mt#5018 AT4)", () => {
+  const madeDirs: string[] = [];
+
+  function tempDir(prefix: string): string {
+    const dir = mkdtempSync(join(tmpdir(), prefix));
+    madeDirs.push(dir);
+    return dir;
+  }
+
+  /** A real git repo with one commit and a GitHub-shaped origin. */
+  function makeTargetRepo(): string {
+    const dir = tempDir("mt5018-target-");
+    const run = (...args: string[]) =>
+      spawnSync("git", ["-C", dir, ...args], { encoding: "utf8", timeout: 30_000 });
+    spawnSync("git", ["init", "--quiet", dir], { encoding: "utf8", timeout: 30_000 });
+    run("config", "user.email", "t@example.com");
+    run("config", "user.name", "T");
+    writeFileSync(join(dir, "README.md"), "# target\n");
+    run("add", "README.md");
+    run("commit", "--quiet", "-m", "init");
+    run("remote", "add", "origin", "https://github.com/edobry/minsky.git");
+    return dir;
+  }
+
+  afterAll(() => {
+    for (const dir of madeDirs) rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("the clone's origin is the target's own remote", () => {
+    const target = makeTargetRepo();
+    const dest = join(tempDir("mt5018-dest-"), "workspace");
+
+    const origin = cloneTarget(target, dest);
+
+    expect(origin).toBe("https://github.com/edobry/minsky.git");
+    expect(readGitOrigin(dest)).toBe("https://github.com/edobry/minsky.git");
+  });
+
+  // The negative control, in the same test file rather than as a manual step:
+  // this is what the harness did before the fix, and it is why the 2026-09-05
+  // run reported sessions as unusable. `session start` refuses any remote
+  // without `github.com` in it, and a filesystem path has none.
+  test("negative control: a plain clone leaves origin as the local path", () => {
+    const target = makeTargetRepo();
+    const dest = join(tempDir("mt5018-plain-"), "workspace");
+
+    spawnSync("git", ["clone", "--quiet", target, dest], { encoding: "utf8", timeout: 30_000 });
+
+    expect(readGitOrigin(dest)).toBe(target);
+    expect(readGitOrigin(dest)).not.toContain("github.com");
+  });
+
+  test("a target with no origin of its own leaves the clone's own origin alone", () => {
+    const bare = tempDir("mt5018-noremote-");
+    spawnSync("git", ["init", "--quiet", bare], { encoding: "utf8", timeout: 30_000 });
+    const run = (...args: string[]) =>
+      spawnSync("git", ["-C", bare, ...args], { encoding: "utf8", timeout: 30_000 });
+    run("config", "user.email", "t@example.com");
+    run("config", "user.name", "T");
+    writeFileSync(join(bare, "f.txt"), "x\n");
+    run("add", "f.txt");
+    run("commit", "--quiet", "-m", "init");
+
+    const dest = join(tempDir("mt5018-noremote-dest-"), "workspace");
+    expect(cloneTarget(bare, dest)).toBe(bare);
+  });
+
+  test("readGitOrigin returns null for a directory that is not a repo", () => {
+    expect(readGitOrigin(tempDir("mt5018-notrepo-"))).toBeNull();
+  });
+});
+
+// mt#5018 SC4. Every run says who pays, before spending any of it. The two
+// phrasings must be distinguishable — a message that read the same either way
+// would satisfy the code path and tell the operator nothing (mem#704).
+describe("describeCredentialBilling names who pays", () => {
+  test("the subscription phrasing says there is no metered spend", () => {
+    const text = describeCredentialBilling("subscription");
+    expect(text).toContain("subscription");
+    expect(text).toContain("no metered");
+  });
+
+  test("the API-key phrasing says spend is metered, and why it was chosen", () => {
+    const text = describeCredentialBilling("api-key");
+    expect(text).toContain("metered");
+    expect(text).toContain("no subscription token configured");
+  });
+
+  test("the two are not the same string", () => {
+    expect(describeCredentialBilling("subscription")).not.toBe(
+      describeCredentialBilling("api-key")
+    );
+  });
+});
+
 describe("the disposable Postgres image tracks what `minsky setup db` prints", () => {
   test("harness image equals PGVECTOR_DOCKER_IMAGE", () => {
     expect(DISPOSABLE_POSTGRES_IMAGE).toBe(PGVECTOR_DOCKER_IMAGE);
@@ -212,41 +323,86 @@ describe("stripPathEntry", () => {
   });
 });
 
+// mt#5018. The fixtures are credentials now, not a bare key string, and the
+// subscription one is the DEFAULT the harness resolves — so it is what the
+// pre-existing cases use. Module scope because three describes need them.
+// The prefixes are the real families: `sk-ant-oat01-` is a subscription token
+// from `claude setup-token`, `sk-ant-api03-` an API key (mt#5023).
+const SUBSCRIPTION: HarnessCredential = {
+  kind: "subscription",
+  value: "sk-ant-oat01-".padEnd(60, "x"),
+};
+const API_KEY: HarnessCredential = { kind: "api-key", value: "sk-ant-api03-".padEnd(60, "x") };
+
 describe("buildSandboxEnv", () => {
   const paths = sandboxPathsUnder("/tmp/sbx");
 
   test("strips every operator Postgres connection variable", () => {
     const base = Object.fromEntries(POSTGRES_ENV_VARS.map((n) => [n, "postgres://operator/db"]));
-    const env = buildSandboxEnv(base, paths, "sk-ant-".padEnd(40, "x"), null);
+    const env = buildSandboxEnv(base, paths, SUBSCRIPTION, null);
     for (const name of POSTGRES_ENV_VARS) expect(env[name]).toBeUndefined();
   });
 
   test("redirects the Claude config dir, which is what closes the customization channel", () => {
-    const env = buildSandboxEnv({}, paths, "sk-ant-".padEnd(40, "x"), null);
+    const env = buildSandboxEnv({}, paths, SUBSCRIPTION, null);
     expect(env.CLAUDE_CONFIG_DIR).toBe(paths.claudeConfigDir);
   });
 
   test("redirects Minsky's state dir and daemon token path", () => {
-    const env = buildSandboxEnv({}, paths, "sk-ant-".padEnd(40, "x"), null);
+    const env = buildSandboxEnv({}, paths, SUBSCRIPTION, null);
     expect(env.MINSKY_STATE_DIR).toBe(paths.minskyStateDir);
     expect(env.MINSKY_LOCAL_MCP_TOKEN_PATH).toBe(paths.daemonTokenPath);
   });
 
   test("does NOT redirect HOME — a sandboxed HOME loses Claude Code's own login", () => {
-    const env = buildSandboxEnv({ HOME: "/Users/someone" }, paths, "sk-ant-".padEnd(40, "x"), null);
+    const env = buildSandboxEnv({ HOME: "/Users/someone" }, paths, SUBSCRIPTION, null);
     expect(env.HOME).toBe("/Users/someone");
   });
 
-  test("supplies the API key that replaces the OAuth session the moved config dir loses", () => {
-    const key = "sk-ant-".padEnd(40, "x");
-    expect(buildSandboxEnv({}, paths, key, null).ANTHROPIC_API_KEY).toBe(key);
+  // mt#5018 SC1/SC4. The old test here asserted `ANTHROPIC_API_KEY` was set,
+  // encoding the belief that a relocated config dir forces metered auth. It
+  // does not: a subscription token in the env survives the relocation, verified
+  // live. These four assert the credential ACTUALLY handed to `claude`.
+  test("passes a subscription token as CLAUDE_CODE_OAUTH_TOKEN", () => {
+    const env = buildSandboxEnv({}, paths, SUBSCRIPTION, null);
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe(SUBSCRIPTION.value);
+  });
+
+  // The load-bearing one. Anthropic documents that in `-p` mode an
+  // ANTHROPIC_API_KEY present in the environment is "always used", overriding
+  // the subscription — so INHERITING the operator's exported key would silently
+  // bill the metered path while the harness believed it had chosen the
+  // subscription. Deleting it is what makes the choice real.
+  test("DELETES an inherited ANTHROPIC_API_KEY when billing the subscription", () => {
+    const env = buildSandboxEnv(
+      { ANTHROPIC_API_KEY: "sk-ant-api03-operators-own-exported-key" },
+      paths,
+      SUBSCRIPTION,
+      null
+    );
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  test("falls back to ANTHROPIC_API_KEY when that is the resolved credential", () => {
+    const env = buildSandboxEnv({}, paths, API_KEY, null);
+    expect(env.ANTHROPIC_API_KEY).toBe(API_KEY.value);
+  });
+
+  test("does not leave a stale OAuth token behind on the API-key path either", () => {
+    const env = buildSandboxEnv(
+      { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-stale" },
+      paths,
+      API_KEY,
+      null
+    );
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
   });
 
   test("removes the operator's minsky install from PATH", () => {
     const env = buildSandboxEnv(
       { PATH: `/usr/bin:${OPERATOR_BIN_DIR}` },
       paths,
-      "sk-ant-".padEnd(40, "x"),
+      SUBSCRIPTION,
       OPERATOR_MINSKY_BIN
     );
     // Asserted as absence plus retention, not as an exact string: the sandbox
@@ -303,17 +459,17 @@ describe("buildSandboxEnv global-install redirection", () => {
   const paths = sandboxPathsUnder("/tmp/sbx");
 
   test("points BUN_INSTALL at the sandbox so `bun add -g` cannot touch the operator's bin", () => {
-    const env = buildSandboxEnv({}, paths, "sk-ant-".padEnd(40, "x"), null);
+    const env = buildSandboxEnv({}, paths, SUBSCRIPTION, null);
     expect(env.BUN_INSTALL).toBe(paths.bunInstallDir);
   });
 
   test("points npm's prefix at the sandbox too, for the README's npm branch", () => {
-    const env = buildSandboxEnv({}, paths, "sk-ant-".padEnd(40, "x"), null);
+    const env = buildSandboxEnv({}, paths, SUBSCRIPTION, null);
     expect(env.NPM_CONFIG_PREFIX).toBe(paths.npmPrefixDir);
   });
 
   test("puts both sandbox install dirs on PATH ahead of everything else", () => {
-    const env = buildSandboxEnv({ PATH: "/usr/bin" }, paths, "sk-ant-".padEnd(40, "x"), null);
+    const env = buildSandboxEnv({ PATH: "/usr/bin" }, paths, SUBSCRIPTION, null);
     const entries = (env.PATH ?? "").split(":");
     expect(entries[0]).toBe(paths.binDir);
     expect(entries).toContain(`${paths.bunInstallDir}/bin`);
@@ -441,7 +597,7 @@ describe("sandboxEnvVarNames", () => {
 
   test("is derived by diff, so a variable added to buildSandboxEnv cannot escape it", () => {
     const paths = sandboxPathsUnder("/tmp/sbx");
-    const env = buildSandboxEnv({}, paths, "sk-ant-".padEnd(40, "x"), null);
+    const env = buildSandboxEnv({}, paths, SUBSCRIPTION, null);
     const names = sandboxEnvVarNames({}, env);
     for (const expected of ["CLAUDE_CONFIG_DIR", "MINSKY_STATE_DIR", "BUN_INSTALL", "PATH"]) {
       expect(names).toContain(expected);
