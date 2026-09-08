@@ -115,22 +115,28 @@ rather than from npm plus somebody's memory.
 
 ### Owed as of 2026-09-07 (mt#5013 → mt#5028)
 
-mt#5013 shipped the staleness signal and set `package.json` to `0.2.0`. **Three things it could not
-do in the same change, for one structural reason:** `publish-npm.yml` requires the tagged commit's
-version to equal the tag exactly, so that commit must carry `0.2.0` and nothing else.
+mt#5013 shipped the staleness signal and set main's `package.json` to **`0.2.0-dev.0`**.
 
-1. **Tag `v0.2.0` and let the workflow publish.** Authorized by the principal on 2026-09-07 as a
+**The dev suffix is the convention from here on, and it is load-bearing.** While main carries one it
+can never equal a published version, so the defect that started this — `npm view` and `package.json`
+both reading `0.1.2`, leaving a user on a stale install for whom "upgrade to the latest" was already
+satisfied — cannot recur by drift. A release removes it only momentarily: `publish-npm.yml` verifies
+the tagged commit's version equals the tag exactly, so the commit being tagged carries the bare
+`0.2.0` and main returns to a suffix immediately after.
+
+Two things remain owed, and neither is doable before this merges:
+
+1. **Cut the release** — set `package.json` to `0.2.0`, tag `v0.2.0`, push; the workflow publishes
+   via OIDC. Then return main to `0.2.1-dev.0`. Authorized by the principal on 2026-09-07 as a
    shared/production state change.
-2. **Verify the fix against the PUBLISHED artifact.** mt#5013 pre-flighted the _packed tarball_ —
-   it reaches a real `ECONNREFUSED` on `setup db --connection-string` where published `0.1.2` still
-   errors `Non-interactive mode: pass --connection-string`. That is strong evidence and it is not
-   the same artifact npm serves, which is what mt#5013's SC4 asked for.
-3. **Bump main to `0.2.1-dev.0`.** Until this lands, main and npm read identically again the moment
-   `0.2.0` publishes — the original defect, briefly restored. Keeping that window short is why all
-   three sit in one task.
+2. **Verify against the PUBLISHED artifact.** mt#5013 pre-flighted the _packed tarball_: it reaches
+   a real `ECONNREFUSED` on `setup db --connection-string` where published `0.1.2` still errors
+   `Non-interactive mode: pass --connection-string`. Strong evidence, and not the artifact npm
+   serves — which is the distinction mt#5013's SC4 draws, and the reason no pre-publish change can
+   close it.
 
-**mt#5028 owns all three.** If this list is still here and `npm view @edobry/minsky version` reads
-`0.2.0` while `package.json` also reads `0.2.0`, item 3 was dropped and the indistinguishability
+**mt#5028 owns both.** Falsifier for a future reader: if `npm view @edobry/minsky version` and main's
+`package.json` ever read the SAME string, the dev-suffix convention has lapsed and the original
 defect is live again.
 
 ## Relationship to the hosted/self-host fork
