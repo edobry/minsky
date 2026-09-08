@@ -635,6 +635,25 @@ function portIsBusy(port: number): boolean {
   return spawnSync("nc", ["-z", "127.0.0.1", String(port)], { timeout: 5_000 }).status === 0;
 }
 
+/**
+ * The image handed to the cold agent (mt#5016). pgvector's build, NOT plain
+ * `postgres:NN`: the 2026-09-05 run handed the agent a plain `postgres:16`, and
+ * it could not migrate until it improvised
+ * `apt-get install postgresql-16-pgvector` inside the container — the exact
+ * improvisation this harness exists to DETECT, made necessary by the harness
+ * itself.
+ *
+ * Must equal `PGVECTOR_DOCKER_IMAGE`
+ * (`packages/domain/src/persistence/pgvector-preflight.ts`), which is what
+ * `minsky setup db` prints. Kept as a literal rather than an import because this
+ * harness deliberately depends on nothing but Node/Bun builtins — it stands in
+ * for a machine that has no Minsky. **The equality is enforced by a test**
+ * (`cold-agent-onboarding-run.test.ts`), which is free to import the domain;
+ * that is what makes the duplication safe rather than merely commented
+ * (PR #3678 R1).
+ */
+export const DISPOSABLE_POSTGRES_IMAGE = "pgvector/pgvector:pg17";
+
 function startDisposablePostgres(port: number): { url: string; containerName: string } {
   const containerName = `mt5012-pg-${port}`;
   const password = `pw${Math.random().toString(36).slice(2, 12)}`;
@@ -652,7 +671,7 @@ function startDisposablePostgres(port: number): { url: string; containerName: st
       "POSTGRES_DB=coldrun",
       "-p",
       `${port}:5432`,
-      "postgres:16",
+      DISPOSABLE_POSTGRES_IMAGE,
     ],
     { encoding: "utf8", timeout: 120_000 }
   );

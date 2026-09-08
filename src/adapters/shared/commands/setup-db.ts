@@ -25,6 +25,12 @@ import {
   dockerLocalConnectionString,
   type SetupDbFailedStep,
 } from "@minsky/domain/setup-db";
+// Version-bearing wizard copy is derived, never written out (PR #3678 R1) — a
+// bump to PGVECTOR_DOCKER_IMAGE must move the prose that contrasts against it.
+import {
+  POSTGRES_MAJOR_VERSION,
+  PLAIN_POSTGRES_IMAGE,
+} from "@minsky/domain/persistence/pgvector-preflight";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -75,6 +81,14 @@ function detectDocker(): boolean {
 export async function promptForConnectionString(): Promise<string | null> {
   const dockerPresent = detectDocker();
 
+  // mt#5016: state the prerequisite BEFORE the branch choice, because it binds
+  // on all three. It used to be stated nowhere, and the Docker branch actively
+  // printed an image that violates it — so the first a new user heard of
+  // pgvector was a raw SQLSTATE from `CREATE EXTENSION` several steps later.
+  log.cli("");
+  log.cli("Minsky requires Postgres with the pgvector extension available.");
+  log.cli("(The schema stores embeddings in `vector` columns; migrations create them.)");
+
   type Branch = "docker" | "supabase" | "byo";
   const options: Array<{ value: Branch; label: string; hint?: string }> = [];
   if (dockerPresent) {
@@ -113,6 +127,12 @@ export async function promptForConnectionString(): Promise<string | null> {
     log.cli("Run this to start a local Postgres (Minsky does NOT manage this container):");
     log.cli("");
     log.cli(`  ${buildDockerPostgresOneLiner(pw)}`);
+    log.cli("");
+    log.cli(
+      `The image is pgvector's build of Postgres ${POSTGRES_MAJOR_VERSION} — the plain ` +
+        `\`${PLAIN_POSTGRES_IMAGE}\` image`
+    );
+    log.cli("does not ship pgvector, and Minsky's migrations cannot be applied without it.");
     log.cli("");
     log.cli("Once it is running, confirm or edit the connection string below.");
     log.cli("");

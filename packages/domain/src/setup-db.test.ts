@@ -21,6 +21,7 @@ import {
   type SetupDbDeps,
   type ResolveExistingConnectionDeps,
 } from "./setup-db";
+import { PGVECTOR_DOCKER_IMAGE, PLAIN_POSTGRES_IMAGE } from "./persistence/pgvector-preflight";
 
 const GOOD = "postgresql://postgres:secret@localhost:5432/postgres";
 const CONFIG_PATH = "/tmp/config.yaml";
@@ -118,12 +119,23 @@ describe("maskConnectionString", () => {
 });
 
 describe("buildDockerPostgresOneLiner / dockerLocalConnectionString", () => {
-  test("one-liner embeds the password and pins postgres:17", () => {
+  test("one-liner embeds the password and pins the pgvector image", () => {
     const line = buildDockerPostgresOneLiner("hunter2");
     expect(line).toContain("POSTGRES_PASSWORD=hunter2");
-    expect(line).toContain("postgres:17");
+    expect(line).toContain(PGVECTOR_DOCKER_IMAGE);
     expect(line).toContain("-p 5432:5432");
     expect(line).toContain("minsky-pgdata");
+  });
+
+  // mt#5016. The assertion that matters is the NEGATIVE one: a plain
+  // `postgres:NN` image does not ship pgvector, so the wizard printing it hands
+  // a new user a container that cannot run the migrations the wizard itself is
+  // about to run. Derived from PLAIN_POSTGRES_IMAGE rather than written out, so
+  // a version bump moves the assertion with the constant (PR #3678 R1) — and it
+  // still discriminates, because `pgvector/pgvector:pgNN` never contains the
+  // substring `postgres:NN`.
+  test("does NOT print a plain postgres image, which cannot run the migrations", () => {
+    expect(buildDockerPostgresOneLiner("hunter2")).not.toContain(PLAIN_POSTGRES_IMAGE);
   });
 
   test("local connection string matches the one-liner password", () => {
