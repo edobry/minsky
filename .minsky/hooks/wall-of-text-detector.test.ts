@@ -163,6 +163,26 @@ const MT4031_MEASURED_PROMPT_ONE =
   "help me understand what your proposal would actually look like and how it would work";
 const MT4031_MEASURED_PROMPT_TWO =
   "help me understand where those missing subagent launches went, i feel like i'm missing something here. and that other ask is answered";
+// mt#4969 — VERBATIM `precedingPrompt` excerpts (all `truncated: false`) from
+// the 2026-09-04 window's injected over-budget records that carried
+// `suppressedByDepthRequest: false`. Verbatim is the point: these are a
+// regression test for the measured misses, not a restatement of the regex.
+const MT4969_DIVE_DEEPER_PATTERN_NAME = "lets-dive-deeper";
+const MT4969_TELL_ME_MORE_PATTERN_NAME = "tell-me-more";
+const MT4969_DIVE_DEEPER_PROMPT =
+  "i want to poke more at the session/conversation ambiguity, lets dive deeper into the community discourse around this, and also take a look at the broader usage/consensus across the field, both in research and other harnesses/agents, i think we need to get some more certainty around our stance on these terms first. also have fable think thru this first";
+const MT4969_TELL_ME_MORE_PROMPT =
+  'tell me more about their concept of an "exit handoff" and how that interacts with our notions of a handoff/work package';
+// The NEAR-MISS, and the reason `lets-dive-deeper` carries a hortative lead
+// rather than matching a bare "dive deeper into". This is a REAL injected
+// record from the SAME window (2026-09-02T20:07:35.858Z, 407 words), not a
+// constructed counter-example: its 960-character prompt reaches the phrase
+// only around offset 830, where it names one of two candidate research
+// TARGETS inside a hypothetical ("if we want to") rather than requesting a
+// longer answer. A bare /\bdive deeper into\b/ suppresses it, taking the
+// window's newly-suppressed count to 4 and failing mt#4969's AT1.
+const MT4969_HYPOTHETICAL_TARGET_PROMPT =
+  'we\'ve discussed several times recently the whole harness/claude-code session/conversation semantic conflict, how there seems to be a lot of confusion all around regarding precisely what each word refers to, and we\'ve even found conflicting information in anthropics docs and claude code itself, iirc. i want to get a clear answer on this so we stop circling on this and can settle the question to my satisfaction, as this is a critical input to the direction we take minsky in, particularly in terms of "driving" "sessions". first, go hunt down all our recent conversations about this and any related artifacts (tasks, memories, notion docs, etc), and then depending on what you find, decide what the best path forward is, if its more research online into the salient literature/community discourse, or if we want to dive deeper into the claude code binary itself, disassembling it and reverse engineering how it actually thinks about these concepts internally';
 // mt#3972 — non-principal turn-opener fixtures (task-notification /
 // system-reminder), matching the shapes `isNonPrincipalTurnOpener` matches.
 const TASK_NOTIFICATION_TEXT =
@@ -777,7 +797,7 @@ describe("run — mt#4031 help-me-understand override", () => {
 });
 
 describe("detectDepthRequest / DEPTH_REQUEST_PATTERNS", () => {
-  test("exposes the three mt#3112 patterns, the four mt#3336 widenings, and the mt#4031 widening", () => {
+  test("exposes the three mt#3112 patterns, the four mt#3336 widenings, and the mt#4031 + mt#4969 widenings", () => {
     expect(DEPTH_REQUEST_PATTERNS.map((p) => p.name)).toEqual([
       "walk-me-through",
       "show-the-detail",
@@ -787,6 +807,8 @@ describe("detectDepthRequest / DEPTH_REQUEST_PATTERNS", () => {
       "be-expansive",
       "in-full-detail",
       "help-me-understand",
+      MT4969_DIVE_DEEPER_PATTERN_NAME,
+      MT4969_TELL_ME_MORE_PATTERN_NAME,
     ]);
   });
 
@@ -825,6 +847,37 @@ describe("detectDepthRequest / DEPTH_REQUEST_PATTERNS", () => {
     expect(detectDepthRequest(["explain the sweep logic"]).matched).toBe(false);
     expect(detectDepthRequest(["i don't understand the sweep logic"]).matched).toBe(false);
     expect(detectDepthRequest(["do you understand the sweep logic"]).matched).toBe(false);
+  });
+
+  test("matches the mt#4969 measured prompts", () => {
+    expect(detectDepthRequest([MT4969_DIVE_DEEPER_PROMPT]).matched).toBe(true);
+    expect(detectDepthRequest([MT4969_DIVE_DEEPER_PROMPT]).matchedPattern).toBe(
+      MT4969_DIVE_DEEPER_PATTERN_NAME
+    );
+    expect(detectDepthRequest([MT4969_TELL_ME_MORE_PROMPT]).matched).toBe(true);
+    expect(detectDepthRequest([MT4969_TELL_ME_MORE_PROMPT]).matchedPattern).toBe(
+      MT4969_TELL_ME_MORE_PATTERN_NAME
+    );
+  });
+
+  // AT4's near-miss half, and the load-bearing one: a REAL injected record
+  // from the same window rather than a constructed counter-example. If this
+  // ever goes true, the window's newly-suppressed count is 4 and AT1 fails.
+  test("mt#4969 widening does not reach the hypothetical-target near-miss", () => {
+    expect(detectDepthRequest([MT4969_HYPOTHETICAL_TARGET_PROMPT]).matched).toBe(false);
+  });
+
+  // The neighborhood the two entries deliberately do NOT reach. Pinning these
+  // as non-matching is what keeps a later edit from generalizing
+  // `lets-dive-deeper` into any mention of depth, or `tell-me-more` into any
+  // request to be told something.
+  test("mt#4969 widening does not reach adjacent unmeasured phrasings", () => {
+    expect(detectDepthRequest(["there's a deeper problem here"]).matched).toBe(false);
+    expect(detectDepthRequest(["we could dive deeper if that turns out to matter"]).matched).toBe(
+      false
+    );
+    expect(detectDepthRequest(["tell me when the deploy finishes"]).matched).toBe(false);
+    expect(detectDepthRequest(["tell me what you think"]).matched).toBe(false);
   });
 
   test("does not match ordinary prose", () => {

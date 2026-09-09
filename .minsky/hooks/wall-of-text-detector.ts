@@ -869,6 +869,43 @@ export const DEPTH_REQUEST_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }>
   // the records name is how this list would become the arms race ADR-024
   // §Context describes.
   { name: "help-me-understand", re: /\bhelp me understand\b/i },
+  // mt#4969 — evidence-based widening from the 2026-09-04 calibration window
+  // (`head -120` of the mt#4748 state-dir log: 75 injected / 45 suppressed),
+  // via the same signal the narrowness note above reserves for it. Three
+  // injected over-budget records carry `suppressedByDepthRequest: false`
+  // beside a captured, UNTRUNCATED prompt that asks in so many words for more
+  // than the Tier-1 default:
+  //   - 2026-08-31T22:03:42.843Z (367w) and 2026-08-31T22:41:16.646Z (368w):
+  //     "... lets dive deeper into the community discourse around this ..."
+  //   - 2026-09-02T20:59:40.022Z (489w):
+  //     "tell me more about their concept of an \"exit handoff\" ..."
+  // The existing `deep-dive` entry misses the first two on BOTH alternatives:
+  // "lets dive deeper into" is neither "a deep dive" nor "deep-?dive into".
+  //
+  // **`lets-dive-deeper` requires the hortative lead, and that requirement is
+  // the entry's whole design — not an accident of wording.** The obvious
+  // pattern, a bare /\bdive deeper into\b/, matches a FOURTH injected record
+  // in the same window (2026-09-02T20:07:35.858Z, 407w) whose 960-character
+  // prompt reaches "... or if we want to dive deeper into the claude code
+  // binary itself, disassembling it ..." only around offset 830. There the
+  // phrase names one of two candidate research TARGETS inside a hypothetical
+  // ("if we want to"), not a request for a longer ANSWER — the same class as
+  // the "Go ahead and review everything Opus did" fires that mt#4969's
+  // re-measurement classifies as TRUE positives. Measured per-record over the
+  // window: bare form -> 4 newly-suppressed, hortative form -> 3. mt#4969's
+  // AT1 pins the count at EXACTLY 3, so the bare form FAILS the acceptance
+  // test rather than passing it.
+  //
+  // Both entries stay imperative-shaped and reach no further than the records
+  // name — no bare "deeper", no bare "tell me" — preserving the over- vs
+  // under-suppression asymmetry the v1 narrowness note documents: a phrase we
+  // should have matched but did not still fires the reminder, and logs the
+  // `suppressedByDepthRequest: false` record a later pass would widen on.
+  // The apostrophe alternation covers "let's" as well as the measured bare
+  // "lets"; ’ is the curly form macOS substitutes. Same phrase, same act
+  // — punctuation, not an adjacent phrasing.
+  { name: "lets-dive-deeper", re: /\blet(?:'|’)?s\s+dive\s+deeper\b/i },
+  { name: "tell-me-more", re: /\btell me more\b/i },
 ];
 
 /** Text content of a single user-role transcript line (string or text-block-array content). */
