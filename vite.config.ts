@@ -74,9 +74,21 @@ const BUILD_COMMIT = resolveBuildCommit();
  * to remove, in a form that is harder to catch, because the field would be
  * present and look authoritative rather than obviously naming the wrong commit.
  *
- * @param nowMs Injected clock (`testing-standards.mdc`); real default.
+ * **`now` is a FUNCTION, called at emit time — not a timestamp captured at
+ * construction (PR #3697 R1).** A plugin factory runs once when vite evaluates
+ * this config; `generateBundle` runs once per build. Defaulting a `nowMs: number`
+ * parameter would freeze `builtAt` at config-evaluation time, so under a resident
+ * build process (`vite build --watch`, or the JS API driving repeated builds)
+ * every rebuild would stamp the SAME timestamp — a bundle whose recorded build
+ * time never advances, which is precisely the stale-identity class this file
+ * exists to remove. Today's caller is safe by accident rather than by design: the
+ * tray spawns a fresh `bun run cockpit:build` per rebuild
+ * (`watcher_web.rs:193-200`), so the config is re-evaluated each time. Not worth
+ * depending on.
+ *
+ * @param now Injected clock (`testing-standards.mdc`); real default, called per emit.
  */
-function emitBuildInfo(nowMs: number = Date.now()): Plugin {
+function emitBuildInfo(now: () => number = Date.now): Plugin {
   return {
     name: "minsky-cockpit-build-info",
     generateBundle() {
@@ -84,7 +96,7 @@ function emitBuildInfo(nowMs: number = Date.now()): Plugin {
         type: "asset",
         fileName: "build-info.json",
         source: `${JSON.stringify(
-          { commit: BUILD_COMMIT, builtAt: new Date(nowMs).toISOString() },
+          { commit: BUILD_COMMIT, builtAt: new Date(now()).toISOString() },
           null,
           2
         )}\n`,
