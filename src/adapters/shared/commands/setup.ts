@@ -285,7 +285,7 @@ const setupParams = composeParams(
       description:
         "Re-register the MCP client and refresh the workspace and mcp sections of " +
         ".minsky/config.local.yaml. Other sections you have added there, such as persistence, " +
-        "are preserved and reported.",
+        "are preserved, and any it keeps are named in the output.",
     },
   },
   {

@@ -871,3 +871,98 @@ persistence:
     expect(Object.keys(parsed).sort()).toEqual(["mcp", "workspace"]);
   });
 });
+
+// ─── the merge outcome is observable from the result (PR #3685 R1) ───────────
+
+/**
+ * `preservedLocalConfigKeys` is returned so this is assertable from
+ * performSetup's own value. Patching `log.cli` would test what the logger
+ * received rather than what setup decided.
+ */
+describe("performSetup — preserved sections are reported on the result (mt#5017)", () => {
+  const LOCAL_CONFIG_PATH = `${REPO_PATH}/.minsky/config.local.yaml`;
+
+  test("names the sections it kept", async () => {
+    const mockFs = makeMockFs();
+    await mockFs.writeFile(
+      LOCAL_CONFIG_PATH,
+      `workspace:\n  mainPath: /stale\npersistence:\n  backend: postgres\nlogger:\n  level: debug\n`
+    );
+
+    const result = await performSetup(
+      { repoPath: REPO_PATH, client: "cursor", overwrite: true },
+      mockFs,
+      NO_DB_DEPS
+    );
+
+    expect(result.preservedLocalConfigKeys.sort()).toEqual(["logger", "persistence"]);
+  });
+
+  test("is empty — not absent — when there was nothing to keep", async () => {
+    const mockFs = makeMockFs();
+    const result = await performSetup(
+      { repoPath: REPO_PATH, client: "cursor", overwrite: true },
+      mockFs,
+      NO_DB_DEPS
+    );
+
+    expect(result.preservedLocalConfigKeys).toEqual([]);
+  });
+
+  test("does not report the sections setup itself owns", async () => {
+    const mockFs = makeMockFs();
+    await mockFs.writeFile(
+      LOCAL_CONFIG_PATH,
+      `workspace:\n  mainPath: /stale\nmcp:\n  transport: stdio\n`
+    );
+
+    const result = await performSetup(
+      { repoPath: REPO_PATH, client: "cursor", overwrite: true },
+      mockFs,
+      NO_DB_DEPS
+    );
+
+    expect(result.preservedLocalConfigKeys).toEqual([]);
+  });
+});
+
+// ─── an unparseable local config fails closed (PR #3685 R1) ──────────────────
+
+describe("performSetup — refuses to overwrite an unparseable config.local.yaml (mt#5017)", () => {
+  const LOCAL_CONFIG_PATH = `${REPO_PATH}/.minsky/config.local.yaml`;
+
+  /**
+   * Behaviour CHANGE, and the intended one: setup used to replace an unparseable
+   * local config outright. It now refuses, because the keys it cannot read are
+   * exactly the ones it must not discard — that is this task's whole point.
+   */
+  test("throws rather than silently replacing it", async () => {
+    const mockFs = makeMockFs();
+    await mockFs.writeFile(LOCAL_CONFIG_PATH, "persistence:\n  - [unclosed\n:::not yaml:::\n");
+
+    await expect(
+      performSetup({ repoPath: REPO_PATH, client: "cursor", overwrite: true }, mockFs, NO_DB_DEPS)
+    ).rejects.toThrow(/Cannot merge into the existing config/);
+  });
+
+  test("names `minsky setup` in its guidance, not `minsky init`", async () => {
+    const mockFs = makeMockFs();
+    await mockFs.writeFile(LOCAL_CONFIG_PATH, "persistence:\n  - [unclosed\n:::not yaml:::\n");
+
+    let message = "";
+    try {
+      await performSetup(
+        { repoPath: REPO_PATH, client: "cursor", overwrite: true },
+        mockFs,
+        NO_DB_DEPS
+      );
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    // Re-running `minsky init --overwrite` would not rewrite this file, so
+    // pointing the reader there is worse than saying nothing.
+    expect(message).toContain("minsky setup --overwrite");
+    expect(message).not.toContain("minsky init");
+  });
+});

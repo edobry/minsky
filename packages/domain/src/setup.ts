@@ -84,6 +84,19 @@ export interface SetupResult {
   client: string;
   message: string;
   /**
+   * Top-level sections of `.minsky/config.local.yaml` this run kept because they
+   * were not setup's to write — a user's `persistence` block, typically (mt#5017).
+   *
+   * Returned rather than only logged so the merge outcome is assertable from the
+   * function's own value (PR #3685 R1). The alternative is patching `log.cli` to
+   * observe a side effect, which tests what the logger received rather than what
+   * setup decided.
+   *
+   * Empty when nothing needed preserving — which is the ordinary case, and is
+   * distinct from the merge not having run.
+   */
+  preservedLocalConfigKeys: string[];
+  /**
    * Outcome of the daemon-ensuring step (mt#4707), or `undefined` when the
    * step did not apply — a non-`claude-code` client, or a caller that injected
    * no implementation.
@@ -252,25 +265,37 @@ export async function performSetup(
   const existingLocalConfig = (await fileSystem.exists(localConfigPath))
     ? await fileSystem.readFile(localConfigPath, "utf8")
     : null;
+  //
+  // `"minsky setup"` is passed so `UnmergeableConfigError` names the command the
+  // user actually ran (PR #3685 R1). Its guidance says to re-run
+  // `<command> --overwrite`, and the hardcoded default would have sent someone
+  // holding a broken `config.local.yaml` to `minsky init` — a different command
+  // that does not rewrite this file.
   const { merged: mergedLocalConfig, preservedKeys } = mergeProjectConfigYaml(
     existingLocalConfig,
     localConfigContent,
-    localConfigPath
+    localConfigPath,
+    "minsky setup"
   );
   await createFileIfNotExists(localConfigPath, mergedLocalConfig, overwrite, fileSystem);
 
-  // Say what was kept. `preservedKeys` exists on ConfigMergeResult precisely so a
-  // caller "can report what it kept rather than merging silently", and the
-  // originating failure here WAS the silence — the cold agent noticed only by
-  // re-reading the file afterwards. `log.cli`, not `log.debug`: the daemon-start
-  // message below makes the same argument for the same reason.
-  if (preservedKeys.length > 0) {
-    log.cli(
-      `Kept your existing ${preservedKeys.join(", ")} ` +
-        `${preservedKeys.length === 1 ? "section" : "sections"} in ` +
-        `.minsky/config.local.yaml; refreshed workspace and mcp.`
-    );
-  }
+  // Say what happened to the file — ALWAYS, not only when something was kept
+  // (PR #3685 R1). SC3 is "whatever it does, it SAYS so", and the originating
+  // failure was the silence: the cold agent noticed the loss only by re-reading
+  // the file afterwards. Reporting solely on the preserve branch would leave the
+  // ordinary run as quiet as the one that lost data, and would make the
+  // `--overwrite` help text's promise that sections are "reported" true only
+  // sometimes.
+  //
+  // `log.cli`, not `log.debug`: the daemon-start message below argues the same
+  // case — a side effect the operator did not name has to be audible.
+  log.cli(
+    preservedKeys.length > 0
+      ? `Refreshed the workspace and mcp sections of .minsky/config.local.yaml, and kept your ` +
+          `existing ${preservedKeys.join(", ")} ` +
+          `${preservedKeys.length === 1 ? "section" : "sections"}.`
+      : `Refreshed the workspace and mcp sections of .minsky/config.local.yaml.`
+  );
 
   // 6. Resolve an already-configured Postgres connection (pure resolve + verify; no writes).
   const dbConnection = await resolveExistingPostgresConnection(dbDeps);
@@ -335,5 +360,6 @@ export async function performSetup(
     message: `Setup complete. Local config written to ${localConfigPath}. Harness config written to ${harnessConfigPath}.`,
     dbConnection,
     localDaemon,
+    preservedLocalConfigKeys: preservedKeys,
   };
 }
