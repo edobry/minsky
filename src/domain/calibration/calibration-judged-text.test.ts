@@ -195,10 +195,20 @@ describe("an unmapped detector is NAMED, not silently zero (mt#4465 SC4)", () =>
 /**
  * The four detectors mt#5001 added to `JUDGED_TEXT_FIELDS`.
  *
- * Every fixture below uses the VERBATIM top-level key set from that detector's
- * production log (read 2026-09-09), for the reason mem#1020 gives: a fixture
- * invented from the field name alone can parse into a shape the real writer
- * never produces, and then passes while production still reports the gap.
+ * Each of the four MAPPED detectors below has a fixture built from the VERBATIM
+ * top-level key set of its own production log (read 2026-09-09), for the reason
+ * mem#1020 gives: a fixture invented from the field name alone can parse into a
+ * shape the real writer never produces, and then passes while production still
+ * reports the gap.
+ *
+ * The one exception is deliberate and named here rather than left for a reader
+ * to notice: the `stop-at-decision` case BORROWS the `stale-state-assertion`
+ * fixture. Its assertion is about the LOG NAME being absent from the map, so
+ * the record's shape is not what it tests — and the two logs agree on the only
+ * field that could matter (`final_message_tail`, present on all 10 of
+ * `stop-at-decision`'s records). Reviewer-raised on PR #3690 R2; kept as a
+ * borrow, with this sentence replacing the blanket "every fixture" claim that
+ * would otherwise be false.
  *
  * These assert the OUTCOME (`recoverability`) rather than which level the field
  * lands on. That is deliberate — `hasMappedJudgedText` reads both levels, so
