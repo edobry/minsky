@@ -219,12 +219,20 @@ async function main(): Promise<void> {
   const measured: Measured[] = [];
   const withoutSummary: { id: string; title: string }[] = [];
   const emptySummary: { id: string; title: string }[] = [];
+  // PR #3691 R1 asked whether the strict `## Summary` match silently excludes real Summaries under
+  // a decorated heading. That is a question about the DENOMINATOR of the headline number, so it is
+  // answered by counting rather than argued: any excluded spec carrying a level-2 heading whose
+  // text merely STARTS with "summary" is a near-miss the strict matcher dropped.
+  const nearMissHeadings: { id: string; heading: string }[] = [];
+  const NEAR_MISS_RE = /^##\s+summary\b.*$/i;
 
   for (const row of rows) {
     const summary = extractSummary(row.content);
     if (summary === null) {
       // Outside the population, not a zero-scoring member of it — AT4's case.
       withoutSummary.push({ id: row.id, title: row.title });
+      const nearMiss = row.content.split("\n").find((line) => NEAR_MISS_RE.test(line.trim()));
+      if (nearMiss !== undefined) nearMissHeadings.push({ id: row.id, heading: nearMiss.trim() });
       continue;
     }
     if (summary.trim() === "") {
@@ -282,8 +290,16 @@ async function main(): Promise<void> {
     `  no \`## Summary\` section:  ${withoutSummary.length}   <- excluded: outside the population\n`
   );
   process.stdout.write(
-    `  \`## Summary\` present but empty: ${emptySummary.length}   <- excluded: scores 0 by construction, a DIFFERENT defect\n\n`
+    `  \`## Summary\` present but empty: ${emptySummary.length}   <- excluded: scores 0 by construction, a DIFFERENT defect\n`
   );
+  process.stdout.write(
+    `  of the excluded, carrying a DECORATED \`## Summary …\` heading: ${nearMissHeadings.length}` +
+      `   <- strict-match near misses\n`
+  );
+  for (const near of nearMissHeadings.slice(0, 10)) {
+    process.stdout.write(`      ${near.id}: ${near.heading}\n`);
+  }
+  process.stdout.write("\n");
 
   process.stdout.write(`Coverage distribution (share of title words the Summary also uses):\n`);
   for (let i = 0; i < buckets.length; i++) {

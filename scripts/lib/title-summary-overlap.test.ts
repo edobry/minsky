@@ -77,11 +77,21 @@ describe("extractSummary", () => {
     expect(summary).not.toContain("elsewhere");
   });
 
-  it("does not match a deeper or decorated heading", () => {
+  it("does not match a deeper heading or a RENAMED one", () => {
     // A loose match would pull a different section's prose into the comparison — the one
     // error that corrupts the measurement without looking wrong.
     expect(extractSummary("### Summary\n\nbody")).toBeNull();
     expect(extractSummary("## Summary of changes\n\nbody")).toBeNull();
+  });
+
+  it("DOES match a parenthetically annotated heading — 5 real specs carry one", () => {
+    // Measured, not assumed: counting excluded specs with a decorated heading found 5 of 4,915,
+    // every one a real Summary annotated in place. See the docblock (PR #3691 R1).
+    expect(extractSummary("## Summary (umbrella)\n\nbody")).toBe("body");
+    expect(extractSummary("## Summary (re-scoped 2026-04-28)\n\nbody")).toBe("body");
+    expect(extractSummary("## Summary (original diagnosis — REFUTED 2026-07-20)\n\nbody")).toBe(
+      "body"
+    );
   });
 
   it("is case-insensitive and tolerates a trailing colon", () => {

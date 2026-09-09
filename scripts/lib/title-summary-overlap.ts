@@ -125,10 +125,19 @@ const IDENTIFIER_CHARS = /[_#]/;
  * the caller must keep them apart: a spec with no Summary is outside this measurement's
  * denominator rather than a zero-coverage member of it.
  *
- * Heading matching is deliberately exact-at-level-2 (`## Summary`, case-insensitive, optional
- * trailing punctuation). It does NOT accept `### Summary` or `## Summary of changes`: this is a
- * measurement instrument, and a loose match would silently pull a different section's prose into
- * the comparison, which is the one error that would corrupt the number without looking wrong.
+ * Heading matching is deliberately level-2 and near-exact: `## Summary`, case-insensitive, with an
+ * optional trailing colon and an optional PARENTHESIZED annotation. It does NOT accept
+ * `### Summary` or `## Summary of changes` — this is a measurement instrument, and a loose match
+ * would silently pull a different section's prose into the comparison, which is the one error that
+ * would corrupt the number without looking wrong.
+ *
+ * The parenthetical is admitted on evidence rather than taste (PR #3691 R1). The first version
+ * matched the bare heading only; counting the excluded specs that carry a decorated one found
+ * **5 of 4,915** — `## Summary (REFRAMED 2026-06-02 …)`, `(NARROWED …)`, `(re-scoped 2026-04-28)`,
+ * `(original diagnosis — REFUTED …)`, `(umbrella)`. Each is a real Summary annotated in place, so
+ * excluding them was a small denominator bias. A parenthetical is a safe widening because it
+ * annotates the section rather than renaming it; `of changes` renames it, which is why the
+ * distinction is drawn there and not at "any trailing text".
  *
  * A fenced code block is skipped while scanning for the terminating heading, so a `## ` line
  * INSIDE a fence cannot truncate the section early.
@@ -137,7 +146,9 @@ export function extractSummary(spec: string): string | null {
   if (typeof spec !== "string" || spec.trim() === "") return null;
 
   const lines = spec.split("\n");
-  const startIndex = lines.findIndex((line) => /^##\s+summary\s*:?\s*$/i.test(line.trim()));
+  const startIndex = lines.findIndex((line) =>
+    /^##\s+summary\s*(?:\([^)]*\))?\s*:?\s*$/i.test(line.trim())
+  );
   if (startIndex === -1) return null;
 
   let inFence = false;
@@ -227,8 +238,10 @@ export interface OverlapReport {
  *
  * A title with no content tokens at all yields `coverage: 1` — vacuously agreeing rather than
  * maximally disagreeing. That direction is chosen so the measurement never reports an
- * unclassifiable degenerate case as its most alarming finding; such titles are rare and are
- * reported separately by the shell.
+ * unclassifiable degenerate case as its most alarming finding. Scoring it 1 keeps it out of the
+ * low tail entirely, which is why nothing further is done with it; an earlier version of this
+ * sentence claimed the shell reported such titles separately, and the shell never did (PR #3691
+ * R1 caught the claim, not a defect).
  */
 export function overlapReport(title: string, summary: string): OverlapReport {
   const titleTokens = contentTokens(title);
