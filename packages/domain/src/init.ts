@@ -6,6 +6,8 @@ import type { FsLike } from "./interfaces/fs-like";
 import { createRealFs } from "./interfaces/real-fs";
 import { getMinskyConfigContentYaml } from "./init/config-content";
 import { ensurePathIgnored, LOCAL_CONFIG_GITIGNORE_ENTRY } from "./init/gitignore";
+import { readOriginRemote } from "./init/git-remote";
+import { isGitHubRemoteUrl } from "./session/repository-backend-detection";
 import { mergeProjectConfigYaml, UnmergeableConfigError } from "./init/config-merge";
 import {
   describeScaffoldResult,
@@ -690,6 +692,32 @@ export async function initializeProject(
       `Could not add '${LOCAL_CONFIG_GITIGNORE_ENTRY}' to .gitignore: ${reason}\n` +
         `That file holds machine-local settings and, after 'minsky setup db', your database ` +
         `password. Add it to .gitignore by hand before committing.`
+    );
+  }
+
+  // mt#5015: tell the user NOW if sessions cannot work here.
+  //
+  // GitHub is the only repository backend Minsky implements, and nothing said so
+  // until the first `session start` — after init, the database, migrations, and
+  // a created task. The mt#5012 cold-agent run invested that whole setup and then
+  // hit a wall. The constraint is real and stays (mt#1018 tracks adding another
+  // forge); what changes is WHEN the user hears about it.
+  //
+  // Warning, not an error: task creation and tracking work fine without a GitHub
+  // remote, so a project that only wants those is correctly initialized. Non-fatal
+  // for the same reason the two checks above are — init must not fail over this —
+  // but routed through `warn` so it does not read as success.
+  // `readOriginRemote` answers `null` for every "no remote to read" case rather
+  // than throwing, so there is nothing to catch here: no remote means say
+  // nothing, which is what the condition below does.
+  const originUrl = readOriginRemote(repoPath);
+  if (originUrl !== null && !isGitHubRemoteUrl(originUrl)) {
+    warn(
+      `This repository's 'origin' is ${originUrl}, which is not a GitHub remote.\n` +
+        `Tasks will work. Sessions, PRs and review will NOT — GitHub is currently the only ` +
+        `repository backend Minsky implements.\n` +
+        `To use them, push this repository to GitHub and re-point origin at it: ` +
+        `git remote set-url origin git@github.com:<owner>/<repo>.git`
     );
   }
 

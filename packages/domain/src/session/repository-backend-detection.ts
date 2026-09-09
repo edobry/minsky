@@ -1,4 +1,4 @@
-import { execSync as defaultExecSync } from "child_process";
+import { execFileSync as defaultExecFileSync } from "child_process";
 import { getErrorMessage, ValidationError } from "../errors/index";
 import { isInsideGitWorkTree } from "../utils/git-exec";
 import { parseGitHubOwnerRepo } from "../uri-utils";
@@ -15,10 +15,23 @@ import type { SessionProviderInterface, SessionRecord } from "./types";
  * Dependencies for repository backend detection, injectable for testing
  */
 export interface RepositoryBackendDetectionDeps {
-  execSync: (
-    cmd: string,
-    // `stdio: "pipe"` captures the child's stderr instead of inheriting it, so
-    // probe failures don't leak `fatal: not a git repository` to the user (mt#1428)
+  /**
+   * Run `git` with an ARGV array — never a shell command string (mt#5015).
+   *
+   * Renamed from `execSync` and re-shaped when PR #3684 R1 flagged the
+   * inconsistency: this module had four `execSync("git remote get-url origin")`
+   * calls sitting beside the argv-based `execFileSync` that the same change
+   * introduced in `init/git-remote.ts`. Those four carried no live injection
+   * vector — the command was a constant with nothing interpolated — so this is
+   * defense in depth rather than a fix for an exploitable hole. It is still
+   * worth doing: a shell-string call is an invitation to interpolate into it
+   * later, which is exactly how mt#1674's class arises.
+   *
+   * `stdio: "pipe"` captures the child's stderr instead of inheriting it, so
+   * probe failures don't leak `fatal: not a git repository` to the user (mt#1428).
+   */
+  execGit: (
+    args: string[],
     opts?: { cwd?: string; encoding?: string; stdio?: "pipe" }
   ) => string | Buffer;
   getConfiguration?: () => object;
@@ -26,9 +39,31 @@ export interface RepositoryBackendDetectionDeps {
   isInsideGitWorkTree?: (dir: string) => boolean;
 }
 
+/** The one git invocation this module makes, as argv. */
+const GIT_REMOTE_GET_URL_ORIGIN = ["remote", "get-url", "origin"];
+
 const defaultDeps: RepositoryBackendDetectionDeps = {
-  execSync: defaultExecSync as RepositoryBackendDetectionDeps["execSync"],
+  execGit: ((args, opts) =>
+    defaultExecFileSync("git", args, opts as never)) as RepositoryBackendDetectionDeps["execGit"],
 };
+
+/**
+ * Is this remote URL one Minsky can actually start a session against? (mt#5015)
+ *
+ * GitHub is the only repository backend Minsky IMPLEMENTS — GitLab and Bitbucket
+ * are config-plumbing only, and mt#1018 is the standing task to make one of them
+ * real. So this is the single question "can sessions work here", and it is
+ * exported so the two places that ask it cannot drift: the error thrown by
+ * `resolveRepositoryAndBackend` when the answer is no, and the warning `minsky
+ * init` emits so a user learns it BEFORE investing in setup rather than at the
+ * first `session start`.
+ *
+ * A local filesystem path is a legitimate remote and correctly answers `false`
+ * here — that is the case the mt#5012 cold-agent run hit.
+ */
+export function isGitHubRemoteUrl(remoteUrl: string): boolean {
+  return remoteUrl.includes("github.com");
+}
 
 /**
  * Detect repository backend type directly from a repository URL.
@@ -37,7 +72,7 @@ const defaultDeps: RepositoryBackendDetectionDeps = {
  * not yet implemented and will throw when the factory is called.
  */
 export function detectRepositoryBackendTypeFromUrl(repoUrl: string): RepositoryBackendType {
-  if (repoUrl.includes("github.com")) {
+  if (isGitHubRemoteUrl(repoUrl)) {
     return RepositoryBackendType.GITHUB;
   }
 
@@ -66,7 +101,7 @@ export function detectRepositoryBackendType(
 ): RepositoryBackendType {
   try {
     const remoteUrl = deps
-      .execSync("git remote get-url origin", {
+      .execGit(GIT_REMOTE_GET_URL_ORIGIN, {
         cwd: workdir,
         encoding: "utf8",
         stdio: "pipe",
@@ -74,7 +109,7 @@ export function detectRepositoryBackendType(
       .toString()
       .trim();
 
-    if (remoteUrl.includes("github.com")) {
+    if (isGitHubRemoteUrl(remoteUrl)) {
       return RepositoryBackendType.GITHUB;
     }
 
@@ -143,27 +178,77 @@ export async function resolveRepositoryAndBackend(
           `Run it from a project directory, or pass an explicit repository.`
       );
     }
+    // mt#5015: the remote LOOKUP and the is-it-GitHub DECISION are separate
+    // steps, and only the lookup belongs in a try.
+    //
+    // They used to share one: the not-a-GitHub-remote error was thrown INSIDE
+    // this try, so its own catch swallowed and re-wrapped it. A user with a
+    // local remote was told, verbatim:
+    //
+    //   Default repository backend is GitHub, but could not detect GitHub
+    //   remote: Default repository backend is GitHub, but current directory
+    //   does not have a GitHub remote.
+    //
+    // — doubled, and false in its outer half: detection did not fail, it
+    // succeeded and the answer was "not GitHub". Splitting them is what lets
+    // each case name an action instead of misdescribing what happened.
+    let remoteUrl: string;
     try {
-      const remoteUrl = deps
-        .execSync("git remote get-url origin", { cwd, encoding: "utf8", stdio: "pipe" })
+      remoteUrl = deps
+        .execGit(GIT_REMOTE_GET_URL_ORIGIN, { cwd, encoding: "utf8", stdio: "pipe" })
         .toString()
         .trim();
-      if (!remoteUrl.includes("github.com")) {
-        throw new Error(
-          "Default repository backend is GitHub, but current directory does not have a GitHub remote."
-        );
-      }
-      return { repoUrl: remoteUrl, backendType: RepositoryBackendType.GITHUB };
     } catch (error) {
       throw new ValidationError(
-        `Default repository backend is GitHub, but could not detect GitHub remote: ${getErrorMessage(error)}`
+        `Minsky sessions need a GitHub remote, but this repository has no 'origin' remote ` +
+          `(cwd: ${cwd}). Add one that points at GitHub — ` +
+          `'git remote add origin git@github.com:<owner>/<repo>.git' — then retry. ` +
+          `Creating and tracking tasks works without a remote; sessions, PRs and review do not. ` +
+          `(git: ${getErrorMessage(error)})`
       );
     }
+
+    // PR #3684 R1: an empty result is "no remote", not "a remote that is not
+    // GitHub". Without this it fell through to the branch below and produced
+    // `'origin' is ` with nothing after it, then told the user to re-point a
+    // remote they do not have. `readOriginRemote` (init's helper) already
+    // normalises the same way; this keeps the two paths agreeing.
+    if (remoteUrl.length === 0) {
+      throw new ValidationError(
+        `Minsky sessions need a GitHub remote, but this repository's 'origin' resolved to an ` +
+          `empty URL (cwd: ${cwd}). Set it to a GitHub repository — ` +
+          `'git remote set-url origin git@github.com:<owner>/<repo>.git' — then retry. ` +
+          `Creating and tracking tasks works without this; sessions, PRs and review do not.`
+      );
+    }
+
+    if (!isGitHubRemoteUrl(remoteUrl)) {
+      throw new ValidationError(
+        `Minsky sessions need a GitHub remote, but 'origin' is ${remoteUrl}. ` +
+          `GitHub is currently the only repository backend Minsky implements, so a repository ` +
+          `remoted anywhere else — including a local path — cannot start a session. ` +
+          `Push this repository to GitHub and re-point origin at it ` +
+          `('git remote set-url origin git@github.com:<owner>/<repo>.git'), or work in a ` +
+          `repository that is already on GitHub. ` +
+          `Creating and tracking tasks works without this; sessions, PRs and review do not.`
+      );
+    }
+
+    return { repoUrl: remoteUrl, backendType: RepositoryBackendType.GITHUB };
   }
 
-  // Non-GitHub default: not supported
-  throw new Error(
-    `Only GitHub repository backend is supported. Configure repository.default_repo_backend=github.`
+  // Non-GitHub default: not supported.
+  //
+  // mt#5015: this used to say "Configure repository.default_repo_backend=github",
+  // naming a key whose value is the thing that is not true — setting it does not
+  // make a non-GitHub repository into a GitHub one, it just moves the user to the
+  // error above. Say what the setting actually is and what removing it does.
+  throw new ValidationError(
+    `GitHub is the only repository backend Minsky implements, but ` +
+      `repository.default_repo_backend is set to '${defaultBackend}'. ` +
+      `Remove that setting (or set it to 'github') to use the supported path — note that this ` +
+      `also requires the repository's 'origin' to be a GitHub URL. ` +
+      `Creating and tracking tasks works without this; sessions, PRs and review do not.`
   );
 }
 
@@ -248,7 +333,7 @@ export async function createRepositoryBackendForSession(
 
   try {
     const remoteUrl = deps
-      .execSync("git remote get-url origin", {
+      .execGit(GIT_REMOTE_GET_URL_ORIGIN, {
         cwd: workdir,
         encoding: "utf8",
         stdio: "pipe",
@@ -301,7 +386,7 @@ export function resolveRepositoryFromGitRemote(
 ): ResolvedRepositoryConfig {
   try {
     const url = deps
-      .execSync("git remote get-url origin", {
+      .execGit(GIT_REMOTE_GET_URL_ORIGIN, {
         cwd,
         encoding: "utf8",
         stdio: "pipe",
@@ -309,7 +394,7 @@ export function resolveRepositoryFromGitRemote(
       .toString()
       .trim();
 
-    if (url.includes("github.com")) {
+    if (isGitHubRemoteUrl(url)) {
       const githubInfo = extractGitHubInfoFromUrl(url);
       const result: ResolvedRepositoryConfig = { backend: "github", url };
       if (githubInfo) {

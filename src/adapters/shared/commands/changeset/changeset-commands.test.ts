@@ -26,7 +26,7 @@ const AMBIENT_REPO = "https://github.com/ambient-org/ambient-repo.git";
  * The repoParam short-circuit must return before any config read or git probe.
  */
 const throwingDeps: RepositoryBackendDetectionDeps = {
-  execSync: () => {
+  execGit: () => {
     throw new Error("execSync must not be called on the repoParam short-circuit");
   },
   getConfiguration: () => {
@@ -36,7 +36,7 @@ const throwingDeps: RepositoryBackendDetectionDeps = {
 
 /** Deps that resolve the ambient repo from injected config (no git probes). */
 const ambientDeps: RepositoryBackendDetectionDeps = {
-  execSync: () => {
+  execGit: () => {
     throw new Error("execSync must not be called when config resolves the backend");
   },
   getConfiguration: () => ({
