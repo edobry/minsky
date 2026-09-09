@@ -9,4 +9,4 @@ tags:
 ---
 # Compact Instructions
 
-When compacting, preserve: current task ID and the workspace session path (the `session_start` clone dir), file paths being edited, architectural decisions made in this conversation, test failure details, and the current plan. Drop: full tool outputs (keep summaries), resolved debugging steps, verbose error messages already fixed.
+When compacting, preserve: current task ID and the workspace session path (the `session_start` clone dir), file paths being edited, architectural decisions made in this conversation and the warrant each rests on (§Claim Confidence), test failure details, causes ruled out and what ruled them out, and the current plan. Drop: full tool outputs (keep summaries), debugging steps whose conclusion is now in the code or a spec, verbose error messages already fixed.
