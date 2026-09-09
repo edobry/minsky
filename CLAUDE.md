@@ -569,7 +569,7 @@ Full cross-reference index:
 
 # Compact Instructions
 
-When compacting, preserve: current task ID and the workspace session path (the `session_start` clone dir), file paths being edited, architectural decisions made in this conversation, test failure details, and the current plan. Drop: full tool outputs (keep summaries), resolved debugging steps, verbose error messages already fixed.
+When compacting, preserve: current task ID and the workspace session path (the `session_start` clone dir), file paths being edited, architectural decisions made in this conversation and the warrant each rests on (`claim-confidence.mdc`), test failure details, causes ruled out and what ruled them out, and the current plan. Drop: full tool outputs (keep summaries), debugging steps whose conclusion is now recorded outside the conversation, verbose error messages already fixed.
 
 # Decision Defaults
 
