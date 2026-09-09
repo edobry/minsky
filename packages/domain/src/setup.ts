@@ -12,6 +12,7 @@ import { parse as yamlParse, stringify as yamlStringify } from "yaml";
 import type { FsLike } from "./interfaces/fs-like";
 import { createRealFs } from "./interfaces/real-fs";
 import { createFileIfNotExists } from "./init/file-system";
+import { mergeProjectConfigYaml } from "./init/config-merge";
 import { registerWithClient, getRegistrar } from "./mcp/registration";
 import {
   resolveExistingPostgresConnection,
@@ -82,6 +83,19 @@ export interface SetupResult {
   harnessConfigPath: string;
   client: string;
   message: string;
+  /**
+   * Top-level sections of `.minsky/config.local.yaml` this run kept because they
+   * were not setup's to write — a user's `persistence` block, typically (mt#5017).
+   *
+   * Returned rather than only logged so the merge outcome is assertable from the
+   * function's own value (PR #3685 R1). The alternative is patching `log.cli` to
+   * observe a side effect, which tests what the logger received rather than what
+   * setup decided.
+   *
+   * Empty when nothing needed preserving — which is the ordinary case, and is
+   * distinct from the merge not having run.
+   */
+  preservedLocalConfigKeys: string[];
   /**
    * Outcome of the daemon-ensuring step (mt#4707), or `undefined` when the
    * step did not apply — a non-`claude-code` client, or a caller that injected
@@ -225,7 +239,63 @@ export async function performSetup(
     workspace: { mainPath: repoPath, harness: client },
     mcp: localMcpSection,
   });
-  await createFileIfNotExists(localConfigPath, localConfigContent, overwrite, fileSystem);
+
+  // mt#5017: MERGE, never replace.
+  //
+  // With `--overwrite` this wrote `localConfigContent` over the whole file, so
+  // every top-level key setup does not itself emit was dropped. Measured on main
+  // (2026-09-08): a hand-written `persistence` block — the one holding the
+  // Postgres connection string — went from
+  // `["workspace","mcp","persistence"]` to `["workspace","mcp"]`, silently, and
+  // the same run then failed with `Non-interactive mode: pass
+  // --connection-string`. It destroyed the connection string and then asked for
+  // it.
+  //
+  // This is `init --overwrite`'s problem one file over, and mt#4866 already
+  // solved it: `mergeProjectConfigYaml` refreshes the keys the generator emits
+  // (`workspace`, `mcp`) and preserves every other top-level key. Top-level-only
+  // is the right grain for the same reason it is in `init` — setup owns whole
+  // sections, and a deep merge would resurrect sub-keys it deliberately stopped
+  // emitting (mt#4699).
+  //
+  // Deliberately NOT mt#4986's ownership predicate: that keys on a generation
+  // banner to ask "did we write this entire file?", and `config.local.yaml` is a
+  // file the user is expected to edit and which carries no banner. "Which keys
+  // are ours?" is the answerable question here; "is the file ours?" is not.
+  const existingLocalConfig = (await fileSystem.exists(localConfigPath))
+    ? await fileSystem.readFile(localConfigPath, "utf8")
+    : null;
+  //
+  // `"minsky setup"` is passed so `UnmergeableConfigError` names the command the
+  // user actually ran (PR #3685 R1). Its guidance says to re-run
+  // `<command> --overwrite`, and the hardcoded default would have sent someone
+  // holding a broken `config.local.yaml` to `minsky init` — a different command
+  // that does not rewrite this file.
+  const { merged: mergedLocalConfig, preservedKeys } = mergeProjectConfigYaml(
+    existingLocalConfig,
+    localConfigContent,
+    localConfigPath,
+    "minsky setup"
+  );
+  await createFileIfNotExists(localConfigPath, mergedLocalConfig, overwrite, fileSystem);
+
+  // Say what happened to the file — ALWAYS, not only when something was kept
+  // (PR #3685 R1). SC3 is "whatever it does, it SAYS so", and the originating
+  // failure was the silence: the cold agent noticed the loss only by re-reading
+  // the file afterwards. Reporting solely on the preserve branch would leave the
+  // ordinary run as quiet as the one that lost data, and would make the
+  // `--overwrite` help text's promise that sections are "reported" true only
+  // sometimes.
+  //
+  // `log.cli`, not `log.debug`: the daemon-start message below argues the same
+  // case — a side effect the operator did not name has to be audible.
+  log.cli(
+    preservedKeys.length > 0
+      ? `Refreshed the workspace and mcp sections of .minsky/config.local.yaml, and kept your ` +
+          `existing ${preservedKeys.join(", ")} ` +
+          `${preservedKeys.length === 1 ? "section" : "sections"}.`
+      : `Refreshed the workspace and mcp sections of .minsky/config.local.yaml.`
+  );
 
   // 6. Resolve an already-configured Postgres connection (pure resolve + verify; no writes).
   const dbConnection = await resolveExistingPostgresConnection(dbDeps);
@@ -290,5 +360,6 @@ export async function performSetup(
     message: `Setup complete. Local config written to ${localConfigPath}. Harness config written to ${harnessConfigPath}.`,
     dbConnection,
     localDaemon,
+    preservedLocalConfigKeys: preservedKeys,
   };
 }

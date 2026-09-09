@@ -49,13 +49,24 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 export class UnmergeableConfigError extends Error {
   constructor(
     readonly configPath: string,
-    readonly cause?: unknown
+    readonly cause?: unknown,
+    /**
+     * The command whose merge failed, as the user would type it (mt#5017).
+     *
+     * The guidance below tells the reader to re-run a command, so it has to name
+     * the one they actually ran. `setup` merges `config.local.yaml` through this
+     * same helper, and a hardcoded `minsky init` sent them to a different command
+     * that would not have repaired the file they are holding.
+     *
+     * Defaults to `minsky init`, which is what every pre-existing caller is.
+     */
+    readonly commandName: string = "minsky init"
   ) {
     super(
       `Cannot merge into the existing config at ${configPath}: it is not valid YAML, ` +
-        `so the keys \`minsky init\` does not own cannot be preserved. Refusing to ` +
+        `so the keys \`${commandName}\` does not own cannot be preserved. Refusing to ` +
         `overwrite — that would silently discard them.\n\n` +
-        `Repair the file, or move it aside and re-run \`minsky init --overwrite\` to ` +
+        `Repair the file, or move it aside and re-run \`${commandName} --overwrite\` to ` +
         `generate a fresh one.`
     );
     this.name = "UnmergeableConfigError";
@@ -96,7 +107,9 @@ export interface ConfigMergeResult {
 export function mergeProjectConfigYaml(
   existingYaml: string | null,
   freshYaml: string,
-  configPath = ".minsky/config.yaml"
+  configPath = ".minsky/config.yaml",
+  /** Names the command in {@link UnmergeableConfigError}'s guidance (mt#5017). */
+  commandName = "minsky init"
 ): ConfigMergeResult {
   if (existingYaml === null) return { merged: freshYaml, preservedKeys: [] };
 
@@ -106,7 +119,7 @@ export function mergeProjectConfigYaml(
   } catch (error) {
     // Fail closed — see the module docblock. Silently replacing an unparseable
     // config is the exact data loss this task exists to stop.
-    throw new UnmergeableConfigError(configPath, error);
+    throw new UnmergeableConfigError(configPath, error, commandName);
   }
 
   // An empty document, or a scalar/sequence rather than a mapping, PARSES fine and

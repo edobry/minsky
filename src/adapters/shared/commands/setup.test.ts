@@ -22,6 +22,10 @@ const BASE_RESULT: Omit<SetupResult, "dbConnection"> = {
   harnessConfigPath: "/mock/repo/.cursor/mcp.json",
   client: "cursor",
   message: "Setup complete.",
+  // mt#5017: empty is the ordinary outcome — nothing user-authored needed
+  // keeping. Distinct from the merge not having run, which is why the field is
+  // required rather than optional.
+  preservedLocalConfigKeys: [],
 };
 
 const WIZARD_SUCCESS_MESSAGE = "Postgres configured via wizard.";
