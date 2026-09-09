@@ -426,6 +426,84 @@ async function withWatermarkLock<T>(workspacePath: string, critical: () => Promi
  * PR #2599 R1 had caught the same class one property earlier. A formatter whose
  * only verification is a reviewer's eye keeps re-losing fields.
  */
+/**
+ * Fields on {@link CalibrationLogResult} the JSON projection deliberately does
+ * NOT carry through under their own name (mt#5011).
+ *
+ * `entry` is DECOMPOSED rather than dropped: the projection lifts `entry.name`
+ * and `entry.path` to the top level, so a consumer reads `r.name` instead of
+ * `r.entry.name` and nothing is lost.
+ *
+ * This set is the SC3 verdict in executable form. `calibration-projection.test.ts`
+ * asserts that every field of the domain result is either projected or listed
+ * here — so a field added to `CalibrationLogResult` and to neither fails that
+ * test with the field's name. That is the whole point of the set existing: this
+ * task was filed because three computed fields reached the domain result and
+ * never reached this projection, and the only signal a consumer got was a `null`
+ * indistinguishable from a real zero (`CLAUDE.md §Claim Confidence` — a
+ * projection over a missing key is a constructor, not a filter).
+ */
+export const PROJECTION_EXEMPT_RESULT_FIELDS: ReadonlySet<string> = new Set(["entry"]);
+
+/**
+ * Project one {@link CalibrationLogResult} into the shape the `--json` path
+ * returns.
+ *
+ * Extracted from the inline literal it used to be so a test can diff its key set
+ * against the domain result's; see {@link PROJECTION_EXEMPT_RESULT_FIELDS}.
+ */
+export function projectCalibrationLogResult(r: CalibrationLogResult) {
+  return {
+    name: r.entry.name,
+    path: r.entry.path,
+    exists: r.exists,
+    totalFires: r.totalFires,
+    watermarkCount: r.watermarkCount,
+    // mt#4904 (PR #3572 R1): projected for EVERY result, not only
+    // review-due ones. A stranded log that the review-due leg
+    // declines — an absent log, e.g. the retired `policy-coverage`
+    // with a watermark of 1760 — is otherwise reported as
+    // `firesSinceLastReview: 0` with nothing distinguishing it from a
+    // just-reviewed log, which is the silent clamping this task
+    // exists to end. The `reviewDue` entry alone cannot carry it.
+    watermarkStranded: r.watermarkStranded,
+    firesSinceLastReview: r.firesSinceLastReview,
+    suppressedSinceLastReview: r.suppressedSinceLastReview,
+    injectedFiresSinceLastReview: r.injectedFiresSinceLastReview,
+    evaluatedOnlySinceLastReview: r.evaluatedOnlySinceLastReview,
+    // mt#4970: the third withheld-volume column, and the one a reviewer
+    // needs BESIDE `injectedFiresSinceLastReview` to divide by the right
+    // denominator. `/calibration-review` Step 1 instructs reading it and
+    // names the MCP form — which returns this JSON — as the invocation, so
+    // until mt#5011 that instruction pointed at a key the payload lacked.
+    logOnlyFamilySinceLastReview: r.logOnlyFamilySinceLastReview,
+    distinctFiresSinceLastReview: r.distinctFiresSinceLastReview,
+    ungroupableSinceLastReview: r.ungroupableSinceLastReview,
+    distinctPhrases: r.distinctPhrases,
+    atCountThreshold: r.atCountThreshold,
+    lowDiversity: r.lowDiversity,
+    pastThreshold: r.pastThreshold,
+    // mt#4049 / mt#4970: the two all-withheld gates. `allWithheld` is what
+    // the review-due routing actually keys off; `allSuppressed` is its
+    // narrower predecessor, kept because consumers that specifically mean
+    // "suppressed" read it. Both were reconstructible from
+    // `reviewDue[].reason` for a log the routing DECLARED due, and
+    // unavailable for every log it declined — which is exactly the
+    // population a reviewer is checking when asking whether a gate is too
+    // narrow.
+    allSuppressed: r.allSuppressed,
+    allWithheld: r.allWithheld,
+    firstRecordTimestamp: r.firstRecordTimestamp,
+    newRecordCount: r.newRecords.length,
+    newRecords: r.newRecords,
+    openAskId: r.openAskId,
+    // mt#3610: the JSON path is what an AGENT reads, and an agent is
+    // who misread the records in the originating incident — so the
+    // verdict has to be here, not only in the human-readable text.
+    classifiability: r.classifiability,
+  };
+}
+
 export function formatResult(results: CalibrationLogResult[], reviewDue: ReviewDueLog[]): string {
   const lines: string[] = ["=== Calibration Review Sweep ===", ""];
   const reasonByPath = new Map(reviewDue.map((d) => [d.path, d.reason]));
@@ -1070,45 +1148,10 @@ export function registerCalibrationCommands(): void {
           return {
             success: true,
             json: true,
-            results: results.map((r) => ({
-              name: r.entry.name,
-              path: r.entry.path,
-              exists: r.exists,
-              totalFires: r.totalFires,
-              watermarkCount: r.watermarkCount,
-              // mt#4904 (PR #3572 R1): projected for EVERY result, not only
-              // review-due ones. A stranded log that the review-due leg
-              // declines — an absent log, e.g. the retired `policy-coverage`
-              // with a watermark of 1760 — is otherwise reported as
-              // `firesSinceLastReview: 0` with nothing distinguishing it from a
-              // just-reviewed log, which is the silent clamping this task
-              // exists to end. The `reviewDue` entry alone cannot carry it.
-              watermarkStranded: r.watermarkStranded,
-              firesSinceLastReview: r.firesSinceLastReview,
-              suppressedSinceLastReview: r.suppressedSinceLastReview,
-              injectedFiresSinceLastReview: r.injectedFiresSinceLastReview,
-              evaluatedOnlySinceLastReview: r.evaluatedOnlySinceLastReview,
-              // mt#3866: projected HERE and not only into the text output. The
-              // comment below on `classifiability` states the principle — this
-              // JSON path is what an AGENT reads — and mt#5011 exists because
-              // three other computed fields were added to the domain result and
-              // never to this literal, so an agent following the skill's
-              // instruction to read them got `null`.
-              distinctFiresSinceLastReview: r.distinctFiresSinceLastReview,
-              ungroupableSinceLastReview: r.ungroupableSinceLastReview,
-              distinctPhrases: r.distinctPhrases,
-              atCountThreshold: r.atCountThreshold,
-              lowDiversity: r.lowDiversity,
-              pastThreshold: r.pastThreshold,
-              firstRecordTimestamp: r.firstRecordTimestamp,
-              newRecordCount: r.newRecords.length,
-              newRecords: r.newRecords,
-              openAskId: r.openAskId,
-              // mt#3610: the JSON path is what an AGENT reads, and an agent is
-              // who misread the records in the originating incident — so the
-              // verdict has to be here, not only in the human-readable text.
-              classifiability: r.classifiability,
-            })),
+            // mt#5011: extracted to `projectCalibrationLogResult` so its key
+            // set is diffable against the domain result's in a test. The
+            // comments that lived on individual keys moved with them.
+            results: results.map(projectCalibrationLogResult),
             reviewDue: reviewDue.map((d) => ({
               name: d.name,
               path: d.path,
