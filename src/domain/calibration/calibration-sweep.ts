@@ -262,6 +262,7 @@ export interface CalibrationLogEntry {
     | "nonexistent-search-path"
     | "block-concurrent-bulk-mutation"
     | "duplicate-signature-scan"
+    | "stale-state-assertion"
     | "generic-matches";
   /**
    * Optional per-entry override (mt#2896) for the never-reviewed-aging review
@@ -1019,8 +1020,78 @@ export interface SharedCalibrationFields {
 }
 
 /** Union of all record types. */
+/**
+ * `stale-state-assertion` (mt#5010).
+ *
+ * Shape as written by `.minsky/hooks/turn-end-stale-state-assertion-scan.ts`:
+ * `{ timestamp, session_id?, fired, claims: [{ref, kind, assertionFamily,
+ * assertionPhrase}], contradicted: [{ref, assertedPending, liveState}],
+ * resolvedCount, suppressionReasons, ... }`.
+ *
+ * **`claims` is mapped to `matches` rather than kept under its own name, and
+ * that is the whole fix.** Three existing mechanisms key on `matches` and none
+ * of them can see a detector-specific field: `isEvaluationOnlyRecord` (empty
+ * matches = never matched), `isLogOnlyFamilyRecord` (the column this detector
+ * belongs in), and `extractDistinctPhrases`'s final branch (the diversity axis).
+ * Mapping into the shared shape makes all three correct at once; a bespoke
+ * field would have required a new clause in each.
+ *
+ * **Every synthesized match carries `logOnly: true`, which is a claim about the
+ * DETECTOR and is verified at its source.** `turn-end-stale-state-assertion-scan.ts`'s
+ * `run()` docblock: *"Record-only by design — returns a `calibration` payload
+ * and never an `additionalContext`, per ADR-024's Rung-1 posture."* Grepped:
+ * the file has no `additionalContext` write. So a fired record here NEVER
+ * reached the operator, and counting one as an injected fire would rebuild
+ * mt#4970's defect — `untaken-action` reporting 120 injected where 23 were
+ * operator-facing — on a second detector.
+ *
+ * This corrects mt#5010's own `## Re-measured 2026-09-08`, which read the 12
+ * `fired: true, suppressionReasons: []` records as *"twelve injected fires being
+ * reported as zero."* The premise it applied — an empty `suppressionReasons`
+ * means the operator saw it — holds for an INJECTING detector and is false for a
+ * Rung-1 one. The records are real fires that reached nobody, which is what
+ * `logOnlyFamily` counts.
+ *
+ * `claims` is deliberately NOT also kept: `extractDistinctPhrases` tests
+ * `"claims" in rec` for `code-mechanism-assertion` and reads `c.symbol` /
+ * `c.predicate`, so a record carrying both keys would match that branch first
+ * and emit `undefined::undefined` for every claim.
+ */
+export interface StaleStateAssertionRecord {
+  timestamp: string;
+  session_id?: string;
+  /** The detector's own fired flag, retained for auditability. */
+  fired: boolean;
+  /**
+   * Synthesized from `claims[]`; see the note above on why `logOnly` is set.
+   *
+   * `context` and `detectorFields` are declared — never populated by this
+   * branch — so the match type stays STRUCTURALLY IDENTICAL to its siblings'.
+   * They are not decoration: `formatResult` reads `m.detectorFields` off a match
+   * (`calibration.ts:152`), and a narrower member here makes that access fail to
+   * typecheck across the whole union. Caught by `validate_typecheck` on the
+   * first run of this change, which is the right place for it — the alternative
+   * was a cast at the consumer, which would have hidden a real shape divergence.
+   */
+  matches: Array<{
+    family: string;
+    phrase: string;
+    logOnly?: true;
+    context?: string;
+    detectorFields?: Record<string, unknown>;
+  }>;
+  /** The stale-state evidence, carried through unchanged. */
+  contradicted: Array<{
+    ref: string;
+    assertedPending: string;
+    liveState: string;
+  }>;
+  resolvedCount: number;
+}
+
 export type CalibrationRecord = (
   | CausalPremiseRecord
+  | StaleStateAssertionRecord
   | RetrospectiveTriggerRecord
   | CodeMechanismAssertionRecord
   | PolicyCoverageRecord
@@ -1466,6 +1537,46 @@ function parseCalibrationRecordCore(
         transcript_excerpt:
           raw["transcript_excerpt"] !== undefined ? String(raw["transcript_excerpt"]) : undefined,
       } satisfies CausalPremiseRecord;
+    }
+
+    if (kind === "stale-state-assertion") {
+      // Shape: { timestamp, session_id?, fired, claims: [{ref, kind,
+      //          assertionFamily, assertionPhrase}], contradicted: [...],
+      //          resolvedCount, suppressionReasons }
+      // See StaleStateAssertionRecord for why `claims` becomes `matches` and
+      // why every synthesized match is `logOnly`.
+      //
+      // Guarded on `claims` being an array rather than on `fired`: a SUPPRESSED
+      // non-fire is a legitimate record with `claims: []`, and it must parse to
+      // an EMPTY match set so it stays evaluation-only. Guarding on `fired`
+      // would reject it outright and lose the suppression from the counts.
+      if (!Array.isArray(raw["claims"])) return null;
+      const matches = (raw["claims"] as unknown[]).map((c) => {
+        const obj = c as Record<string, unknown>;
+        return {
+          family: String(obj["assertionFamily"] ?? ""),
+          phrase: String(obj["assertionPhrase"] ?? ""),
+          logOnly: true as const,
+        };
+      });
+      const contradicted = Array.isArray(raw["contradicted"])
+        ? (raw["contradicted"] as unknown[]).map((c) => {
+            const obj = c as Record<string, unknown>;
+            return {
+              ref: String(obj["ref"] ?? ""),
+              assertedPending: String(obj["assertedPending"] ?? ""),
+              liveState: String(obj["liveState"] ?? ""),
+            };
+          })
+        : [];
+      return {
+        timestamp: String(raw["timestamp"] ?? ""),
+        session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
+        fired: Boolean(raw["fired"]),
+        matches,
+        contradicted,
+        resolvedCount: typeof raw["resolvedCount"] === "number" ? raw["resolvedCount"] : 0,
+      } satisfies StaleStateAssertionRecord;
     }
 
     if (kind === "code-mechanism-assertion") {
@@ -2620,6 +2731,11 @@ const KNOWN_KIND_MEMBERSHIP: Record<CalibrationLogEntry["kind"], true> = {
   "nonexistent-search-path": true,
   "block-concurrent-bulk-mutation": true,
   "duplicate-signature-scan": true,
+  // mt#5010: added with the parse branch, and the two must move together. Until
+  // this entry existed, `deriveCalibrationLogEntries` synthesized this log with
+  // `GENERIC_MATCHES_KIND`, its records fell to the shared matches-shape
+  // fallback, and all 381 of them classified as evaluation-only.
+  "stale-state-assertion": true,
   "generic-matches": true,
 };
 
