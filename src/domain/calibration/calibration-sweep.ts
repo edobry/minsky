@@ -2380,7 +2380,11 @@ const JUDGED_TEXT_FIELDS: ReadonlyMap<string, readonly string[]> = new Map([
   // Added mt#5001. Each verified over the log's WHOLE population before being
   // mapped, not from a sampled record — the `negative-existence-claim` comment
   // above is why: a field can look populated on one record and be empty on the
-  // rest. Counts measured 2026-09-09:
+  // rest. Counts measured 2026-09-09, and they are a SNAPSHOT of live logs that
+  // keep growing — `stale-state-assertion` read 367 during this task's planning
+  // pass and 368 at implementation, minutes apart. What the mapping depends on
+  // is the RATIO, not the absolute: re-measure rather than treating a later
+  // total as a contradiction. (Reviewer-raised on PR #3690 R1.)
   //
   //   stale-state-assertion   final_message_tail    368 / 368  -> recoverable
   //   knowledge-acquisition   matchedTextExcerpt      19 / 19   -> recoverable

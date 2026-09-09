@@ -231,7 +231,10 @@ describe("the mt#5001 mappings: four detectors that carried text the map could n
       timestamp: "2026-09-06T00:52:29.767Z",
       session_id: SESSION_ID,
       dedupeKey: "k1",
-      detectionRung: 1,
+      // A STRING, not a number — `"1-lexical"` on all 19 production records.
+      // Reviewer-caught on PR #3690 R1: the first draft wrote `1`, which is the
+      // invented-fixture failure this file's own header warns about.
+      detectionRung: "1-lexical",
       hadPropagation: false,
       keywordHits: ["skill"],
       loadedSkills: [],
@@ -271,6 +274,12 @@ describe("the mt#5001 mappings: four detectors that carried text the map could n
 
   const EXCERPT = "The detector was looking at this sentence when it fired.";
 
+  // `generic-matches` is the CORRECT kind here, not a stand-in. Reviewer-raised
+  // on PR #3690 R1 as possibly obscuring per-kind parsing: checked, and
+  // `stale-state-assertion` is absent from the `kind` union
+  // (`KNOWN_KIND_MEMBERSHIP`), so `deriveCalibrationLogEntries` synthesizes its
+  // entry with `GENERIC_MATCHES_KIND`. Production parses these records through
+  // exactly this branch — that missing per-kind branch is mt#5010's subject.
   test("stale-state-assertion: final_message_tail is now RECOVERABLE, and no gap is reported", () => {
     const records = [parsed(staleStateLine(EXCERPT), "generic-matches")];
 
