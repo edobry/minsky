@@ -113,6 +113,20 @@ export class VectorCapabilityProbeInconclusiveError extends Error {
  *
  * The message names the REMEDY, because unlike the inconclusive case there is a
  * specific action that fixes it.
+ *
+ * **Not a duplicate of `PgvectorUnavailableError`** (`../pgvector-preflight.ts`),
+ * though both mean "pgvector is missing". They fire at different lifecycle points,
+ * against different populations, and neither can cover the other:
+ *
+ * - `PgvectorUnavailableError` guards **migration**, before the schema exists. It
+ *   is the one a fresh install hits, and it is the common case by far.
+ * - This one guards **provider construction**, on a database that was already
+ *   migrated — so the extension was present once and is not now. A fresh install
+ *   can never reach it, because migration fails first.
+ *
+ * Collapsing them would produce an error whose remedy text is wrong for one of the
+ * two situations: a fresh install needs a pgvector-capable image, an existing
+ * database needs the extension re-installed on the database it already has.
  */
 export class VectorExtensionAbsentError extends Error {
   constructor() {
