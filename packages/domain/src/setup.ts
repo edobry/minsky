@@ -12,6 +12,7 @@ import { parse as yamlParse, stringify as yamlStringify } from "yaml";
 import type { FsLike } from "./interfaces/fs-like";
 import { createRealFs } from "./interfaces/real-fs";
 import { createFileIfNotExists } from "./init/file-system";
+import { mergeProjectConfigYaml } from "./init/config-merge";
 import { registerWithClient, getRegistrar } from "./mcp/registration";
 import {
   resolveExistingPostgresConnection,
@@ -225,7 +226,51 @@ export async function performSetup(
     workspace: { mainPath: repoPath, harness: client },
     mcp: localMcpSection,
   });
-  await createFileIfNotExists(localConfigPath, localConfigContent, overwrite, fileSystem);
+
+  // mt#5017: MERGE, never replace.
+  //
+  // With `--overwrite` this wrote `localConfigContent` over the whole file, so
+  // every top-level key setup does not itself emit was dropped. Measured on main
+  // (2026-09-08): a hand-written `persistence` block — the one holding the
+  // Postgres connection string — went from
+  // `["workspace","mcp","persistence"]` to `["workspace","mcp"]`, silently, and
+  // the same run then failed with `Non-interactive mode: pass
+  // --connection-string`. It destroyed the connection string and then asked for
+  // it.
+  //
+  // This is `init --overwrite`'s problem one file over, and mt#4866 already
+  // solved it: `mergeProjectConfigYaml` refreshes the keys the generator emits
+  // (`workspace`, `mcp`) and preserves every other top-level key. Top-level-only
+  // is the right grain for the same reason it is in `init` — setup owns whole
+  // sections, and a deep merge would resurrect sub-keys it deliberately stopped
+  // emitting (mt#4699).
+  //
+  // Deliberately NOT mt#4986's ownership predicate: that keys on a generation
+  // banner to ask "did we write this entire file?", and `config.local.yaml` is a
+  // file the user is expected to edit and which carries no banner. "Which keys
+  // are ours?" is the answerable question here; "is the file ours?" is not.
+  const existingLocalConfig = (await fileSystem.exists(localConfigPath))
+    ? await fileSystem.readFile(localConfigPath, "utf8")
+    : null;
+  const { merged: mergedLocalConfig, preservedKeys } = mergeProjectConfigYaml(
+    existingLocalConfig,
+    localConfigContent,
+    localConfigPath
+  );
+  await createFileIfNotExists(localConfigPath, mergedLocalConfig, overwrite, fileSystem);
+
+  // Say what was kept. `preservedKeys` exists on ConfigMergeResult precisely so a
+  // caller "can report what it kept rather than merging silently", and the
+  // originating failure here WAS the silence — the cold agent noticed only by
+  // re-reading the file afterwards. `log.cli`, not `log.debug`: the daemon-start
+  // message below makes the same argument for the same reason.
+  if (preservedKeys.length > 0) {
+    log.cli(
+      `Kept your existing ${preservedKeys.join(", ")} ` +
+        `${preservedKeys.length === 1 ? "section" : "sections"} in ` +
+        `.minsky/config.local.yaml; refreshed workspace and mcp.`
+    );
+  }
 
   // 6. Resolve an already-configured Postgres connection (pure resolve + verify; no writes).
   const dbConnection = await resolveExistingPostgresConnection(dbDeps);

@@ -273,7 +273,20 @@ const setupParams = composeParams(
       required: false,
     },
     workspacePath: CommonParameters.workspace,
-    overwrite: CommonParameters.overwrite,
+    // mt#5017 SC4: a setup-specific description rather than
+    // `CommonParameters.overwrite`'s generic "Overwrite existing resources",
+    // which is shared with `init`, `mcp register` and `rules` and would be
+    // mis-stated for them if edited globally. A user reading this before running
+    // should be able to predict what happens to their file — the originating
+    // failure was that `--overwrite` silently discarded a hand-written
+    // `persistence` block, and nothing in the help text hinted it might.
+    overwrite: {
+      ...CommonParameters.overwrite,
+      description:
+        "Re-register the MCP client and refresh the workspace and mcp sections of " +
+        ".minsky/config.local.yaml. Other sections you have added there, such as persistence, " +
+        "are preserved and reported.",
+    },
   },
   {
     client: {
