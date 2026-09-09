@@ -33,6 +33,7 @@
     "transcriptWatcher": "object",
     "uptimeSec": "number",
     "version": "string",
+    "webBundle": "object",
     "workspaceRoot": "object"
   },
   "transcriptWatcherFields": {
@@ -52,11 +53,17 @@
     "activeSessions": "array"
   },
   "rustConsumedFields": ["service", "db", "processStartedAtMs"],
+  "webBundleFields": {
+    "commit": "string",
+    "builtAt": "string|null"
+  },
+  "$webBundleFieldNote": "mt#5034: `webBundle` names the SERVED WEB BUNDLE and is deliberately NOT the same thing as `commit`, which names the daemon process. The two diverge by design: the tray's web watcher (mt#2297) rebuilds `dist/` without restarting the daemon, so the assets a reader is looking at can be many commits newer than the process serving them. Before this field, `/api/health` could only report the process identity, and an agent doing `/implement-task` §10's post-merge check correctly concluded a shipped web change had NOT deployed — measured 2026-09-08 during mt#5032's closeout, where the endpoint named the previous merge while `grep` on `dist/assets/*.js` found the new bundle already being served. That is a FALSE NEGATIVE, the expensive direction: it sends someone hunting a deploy failure that did not happen. Always an object; `commit` (string) is the short sha the bundle was built from or the literal `\"unknown\"`, `builtAt` (ISO string | null) is the build timestamp or null. Both degrade rather than throw — a packaged install with no sidecar, a bundle built before mt#5034, or a partial write all yield `{ commit: \"unknown\", builtAt: null }`, because the tray polls this route to decide whether the daemon is alive and a missing identity must never fail it. The value is produced at BUILD time by the `minsky-cockpit-build-info` vite plugin (`vite.config.ts`), which emits `dist/build-info.json` via Rollup's `generateBundle` + `this.emitFile` from the same `resolveBuildCommit()` constant that feeds the `__BUILD_COMMIT__` define — so the health payload and RailFooter cannot disagree. It is read PER REQUEST, never memoized: a value cached at process start could never change, which is precisely the defect this field exists to remove. Note the deliberate asymmetry on this one payload — `commit` memoizes and `webBundle` does not, because each reports the thing that can actually change on its own schedule.",
   "sample": {
     "status": "ok",
     "service": "minsky-cockpit",
     "version": "0.1.0",
     "commit": "abc1234",
+    "webBundle": { "commit": "def5678", "builtAt": "2026-09-09T19:33:21.080Z" },
     "uptimeSec": 42,
     "db": "ok",
     "dbCheck": {
