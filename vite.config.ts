@@ -2,7 +2,7 @@
 // for why this is not Bun.spawnSync. The lint rule bans only the node:-prefixed
 // specifier, so this form needs no disable directive.
 import { execSync } from "child_process";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
 /**
@@ -42,11 +42,62 @@ function resolveBuildCommit(): string {
   }
 }
 
+/**
+ * The bundle's identity, resolved ONCE per build (mt#5034).
+ *
+ * Both consumers below read this same constant: the `__BUILD_COMMIT__` define
+ * that `RailFooter` renders, and the `build-info.json` sidecar that
+ * `/api/health` reports. Calling `resolveBuildCommit()` twice would let the
+ * footer and the health payload disagree if HEAD moved mid-build — a drift with
+ * no symptom until someone compares them.
+ */
+const BUILD_COMMIT = resolveBuildCommit();
+
+/**
+ * Emit `build-info.json` beside the bundle so the SERVER can read the bundle's
+ * identity (mt#5034).
+ *
+ * **Why a sidecar at all.** `__BUILD_COMMIT__` is a compile-time text
+ * substitution into the emitted JS, so it exists only inside the bundle. The
+ * cockpit daemon serves that bundle statically and cannot read a value baked
+ * into it — which is why `/api/health` could report the DAEMON's commit while
+ * serving a much newer bundle, and a shipped web change read as undeployed. The
+ * tray's web watcher (mt#2297) rebuilds `dist/` WITHOUT restarting the daemon,
+ * so the two identities genuinely diverge by design.
+ *
+ * **Why `generateBundle` + `this.emitFile`, not `closeBundle` + `fs.write`.**
+ * Rollup documents `this.emitFile` inside `generateBundle` as the mechanism for
+ * emitting an additional file, and describes `closeBundle` as a cleanup hook
+ * whose invocation "is the responsibility of users of the JavaScript API to
+ * manually call `bundle.close()`". A `closeBundle` that does not fire would
+ * leave a STALE `build-info.json` — the same stale-identity defect this exists
+ * to remove, in a form that is harder to catch, because the field would be
+ * present and look authoritative rather than obviously naming the wrong commit.
+ *
+ * @param nowMs Injected clock (`testing-standards.mdc`); real default.
+ */
+function emitBuildInfo(nowMs: number = Date.now()): Plugin {
+  return {
+    name: "minsky-cockpit-build-info",
+    generateBundle() {
+      this.emitFile({
+        type: "asset",
+        fileName: "build-info.json",
+        source: `${JSON.stringify(
+          { commit: BUILD_COMMIT, builtAt: new Date(nowMs).toISOString() },
+          null,
+          2
+        )}\n`,
+      });
+    },
+  };
+}
+
 export default defineConfig({
   root: "src/cockpit/web",
-  plugins: [react()],
+  plugins: [react(), emitBuildInfo()],
   define: {
-    __BUILD_COMMIT__: JSON.stringify(resolveBuildCommit()),
+    __BUILD_COMMIT__: JSON.stringify(BUILD_COMMIT),
   },
   build: {
     outDir: "dist",

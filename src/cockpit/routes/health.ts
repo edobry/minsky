@@ -20,6 +20,7 @@ import type express from "express";
 import fs from "fs";
 import path from "path";
 import { execSync } from "child_process";
+import { cockpitWebDistDir } from "../web-dist";
 import { TranscriptWatcherTracker } from "../transcript-watcher-tracker";
 import { TranscriptSweepTracker } from "../transcript-sweep-tracker";
 import { getTranscriptBackfillJournalPath, readJournalSummary } from "../transcript-sweep-journal";
@@ -89,6 +90,81 @@ function getGitCommit(): string {
     }
   }
   return gitCommit;
+}
+
+/**
+ * Identity of the SERVED WEB BUNDLE, which is not the daemon's identity (mt#5034).
+ *
+ * `commit` is `"unknown"` whenever the sidecar is absent or unreadable — a
+ * packaged install with no `build-info.json`, a bundle built before this shipped,
+ * or a partial write. That mirrors `getGitCommit`'s own degrade: a missing
+ * identity must never fail the health route, which is what the tray polls to
+ * decide whether the daemon is alive at all.
+ */
+export interface WebBundleIdentity {
+  /** Short sha the bundle was built from, or `"unknown"`. */
+  commit: string;
+  /** ISO timestamp of the build, or `null` when unavailable. */
+  builtAt: string | null;
+}
+
+/** The sidecar `emitBuildInfo` writes into `dist/` (see `vite.config.ts`). */
+const BUILD_INFO_FILENAME = "build-info.json";
+
+/**
+ * Read the served bundle's identity, FRESH ON EVERY CALL (mt#5034).
+ *
+ * **The absence of a memo is the whole point, and it is the opposite of
+ * `getGitCommit` above.** That one memoizes deliberately — the daemon runs the
+ * code it loaded at start, so recomputing would report a HEAD this process is not
+ * executing. This one must NOT memoize: the tray's web watcher (mt#2297) rebuilds
+ * `dist/` without restarting the daemon, so a value cached at process start can
+ * never change and would reproduce the exact defect this function exists to fix.
+ * Two fields on one payload with opposite caching rules, for the same reason —
+ * each reports the thing that can actually change on its own schedule.
+ *
+ * Reads through `cockpitWebDistDir`, the same helper `server.ts` uses to locate
+ * the static routes, rather than a second relative path that could drift from it.
+ *
+ * Fail-open on every error (missing file, unreadable, malformed JSON, wrong
+ * shape): returns `"unknown"` rather than throwing.
+ */
+export function readWebBundleIdentity(
+  serverDirname: string,
+  /**
+   * Injected IO, per ADR-026's `deps`-parameter convention (the same shape
+   * `PostgresProviderFactory.create` uses). Production passes nothing.
+   *
+   * The seam exists because the property worth testing is that this function
+   * does NOT cache — and a test can only observe that by changing the file's
+   * contents between two calls. Doing that against a real temp directory would
+   * put filesystem IO in a unit test for no gain; handing it a reader makes the
+   * same assertion directly.
+   */
+  deps: { readFile?: (absPath: string) => string; resolveDistDir?: (dir: string) => string } = {}
+): WebBundleIdentity {
+  const readFile =
+    deps.readFile ?? ((absPath: string): string => String(fs.readFileSync(absPath, "utf-8")));
+  const resolveDistDir = deps.resolveDistDir ?? cockpitWebDistDir;
+  try {
+    const raw = readFile(path.join(resolveDistDir(serverDirname), BUILD_INFO_FILENAME));
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) {
+      return { commit: "unknown", builtAt: null };
+    }
+    const commit = (parsed as { commit?: unknown }).commit;
+    const builtAt = (parsed as { builtAt?: unknown }).builtAt;
+    return {
+      commit: typeof commit === "string" && commit.length > 0 ? commit : "unknown",
+      builtAt: typeof builtAt === "string" && builtAt.length > 0 ? builtAt : null,
+    };
+  } catch {
+    // intentional-swallow: a missing or malformed sidecar is a routine shape (a
+    // packaged install, a pre-mt#5034 bundle), not an operational anomaly, and
+    // the health route must answer regardless — the tray reads it to decide
+    // whether the daemon is alive.
+    return { commit: "unknown", builtAt: null };
+  }
 }
 
 /** Options accepted by {@link mountHealthRoutes}. */
@@ -163,7 +239,17 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // and asserted by BOTH sides of the tray/cockpit split.
       service: "minsky-cockpit",
       version,
+      // mt#5034: names the DAEMON — the process serving this response. It is
+      // memoized at first call and that is correct; see getGitCommit. It does
+      // NOT answer for the assets being served, which is what `webBundle`
+      // below is for. Reading this field as "the deployed version" is the
+      // false negative mt#5032's closeout hit: a merged web change was live and
+      // this field still named the previous commit.
       commit: getGitCommit(),
+      // mt#5034: names the SERVED WEB BUNDLE, read fresh per request because
+      // the tray's watcher rebuilds it without restarting this process. Same
+      // value RailFooter renders, from the same build-time resolution.
+      webBundle: readWebBundleIdentity(serverDirname),
       uptimeSec,
       // gh#1761, semantics widened by mt#3563: DB reachability as of the last
       // probe. "ok" means a query actually completed through the SHARED pool

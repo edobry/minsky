@@ -464,6 +464,52 @@ entirely — the conversation looked idle because it was stuck.
 epoch-ms integer with no path or identity information; `consecutiveDegraded` is
 a small counter. Neither violates the endpoint's unauthenticated-access posture.
 
+### Two identities on one payload — `commit` and `webBundle` (mt#5034)
+
+`/api/health` reports **two** provenance fields, and conflating them produces a
+false negative in the expensive direction.
+
+| Field       | Names                     | Caching                           |
+| ----------- | ------------------------- | --------------------------------- |
+| `commit`    | the **daemon process**    | memoized at first call, by design |
+| `webBundle` | the **served web bundle** | read fresh per request, by design |
+
+They diverge because the tray's web watcher (mt#2297) rebuilds `src/cockpit/web/dist/`
+**without restarting the daemon**. The running process keeps serving the new
+assets while `commit` still names whatever commit the process booted from — so
+after a web-only change lands, the bundle is new and `commit` is old, and until
+mt#5034 nothing in the payload distinguished them.
+
+**That is a false negative, not a cosmetic staleness.** Measured 2026-09-08
+during mt#5032's closeout: merge `15035d94e` landed at 09:00:25Z; at 09:02Z the
+endpoint reported `commit: 30d715f24` — the previous merge — while the new bundle
+was demonstrably being served. An agent running `/implement-task` §10's
+post-merge check correctly concluded the deploy had not happened. The expensive
+direction is the one that sends someone hunting a deploy failure that did not
+occur, or re-triggering one.
+
+**To verify a cockpit-web deploy, read `webBundle.commit`** — not `commit`, and
+not a grep of `dist/assets/*.js` for a string from the diff (the ad-hoc
+workaround mem#1291 documents, which this field supersedes).
+
+```
+$ curl -s 127.0.0.1:3737/api/health | jq -c '{commit, webBundle}'
+{"commit":"30d715f24","webBundle":{"commit":"60b644e14","builtAt":"2026-09-09T19:37:37.122Z"}}
+```
+
+Both differing is the NORMAL state on a developer machine mid-session; it means
+the watcher has rebuilt since the daemon started. They agree after a daemon
+restart.
+
+**Where the value comes from.** The `minsky-cockpit-build-info` vite plugin
+(`vite.config.ts`) emits `dist/build-info.json` through Rollup's `generateBundle`
+
+- `this.emitFile`, from the same `resolveBuildCommit()` constant that feeds the
+  `__BUILD_COMMIT__` define `RailFooter` renders — so the footer and the payload
+  cannot disagree. `readWebBundleIdentity` in `routes/health.ts` reads it per
+  request and degrades to `{ commit: "unknown", builtAt: null }` on any error,
+  because the tray polls this route to decide whether the daemon is alive at all.
+
 ### DB recovery-mechanism counters — `dbRecycle` and `dbRetry`
 
 `/api/health` carries the outcome counters of the two DB **recovery** mechanisms.
