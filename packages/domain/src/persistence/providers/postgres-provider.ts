@@ -578,6 +578,20 @@ export class PostgresPersistenceProvider
   /**
    * mt#2973: whether the factory already verified pgvector on the pre-validated
    * client. When true, the vector provider skips its redundant re-probe.
+   *
+   * **This is a cold-boot optimization signal, NOT a capability verdict (mt#5037).**
+   * The distinction used to be invisible because the two coincided: the factory
+   * branched on the probe and passed the same boolean here. It no longer branches —
+   * an absent extension throws `VectorExtensionAbsentError` — so every provider
+   * reaching this class FROM THE FACTORY carries `true`, and the field's only job is
+   * to say "a probe already ran on this client, do not pay for a second round trip."
+   *
+   * The `false` default is still load-bearing and must not be removed: it covers the
+   * STANDALONE path, where a provider is constructed directly (tests, and any caller
+   * not going through `PostgresProviderFactory`). There, no probe has run, and
+   * `initialize()` below must perform its own — that branch is now the only place the
+   * extension is checked outside the factory, so defaulting this to `true` would
+   * silently remove the last check on that path.
    */
   protected pgvectorVerified = false;
 

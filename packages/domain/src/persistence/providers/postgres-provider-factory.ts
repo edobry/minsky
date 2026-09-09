@@ -12,21 +12,53 @@ import {
   classifyVectorProbe,
   describeProbeRows,
   VectorCapabilityProbeInconclusiveError,
+  VectorExtensionAbsentError,
 } from "../vector-capability-probe";
 import {
-  PostgresPersistenceProvider,
   PostgresVectorPersistenceProvider,
   buildPostgresClient,
   CLOSE_TIMEOUT_SECONDS,
 } from "./postgres-provider";
 
 /**
- * Factory that decides which PostgreSQL provider to create based on pgvector availability
+ * Factory that constructs the PostgreSQL provider, ASSERTING pgvector rather than
+ * branching on it (mt#5037).
+ *
+ * **This used to be a capability branch and is now a precondition check.** ADR-002
+ * described pgvector as a runtime capability the product adapts to — returning a
+ * reduced-capability `PostgresPersistenceProvider` when the extension was missing.
+ * That branch was unreachable on any fresh install: the schema declares vector
+ * columns and the bootstrap snapshot's first statement is
+ * `CREATE EXTENSION IF NOT EXISTS vector`, so migration fails with SQLSTATE `0A000`
+ * before a provider is ever constructed (measured on a stock `postgres:17`,
+ * mt#5016). Both ADRs carry 2026-09-09 addenda; the decision is the principal's,
+ * via ask#11882.
+ *
+ * **The probe was NOT deleted, and that is deliberate.** Hardcoding
+ * `pgvectorVerified: true` would assert a capability nothing checked —
+ * `PostgresVectorPersistenceProvider.initialize()` skips its own re-probe precisely
+ * when this factory reports one already ran (mt#2973), so removing the query here
+ * would leave NO check on either path. Under a hard requirement the probe matters
+ * more, not less. What changed is what each outcome DOES:
+ *
+ * | outcome | before | now |
+ * | --- | --- | --- |
+ * | `present` | vector provider | vector provider (unchanged) |
+ * | `absent` | base provider, silently degraded | `VectorExtensionAbsentError` — not retryable |
+ * | `inconclusive` | `VectorCapabilityProbeInconclusiveError` | unchanged — still retryable |
+ *
+ * Keeping `absent` and `inconclusive` distinct is mt#3833's contribution and it
+ * survives: they now both fail, but for different reasons and with different
+ * remedies, so collapsing them would misreport the cause.
  */
 export class PostgresProviderFactory {
   /**
-   * Create the appropriate PostgreSQL provider based on runtime capabilities
-   * Returns PostgresVectorPersistenceProvider if pgvector available, otherwise base PostgresPersistenceProvider
+   * Create the PostgreSQL provider, requiring pgvector.
+   *
+   * Returns a `PostgresVectorPersistenceProvider` or throws. The base
+   * `PostgresPersistenceProvider` is still the class hierarchy's root and is still
+   * constructed directly by tests and by the standalone path — it is simply no
+   * longer reachable through this factory as a degraded fallback.
    */
   static async create(
     config: PersistenceConfig,
@@ -42,7 +74,7 @@ export class PostgresProviderFactory {
      * module import.
      */
     deps: { buildClient?: typeof buildPostgresClient } = {}
-  ): Promise<PostgresPersistenceProvider | PostgresVectorPersistenceProvider> {
+  ): Promise<PostgresVectorPersistenceProvider> {
     if (config.backend !== "postgres" || !config.postgres) {
       throw new Error("PostgresProviderFactory requires postgres configuration");
     }
@@ -85,30 +117,27 @@ export class PostgresProviderFactory {
       // nothing had failed. Propagating instead is ADR-035 rule 1's first
       // remedy, and it reuses the container's existing retry rather than
       // re-deriving one here.
+      // mt#3833 established that this question has THREE answers, not two, and
+      // mt#5037 changed what two of them DO. The three-way split survives because
+      // "absent" and "inconclusive" now fail for DIFFERENT reasons: absent is a
+      // fact about the deployment and is not retryable, inconclusive is a failure
+      // to learn and IS retryable by the container. Collapsing them would report
+      // the wrong cause and invite the wrong remedy.
       const probeOutcome = classifyVectorProbe(result);
       if (probeOutcome === "inconclusive") {
         throw new VectorCapabilityProbeInconclusiveError(describeProbeRows(result));
       }
-      const hasVectorExtension = probeOutcome === "present";
+      if (probeOutcome === "absent") {
+        throw new VectorExtensionAbsentError();
+      }
 
       // Hand the probed client to the provider for REUSE — do NOT end() it here.
       // The provider adopts it (its close() owns the lifecycle from now on).
-      if (hasVectorExtension) {
-        log.debug("Creating PostgreSQL provider with vector support (reusing probed connection)");
-        return new PostgresVectorPersistenceProvider(config, {
-          sql: probedSql,
-          pgvectorVerified: true,
-        });
-      } else {
-        log.debug(
-          "Creating PostgreSQL provider without vector support " +
-            "(pgvector not available; reusing probed connection)"
-        );
-        return new PostgresPersistenceProvider(config, {
-          sql: probedSql,
-          pgvectorVerified: false,
-        });
-      }
+      log.debug("Creating PostgreSQL provider with vector support (reusing probed connection)");
+      return new PostgresVectorPersistenceProvider(config, {
+        sql: probedSql,
+        pgvectorVerified: true,
+      });
     } catch (error) {
       // The probe failed before any provider adopted the client — end it here to
       // avoid leaking the pool. Guard the cleanup so an end() failure can't mask
@@ -122,8 +151,19 @@ export class PostgresProviderFactory {
       } catch {
         /* ignore cleanup errors */
       }
+      // mt#5037: distinguish a probe that FAILED from a probe that SUCCEEDED and
+      // returned an unusable answer. Both reach this catch — the two capability
+      // errors are thrown from inside the try so the pool cleanup above still runs
+      // — but "Failed to test PostgreSQL capabilities" is false for them: the test
+      // ran and answered. Reporting a successful probe as a failed one is the same
+      // class of misleading record this task exists to fix, one layer down.
+      const probeAnswered =
+        error instanceof VectorExtensionAbsentError ||
+        error instanceof VectorCapabilityProbeInconclusiveError;
       log.error(
-        "Failed to test PostgreSQL capabilities:",
+        probeAnswered
+          ? "PostgreSQL pgvector precondition not satisfied:"
+          : "Failed to test PostgreSQL capabilities:",
         error instanceof Error ? error : { error: String(error) }
       );
       throw error;
