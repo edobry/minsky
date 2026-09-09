@@ -4,6 +4,28 @@
 
 **ACCEPTED** — 2026-07-07
 
+> **Addendum (2026-09-09, mt#5037): the intra-Postgres axis this ADR re-affirms is a
+> PREREQUISITE, not a runtime option.** The `### What ADR-002 actually decided (re-read)`
+> section below says the two provider subclasses _"differ only in whether the `pgvector`
+> extension is present"_. That remains an accurate description of the CLASS hierarchy and is
+> the correct correction to the cross-backend misreading this ADR was written to close. What
+> is superseded is any reading of it as a **supported deployment choice**: a Postgres without
+> pgvector cannot complete a fresh install at all, because the bootstrap snapshot's first
+> statement is `CREATE EXTENSION IF NOT EXISTS vector` and migration fails with SQLSTATE
+> `0A000` before any provider is constructed (measured against a stock `postgres:17`, mt#5016).
+>
+> So this ADR's core claim is unchanged and if anything strengthened — the axis is
+> intra-Postgres, not cross-backend — while the axis itself is now a precondition rather than a
+> capability the product adapts to. **Postgres WITH pgvector is the supported deployment.** The
+> probe and the base class both survive as a fail-fast assertion; see
+> [ADR-002](adr-002-persistence-provider-architecture.md)'s 2026-09-09 addendum for what is and
+> is not retired, and why deleting the probe would have been the wrong move.
+>
+> `§Deferred`'s note on PGlite is **unaffected**: it names PGlite as pgvector-capable, which is
+> exactly the property this addendum now requires, so mt#434 remains deferred on its own terms.
+>
+> **Decision provenance:** the principal, via ask#11882 (`direction.decide`, 2026-09-09).
+
 ## Context
 
 The July 2026 holistic audit (mt#2607, domain-core survey) flagged a "persistence-honesty"

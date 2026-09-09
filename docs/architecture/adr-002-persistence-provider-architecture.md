@@ -21,6 +21,41 @@
 > [ADR-035](adr-035-failed-initializer-must-not-be-memoized-as-a-value.md) for the rule that a
 > failed initializer must not be memoized as a value, and for why it generalizes past persistence.
 
+> **Addendum (2026-09-09, mt#5037): pgvector is a PREREQUISITE, not a runtime capability axis.**
+> Three statements below are superseded — `## Context`'s constraint _"PostgreSQL may or may not have
+> pgvector extension available"_, the `### Capability Detection Challenge` framing of that
+> availability as _"a runtime constraint that must be handled gracefully across different deployment
+> environments"_, and `### Operational Benefits`' _"Same code works in dev (no pgvector) and prod
+> (with pgvector)"_. **Postgres WITH pgvector is the supported deployment; a Postgres without it is
+> not a supported target.**
+>
+> **Evidence, measured rather than asserted (mt#5016).** The schema declares `vector(1536)` columns
+> in six tables plus six HNSW indexes, and the fresh-DB bootstrap snapshot's first statement is
+> `CREATE EXTENSION IF NOT EXISTS vector`. Run against a stock `postgres:17`, migration fails with
+> SQLSTATE `0A000`, exit 1, and zero tables written — before any provider is constructed. So the
+> degraded `PostgresPersistenceProvider` branch this ADR describes was unreachable on every fresh
+> install: the install fails first.
+>
+> **What this does NOT retire.** The two-class hierarchy stays, and so does the capability probe.
+> `PostgresPersistenceProvider` remains the BASE class of `PostgresVectorPersistenceProvider` — it is
+> not merely the degraded branch — and the `pg_extension` probe remains as a **precondition
+> assertion** rather than a branch selector: a missing or unreadable extension now fails fast naming
+> the requirement, where it previously produced a silently reduced-capability provider. Deleting the
+> probe outright would have asserted a capability nothing checked, since
+> `PostgresVectorPersistenceProvider.initialize()` skips its own re-probe precisely when the factory
+> reports one already ran (mt#2973). mt#3833's inconclusive-probe distinction is retained and matters
+> MORE under a hard requirement, not less: "absent" and "could not tell" now both fail, so
+> conflating them would misreport the cause.
+>
+> **The reachable case that remains.** A database migrated WITH pgvector that later loses the
+> extension is still detectable — that is what the assertion catches. It is not a supported
+> deployment shape; it is a failure mode with a clear message.
+>
+> **Decision provenance:** the principal, via ask#11882 (`direction.decide`, 2026-09-09), choosing
+> "Require pgvector" with its cost stated and accepted — this closes off "runs on any Postgres",
+> which matters if a customer's managed Postgres lacks the extension. That exposure is known and
+> accepted, not overlooked.
+
 ## Context
 
 ### System Characteristics

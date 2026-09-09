@@ -91,6 +91,59 @@ export class VectorCapabilityProbeInconclusiveError extends Error {
 }
 
 /**
+ * Raised when the catalog reported, explicitly, that `vector` is not installed.
+ *
+ * **This is the sibling of `VectorCapabilityProbeInconclusiveError`, and the
+ * difference between them is RETRYABILITY — which is why they are two classes and
+ * not one (mt#5037).** An inconclusive probe is a transient failure to LEARN
+ * something: the extension's actual state is unchanged and unknown, so throwing
+ * lets the container re-attempt and succeed once the pooler recovers. An absent
+ * extension is a fact about the deployment. Re-attempting cannot change it, and a
+ * caller that retries this is spinning.
+ *
+ * **Why this throws at all**, where it used to construct a reduced-capability
+ * provider: pgvector is a PREREQUISITE of the schema, not a runtime capability
+ * axis. The fresh-DB bootstrap snapshot's first statement is
+ * `CREATE EXTENSION IF NOT EXISTS vector`, so a Postgres without the extension
+ * fails at migrate with SQLSTATE `0A000` before any provider is constructed —
+ * measured against a stock `postgres:17` (mt#5016). The only databases that can
+ * reach this branch are ones migrated WITH the extension that later lost it, which
+ * is a failure mode rather than a deployment shape. ADR-002 and ADR-027 carry the
+ * 2026-09-09 addenda; the decision is the principal's, via ask#11882.
+ *
+ * The message names the REMEDY, because unlike the inconclusive case there is a
+ * specific action that fixes it.
+ *
+ * **Not a duplicate of `PgvectorUnavailableError`** (`../pgvector-preflight.ts`),
+ * though both mean "pgvector is missing". They fire at different lifecycle points,
+ * against different populations, and neither can cover the other:
+ *
+ * - `PgvectorUnavailableError` guards **migration**, before the schema exists. It
+ *   is the one a fresh install hits, and it is the common case by far.
+ * - This one guards **provider construction**, on a database that was already
+ *   migrated — so the extension was present once and is not now. A fresh install
+ *   can never reach it, because migration fails first.
+ *
+ * Collapsing them would produce an error whose remedy text is wrong for one of the
+ * two situations: a fresh install needs a pgvector-capable image, an existing
+ * database needs the extension re-installed on the database it already has.
+ */
+export class VectorExtensionAbsentError extends Error {
+  constructor() {
+    super(
+      "pgvector is required and the catalog reports it is not installed on this " +
+        "database. Minsky's schema declares vector columns and HNSW indexes, and its " +
+        "first migration statement is `CREATE EXTENSION IF NOT EXISTS vector`, so a " +
+        "Postgres without the extension cannot be migrated at all. Remedy: install " +
+        "pgvector on this database (`CREATE EXTENSION vector;` as a superuser, or use " +
+        "a pgvector-capable image such as `pgvector/pgvector:pg17`), then retry. This " +
+        "is NOT retryable on its own — re-attempting will not install the extension."
+    );
+    this.name = "VectorExtensionAbsentError";
+  }
+}
+
+/**
  * A short, non-leaking description of what came back, for the error message.
  *
  * Row CONTENTS are deliberately excluded — this runs against the production

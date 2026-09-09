@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import type { PersistenceConfig } from "../types";
-import { VectorCapabilityProbeInconclusiveError } from "../vector-capability-probe";
+import {
+  VectorCapabilityProbeInconclusiveError,
+  VectorExtensionAbsentError,
+} from "../vector-capability-probe";
 import { PostgresProviderFactory } from "./postgres-provider-factory";
 import { PostgresVectorPersistenceProvider } from "./postgres-provider";
 
@@ -67,14 +70,43 @@ describe("PostgresProviderFactory capability branch", () => {
     expect(client.ended).toBe(false); // adopted by the provider, not closed here
   });
 
-  test("a readable 'absent' answer yields the base provider — not a fault", async () => {
+  // mt#5037: this test asserted the OPPOSITE until 2026-09-09 — "a readable
+  // 'absent' answer yields the base provider — not a fault". That was correct for
+  // the capability-branch design and is wrong under the prerequisite design: an
+  // absent extension is now a fault, because the schema cannot be migrated without
+  // it (mt#5016 measured SQLSTATE 0A000 on a stock postgres:17). Rewritten rather
+  // than deleted, so the inversion is visible in history.
+  test("a readable 'absent' answer is now a fault — pgvector is a prerequisite", async () => {
     const client = fakeClient([{ exists: false }]);
-    const provider = await PostgresProviderFactory.create(CONFIG, {
-      buildClient: () => client as never,
-    });
 
-    expect(provider).not.toBeInstanceOf(PostgresVectorPersistenceProvider);
-    expect(client.ended).toBe(false);
+    await expect(
+      PostgresProviderFactory.create(CONFIG, { buildClient: () => client as never })
+    ).rejects.toBeInstanceOf(VectorExtensionAbsentError);
+  });
+
+  test("'absent' is distinguishable from 'inconclusive' — different errors, different remedies", async () => {
+    // The two failures must not collapse into one: absent is a fact about the
+    // deployment and is not retryable, inconclusive is a failure to learn and IS
+    // retryable by the container. mt#3833 established the split; mt#5037 kept it
+    // while changing what both outcomes do.
+    const absentClient = fakeClient([{ exists: false }]);
+    await expect(
+      PostgresProviderFactory.create(CONFIG, { buildClient: () => absentClient as never })
+    ).rejects.not.toBeInstanceOf(VectorCapabilityProbeInconclusiveError);
+
+    const inconclusiveClient = fakeClient([{ exists: null }]);
+    await expect(
+      PostgresProviderFactory.create(CONFIG, { buildClient: () => inconclusiveClient as never })
+    ).rejects.not.toBeInstanceOf(VectorExtensionAbsentError);
+  });
+
+  test("the probed client is ended when the extension is absent, so the pool does not leak", async () => {
+    const client = fakeClient([{ exists: false }]);
+
+    await expect(
+      PostgresProviderFactory.create(CONFIG, { buildClient: () => client as never })
+    ).rejects.toBeInstanceOf(VectorExtensionAbsentError);
+    expect(client.ended).toBe(true);
   });
 
   test.each([
