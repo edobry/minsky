@@ -191,3 +191,176 @@ describe("an unmapped detector is NAMED, not silently zero (mt#4465 SC4)", () =>
     expect(judgedText.unmappedDetector).toBeUndefined();
   });
 });
+
+/**
+ * The four detectors mt#5001 added to `JUDGED_TEXT_FIELDS`.
+ *
+ * Each of the four MAPPED detectors below has a fixture built from the VERBATIM
+ * top-level key set of its own production log (read 2026-09-09), for the reason
+ * mem#1020 gives: a fixture invented from the field name alone can parse into a
+ * shape the real writer never produces, and then passes while production still
+ * reports the gap.
+ *
+ * The one exception is deliberate and named here rather than left for a reader
+ * to notice: the `stop-at-decision` case BORROWS the `stale-state-assertion`
+ * fixture. Its assertion is about the LOG NAME being absent from the map, so
+ * the record's shape is not what it tests — and the two logs agree on the only
+ * field that could matter (`final_message_tail`, present on all 10 of
+ * `stop-at-decision`'s records). Reviewer-raised on PR #3690 R2; kept as a
+ * borrow, with this sentence replacing the blanket "every fixture" claim that
+ * would otherwise be false.
+ *
+ * These assert the OUTCOME (`recoverability`) rather than which level the field
+ * lands on. That is deliberate — `hasMappedJudgedText` reads both levels, so
+ * pinning placement here would test the fixture rather than the derivation.
+ *
+ * @see mt#5001 — this change
+ * @see mt#4465 — the map and the `unmappedDetector` gap report these complete
+ */
+describe("the mt#5001 mappings: four detectors that carried text the map could not see", () => {
+  /** `stale-state-assertion` — 368 of 368 records carry `final_message_tail`. */
+  function staleStateLine(tail: string): string {
+    return JSON.stringify({
+      timestamp: "2026-09-05T15:33:52.979Z",
+      session_id: SESSION_ID,
+      source: "turn-end-stale-state-assertion-scan",
+      channel: "stop",
+      stop_hook_active: false,
+      fired: false,
+      claims: [],
+      contradicted: [],
+      resolvedCount: 0,
+      suppressionReasons: ["nomination-deps-unavailable"],
+      final_message_tail: tail,
+    });
+  }
+
+  /** `knowledge-acquisition` — 19 of 19 carry `matchedTextExcerpt`. */
+  function knowledgeAcquisitionLine(excerpt: string): string {
+    return JSON.stringify({
+      timestamp: "2026-09-06T00:52:29.767Z",
+      session_id: SESSION_ID,
+      dedupeKey: "k1",
+      // A STRING, not a number — `"1-lexical"` on all 19 production records.
+      // Reviewer-caught on PR #3690 R1: the first draft wrote `1`, which is the
+      // invented-fixture failure this file's own header warns about.
+      detectionRung: "1-lexical",
+      hadPropagation: false,
+      keywordHits: ["skill"],
+      loadedSkills: [],
+      matchedKeyword: "skill",
+      matchedSkill: "plan-task",
+      researchTools: [],
+      suppressionReasons: [],
+      matchedTextExcerpt: excerpt,
+    });
+  }
+
+  /** `causal-premise` — 1 of 1 carries `transcript_excerpt`. */
+  function causalPremiseLine(excerpt: string): string {
+    return JSON.stringify({
+      timestamp: "2026-08-30T19:47:10.988Z",
+      session_id: SESSION_ID,
+      hadSameTurnVerification: false,
+      matchedPhrases: ["because the parser"],
+      transcript_excerpt: excerpt,
+    });
+  }
+
+  /** `unwalked-task` — 149 of 150 carry `final_message_tail`. */
+  function unwalkedTaskLine(tail: string): string {
+    return JSON.stringify({
+      timestamp: "2026-09-06T00:52:29.762Z",
+      session_id: SESSION_ID,
+      source: "turn-end-unwalked-task-scan",
+      channel: "stop",
+      stop_hook_active: false,
+      unwalkedTaskIds: ["mt#5020"],
+      primaryThreadIds: ["mt#5019"],
+      suppressionReasons: [],
+      final_message_tail: tail,
+    });
+  }
+
+  const EXCERPT = "The detector was looking at this sentence when it fired.";
+
+  // `generic-matches` is the CORRECT kind here, not a stand-in. Reviewer-raised
+  // on PR #3690 R1 as possibly obscuring per-kind parsing: checked, and
+  // `stale-state-assertion` is absent from the `kind` union
+  // (`KNOWN_KIND_MEMBERSHIP`), so `deriveCalibrationLogEntries` synthesizes its
+  // entry with `GENERIC_MATCHES_KIND`. Production parses these records through
+  // exactly this branch — that missing per-kind branch is mt#5010's subject.
+  test("stale-state-assertion: final_message_tail is now RECOVERABLE, and no gap is reported", () => {
+    const records = [parsed(staleStateLine(EXCERPT), "generic-matches")];
+
+    const { judgedText } = assessClassifiability(records, "stale-state-assertion");
+
+    expect(judgedText.recoverability).toBe("recoverable");
+    expect(judgedText.recoverableRecords).toBe(1);
+    // The whole point: before mt#5001 this named itself as an unmapped gap.
+    expect(judgedText.unmappedDetector).toBeUndefined();
+    // Adoption is unchanged — this writer still does not emit the marker.
+    expect(judgedText.capturedRecords).toBe(0);
+  });
+
+  test("knowledge-acquisition: matchedTextExcerpt is now RECOVERABLE", () => {
+    const records = [parsed(knowledgeAcquisitionLine(EXCERPT), "knowledge-acquisition")];
+
+    const { judgedText } = assessClassifiability(records, "knowledge-acquisition");
+
+    expect(judgedText.recoverability).toBe("recoverable");
+    expect(judgedText.unmappedDetector).toBeUndefined();
+  });
+
+  test("causal-premise: transcript_excerpt maps per DETECTOR, not per field name", () => {
+    // `transcript_excerpt` was already mapped — for `retrospective-trigger`.
+    // The map is keyed by detector, so that entry did nothing for this one.
+    const records = [parsed(causalPremiseLine(EXCERPT), "causal-premise")];
+
+    const { judgedText } = assessClassifiability(records, "causal-premise");
+
+    expect(judgedText.recoverability).toBe("recoverable");
+    expect(judgedText.unmappedDetector).toBeUndefined();
+  });
+
+  test("unwalked-task: a log that is 149-of-150 populated reports PARTIAL, not recoverable", () => {
+    // Mirrors the real population: one record genuinely lacks the field, so the
+    // honest verdict is `partial` with the count bounded to what can be re-read.
+    const records = [
+      parsed(unwalkedTaskLine(EXCERPT), "unwalked-task"),
+      parsed(unwalkedTaskLine(""), "unwalked-task"),
+    ];
+
+    const { judgedText } = assessClassifiability(records, "unwalked-task");
+
+    expect(judgedText.recoverability).toBe("partial");
+    expect(judgedText.recoverableRecords).toBe(1);
+    expect(judgedText.recordsAssessed).toBe(2);
+    expect(judgedText.unmappedDetector).toBeUndefined();
+  });
+
+  test("negative control: a newly-mapped detector with the field EMPTY is still unrecoverable", () => {
+    // Adding an entry must not make a log unconditionally optimistic — the
+    // mt#3607 bar applies to the new mappings exactly as to the original four.
+    const records = [parsed(staleStateLine(""), "generic-matches")];
+
+    const { judgedText } = assessClassifiability(records, "stale-state-assertion");
+
+    expect(judgedText.recoverability).toBe("unrecoverable");
+    expect(judgedText.recoverableRecords).toBe(0);
+    // Mapped now, so this is a real "the text is gone" rather than a map gap.
+    expect(judgedText.unmappedDetector).toBeUndefined();
+  });
+
+  test("stop-at-decision stays UNMAPPED deliberately, and still names itself", () => {
+    // Its records DO carry `final_message_tail` (10 of 10), but the detector was
+    // retired by mt#4978 and will never write another. Left unmapped on purpose;
+    // this pins that decision so a future reader does not "fix" it silently.
+    const records = [parsed(staleStateLine(EXCERPT), "generic-matches")];
+
+    const { judgedText } = assessClassifiability(records, "stop-at-decision");
+
+    expect(judgedText.recoverability).toBe("unrecoverable");
+    expect(judgedText.unmappedDetector).toBe("stop-at-decision");
+  });
+});

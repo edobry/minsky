@@ -2377,6 +2377,38 @@ const JUDGED_TEXT_FIELDS: ReadonlyMap<string, readonly string[]> = new Map([
   // element" was satisfied by the matcher's own pattern rather than by the
   // judged text. Caught by this task's own SC3 test.
   ["negative-existence-claim", ["claims[].excerpt"]],
+  // Added mt#5001. Each verified over the log's WHOLE population before being
+  // mapped, not from a sampled record — the `negative-existence-claim` comment
+  // above is why: a field can look populated on one record and be empty on the
+  // rest. Counts measured 2026-09-09, and they are a SNAPSHOT of live logs that
+  // keep growing — `stale-state-assertion` read 367 during this task's planning
+  // pass and 368 at implementation, minutes apart. What the mapping depends on
+  // is the RATIO, not the absolute: re-measure rather than treating a later
+  // total as a contradiction. (Reviewer-raised on PR #3690 R1.)
+  //
+  //   stale-state-assertion   final_message_tail    368 / 368  -> recoverable
+  //   knowledge-acquisition   matchedTextExcerpt      19 / 19   -> recoverable
+  //   causal-premise          transcript_excerpt       1 / 1    -> recoverable
+  //   unwalked-task           final_message_tail     149 / 150  -> partial
+  //
+  // `unwalked-task` is deliberately mapped despite the one record that lacks
+  // the field: `partial` is its own answer (see `assessJudgedText`), and 149
+  // rateable records is the difference between a log a reviewer can disposition
+  // and one the skill tells them to HOLD.
+  //
+  // `causal-premise` needs its own entry even though `transcript_excerpt` is
+  // already mapped above — this map is keyed by DETECTOR, so a shared field
+  // name does not carry over.
+  ["stale-state-assertion", ["final_message_tail"]],
+  ["knowledge-acquisition", ["matchedTextExcerpt"]],
+  ["causal-premise", ["transcript_excerpt"]],
+  ["unwalked-task", ["final_message_tail"]],
+  // NOT mapped, deliberately: `stop-at-decision` carries `final_message_tail`
+  // on all 10 of its records, but the detector was RETIRED by mt#4978 (per
+  // ask#11629, 2026-09-04) and its log is retained only as that retirement's
+  // own evidence. It will never write another record, so an entry here would
+  // buy nothing. This is the "record why not" branch of mt#5001 SC3 rather
+  // than an oversight.
 ]);
 
 /**
