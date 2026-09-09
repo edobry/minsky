@@ -1,4 +1,4 @@
-import { execSync as defaultExecSync } from "child_process";
+import { execFileSync as defaultExecFileSync } from "child_process";
 import { getErrorMessage, ValidationError } from "../errors/index";
 import { isInsideGitWorkTree } from "../utils/git-exec";
 import { parseGitHubOwnerRepo } from "../uri-utils";
@@ -15,10 +15,23 @@ import type { SessionProviderInterface, SessionRecord } from "./types";
  * Dependencies for repository backend detection, injectable for testing
  */
 export interface RepositoryBackendDetectionDeps {
-  execSync: (
-    cmd: string,
-    // `stdio: "pipe"` captures the child's stderr instead of inheriting it, so
-    // probe failures don't leak `fatal: not a git repository` to the user (mt#1428)
+  /**
+   * Run `git` with an ARGV array — never a shell command string (mt#5015).
+   *
+   * Renamed from `execSync` and re-shaped when PR #3684 R1 flagged the
+   * inconsistency: this module had four `execSync("git remote get-url origin")`
+   * calls sitting beside the argv-based `execFileSync` that the same change
+   * introduced in `init/git-remote.ts`. Those four carried no live injection
+   * vector — the command was a constant with nothing interpolated — so this is
+   * defense in depth rather than a fix for an exploitable hole. It is still
+   * worth doing: a shell-string call is an invitation to interpolate into it
+   * later, which is exactly how mt#1674's class arises.
+   *
+   * `stdio: "pipe"` captures the child's stderr instead of inheriting it, so
+   * probe failures don't leak `fatal: not a git repository` to the user (mt#1428).
+   */
+  execGit: (
+    args: string[],
     opts?: { cwd?: string; encoding?: string; stdio?: "pipe" }
   ) => string | Buffer;
   getConfiguration?: () => object;
@@ -26,8 +39,12 @@ export interface RepositoryBackendDetectionDeps {
   isInsideGitWorkTree?: (dir: string) => boolean;
 }
 
+/** The one git invocation this module makes, as argv. */
+const GIT_REMOTE_GET_URL_ORIGIN = ["remote", "get-url", "origin"];
+
 const defaultDeps: RepositoryBackendDetectionDeps = {
-  execSync: defaultExecSync as RepositoryBackendDetectionDeps["execSync"],
+  execGit: ((args, opts) =>
+    defaultExecFileSync("git", args, opts as never)) as RepositoryBackendDetectionDeps["execGit"],
 };
 
 /**
@@ -55,7 +72,7 @@ export function isGitHubRemoteUrl(remoteUrl: string): boolean {
  * not yet implemented and will throw when the factory is called.
  */
 export function detectRepositoryBackendTypeFromUrl(repoUrl: string): RepositoryBackendType {
-  if (repoUrl.includes("github.com")) {
+  if (isGitHubRemoteUrl(repoUrl)) {
     return RepositoryBackendType.GITHUB;
   }
 
@@ -84,7 +101,7 @@ export function detectRepositoryBackendType(
 ): RepositoryBackendType {
   try {
     const remoteUrl = deps
-      .execSync("git remote get-url origin", {
+      .execGit(GIT_REMOTE_GET_URL_ORIGIN, {
         cwd: workdir,
         encoding: "utf8",
         stdio: "pipe",
@@ -92,7 +109,7 @@ export function detectRepositoryBackendType(
       .toString()
       .trim();
 
-    if (remoteUrl.includes("github.com")) {
+    if (isGitHubRemoteUrl(remoteUrl)) {
       return RepositoryBackendType.GITHUB;
     }
 
@@ -178,7 +195,7 @@ export async function resolveRepositoryAndBackend(
     let remoteUrl: string;
     try {
       remoteUrl = deps
-        .execSync("git remote get-url origin", { cwd, encoding: "utf8", stdio: "pipe" })
+        .execGit(GIT_REMOTE_GET_URL_ORIGIN, { cwd, encoding: "utf8", stdio: "pipe" })
         .toString()
         .trim();
     } catch (error) {
@@ -188,6 +205,20 @@ export async function resolveRepositoryAndBackend(
           `'git remote add origin git@github.com:<owner>/<repo>.git' — then retry. ` +
           `Creating and tracking tasks works without a remote; sessions, PRs and review do not. ` +
           `(git: ${getErrorMessage(error)})`
+      );
+    }
+
+    // PR #3684 R1: an empty result is "no remote", not "a remote that is not
+    // GitHub". Without this it fell through to the branch below and produced
+    // `'origin' is ` with nothing after it, then told the user to re-point a
+    // remote they do not have. `readOriginRemote` (init's helper) already
+    // normalises the same way; this keeps the two paths agreeing.
+    if (remoteUrl.length === 0) {
+      throw new ValidationError(
+        `Minsky sessions need a GitHub remote, but this repository's 'origin' resolved to an ` +
+          `empty URL (cwd: ${cwd}). Set it to a GitHub repository — ` +
+          `'git remote set-url origin git@github.com:<owner>/<repo>.git' — then retry. ` +
+          `Creating and tracking tasks works without this; sessions, PRs and review do not.`
       );
     }
 
@@ -302,7 +333,7 @@ export async function createRepositoryBackendForSession(
 
   try {
     const remoteUrl = deps
-      .execSync("git remote get-url origin", {
+      .execGit(GIT_REMOTE_GET_URL_ORIGIN, {
         cwd: workdir,
         encoding: "utf8",
         stdio: "pipe",
@@ -355,7 +386,7 @@ export function resolveRepositoryFromGitRemote(
 ): ResolvedRepositoryConfig {
   try {
     const url = deps
-      .execSync("git remote get-url origin", {
+      .execGit(GIT_REMOTE_GET_URL_ORIGIN, {
         cwd,
         encoding: "utf8",
         stdio: "pipe",
@@ -363,7 +394,7 @@ export function resolveRepositoryFromGitRemote(
       .toString()
       .trim();
 
-    if (url.includes("github.com")) {
+    if (isGitHubRemoteUrl(url)) {
       const githubInfo = extractGitHubInfoFromUrl(url);
       const result: ResolvedRepositoryConfig = { backend: "github", url };
       if (githubInfo) {

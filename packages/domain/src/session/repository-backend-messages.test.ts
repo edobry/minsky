@@ -18,7 +18,7 @@ const GITHUB_ORIGIN = "git@github.com:edobry/minsky.git";
 function depsWithRemote(remoteUrl: string, defaultBackend = "github") {
   return {
     isInsideGitWorkTree: () => true,
-    execSync: () => remoteUrl,
+    execGit: () => remoteUrl,
     getConfiguration: () => ({ repository: { default_repo_backend: defaultBackend } }),
   } as never;
 }
@@ -27,7 +27,7 @@ function depsWithRemote(remoteUrl: string, defaultBackend = "github") {
 function depsWithNoRemote() {
   return {
     isInsideGitWorkTree: () => true,
-    execSync: () => {
+    execGit: () => {
       throw new Error("fatal: No such remote 'origin'");
     },
     getConfiguration: () => ({ repository: { default_repo_backend: "github" } }),

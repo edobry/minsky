@@ -6,11 +6,16 @@ import { RepositoryBackendType } from "../repository";
 
 describe("resolveRepositoryAndBackend with repository.default_repo_backend=github", () => {
   const deps: RepositoryBackendDetectionDeps = {
-    execSync: (cmd: string, _opts?: any) => {
-      if (cmd.includes("git remote get-url origin")) {
+    // `execGit` takes ARGV now (mt#5015 / PR #3684 R1), so these match on the
+    // joined form rather than an exact array element — `cmd.includes("git remote
+    // get-url origin")` on `["remote","get-url","origin"]` is an element test and
+    // silently never matched, falling through to the empty return.
+    execGit: (cmd: string[], _opts?: any) => {
+      const command = cmd.join(" ");
+      if (command === "remote get-url origin") {
         return Buffer.from("https://github.com/edobry/minsky.git");
       }
-      if (cmd.includes("git rev-parse --show-toplevel")) {
+      if (command === "rev-parse --show-toplevel") {
         return Buffer.from("/tmp/repo");
       }
       return Buffer.from("");

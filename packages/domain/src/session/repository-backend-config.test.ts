@@ -22,14 +22,16 @@ import {
 // ─── Shared mutable state for mock control ───────────────────────────────────
 
 // Controls what execSync returns in each test
-let execSyncImpl: (cmd: string, opts?: any) => string | Buffer = (_cmd, _opts) => Buffer.from("");
+// Takes ARGV since mt#5015 / PR #3684 R1 re-shaped the dep; the impls below
+// ignore it, but the type must match what `execGit` actually receives.
+let execSyncImpl: (cmd: string[], opts?: any) => string | Buffer = (_cmd, _opts) => Buffer.from("");
 
 // Controls what getConfiguration returns in each test
 let configurationImpl: () => object = () => ({});
 
 function makeDeps(): RepositoryBackendDetectionDeps {
   return {
-    execSync: (cmd: string, opts?: any) => execSyncImpl(cmd, opts),
+    execGit: (cmd: string[], opts?: any) => execSyncImpl(cmd, opts),
     getConfiguration: () => configurationImpl(),
   };
 }
@@ -39,7 +41,7 @@ function makeDeps(): RepositoryBackendDetectionDeps {
 describe("resolveRepositoryFromGitRemote", () => {
   describe("GitHub remote", () => {
     beforeEach(() => {
-      execSyncImpl = (_cmd: string, _opts?: any) =>
+      execSyncImpl = (_cmd: string[], _opts?: any) =>
         Buffer.from("https://github.com/edobry/minsky.git\n");
     });
 
@@ -54,7 +56,7 @@ describe("resolveRepositoryFromGitRemote", () => {
 
   describe("no remote (execSync throws)", () => {
     beforeEach(() => {
-      execSyncImpl = (_cmd: string, _opts?: any) => {
+      execSyncImpl = (_cmd: string[], _opts?: any) => {
         throw new Error("fatal: not a git repository");
       };
     });
@@ -69,7 +71,7 @@ describe("resolveRepositoryFromGitRemote", () => {
 
   describe("GitLab remote", () => {
     beforeEach(() => {
-      execSyncImpl = (_cmd: string, _opts?: any) =>
+      execSyncImpl = (_cmd: string[], _opts?: any) =>
         Buffer.from("https://gitlab.com/someorg/somerepo.git\n");
     });
 
@@ -95,7 +97,7 @@ describe("getRepositoryBackendFromConfig", () => {
         },
       });
       // execSync should not be called in this path
-      execSyncImpl = (_cmd: string, _opts?: any) => {
+      execSyncImpl = (_cmd: string[], _opts?: any) => {
         throw new Error("execSync should not be called when config has repository.backend");
       };
     });
@@ -115,8 +117,9 @@ describe("getRepositoryBackendFromConfig", () => {
       configurationImpl = () => ({});
       // Auto-detection falls back to resolveRepositoryAndBackend which calls execSync
       // The default_repo_backend is "github", so it will try to get a GitHub remote
-      execSyncImpl = (cmd: string, _opts?: any) => {
-        if (cmd.includes("git remote get-url origin")) {
+      execSyncImpl = (cmd: string[], _opts?: any) => {
+        // argv since PR #3684 R1 — match the joined form, not an element.
+        if (cmd.join(" ") === "remote get-url origin") {
           return Buffer.from("https://github.com/edobry/minsky.git\n");
         }
         return Buffer.from("");
