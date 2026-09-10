@@ -79,12 +79,6 @@ const KNOWN_BAKED_DIRNAMES: ReadonlyArray<{ pkg: string; disposition: string }> 
       "which is the most likely of the four to fire if reached. Reachability UNESTABLISHED. " +
       "Tracked at mt#5067.",
   },
-  {
-    pkg: "@pnpm/tabtab/lib",
-    disposition:
-      "Transitive; same constraint. Drives shell-completion install and reads its own lib paths. " +
-      "Reachability UNESTABLISHED. Tracked at mt#5067.",
-  },
 ];
 
 /**

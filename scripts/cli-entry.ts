@@ -150,6 +150,17 @@ export function bunBuildArgs(opts?: {
     // is what caught the package.json-only version of this change.
     "--external",
     "tiktoken",
+    // mt#5063 / PR #3706 R2. Same defect, same remedy, caught by the reviewer
+    // correcting a factual error: this was registered as "transitive" and is a
+    // DECLARED dependency (`@pnpm/tabtab: ^0.5.4`), so it is externalisable on
+    // exactly tiktoken's reasoning. It drives shell-completion install and reads
+    // its own lib paths through `__dirname`, so leaving it baked left a real
+    // runtime lookup pinned to the build host.
+    //
+    // The remaining three (typescript, rollup, esbuild) genuinely are transitive
+    // and stay registered — see mt#5067.
+    "--external",
+    "@pnpm/tabtab",
     sourceEntry,
   ];
 }
