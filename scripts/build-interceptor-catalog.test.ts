@@ -9,7 +9,13 @@
  *      rather than hard-coded, so it stays true as the corpus grows.
  */
 import { describe, test, expect } from "bun:test";
-import { buildCatalog, collectOracleNames, type CatalogSources } from "./build-interceptor-catalog";
+import {
+  buildCatalog,
+  buildResolveInput,
+  collectOracleNames,
+  type CatalogSources,
+} from "./build-interceptor-catalog";
+import { STANDALONE_GUARD_CANARIES } from "./lib/standalone-guard-canaries";
 import {
   INTERCEPTOR_DESCRIPTIONS,
   resolveCatalogEntry,
@@ -116,21 +122,16 @@ describe("buildCatalog — population is the UNION of both declarations", () => 
 });
 
 describe("the real corpus", () => {
+  // mt#5072: `buildResolveInput()` rather than a hand-built copy of it. This
+  // block used to reconstruct the resolver input inline, which made it a
+  // DUPLICATE of the generator's own construction — so it asserted a catalog
+  // the generator does not produce. It went stale the moment a second canary
+  // declaration surface was added: the inline copy still reported 93 canary
+  // gaps while the real generator reported 81.
   const real = buildCatalog({
     oracleNames: collectOracleNames(),
     describedNames: new Set(INTERCEPTOR_DESCRIPTIONS.keys()),
-    input: {
-      registryFacts: new Map(
-        GUARD_REGISTRY.map((r) => [
-          r.name,
-          {
-            tuningOwnership: r.tuningOwnership,
-            hasAttentionCost: r.attentionCost !== undefined,
-            hasCanary: r.canary !== undefined,
-          },
-        ])
-      ),
-    },
+    input: buildResolveInput(),
     coordinateInput: buildCoordinateResolutionInput(),
   });
 
@@ -330,5 +331,61 @@ describe("the real corpus", () => {
         ).toBe(true);
       }
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#5072 — canary coverage counts BOTH declaration surfaces
+  // -------------------------------------------------------------------------
+
+  describe("canary coverage counts both declaration surfaces (mt#5072)", () => {
+    const byName = new Map(real.entries.map((e) => [e.guardName, e]));
+
+    // The load-bearing assertion, and deliberately an INVARIANT rather than a
+    // number. The population drifts constantly — 149 -> 154 entries in 16 days,
+    // with the false-gap set itself changing membership as guards are added and
+    // retired — so "the count is 81" would go stale on the next merge while this
+    // stays true for any corpus.
+    test("no guard with a declared standalone canary is reported as canary-gapped", () => {
+      const declared = STANDALONE_GUARD_CANARIES.map((c) => c.guardName);
+      expect(declared.length).toBeGreaterThan(0);
+
+      const wronglyGapped = declared.filter((name) =>
+        byName.get(name)?.coverageGaps.includes("canary")
+      );
+      expect(wronglyGapped).toEqual([]);
+    });
+
+    test("every declared standalone canary names a real catalog entity", () => {
+      // Guards the other direction: a canary declared for a name the catalog
+      // does not carry would make the assertion above vacuously true.
+      const missing = STANDALONE_GUARD_CANARIES.map((c) => c.guardName).filter(
+        (name) => !byName.has(name)
+      );
+      expect(missing).toEqual([]);
+    });
+
+    test("a standalone canary does NOT make the guard look registered", () => {
+      // The trap this fix had to avoid. Injecting these names into
+      // `registryFacts` would clear the canary gap and also flip `registered`
+      // to true, because `resolveCatalogEntry` derives it from the presence of
+      // that map entry. A standalone guard has no `GuardRegistration`, so
+      // `registered` must stay false — and nothing else in the corpus compares
+      // that field, which is what would have made the corruption silent.
+      for (const { guardName } of STANDALONE_GUARD_CANARIES) {
+        const entry = byName.get(guardName);
+        if (entry === undefined || GUARD_REGISTRY.some((r) => r.name === guardName)) continue;
+        expect(entry.registered).toBe(false);
+      }
+    });
+
+    test("clearing the canary gap leaves the other two coverage gaps alone", () => {
+      // A standalone guard has no registry entry at all, so it genuinely lacks
+      // `tuningOwnership` and `attentionCost`. Only the canary claim changed.
+      for (const { guardName } of STANDALONE_GUARD_CANARIES) {
+        const entry = byName.get(guardName);
+        if (entry === undefined || GUARD_REGISTRY.some((r) => r.name === guardName)) continue;
+        expect([...entry.coverageGaps].sort()).toEqual(["attentionCost", "tuningOwnership"]);
+      }
+    });
   });
 });

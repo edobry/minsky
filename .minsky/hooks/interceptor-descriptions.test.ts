@@ -302,11 +302,62 @@ describe("SC2 — the failure-class taxonomy", () => {
 describe("SC3 — coverage gaps are content, not omissions", () => {
   test("an unregistered entity surfaces all three registry fields as gaps", () => {
     // A standalone hook: real enforcement point, no GuardRegistration.
+    // No `standaloneCanaryNames` supplied, which is also the back-compat case:
+    // absent means "no standalone canaries known", i.e. pre-mt#5072 behaviour.
     const entry = resolveCatalogEntry(SAMPLE_STANDALONE_HOOK, buildInput());
 
     expect(entry.undescribed).toBe(false);
     expect(entry.registered).toBe(false);
     expect(entry.coverageGaps).toEqual(["tuningOwnership", "attentionCost", "canary"]);
+  });
+
+  describe("standaloneCanaryNames — the second canary declaration surface (mt#5072)", () => {
+    test("an unregistered entity with a standalone canary loses ONLY the canary gap", () => {
+      const entry = resolveCatalogEntry(SAMPLE_STANDALONE_HOOK, {
+        ...buildInput(),
+        standaloneCanaryNames: new Set([SAMPLE_STANDALONE_HOOK]),
+      });
+
+      expect(entry.coverageGaps).toEqual(["tuningOwnership", "attentionCost"]);
+    });
+
+    test("...and is still NOT reported as registered", () => {
+      // The whole reason this is a separate input rather than a synthetic
+      // `registryFacts` entry: `registered` is derived from that map's
+      // presence, so injecting there would silently assert a
+      // `GuardRegistration` that does not exist.
+      const entry = resolveCatalogEntry(SAMPLE_STANDALONE_HOOK, {
+        ...buildInput(),
+        standaloneCanaryNames: new Set([SAMPLE_STANDALONE_HOOK]),
+      });
+
+      expect(entry.registered).toBe(false);
+    });
+
+    test("a name absent from the set keeps its canary gap", () => {
+      // The discriminating case: the set must be consulted per-name, not
+      // treated as a global "standalone canaries exist" flag.
+      const entry = resolveCatalogEntry(SAMPLE_STANDALONE_HOOK, {
+        ...buildInput(),
+        standaloneCanaryNames: new Set(["some-other-guard-entirely"]),
+      });
+
+      expect(entry.coverageGaps).toContain("canary");
+    });
+
+    test("an unknown name with a standalone canary still reports the other two gaps", () => {
+      // `resolveCatalogEntry` never returns undefined; a name that exists
+      // nowhere else must not become gap-free just because a canary is declared.
+      const unknownName = "a-name-that-exists-nowhere";
+      const entry = resolveCatalogEntry(unknownName, {
+        ...buildInput(),
+        standaloneCanaryNames: new Set([unknownName]),
+      });
+
+      expect(entry.undescribed).toBe(true);
+      expect(entry.registered).toBe(false);
+      expect(entry.coverageGaps).toEqual(["tuningOwnership", "attentionCost"]);
+    });
   });
 
   test("a registered entity missing attentionCost/canary surfaces only those", () => {
