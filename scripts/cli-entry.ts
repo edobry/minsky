@@ -129,6 +129,38 @@ export function bunBuildArgs(opts?: {
     entryName,
     "--sourcemap=external",
     "--minify",
+    // mt#5063. NOT a flag-choice tweak — it is load-bearing for the published
+    // artifact. `bun build` replaces `__dirname` in bundled CJS with a
+    // build-time string literal, and tiktoken resolves `tiktoken_bg.wasm`
+    // through `__dirname` plus an ancestor walk rooted at it. Bundled, every
+    // candidate pointed at the BUILD machine — the published 0.2.0 carried
+    // `/home/runner/work/minsky/minsky/node_modules/tiktoken` — so
+    // `minsky --help` exited 1 with `Missing tiktoken_bg.wasm` for every user.
+    //
+    // Externalising is bun's documented mechanism ("the bundler leaves the
+    // import statement as-is, to be resolved at runtime") and is only safe
+    // because tiktoken is a DECLARED dependency, so it is installed alongside
+    // the package. Do not extend this to a transitive package without
+    // declaring it first — see mt#5067.
+    //
+    // It lives here rather than in package.json because this function is the
+    // canonical invocation for all three build sites, the Dockerfile included;
+    // fixing only the npm script would leave the container build shipping the
+    // defect. `scripts/check-bun-build-sync.ts` is what enforces that, and it
+    // is what caught the package.json-only version of this change.
+    "--external",
+    "tiktoken",
+    // mt#5063 / PR #3706 R2. Same defect, same remedy, caught by the reviewer
+    // correcting a factual error: this was registered as "transitive" and is a
+    // DECLARED dependency (`@pnpm/tabtab: ^0.5.4`), so it is externalisable on
+    // exactly tiktoken's reasoning. It drives shell-completion install and reads
+    // its own lib paths through `__dirname`, so leaving it baked left a real
+    // runtime lookup pinned to the build host.
+    //
+    // The remaining three (typescript, rollup, esbuild) genuinely are transitive
+    // and stay registered — see mt#5067.
+    "--external",
+    "@pnpm/tabtab",
     sourceEntry,
   ];
 }

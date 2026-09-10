@@ -169,8 +169,27 @@ EXPOSE 3000
 # the RUN line below — change bunBuildArgs() and rerun the generator;
 # pre-commit does this automatically and re-stages the result (mt#3091,
 # mirroring the mt#2621 workspace-COPY-block pattern).
-RUN bun build --target=bun --outdir=dist --entry-naming minsky.js --sourcemap=external --minify src/cli.ts
+RUN bun build --target=bun --outdir=dist --entry-naming minsky.js --sourcemap=external --minify --external tiktoken --external @pnpm/tabtab src/cli.ts
 # === END GENERATED: bun build invocation ===
+
+# mt#5063 — the container build calls `bun build` DIRECTLY, so it never runs
+# `package.json`'s `build` script and never picked up the portability guard
+# wired in there. That is exactly the gap PR #3706 R1 flagged: the image is a
+# published artifact too, and the defect this guards (a `__dirname` baked to the
+# BUILD host, breaking a runtime asset lookup for everyone) would ship here
+# unchecked while the npm path was covered.
+#
+# Fails the image build rather than warning: a bundle pinned to the builder's
+# filesystem is not a degraded image, it is a broken one.
+#
+# Copying the ONE file rather than `scripts/` wholesale: this stage deliberately
+# copies a minimal set (manifests, tsconfigs, packages/*/src, src), and pulling
+# the whole directory in would widen the build context and invalidate the layer
+# on every unrelated script edit. The first version of this omitted the COPY
+# entirely and failed `docker-build-smoke` with `Module not found` — the check
+# is only worth having if the image build can actually run it.
+COPY scripts/verify-bundle-portability.ts ./scripts/verify-bundle-portability.ts
+RUN bun scripts/verify-bundle-portability.ts
 
 # mt#1767 — copy Drizzle migrations next to the bundle so the bundled
 # `postgres-provider.ts`'s `resolveMigrationsFolder()` can find them via the

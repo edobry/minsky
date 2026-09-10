@@ -37,7 +37,7 @@
   ],
   "scripts": {
     "start": "bun run src/cli.ts",
-    "build": "rm -rf dist && bun run build:completion-manifest && bun run build:interceptor-catalog && bun build --target=bun --outdir=dist --entry-naming minsky.js --sourcemap=external --minify src/cli.ts && bun run build:mcp-shim && bun run build:copy-migrations && bun run build:copy-rule-corpus && bun run build:copy-hooks && bun run cockpit:build && bun run build:copy-cockpit-web",
+    "build": "rm -rf dist && bun run build:completion-manifest && bun run build:interceptor-catalog && bun build --target=bun --outdir=dist --entry-naming minsky.js --sourcemap=external --minify --external tiktoken --external @pnpm/tabtab src/cli.ts && bun run verify:bundle-portability && bun run build:mcp-shim && bun run build:copy-migrations && bun run build:copy-rule-corpus && bun run build:copy-hooks && bun run cockpit:build && bun run build:copy-cockpit-web",
     "build:mcp-shim": "bun build --target=bun --outdir=dist --entry-naming mcp-shim.js --sourcemap=external --minify src/mcp/shim/entry.ts",
     "build:completion-manifest": "bun run scripts/build-completion-manifest.ts",
     "build:interceptor-catalog": "bun run scripts/build-interceptor-catalog.ts",
@@ -104,7 +104,8 @@
     "db:generate:bootstrap-snapshot": "bun scripts/generate-bootstrap-snapshot.ts",
     "db:migrate": "bun src/cli.ts persistence migrate --dry-run",
     "db:migrate:apply": "bun src/cli.ts persistence migrate --execute",
-    "cockpit:build": "vite build"
+    "cockpit:build": "vite build",
+    "verify:bundle-portability": "bun scripts/verify-bundle-portability.ts"
   },
   "bin": {
     "minsky": "./scripts/cli-entry.ts"
