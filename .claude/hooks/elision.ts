@@ -66,9 +66,25 @@ export function elideQuotedContexts(text: string): string {
  */
 const MAX_QUOTED_SPAN_NEWLINES = 3;
 
+/**
+ * Every line-break encoding, so the budget counts BREAKS rather than `\n`
+ * characters. `\r\n` must come first — alternation is ordered, and putting
+ * `\r` first would score a CRLF break as two.
+ *
+ * PR #3705 R1 flagged this line for CRLF. Measured, CRLF was already correct:
+ * `\r\n` CONTAINS a `\n`, so a `/\n/g` count scored it as one break exactly
+ * like LF, and the budget bit identically on both (2/4/6 breaks → elided /
+ * not / not, for either encoding). The finding named the right line for the
+ * wrong reason — and one case over there was a real hole: a LONE `\r`, the
+ * classic-Mac ending, contains no `\n` at all, so a span broken six times
+ * scored ZERO and sailed past a cap of three. Counting breaks closes that and
+ * leaves CRLF and LF untouched.
+ */
+const LINE_BREAK = /\r\n|\r|\n/g;
+
 /** True when a candidate span is within the line-crossing budget above. */
 function withinLineBudget(span: string): boolean {
-  return (span.match(/\n/g)?.length ?? 0) <= MAX_QUOTED_SPAN_NEWLINES;
+  return (span.match(LINE_BREAK)?.length ?? 0) <= MAX_QUOTED_SPAN_NEWLINES;
 }
 
 /**

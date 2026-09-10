@@ -173,6 +173,41 @@ describe("a quoted span may cross a line break (mt#5056)", () => {
     expect(residual).not.toMatch(/two/);
   });
 
+  describe("the budget counts BREAKS, in every encoding (PR #3705 R1)", () => {
+    /** A quotation broken `joins` times with the given line-break sequence. */
+    const quoted = (br: string, joins: number) =>
+      `"a${Array(joins + 1)
+        .fill("b")
+        .join(br)}c"`;
+
+    test.each([
+      ["LF", "\n"],
+      ["CRLF", "\r\n"],
+      ["CR", "\r"],
+    ])("%s: within budget is elided, past it is left alone", (_label, br: string) => {
+      const ok = quoted(br, 2);
+      const tooMany = quoted(br, 6);
+      expect(ok.length).toBeLessThan(200);
+      expect(tooMany.length).toBeLessThan(200);
+      // Within the budget: blanked, and same-length so offsets stay valid.
+      expect(elideDoubleQuotedSpans(ok)).not.toBe(ok);
+      expect(elideDoubleQuotedSpans(ok)).toHaveLength(ok.length);
+      // Past it: untouched, even though the character cap would have allowed it.
+      expect(elideDoubleQuotedSpans(tooMany)).toBe(tooMany);
+    });
+
+    test("CR is the case a `\\n` count could not see", () => {
+      // Regression pin for the actual hole R1's line pointed at. A lone `\r`
+      // contains no `\n`, so counting `\n` scored six breaks as zero and elided
+      // a span the cap should have refused. CRLF never had this problem — it
+      // contains a `\n` — which is why this test names CR specifically.
+      const sixCrBreaks = quoted("\r", 6);
+      expect((sixCrBreaks.match(/\n/g) ?? []).length).toBe(0);
+      expect((sixCrBreaks.match(/\r\n|\r|\n/g) ?? []).length).toBe(6);
+      expect(elideDoubleQuotedSpans(sixCrBreaks)).toBe(sixCrBreaks);
+    });
+  });
+
   test("the 200-character cap is unchanged", () => {
     const long = `"${"x".repeat(250)}"`;
     expect(elideDoubleQuotedSpans(long)).toBe(long);
