@@ -1357,6 +1357,39 @@ export function hasSuppressionOutcome(record: CalibrationRecord): boolean {
  * exclude for those kinds, and this predicate returns `false` for them
  * unconditionally rather than guessing at a shape they don't have.
  */
+/**
+ * Whether a log's un-reviewed records should be SURFACED to a reviewer (mt#5047).
+ *
+ * One definition, two callers: `computeLogResult` uses it to decide whether to
+ * populate `newRecords`, and the text renderer in
+ * `src/adapters/shared/commands/calibration.ts` uses it to decide whether to
+ * print them. **They must agree, and hand-mirroring them has now failed twice.**
+ *
+ * mt#4049 widened the producer's gate to include `allSuppressed` and left the
+ * renderer on `atCountThreshold` alone; the renderer's own comment records the
+ * reviewer catching it — *"the producer-side gate was widened and this consumer
+ * was not."* mt#4970 then widened the producer again, `allSuppressed` →
+ * `allWithheld`, and the renderer was left behind a SECOND time. The failure
+ * mode is identical each time and silent in the same way: the sweep routes a log
+ * for review, the renderer drops its records, and the reviewer is told to judge
+ * something and shown nothing.
+ *
+ * A shared predicate is the fix that ends the class rather than the instance.
+ * The next column added to the withheld union changes this function, and both
+ * consumers move with it because neither restates the condition.
+ *
+ * Note it reads `allWithheld`, not `allSuppressed` — the union of "suppressed"
+ * and "log-only family". A log whose entire volume is log-only has
+ * `allSuppressed === false` and `allWithheld === true`, and its records are
+ * exactly what its review question needs.
+ */
+export function shouldSurfaceRecords(result: {
+  atCountThreshold: boolean;
+  allWithheld: boolean;
+}): boolean {
+  return result.atCountThreshold || result.allWithheld;
+}
+
 export function isEvaluationOnlyRecord(record: CalibrationRecord): boolean {
   return "matches" in record && record.matches.length === 0;
 }
@@ -2114,7 +2147,11 @@ export function computeLogResult(
     // behavior for every log without a log-only family, and it keeps a log whose
     // only volume is log-only from falling through both gates with its records
     // hidden.
-    newRecords: atCountThreshold || allWithheld ? newRecords : [],
+    // mt#5047: the condition itself moved to `shouldSurfaceRecords` so the text
+    // renderer reads the SAME predicate instead of restating it. See that
+    // function for why — this gate has been widened twice and the renderer left
+    // behind both times.
+    newRecords: shouldSurfaceRecords({ atCountThreshold, allWithheld }) ? newRecords : [],
     watermarkCount,
     watermarkStranded,
     openAskId: watermark?.openAskId,
