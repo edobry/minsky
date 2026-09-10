@@ -29,11 +29,25 @@
 import type { PrFile } from "./require-execution-evidence-before-merge";
 import {
   DEPLOY_SURFACE_PATTERNS,
+  findAffectedServices,
   isDeploySurfaceFile,
   isLocalAppDeploySurfaceFile,
 } from "../../packages/domain/src/deployment/deploy-surface";
+import { listServicesWithDeployConfig } from "../../packages/domain/src/deployment/service-resolver";
 
-export { DEPLOY_SURFACE_PATTERNS, isDeploySurfaceFile, isLocalAppDeploySurfaceFile };
+// mt#5002: `findAffectedServices` and `listServicesWithDeployConfig` are re-exported
+// so the post-merge reminder can NAME the services a merge affects rather than
+// leaving the agent to pick one. `isDeploySurfaceFile` answers "is this file in
+// the set"; only `findAffectedServices` answers "which service" — and an agent
+// answering the second question by reasoning about consumers picked `cockpit`
+// for a file the map attributes to `minsky-mcp`, twice (2026-09-04, 2026-09-09).
+export {
+  DEPLOY_SURFACE_PATTERNS,
+  findAffectedServices,
+  isDeploySurfaceFile,
+  isLocalAppDeploySurfaceFile,
+  listServicesWithDeployConfig,
+};
 
 /**
  * Filter a PR's changed files to the deploy-surface ones.
