@@ -28,10 +28,10 @@ Coordinate work items across different storage systems:
 
 ```bash
 # Minsky database (default)
-minsky init --tasks-backend minsky
+minsky init --backend minsky
 
 # GitHub Issues for open source projects
-minsky init --tasks-backend github-issues
+minsky init --backend github-issues
 ```
 
 ### Session-based development
