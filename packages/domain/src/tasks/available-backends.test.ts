@@ -36,7 +36,17 @@ function backendsAcceptedByInit(): string[] {
   const switchIdx = src.indexOf("switch (backend)");
   expect(switchIdx, "init.ts no longer contains `switch (backend)`").toBeGreaterThan(-1);
   const body = src.slice(switchIdx, src.indexOf("is not supported", switchIdx));
-  return [...body.matchAll(/case\s+"([^"]+)":/g)].map((m) => m[1] as string).sort();
+  const cases = [...body.matchAll(/case\s+"([^"]+)":/g)].map((m) => m[1] as string).sort();
+  // Parsing source is brittle by nature (PR #3704 R1), so make the failure mode
+  // explicit rather than incidental: if the switch is ever rewritten into a shape
+  // this regex cannot read, `cases` goes empty and every comparison below fails
+  // LOUDLY instead of silently agreeing with an empty set. Asserted here so that
+  // property is stated rather than inferred from how `toEqual` happens to behave.
+  expect(
+    cases.length,
+    "parsed zero `case` labels from init.ts — the switch shape changed; update this parser"
+  ).toBeGreaterThan(0);
+  return cases;
 }
 
 describe("getAvailableBackends (mt#4673)", () => {
