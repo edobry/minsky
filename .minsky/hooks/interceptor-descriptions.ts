@@ -1585,19 +1585,42 @@ export type CoverageGap = "tuningOwnership" | "attentionCost" | "canary";
 export type CanaryDispositionKind = "canary-declared" | "canary-infeasible" | "canary-pending";
 
 /**
+ * An entity ruled out of canary coverage — the reason is REQUIRED.
+ *
+ * `owner?: never` is deliberate: an infeasible ruling has nothing to own, and
+ * setting one would read as pending work that nobody is actually tracking.
+ */
+export interface CanaryInfeasibleRecord {
+  readonly disposition: "canary-infeasible";
+  /** Why a synthetic invocation cannot exercise this entity. */
+  readonly reason: string;
+  readonly owner?: never;
+}
+
+/** An entity that should have a canary and does not — the owner is REQUIRED. */
+export interface CanaryPendingRecord {
+  readonly disposition: "canary-pending";
+  /** The task that owns declaring the canary. */
+  readonly owner: string;
+  /** Optional note on what the declaration needs, or why it is not trivial. */
+  readonly reason?: string;
+}
+
+/**
  * An AUTHORED ruling about an entity with no canary.
  *
- * `disposition` deliberately excludes `canary-declared`: that value is computed
- * from an actual declaration, and allowing it to be authored would create a
- * second source of truth that goes stale the moment a canary is removed.
+ * A DISCRIMINATED UNION rather than one interface with two optional fields
+ * (PR #3712 R1). The obligations differ by verdict — infeasible carries WHY,
+ * pending carries WHO — and with both optional the compiler accepted a ruling
+ * that carried neither, leaving the contract enforced only by a test. Making
+ * the type carry it moves the failure from a suite run to the edit.
+ *
+ * `canary-declared` is absent from the union by construction: that value is
+ * computed from an actual declaration, and allowing it to be authored would
+ * create a second source of truth that goes stale the moment a canary is
+ * removed.
  */
-export interface CanaryDispositionRecord {
-  readonly disposition: Exclude<CanaryDispositionKind, "canary-declared">;
-  /** REQUIRED for `canary-infeasible`: why a synthetic invocation cannot exercise this entity. */
-  readonly reason?: string;
-  /** REQUIRED for `canary-pending`: the task that owns declaring the canary. */
-  readonly owner?: string;
-}
+export type CanaryDispositionRecord = CanaryInfeasibleRecord | CanaryPendingRecord;
 
 /** A ruling as it appears on a catalog entry, carrying where it came from. */
 export interface ResolvedCanaryDisposition {
@@ -1659,7 +1682,7 @@ function withSource(
   return {
     disposition: record.disposition,
     ...(record.reason === undefined ? {} : { reason: record.reason }),
-    ...(record.owner === undefined ? {} : { owner: record.owner }),
+    ...(record.disposition === "canary-pending" ? { owner: record.owner } : {}),
     source,
   };
 }
