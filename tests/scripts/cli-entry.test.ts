@@ -481,13 +481,15 @@ describe("bunBuildArgs / bunBuildCommand (mt#3091)", () => {
       "minsky.js",
       "--sourcemap=external",
       "--minify",
+      "--external",
+      "tiktoken",
       "src/cli.ts",
     ]);
   });
 
   test("bunBuildCommand() renders the default args as a shell-ready string", () => {
     expect(bunBuildCommand()).toBe(
-      "bun build --target=bun --outdir=dist --entry-naming minsky.js --sourcemap=external --minify src/cli.ts"
+      "bun build --target=bun --outdir=dist --entry-naming minsky.js --sourcemap=external --minify --external tiktoken src/cli.ts"
     );
   });
 
@@ -502,6 +504,8 @@ describe("bunBuildArgs / bunBuildCommand (mt#3091)", () => {
       "custom.js",
       "--sourcemap=external",
       "--minify",
+      "--external",
+      "tiktoken",
       "/tmp/src/cli.ts",
     ]);
   });

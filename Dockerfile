@@ -169,7 +169,7 @@ EXPOSE 3000
 # the RUN line below — change bunBuildArgs() and rerun the generator;
 # pre-commit does this automatically and re-stages the result (mt#3091,
 # mirroring the mt#2621 workspace-COPY-block pattern).
-RUN bun build --target=bun --outdir=dist --entry-naming minsky.js --sourcemap=external --minify src/cli.ts
+RUN bun build --target=bun --outdir=dist --entry-naming minsky.js --sourcemap=external --minify --external tiktoken src/cli.ts
 # === END GENERATED: bun build invocation ===
 
 # mt#1767 — copy Drizzle migrations next to the bundle so the bundled
