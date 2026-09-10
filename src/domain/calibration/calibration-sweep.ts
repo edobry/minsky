@@ -1940,9 +1940,22 @@ function parseCalibrationRecordCore(
     // evaluation-only) against **946** `matched`/`flagged` records that are real
     // findings and were misfiled.
     //
-    // Guarded on `matches` being ABSENT, so no existing branch and no existing
-    // record changes behaviour — this only reaches records the fallback was
-    // already going to synthesize an empty match set for.
+    // Guarded on `matches` not being an ARRAY, which is absent OR malformed —
+    // not "absent", as this comment claimed until PR #3709 R1 corrected it.
+    // The distinction is real: a record carrying a non-array `matches` AND an
+    // `outcome` string used to reach the fallback, which synthesizes `[]` and
+    // reads as evaluation-only; it now gets classified by its outcome instead.
+    //
+    // That is the better answer of the two — a detector that recorded
+    // `outcome: "matched"` did match something, whatever shape its `matches`
+    // key is in — but it IS a behaviour change, so it is stated rather than
+    // hidden behind a comment that says otherwise. Measured across all 55 live
+    // logs: **zero** records carry a non-array `matches`, so the case is
+    // currently empty in production.
+    //
+    // Otherwise unchanged: a record with a real `matches` array never enters
+    // this branch, so no existing per-kind branch and no existing well-formed
+    // record changes behaviour.
     if (!Array.isArray(raw["matches"]) && typeof raw["outcome"] === "string") {
       const outcome = String(raw["outcome"]);
       const base = {

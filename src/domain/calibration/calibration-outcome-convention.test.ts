@@ -160,3 +160,52 @@ describe("mt#5048 SC4 — a fallback-correct verdict is DECLARED, not inferred",
     expect(OUTCOME_MEANS_EVALUATED.length).toBeGreaterThan(0);
   });
 });
+
+describe("the branch guard is `not an array`, not `absent` (PR #3709 R1)", () => {
+  // The guard admits a record whose `matches` key is present but malformed, which
+  // the original comment denied. Measured across all 55 live logs: zero records
+  // are in this state today, so these tests pin a behaviour that is currently
+  // unreachable in production — deliberately, because "empty today" is exactly
+  // the condition that stops being true without anyone noticing.
+
+  test("a malformed `matches` plus a fire outcome is classified by the outcome", () => {
+    // Before: reached the fallback, got `matches: []` synthesized, read as
+    // evaluation-only. After: the outcome decides, which is the better answer —
+    // a detector recording `matched` did match something.
+    const line = JSON.stringify({
+      timestamp: "2026-09-10T07:00:00.000Z",
+      sessionId: "conv-malformed-1",
+      matches: "not-an-array",
+      outcome: "matched",
+    });
+    const record = parseCalibrationRecord(line, GENERIC);
+    expect(record).not.toBeNull();
+    if (!record || !("matches" in record)) throw new Error("expected a matches-shape record");
+    expect(record.matches).toHaveLength(1);
+    expect(record.matches[0]?.family).toBe("matched");
+  });
+
+  test("a malformed `matches` plus a clean outcome is still evaluation-only", () => {
+    const line = JSON.stringify({
+      timestamp: "2026-09-10T07:00:00.000Z",
+      matches: { wrong: "shape" },
+      outcome: "clean",
+    });
+    const record = parseCalibrationRecord(line, GENERIC);
+    if (!record || !("matches" in record)) throw new Error("expected a matches-shape record");
+    expect(record.matches).toEqual([]);
+  });
+
+  test("a malformed `matches` with NO outcome falls through to the fallback unchanged", () => {
+    // The branch requires both conditions. Without an `outcome` string there is
+    // nothing to classify from, so the record must keep its prior behaviour
+    // rather than being swept into the new branch on the guard alone.
+    const line = JSON.stringify({
+      timestamp: "2026-09-10T07:00:00.000Z",
+      matches: "not-an-array",
+    });
+    const record = parseCalibrationRecord(line, GENERIC);
+    if (!record || !("matches" in record)) throw new Error("expected a matches-shape record");
+    expect(record.matches).toEqual([]);
+  });
+});
