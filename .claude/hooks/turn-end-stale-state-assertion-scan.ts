@@ -522,6 +522,19 @@ export const NOMINATION_TIMEOUT_MS = 2000;
  * than taken on the finding's word. The two budgets are deliberately equal and
  * separate — together they bound the stage at ~4s worst case, which is inside
  * what a Stop hook can absorb.
+ *
+ * mt#5000 put `ensureHookDomainBootstrap()` INSIDE this same bound rather than
+ * giving it a second one, so that ~4s figure still holds. `LOOKUP_TIMEOUT_MS`
+ * above needs 6s for "a cold hook domain bootstrap + connect", which reads like
+ * it should force this number up too — it does not, and the difference is the
+ * `+ connect`. That is a cold Postgres handshake, which `resolvePersistenceProvider`
+ * needs and this path never touches: `resolveNominationDeps` calls only
+ * `getConfiguration()` and `createEmbeddingServiceFromConfig()`. Measured cold in
+ * three fresh hook-shaped processes: bootstrap 33-44ms, resolve 3-6ms, total
+ * 36-49ms, and a second bootstrap call in the same process costs 0ms (the
+ * per-process cache its docblock claims). So this bound sits ~40x above the
+ * stage it covers. Re-measure before moving it; do not derive a new value from
+ * the 6s sibling, whose population is not this one's.
  */
 export const DEPS_RESOLVE_TIMEOUT_MS = 2000;
 
@@ -552,9 +565,81 @@ async function withDeadline<T>(
   }
 }
 
+/** The resolved, non-null shape `resolveNominationDeps` hands back on success. */
+type ResolvedNominationDeps = NonNullable<Awaited<ReturnType<typeof resolveNominationDeps>>>;
+
+/**
+ * What the dependency stage produced — bootstrap and resolve as ONE outcome.
+ *
+ * Three cases, deliberately not two (mt#5000). `bootstrap-failed` and
+ * `deps-unavailable` both used to arrive as `null` from the resolver and render
+ * as one `nomination-deps-unavailable` record, which is the collapse ADR-035
+ * §Decision rule 3 forbids: *"'Configured but failing' MUST be distinguishable
+ * from 'not configured.'"* Splitting them here is what lets the calibration
+ * stream name the cause instead of the symptom.
+ */
+type DepsStageOutcome =
+  | { kind: "resolved"; deps: ResolvedNominationDeps }
+  | { kind: "deps-unavailable" }
+  | { kind: "bootstrap-failed"; error: string };
+
+/**
+ * Make the domain layer usable, then read the provider out of it.
+ *
+ * Extracted as a function returning a VALUE rather than inlined, so both
+ * failure branches are observable in a test without patching a module the hook
+ * reaches itself (`testing-standards.mdc §Testable Design`).
+ *
+ * `bootstrap` is `undefined` when a caller injected its own resolver and did not
+ * ask for one — that is how every pre-mt#5000 unit test stays hermetic.
+ */
+export async function runDepsStage(
+  resolve: typeof resolveNominationDeps,
+  bootstrap: typeof ensureHookDomainBootstrap | undefined
+): Promise<DepsStageOutcome> {
+  if (bootstrap !== undefined) {
+    const boot = await bootstrap();
+    if (!boot.ok) return { kind: "bootstrap-failed", error: boot.error };
+  }
+  const resolved = await resolve();
+  return resolved === null ? { kind: "deps-unavailable" } : { kind: "resolved", deps: resolved };
+}
+
+/** The `deps` bag {@link nominatePendingClaims} accepts, named so the selector can take it. */
+type NominationInjection = {
+  resolve: typeof resolveNominationDeps;
+  run: typeof nominate;
+  bootstrap?: typeof ensureHookDomainBootstrap;
+};
+
+/**
+ * Decide whether this call bootstraps the domain, and with what.
+ *
+ * Pure and exported so the PRODUCTION answer is directly assertable (mt#5000).
+ * That matters more than it looks: the defect this fixes was not a wrong value
+ * anywhere, it was the production path taking the `undefined` branch — and every
+ * unit test injected a resolver, so no test could observe which branch it took.
+ * A test that cannot see the production branch is why 214 of 388 records
+ * degraded while the suite stayed green.
+ */
+export function selectBootstrap(
+  deps: NominationInjection | undefined
+): typeof ensureHookDomainBootstrap | undefined {
+  return deps?.resolve === undefined ? ensureHookDomainBootstrap : deps.bootstrap;
+}
+
 export async function nominatePendingClaims(
   finalMessage: string,
-  deps?: { resolve: typeof resolveNominationDeps; run: typeof nominate }
+  deps?: {
+    resolve: typeof resolveNominationDeps;
+    run: typeof nominate;
+    /**
+     * Injected only to cover the bootstrap-failure branch. Omitting it alongside
+     * an injected `resolve` opts OUT of the bootstrap entirely, which is what
+     * keeps the pre-existing unit tests free of real configuration IO.
+     */
+    bootstrap?: typeof ensureHookDomainBootstrap;
+  }
 ): Promise<NominationOutcome> {
   const tail = finalMessage.slice(-TAIL_WINDOW_CHARS);
   const prose = elideQuotedAndCodeContexts(tail);
@@ -566,22 +651,51 @@ export async function nominatePendingClaims(
   const resolve = deps?.resolve ?? resolveNominationDeps;
   const run = deps?.run ?? nominate;
 
-  // A SYNCHRONOUS throw from `resolve` happens at the CALL SITE, outside the
-  // race, so it bypasses the deadline entirely (PR #3544 R2). The try/catch is
-  // what contains it — and containing it matters because the shipped
-  // `resolveNominationDeps` has its own try/catch but the parameter is
-  // injectable and the type does not forbid throwing. This stage exists to
-  // degrade rather than crash the Stop hook.
+  // mt#5000: a hook is its own entry point, so it inherits neither the reflect
+  // polyfill nor the process-global configuration that `cli.ts` and the MCP
+  // server install at boot. `resolveNominationDeps` reaches the embedding
+  // factory, whose first statement is `await getConfiguration()` — so with no
+  // bootstrap it throws "Configuration not initialized", its own catch converts
+  // that to `null`, and this stage records `nomination-deps-unavailable` on
+  // every cold turn while every unit test passes (the `deps` parameter below is
+  // injectable, so tests never traverse the resolver). That is the mt#3019
+  // dead-path shape, and `domain-bootstrap`'s docblock already names the
+  // embedding-factory call as one of the three this must precede.
+  //
+  // It was the sole outlier: `retrospective-trigger-scanner`,
+  // `ask-routing-deferral-detector`, `code-mechanism-assertion-detector` and
+  // `knowledge-acquisition-detector` all bootstrap within a few lines of their
+  // resolve, and this hook's only call sat downstream in `runLookup`. Measured
+  // on its own log at 388 records: 214 `nomination-deps-unavailable` against 151
+  // rung-2 records that DID resolve — the 151 being turns where a
+  // bootstrap-calling sibling guard happened to run earlier in the same
+  // dispatcher process, since the bootstrap is idempotent and per-process. That
+  // accident is what made the defect read as intermittent.
+  //
+  // Skipped when a caller injected its own resolver and no bootstrap, which
+  // keeps the pre-existing tests hermetic.
+  const bootstrap = selectBootstrap(deps);
+
+  // A SYNCHRONOUS throw from `resolve` used to happen at the CALL SITE, outside
+  // the race, and this try/catch was what contained it (PR #3544 R2). mt#5000
+  // moved the call inside `runDepsStage`, an async function, so such a throw now
+  // surfaces as a REJECTION instead — still caught here, and now also bounded by
+  // the deadline rather than bypassing it. Containing it still matters for the
+  // same reason: the shipped `resolveNominationDeps` has its own try/catch, but
+  // the parameter is injectable and the type does not forbid throwing, and this
+  // stage exists to degrade rather than crash the Stop hook.
   //
   // An earlier revision ALSO deferred through `Promise.resolve().then(...)` to
   // convert the sync throw into a rejection. The negative control removed it:
   // with the defer reverted, the sync-throw test still passed, because the call
   // site is already inside this try block. Two mechanisms, one of them doing
   // nothing and untestable — so the defer is gone. That is the control earning
-  // its keep, not a cosmetic simplification.
-  let nominationDeps: Awaited<ReturnType<typeof resolveNominationDeps>> | typeof RESOLVE_TIMED_OUT;
+  // its keep, not a cosmetic simplification. The async boundary now does that
+  // conversion as a side effect of the extraction, which is why the defer stays
+  // gone rather than coming back.
+  let stage: DepsStageOutcome | typeof RESOLVE_TIMED_OUT;
   try {
-    nominationDeps = await withDeadline(resolve(), DEPS_RESOLVE_TIMEOUT_MS);
+    stage = await withDeadline(runDepsStage(resolve, bootstrap), DEPS_RESOLVE_TIMEOUT_MS);
   } catch (err) {
     return {
       claims: [],
@@ -589,15 +703,30 @@ export async function nominatePendingClaims(
       scores: [],
     };
   }
-  if (nominationDeps === RESOLVE_TIMED_OUT) {
+  if (stage === RESOLVE_TIMED_OUT) {
     // Distinct from `unavailable`: nothing is misconfigured, the resolve simply
     // did not return. Kept separate so the calibration stream can tell a
     // provider that is absent from one that is wedged — different remedies.
     return { claims: [], degradedReason: "nomination-deps-timeout", scores: [] };
   }
-  if (nominationDeps === null) {
+  if (stage.kind === "bootstrap-failed") {
+    // NOT folded into `nomination-deps-unavailable`, which is the whole point of
+    // mt#5000's second half: "the process cannot read configuration" and "no
+    // provider is configured" have different remedies, and `ensureHookDomainBootstrap`
+    // hands back the actual message, so the record can carry the cause rather
+    // than a fixed label. `describeProviderResolutionFailure` in the same module
+    // is the precedent — it exists because a fixed string cost three days of
+    // misdiagnosis (mt#3750).
+    return {
+      claims: [],
+      degradedReason: `domain-bootstrap-failed: ${stage.error}`,
+      scores: [],
+    };
+  }
+  if (stage.kind === "deps-unavailable") {
     return { claims: [], degradedReason: "nomination-deps-unavailable", scores: [] };
   }
+  const nominationDeps = stage.deps;
 
   const result = await run(prose, NOMINATION_EXEMPLARS, nominationDeps, {
     timeoutMs: NOMINATION_TIMEOUT_MS,

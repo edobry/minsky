@@ -161,6 +161,7 @@ describe("formatResult — watermark-stranded rendering (mt#4904)", () => {
           injectedFiresSinceLastReview: 0,
           suppressedSinceLastReview: 0,
           logOnlyFamilySinceLastReview: 0,
+          undeterminedSinceLastReview: 0,
           totalFires: 121,
           distinctPhrases: 0,
           reason: "watermark-stranded",
