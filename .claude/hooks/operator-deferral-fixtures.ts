@@ -130,3 +130,78 @@ export function askTurn(options: {
   lines.push(correlatedToolResult("toolu_ask", result));
   return lines;
 }
+
+// ---------------------------------------------------------------------------
+// mt#5056 — the quoted-as-data window of 2026-09-09
+// ---------------------------------------------------------------------------
+
+/**
+ * The two false positives a wrapped quotation produced, VERBATIM from the
+ * transcripts that produced them (records `2026-09-04T17:48:40.712Z` and
+ * `2026-09-04T17:48:56.124Z`).
+ *
+ * Located by searching the transcripts for the recorded phrase, NOT rebuilt
+ * from the calibration log's stored `context` — that field is a 240-character,
+ * already-elided window, and it shows both of these quotations as though they
+ * were UNTERMINATED. Reading the derived view instead of the source would have
+ * produced a fixture for the wrong defect and a fix aimed at end-of-paragraph
+ * blanking (mem#1020 on sampling verbatim, mem#1125 §3 on the stored context).
+ *
+ * Both are ordinary calibration-report bullets: an agent quoting the phrases it
+ * is reporting on, wrapped by the repo's ~100-column prose width.
+ */
+export const WRAPPED_QUOTE_UNLESS = [
+  '- `offer-shape:unless` — 4 of 4 false: "I\'ll start there unless you redirect."; "Proceeding with',
+  '  that unless you redirect."; "**Defaults I\'ll assume unless you say otherwise:** a 4-week alias',
+  '  window …"; "I\'d start with (1) unless you\'d rather go straight at the reviewer alerting."',
+].join("\n");
+
+export const WRAPPED_QUOTE_SAY_THE_WORD = [
+  '- Gated on an operator token — "Say go and I\'ll plan it" (`ill-action/I\'ll plan it`); "Say the word',
+  "  and I'll write it up as a task\"; \"say the word and I'll take it\" (×2); \"Then say 'go' and I'll",
+  "  take it through PR and merge\"; \"say 'continue' and I'll take mt#4842\"; \"Say the word and I'll",
+  '  draft it".',
+].join("\n");
+
+/**
+ * Branch B — prose ABOUT a deferral, carrying no quotation at all. Also verbatim
+ * from source. These are EXPECTED to keep firing: no quotation discriminator can
+ * reach them at any bound, and mt#3987 (DONE) decided against building the
+ * discussion-framing mechanism that could, on measured evidence. Pinned so the
+ * carve-out is a tested decision rather than an untested gap.
+ */
+export const UNQUOTED_DEFERRAL_PROSE: Array<[string, string]> = [
+  [
+    "a disjunction whose second branch requires a token",
+    "This is a sub-shape the list above does not contain,\nand it is the one most likely to be " +
+      "read as ungated: a DISJUNCTION whose second branch also requires\nan operator token.",
+  ],
+  [
+    "reporting that a TASK deferred something",
+    "**That string is mine, from mt#5027, and this is the acceptance judgment that task deferred " +
+      "to the\nprincipal.**",
+  ],
+];
+
+/**
+ * The real positives from the same window (mt#5056 SC2's fire direction). A
+ * change that only silences is a regression toward ADR-032's "tuned into
+ * permanent silence", so these run on the same pass as the suppressions.
+ */
+export const OPERATOR_DEFERRAL_TRUE_POSITIVES: Array<[string, string]> = [
+  ["a bare build offer", "**Want me to build step 1 now?**"],
+  [
+    "offering to file a task the agent may file itself",
+    "**Actionable:** the inline-lifecycle habit that caused this has no detector. Want me to file it?",
+  ],
+  [
+    "an operator-token gate on the natural continuation",
+    "**Next:** mt#5018, the sibling harness fix from the same retrospective, is still TODO — " +
+      "that's the natural continuation. Say the word and I'll take it.",
+  ],
+  [
+    "a conditional continuation",
+    "If you want me to keep going, the next item is mt#5036 — the two turn-end guards that fire " +
+      "on a task being referenced rather than acted on.",
+  ],
+];

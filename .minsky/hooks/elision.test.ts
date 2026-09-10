@@ -91,3 +91,104 @@ describe("elision preserves the properties its callers depend on", () => {
     expect(fill).not.toMatch(/\w/);
   });
 });
+
+/**
+ * mt#5056 — a quoted span that WRAPS a line must be elided.
+ *
+ * Both fixtures are verbatim from the transcripts that produced
+ * `operator-deferral`'s false-positive records, located by searching for the
+ * recorded phrase rather than reconstructed from the calibration log's stored
+ * `context` — that field is a 240-character, already-elided window, so it shows
+ * these quotations as if they were unterminated. Sampling the source instead of
+ * the derived view is what established the real shape (mem#1020, mem#1125).
+ */
+describe("a quoted span may cross a line break (mt#5056)", () => {
+  /** The trigger clause that leaked out of the wrapped quotation in R1. */
+  const UNLESS = /\bunless\b/i;
+  /** The trigger clause that leaked out of the wrapped quotation in R2. */
+  const SAY_THE_WORD = /\bsay\s+the\s+word\s+and\s+(I|we)('?ll|\s+will|\s+can)\b/i;
+
+  /**
+   * `2026-09-04T17:48:40.712Z`. A calibration report quoting the phrases it is
+   * reporting on. Quotation 1 closes on its own line and was already elided;
+   * quotations 2 and 3 wrap, and their `unless` is what fired.
+   */
+  const R1 = [
+    '- `offer-shape:unless` — 4 of 4 false: "I\'ll start there unless you redirect."; "Proceeding with',
+    '  that unless you redirect."; "**Defaults I\'ll assume unless you say otherwise:** a 4-week alias',
+    '  window …"; "I\'d start with (1) unless you\'d rather go straight at the reviewer alerting."',
+  ].join("\n");
+
+  /** `2026-09-04T17:48:56.124Z`. Six quotations; three of them wrap. */
+  const R2 = [
+    '- Gated on an operator token — "Say go and I\'ll plan it" (`ill-action/I\'ll plan it`); "Say the word',
+    "  and I'll write it up as a task\"; \"say the word and I'll take it\" (×2); \"Then say 'go' and I'll",
+    "  take it through PR and merge\"; \"say 'continue' and I'll take mt#4842\"; \"Say the word and I'll",
+    '  draft it".',
+  ].join("\n");
+
+  test.each([
+    ["R1 — every `unless` sits inside a quotation", R1, UNLESS],
+    ["R2 — every trigger phrase sits inside a quotation", R2, SAY_THE_WORD],
+  ])("%s", (_label, raw: string, clause: RegExp) => {
+    // The clause IS present in the raw text — this is a real quotation of it...
+    expect(clause.test(raw)).toBe(true);
+    // ...and after elision nothing is left for a matcher to fire on.
+    expect(clause.test(elideQuotedAndCodeContexts(raw))).toBe(false);
+  });
+
+  test("the single-line case that already worked still works", () => {
+    // Guards against a fix that only moved the failure: R1's FIRST quotation
+    // never wrapped and was elided before this change too.
+    const single = '4 of 4 false: "I\'ll start there unless you redirect."';
+    expect(UNLESS.test(single)).toBe(true);
+    expect(UNLESS.test(elideQuotedAndCodeContexts(single))).toBe(false);
+  });
+
+  test("an UNQUOTED occurrence still fires — elision must not swallow live prose", () => {
+    // The branch-B carve-out, stated as a property here and pinned per-record on
+    // the detector. Nothing about crossing lines makes unquoted prose quoted.
+    const bare = "a DISJUNCTION whose second branch also requires\nan operator token.";
+    expect(/\brequires\s+an\s+operator\s+token\b/i.test(elideQuotedAndCodeContexts(bare))).toBe(
+      true
+    );
+  });
+
+  test("the line budget is real, not vacuous — a span crossing too many lines is left alone", () => {
+    // Six short lines inside one quotation: within the 200-char cap, past the
+    // newline cap. This is the shape a length bound alone would not catch.
+    const listy = ['"a', "b", "c", "d", "e", 'f"'].join("\n");
+    expect(listy.length).toBeLessThan(200);
+    expect(elideDoubleQuotedSpans(listy)).toBe(listy);
+  });
+
+  test("a wrapped span is blanked same-length, with its newlines intact", () => {
+    // Both ADR-024 Rung 1 invariants, on the newly-reachable multi-line path:
+    // offsets into the residual stay valid, and line-anchored callers still see
+    // their line boundaries.
+    const wrapped = 'before "one\ntwo\nthree" after';
+    const residual = elideDoubleQuotedSpans(wrapped);
+    expect(residual).toHaveLength(wrapped.length);
+    expect(residual.split("\n")).toHaveLength(3);
+    expect(residual).not.toMatch(/two/);
+  });
+
+  test("the 200-character cap is unchanged", () => {
+    const long = `"${"x".repeat(250)}"`;
+    expect(elideDoubleQuotedSpans(long)).toBe(long);
+  });
+
+  test("curly quotes get the same treatment", () => {
+    const raw = "he said “do not\nattempt that” loudly";
+    expect(/\bdo not\s+attempt\b/i.test(raw)).toBe(true);
+    expect(/\bdo not\s+attempt\b/i.test(elideDoubleQuotedSpans(raw))).toBe(false);
+  });
+
+  test("crossing a line cannot MANUFACTURE a match", () => {
+    // The invariant mt#4792 added, re-asserted on the multi-line path: a
+    // caller's own `\s+` must not run through the blanked hole.
+    const raw = 'do not "an\naside" attempt';
+    expect(CLAUSE.test(raw)).toBe(false);
+    expect(CLAUSE.test(elideDoubleQuotedSpans(raw))).toBe(false);
+  });
+});
