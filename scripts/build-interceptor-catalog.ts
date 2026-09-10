@@ -86,6 +86,9 @@ import {
   readSettingsHookNames,
 } from "./interceptor-coordinate-input";
 import { resolvePrecommitStepNames } from "./precommit-step-names";
+// mt#5072: the SECOND canary declaration surface. Standalone guards have no
+// `GuardRegistration`, so this is the only place their canaries are declared.
+import { STANDALONE_GUARD_CANARIES } from "./lib/standalone-guard-canaries";
 
 const GENERATED_BANNER = "by scripts/build-interceptor-catalog.ts — do not edit directly";
 
@@ -335,7 +338,12 @@ export function buildCatalog(sources: CatalogSources): InterceptorCatalog {
 }
 
 /** Registry metadata keyed by guard name, for the coverage-gap enumeration. */
-function buildResolveInput(): ResolveCatalogInput {
+/**
+ * Exported for the mt#5072 census test, which asserts the real corpus rather
+ * than the committed artifact — a test that read the generated JSON would pass
+ * on a stale file and would be asserting the last regeneration, not the code.
+ */
+export function buildResolveInput(): ResolveCatalogInput {
   const registryFacts = new Map<string, RegistryFacts>();
   for (const r of GUARD_REGISTRY) {
     registryFacts.set(r.name, {
@@ -344,7 +352,20 @@ function buildResolveInput(): ResolveCatalogInput {
       hasCanary: r.canary !== undefined,
     });
   }
-  return { registryFacts };
+
+  // mt#5072: canaries have TWO declaration surfaces, and this function used to
+  // read only one. A standalone guard has no `GuardRegistration`, so it never
+  // appears in `registryFacts` and `hasCanary` was false for all of them by
+  // construction — the catalog reported a `canary` coverage gap for 12 guards
+  // whose canaries were declared and passing.
+  //
+  // Read here rather than in the resolver because this file already lives in
+  // `scripts/` and can import the module directly, whereas the resolver sits in
+  // `.minsky/hooks/**`, which must not import `scripts/**` (mt#4010
+  // §Data-access decision). The names cross that boundary as data.
+  const standaloneCanaryNames = new Set(STANDALONE_GUARD_CANARIES.map((c) => c.guardName));
+
+  return { registryFacts, standaloneCanaryNames };
 }
 
 /**

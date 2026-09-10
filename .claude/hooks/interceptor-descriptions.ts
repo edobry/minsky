@@ -1542,6 +1542,26 @@ export interface RegistryFacts {
 export interface ResolveCatalogInput {
   /** `guardName` -> facts, for names that HAVE a `GuardRegistration`. */
   readonly registryFacts: ReadonlyMap<string, RegistryFacts>;
+  /**
+   * Guards whose canary is declared OUTSIDE `GUARD_REGISTRY` (mt#5072).
+   *
+   * A canary has two declaration surfaces. A registry-declared guard carries
+   * `canary` on its `GuardRegistration`; a STANDALONE guard has no registration
+   * at all and declares its canary in `STANDALONE_GUARD_CANARIES`
+   * (`scripts/lib/standalone-guard-canaries.ts`). `registryFacts` can only ever
+   * describe the first, so before this existed `hasCanary` was false for every
+   * standalone guard BY CONSTRUCTION — the catalog reported a `canary` gap for
+   * 12 guards with working, passing canaries.
+   *
+   * Passed as DATA rather than imported, deliberately: `.minsky/hooks/**` must
+   * not import `scripts/**` (mt#4010 §Data-access decision), so the builder —
+   * which already lives in `scripts/` — reads the module and hands the names in,
+   * exactly as it does for `registryFacts`.
+   *
+   * Optional so every existing caller and test keeps compiling; absent means
+   * "no standalone canaries known", which is the pre-mt#5072 behaviour.
+   */
+  readonly standaloneCanaryNames?: ReadonlySet<string>;
 }
 
 /** The per-registry-field metadata a catalog entry can be missing. */
@@ -1588,13 +1608,27 @@ export function resolveCatalogEntry(guardName: string, input: ResolveCatalogInpu
   const described = INTERCEPTOR_DESCRIPTIONS.get(guardName);
   const facts = input.registryFacts.get(guardName);
 
+  // mt#5072: a canary counts from EITHER declaration surface. Registry-declared
+  // guards carry it on `GuardRegistration`; standalone guards have no
+  // registration and declare it in `STANDALONE_GUARD_CANARIES`.
+  //
+  // Note this deliberately does NOT inject standalone guards into
+  // `registryFacts`. That would clear the canary gap and ALSO flip `registered`
+  // to true below, which is false for a guard with no `GuardRegistration` — a
+  // silent corruption of a different axis, since nothing compares that field.
+  const hasStandaloneCanary = input.standaloneCanaryNames?.has(guardName) ?? false;
+
   const coverageGaps: CoverageGap[] = facts
     ? [
         ...(facts.tuningOwnership ? [] : (["tuningOwnership"] as const)),
         ...(facts.hasAttentionCost ? [] : (["attentionCost"] as const)),
-        ...(facts.hasCanary ? [] : (["canary"] as const)),
+        ...(facts.hasCanary || hasStandaloneCanary ? [] : (["canary"] as const)),
       ]
-    : [...ALL_GAPS];
+    : // Unregistered: every registry field is genuinely missing, EXCEPT that a
+      // standalone canary is real coverage even with no registration at all.
+      // Filtered from `ALL_GAPS` rather than rebuilt, so gap ORDER stays stable
+      // and a future gap kind is picked up here automatically.
+      ALL_GAPS.filter((gap) => !(gap === "canary" && hasStandaloneCanary));
 
   return {
     guardName,
