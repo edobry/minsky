@@ -1947,7 +1947,26 @@ function parseCalibrationRecordCore(
       const outcome = String(raw["outcome"]);
       const base = {
         timestamp: String(raw["timestamp"] ?? raw["ts"] ?? ""),
-        session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
+        // BOTH spellings, and camelCase is the one that actually matters here
+        // (PR #3709 R1). Measured over the live logs: **zero** of the 15
+        // outcome-convention logs write `session_id` — all 32,763 records use
+        // `sessionId`. Reading only the snake_case name would drop session
+        // identity for 100% of the records this branch handles, which costs
+        // `isRevisedAway` (`:2241`, scoped to `session_id`+timestamp) its
+        // ability to retract a superseded record, and costs review attribution
+        // its conversation id.
+        //
+        // Not a regression this branch introduced — the matches-shape fallback
+        // below reads `session_id` only, so these records never carried one.
+        // The precedent for fixing it is in this same function: the
+        // `nonexistent-search-path` branch (`:1804`) already maps
+        // `raw["sessionId"]`, with a note that its producer uses camelCase.
+        session_id:
+          raw["session_id"] !== undefined
+            ? String(raw["session_id"])
+            : raw["sessionId"] !== undefined
+              ? String(raw["sessionId"])
+              : undefined,
       };
       if (outcomeMeansFire(outcome)) {
         return {
@@ -2007,7 +2026,19 @@ function parseCalibrationRecordCore(
       : [];
     return {
       timestamp: String(raw["timestamp"] ?? ""),
-      session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
+      // Both spellings, same reason as the outcome branch above (PR #3709 R1),
+      // applied to the CLASS rather than the one instance the review named.
+      // Measured: `duplicate-signature-scan` reaches this fallback with 284
+      // matches-shaped records and writes `sessionId` on all 316 of them, zero
+      // `session_id` — so its conversation id has been dropped here all along.
+      // It carries no `supersedes`, so no count moves; what it regains is
+      // review attribution.
+      session_id:
+        raw["session_id"] !== undefined
+          ? String(raw["session_id"])
+          : raw["sessionId"] !== undefined
+            ? String(raw["sessionId"])
+            : undefined,
       matches,
       transcript_excerpt:
         raw["transcript_excerpt"] !== undefined ? String(raw["transcript_excerpt"]) : undefined,
