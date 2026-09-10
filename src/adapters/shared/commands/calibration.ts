@@ -54,6 +54,7 @@ import {
   parseReviewToken,
   reconcileReviewReceipt,
   selectAckablePaths,
+  shouldSurfaceRecords,
   UNKNOWN_SILENT_STRETCH_SESSION_LABEL,
   type CalibrationLogResult,
   type CalibrationRecord,
@@ -477,6 +478,12 @@ export function projectCalibrationLogResult(r: CalibrationLogResult) {
     // names the MCP form — which returns this JSON — as the invocation, so
     // until mt#5011 that instruction pointed at a key the payload lacked.
     logOnlyFamilySinceLastReview: r.logOnlyFamilySinceLastReview,
+    // mt#5000: the could-not-check SUBSET of `suppressedSinceLastReview`. It has
+    // to reach the JSON for the same reason `logOnlyFamilySinceLastReview` did —
+    // `/calibration-review` reads this payload, and a reviewer asked "is the
+    // suppression gate too broad?" about a population that never ran a check has
+    // been handed an unanswerable question with no way to see that it is one.
+    undeterminedSinceLastReview: r.undeterminedSinceLastReview,
     distinctFiresSinceLastReview: r.distinctFiresSinceLastReview,
     ungroupableSinceLastReview: r.ungroupableSinceLastReview,
     distinctPhrases: r.distinctPhrases,
@@ -619,14 +626,20 @@ export function formatResult(results: CalibrationLogResult[], reviewDue: ReviewD
     } else {
       lines.push(`  Judged text:            n/a — no un-reviewed records to assess`);
     }
-    // mt#4049 (PR #3630 R1): mirrors the producer's gate in `computeLogResult`
-    // (`atCountThreshold || allSuppressed`). Guarding on `atCountThreshold`
-    // alone would print NO records for an all-suppressed log — which has
-    // `atCountThreshold === false` by construction — so the sweep would surface
-    // the records and this renderer would silently drop them, leaving the
-    // reviewer with a routed log and nothing to judge. Reviewer-caught: the
-    // producer-side gate was widened and this consumer was not.
-    if ((r.atCountThreshold || r.allSuppressed) && r.newRecords.length > 0) {
+    // mt#5047: reads the producer's OWN predicate instead of restating it.
+    //
+    // This line used to mirror `computeLogResult`'s gate by hand, and the mirror
+    // broke twice. mt#4049 (PR #3630 R1) widened the producer to
+    // `atCountThreshold || allSuppressed` and left this on `atCountThreshold`
+    // alone — reviewer-caught, with the note "the producer-side gate was widened
+    // and this consumer was not." mt#4970 then widened the producer again to
+    // `allWithheld` (suppressed PLUS log-only-family) and this consumer was left
+    // behind a second time, so a log whose entire volume is log-only would be
+    // routed for review with its records silently dropped here.
+    //
+    // Sharing the predicate is what makes a third recurrence structurally
+    // impossible rather than merely unlikely.
+    if (shouldSurfaceRecords(r) && r.newRecords.length > 0) {
       lines.push(`  New records (${r.newRecords.length}):`);
       for (const rec of r.newRecords.slice(0, 5)) {
         if ("matchedPhrases" in rec) {

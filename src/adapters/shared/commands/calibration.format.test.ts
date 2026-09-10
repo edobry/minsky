@@ -161,6 +161,7 @@ describe("formatResult — watermark-stranded rendering (mt#4904)", () => {
           injectedFiresSinceLastReview: 0,
           suppressedSinceLastReview: 0,
           logOnlyFamilySinceLastReview: 0,
+          undeterminedSinceLastReview: 0,
           totalFires: 121,
           distinctPhrases: 0,
           reason: "watermark-stranded",
@@ -202,6 +203,19 @@ describe("formatResult — all-suppressed records are printed (mt#4049, PR #3630
       atCountThreshold: false,
       pastThreshold: false,
       allSuppressed: true,
+      // mt#5047: `allWithheld` added because this fixture encoded a state
+      // production CANNOT produce. The two are computed as
+      //   allSuppressed = injected === 0 && suppressed >= FIRES_THRESHOLD
+      //   allWithheld   = injected === 0 && (suppressed + logOnlyFamily) >= FIRES_THRESHOLD
+      // and `logOnlyFamily >= 0`, so `allSuppressed` IMPLIES `allWithheld` —
+      // always, for every real result. The fixture predates mt#4970, which added
+      // the wider column, and was never updated; it kept passing only because
+      // the renderer still read the narrower boolean.
+      //
+      // This is a fixture correction, not a weakened assertion: the leg under
+      // test (an all-suppressed log below the count bar still prints its
+      // records) is unchanged and still asserted below.
+      allWithheld: true,
       newRecords: [
         { timestamp: "2026-09-04T17:31:35.763Z", outcome: "suppressed", reason: "propagation" },
       ],
@@ -228,7 +242,16 @@ describe("formatResult — all-suppressed records are printed (mt#4049, PR #3630
   test("still withholds records for a below-bar log that is NOT all-suppressed", () => {
     // The negative control on the widening: this is the ordinary
     // below-the-count-bar case, which must stay exactly as quiet as it was.
-    const out = formatResult([allSuppressedResult({ allSuppressed: false })], []);
+    //
+    // mt#5047: BOTH booleans are cleared, not just `allSuppressed`. "Not
+    // all-suppressed" in production means neither column carries the volume —
+    // clearing only the narrower one leaves `allWithheld: true`, which is a log
+    // that SHOULD surface, so the control would be asserting quiet on a case
+    // that is meant to be loud.
+    const out = formatResult(
+      [allSuppressedResult({ allSuppressed: false, allWithheld: false })],
+      []
+    );
     expect(out).not.toContain("New records (");
   });
 });

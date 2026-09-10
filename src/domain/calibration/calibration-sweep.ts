@@ -1168,6 +1168,25 @@ export interface CalibrationLogResult {
    */
   logOnlyFamilySinceLastReview: number;
   /**
+   * Of `suppressedSinceLastReview`, how many were suppressed because the detector
+   * COULD NOT COMPLETE its check (mt#5000) — see {@link isUndeterminedRecord}.
+   *
+   * A SUBSET of `suppressedSinceLastReview`, not a sibling column: these records
+   * are still counted as suppressed and still feed `allSuppressed` / `allWithheld`,
+   * deliberately. Removing them from the union would let a wholly-degraded log
+   * fall through both routing gates into invisibility, which is the exact cliff
+   * mt#4049 and mt#4970 exist to prevent — and ADR-032's "a guard tuned into
+   * permanent silence is indistinguishable from a dead one."
+   *
+   * So this field CHANGES no routing. What it changes is what the verdict SAYS: an
+   * `all-suppressed` result whose population is mostly could-not-check is a
+   * detector that was blind, not a gate that was broad, and until this field
+   * existed a reviewer had no way to tell those apart without opening the raw
+   * JSONL. That is ADR-035 rule 5's data-plane-honesty obligation — the surface a
+   * caller actually reads has to be the honest one.
+   */
+  undeterminedSinceLastReview: number;
+  /**
    * Distinct FIRES among the new records — grouped by judged-text digest (mt#3866).
    *
    * Not a replacement for `firesSinceLastReview`, which stays a RECORD count
@@ -1325,6 +1344,79 @@ export function hasSuppressionOutcome(record: CalibrationRecord): boolean {
 }
 
 /**
+ * Suppression reasons that mean the detector COULD NOT COMPLETE its check
+ * (mt#5000) — as opposed to completing it and deciding not to inject.
+ *
+ * Matched as PREFIXES, because several of these carry a cause after a colon
+ * (`domain-bootstrap-failed: Configuration not initialized.`).
+ *
+ * The distinction is ADR-035 §Decision rule 3 at the sweep layer: a degraded run
+ * and a clean run are byte-identical to `isSuppressedRecord`, which asks only
+ * whether the array is non-empty. So an `all-suppressed` verdict computed over a
+ * population that is mostly could-not-check reads as "the gate is broad" when it
+ * actually means "the detector was blind" — two findings with opposite remedies.
+ * Measured on `stale-state-assertion` before mt#5000's fix: 214 of 242
+ * suppressions (88%) were `nomination-deps-unavailable`, i.e. the detector never
+ * reached its embedding provider at all.
+ *
+ * Deliberately a fixed list rather than a heuristic on the string: a substring
+ * rule over words like "unavailable" would silently reclassify a future reason
+ * whose author meant it as a verdict.
+ *
+ * **Every entry is an emitter that writes into `suppressionReasons`, cited at
+ * its line (PR #3700 R1, BLOCKING).** The first version of this list also
+ * carried `provider-unconfigured`, taken from reading four sibling nomination
+ * consumers — and that was wrong in a way worth recording rather than quietly
+ * deleting: those hooks emit it as a `degradedReason` into their OWN record
+ * shapes, never into `suppressionReasons`, so it could never have matched here.
+ * Enumerating the actual emitters (`grep 'suppressionReasons.push'`) and the
+ * actual observed corpus (23 distinct reasons across every calibration log's
+ * whole history) is what settled it; reading sibling code is what got it wrong.
+ * A classifier's key set is a measurement, not an inference.
+ *
+ * Adding an entry therefore obliges naming the line that emits it. The corpus
+ * test in `calibration-sweep.undetermined.test.ts` pins every reason this repo
+ * has ever written against its expected classification, so an over-broad prefix
+ * fails there rather than silently reclassifying another detector's verdicts.
+ */
+export const COULD_NOT_CHECK_SUPPRESSION_PREFIXES: readonly string[] = [
+  // The Rung-2 dependency stage, all of its exits.
+  // `turn-end-stale-state-assertion-scan.ts` :596 / :593 / :585, and the
+  // `nomination-degraded` prefix its `run()` forwards from `nominate`.
+  "nomination-deps-unavailable",
+  "nomination-deps-timeout",
+  "nomination-deps-threw",
+  "nomination-degraded",
+  // mt#5000's own addition — the process could not read configuration at all.
+  "domain-bootstrap-failed",
+  // Substrate reads that did not complete. Same hook, :1243 and :1194.
+  "lookup-unavailable",
+  "transcript-unreadable",
+  // The peer-ledger read, same hook, :736 and :741. Both are partial: they
+  // routinely co-occur with a real verdict, which is exactly why
+  // `isUndeterminedRecord` requires EVERY reason to be could-not-check.
+  "peer-read-failed",
+  "peer-read-unavailable",
+];
+
+/**
+ * Did this record's suppression mean "could not check" rather than "checked"?
+ * (mt#5000)
+ *
+ * True only when EVERY reason is could-not-check. A record carrying both a
+ * degradation and a substantive verdict did reach a conclusion about something,
+ * so counting it here would overstate the blindness — and overstating it is the
+ * same class of error, pointed the other way.
+ */
+export function isUndeterminedRecord(record: CalibrationRecord): boolean {
+  const reasons = record.suppressionReasons ?? [];
+  if (reasons.length === 0) return false;
+  return reasons.every((reason) =>
+    COULD_NOT_CHECK_SUPPRESSION_PREFIXES.some((prefix) => reason.startsWith(prefix))
+  );
+}
+
+/**
  * True when a record carries no match and nothing was injected (mt#3863).
  *
  * Some detectors write an EVALUATION record on every turn they run,
@@ -1359,6 +1451,43 @@ export function hasSuppressionOutcome(record: CalibrationRecord): boolean {
  */
 export function isEvaluationOnlyRecord(record: CalibrationRecord): boolean {
   return "matches" in record && record.matches.length === 0;
+}
+
+/**
+ * Whether a log's un-reviewed records should be SURFACED to a reviewer (mt#5047).
+ *
+ * One definition, two callers: `computeLogResult` uses it to decide whether to
+ * populate `newRecords`, and the text renderer in
+ * `src/adapters/shared/commands/calibration.ts` uses it to decide whether to
+ * print them. **They must agree, and hand-mirroring them has now failed twice.**
+ *
+ * mt#4049 widened the producer's gate to include `allSuppressed` and left the
+ * renderer on `atCountThreshold` alone; the renderer's own comment records the
+ * reviewer catching it — *"the producer-side gate was widened and this consumer
+ * was not."* mt#4970 then widened the producer again, `allSuppressed` →
+ * `allWithheld`, and the renderer was left behind a SECOND time. The failure
+ * mode is identical each time and silent in the same way: the sweep routes a log
+ * for review, the renderer drops its records, and the reviewer is told to judge
+ * something and shown nothing.
+ *
+ * A shared predicate is the fix that ends the class rather than the instance.
+ * The next column added to the withheld union changes this function, and both
+ * consumers move with it because neither restates the condition.
+ *
+ * Note it reads `allWithheld`, not `allSuppressed` — the union of "suppressed"
+ * and "log-only family". A log whose entire volume is log-only has
+ * `allSuppressed === false` and `allWithheld === true`, and its records are
+ * exactly what its review question needs.
+ *
+ * Takes the two fields it reads rather than a whole `CalibrationLogResult`, so
+ * the renderer can pass a result directly (structural typing) while a test can
+ * pass a two-field literal without constructing one.
+ */
+export function shouldSurfaceRecords(result: {
+  atCountThreshold: boolean;
+  allWithheld: boolean;
+}): boolean {
+  return result.atCountThreshold || result.allWithheld;
 }
 
 /**
@@ -1973,6 +2102,9 @@ export function computeLogResult(
   // arithmetic must stay aligned with it; the threshold keys off the injected
   // count instead.
   const suppressedSinceLastReview = newRecords.filter(isSuppressedRecord).length;
+  // mt#5000: a SUBSET of the line above, not a competing count — see the field's
+  // docblock for why it is reported rather than subtracted.
+  const undeterminedSinceLastReview = newRecords.filter(isUndeterminedRecord).length;
 
   // mt#3740: a record another record SUPERSEDES is a revised answer, not a
   // second fire. Counting both would make one session look like two — the
@@ -2093,6 +2225,7 @@ export function computeLogResult(
     injectedFiresSinceLastReview,
     evaluatedOnlySinceLastReview,
     logOnlyFamilySinceLastReview,
+    undeterminedSinceLastReview,
     distinctFiresSinceLastReview,
     ungroupableSinceLastReview,
     distinctPhrases,
@@ -2114,7 +2247,11 @@ export function computeLogResult(
     // behavior for every log without a log-only family, and it keeps a log whose
     // only volume is log-only from falling through both gates with its records
     // hidden.
-    newRecords: atCountThreshold || allWithheld ? newRecords : [],
+    // mt#5047: the condition itself moved to `shouldSurfaceRecords` so the text
+    // renderer reads the SAME predicate instead of restating it. See that
+    // function for why — this gate has been widened twice and the renderer left
+    // behind both times.
+    newRecords: shouldSurfaceRecords({ atCountThreshold, allWithheld }) ? newRecords : [],
     watermarkCount,
     watermarkStranded,
     openAskId: watermark?.openAskId,
@@ -2885,6 +3022,18 @@ export interface ReviewDueLog {
    * on that leg by construction.
    */
   logOnlyFamilySinceLastReview: number;
+  /**
+   * Of `suppressedSinceLastReview`, how many were suppressed because the detector
+   * could not COMPLETE its check (mt#5000).
+   *
+   * Carried onto the review-due row because this is the leg where the
+   * distinction bites hardest: `all-suppressed`'s stated question is *"is the
+   * suppression gate too broad?"*, and that question is unanswerable — not merely
+   * hard — when the population never ran a check to be broad about. A reviewer
+   * seeing `suppressed 242, undetermined 214` knows to fix the detector rather
+   * than tune the gate.
+   */
+  undeterminedSinceLastReview: number;
   totalFires: number;
   distinctPhrases: number;
   reason:
@@ -2937,6 +3086,7 @@ function toReviewDueLog(
     injectedFiresSinceLastReview: r.injectedFiresSinceLastReview,
     suppressedSinceLastReview: r.suppressedSinceLastReview,
     logOnlyFamilySinceLastReview: r.logOnlyFamilySinceLastReview,
+    undeterminedSinceLastReview: r.undeterminedSinceLastReview,
     totalFires: r.totalFires,
     distinctPhrases: r.distinctPhrases,
     reason,
