@@ -138,10 +138,26 @@ describe("buildDeployVerificationReminder names services (mt#5002)", () => {
     expect(r).toContain("`reviewer`");
   });
 
-  // AT3 — carried through from the line renderer into the full reminder.
-  test("AT3: an empty set is stated explicitly in the full reminder", () => {
+  // AT3 — carried through from the line renderer into the full reminder, AND
+  // (PR #3713 R1 BLOCKING) the empty case must not ALSO instruct running the
+  // wait — "no deployment to wait on" beside "run wait-for-latest for EACH
+  // service named above" is the contradiction the reviewer caught.
+  test("AT3: an empty set is stated explicitly, with NO wait-for-latest instruction", () => {
     const r = buildDeployVerificationReminder([INFRA_INDEX], []);
     expect(r).toContain("NONE resolved");
+    expect(r).toContain("no `deployment_wait-for-latest` to run");
+    expect(r).not.toContain("for EACH service named above");
+    expect(r).not.toContain("confirm it returns SUCCESS");
+    expect(r).not.toContain("verify-deploy.ts");
+  });
+
+  // The non-empty case keeps the full verification block — pinned so the empty
+  // branch cannot quietly become the only branch.
+  test("a non-empty set keeps the full wait-for-latest verification block", () => {
+    const r = buildDeployVerificationReminder([INFRA_INDEX], ["minsky-mcp"]);
+    expect(r).toContain("for EACH service named above");
+    expect(r).toContain(DEPLOY_WAIT);
+    expect(r).not.toContain("NONE resolved");
   });
 });
 

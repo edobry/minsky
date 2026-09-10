@@ -155,6 +155,33 @@ export function buildDeployVerificationReminder(
   affectedServices: readonly string[]
 ): string {
   const fileList = deploySurfaceFiles.map((f) => `  - ${f}`).join("\n");
+
+  // PR #3713 R1 BLOCKING — an empty resolution gets its OWN reminder, without
+  // the wait-for-latest block. "No deployment to wait on" followed by "run
+  // deployment_wait-for-latest for EACH service named above" is contradictory
+  // guidance, and the contradiction resolves the wrong way: an agent handed an
+  // instruction to run a check and no service to run it against will pick one
+  // by consumption reasoning, which is the exact failure this line exists to
+  // prevent. So the empty case says what IS actionable — the map — and nothing
+  // about deploys.
+  if (affectedServices.length === 0) {
+    return [
+      "DEPLOY-SURFACE MERGE — but NO deployment resolves for these files.",
+      "",
+      "This PR touched deploy/infra config:",
+      fileList,
+      "",
+      renderAffectedServicesLine(affectedServices),
+      "",
+      "**There is no `deployment_wait-for-latest` to run here.** A deploy-surface file whose",
+      "service has no `deploy.config.ts` is a MAP gap, not a deploy to verify: either the",
+      "file should not be deploy surface, or its service needs a `deploy.config.ts`. Read",
+      "`DEPLOY_SURFACE_SERVICE_MAP` and `listServicesWithDeployConfig` before deciding",
+      "which, and record the answer on the task — do not report a deploy as verified,",
+      "and do not report one as missing.",
+    ].join("\n");
+  }
+
   return [
     "DEPLOY-SURFACE MERGE — the task is NOT done yet.",
     "",
