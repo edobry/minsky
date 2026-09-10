@@ -471,6 +471,14 @@ describe("describeResponseBody (mt#4012)", () => {
     expect(describeResponseBody(JSON_CONTENT_TYPE, '{"a":1}')).toContain("7 bytes");
   });
 
+  test("counts UTF-8 BYTES, not UTF-16 code units", () => {
+    // Pins the PR #3707 R1 change from `Buffer.byteLength` to `TextEncoder`:
+    // both count UTF-8 bytes, and `.length` on the string would not. "é" is one
+    // character and two bytes; the emoji is one code point and four.
+    expect(describeResponseBody(null, "é")).toContain("2 bytes");
+    expect(describeResponseBody(null, "🚀")).toContain("4 bytes");
+  });
+
   test("emits NO body content — this string lands in a public Actions log", () => {
     const secretish = JSON.stringify({ token: "ghp_examplevalue", title: "prod outage detail" });
     const described = describeResponseBody(JSON_CONTENT_TYPE, secretish);

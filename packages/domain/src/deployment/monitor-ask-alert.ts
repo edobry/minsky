@@ -415,7 +415,10 @@ export function selectJsonRpcResponse(dataBuffers: string[], requestId: number):
  */
 export function describeResponseBody(contentType: string | null, bodyText: string): string {
   const type = contentType && contentType.trim() ? contentType.trim() : "(absent)";
-  const bytes = Buffer.byteLength(bodyText, "utf8");
+  // `TextEncoder`, not `Buffer.byteLength` (PR #3707 R1): this is a shared domain
+  // module and `Buffer` is a Node/Bun global, not a web-standard one. Same
+  // result for UTF-8, no runtime assumption.
+  const bytes = new TextEncoder().encode(bodyText).length;
   return `content-type=${JSON.stringify(type)}, ${bytes} bytes, shape=${classifyBodyShape(bodyText)}`;
 }
 
