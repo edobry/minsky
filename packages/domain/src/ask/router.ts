@@ -596,6 +596,26 @@ export function buildPolicyClosedEvent(
       title: result.title,
       citationSource: citation?.source ?? "unknown",
       ...(citation?.lineRange ? { citationLines: citation.lineRange } : {}),
+      // mt#5046. The policy-closed population is TWO phenomena — measured 2026-09-10, 1,714
+      // machine-filed commit-authorization rows against 10 agent-authored decisions — and a
+      // reader that does not separate them overstates one by ~170x while hiding the other.
+      //
+      // Keyed on `metadata.commitMessage`, the marker `sessionCommit`'s emit site stamps
+      // (`session/session-commands.ts`), NOT on the title. That is this repo's existing
+      // discriminator — `isCommitAuthAsk` in `stale-suspended-close.ts` calls it "a
+      // designed-for-purpose marker, not a title heuristic" — and reading it here keeps the
+      // router free of any dependency on the review-side registry (PR #3708 R1). Verified
+      // equivalent before switching: across all 1,724 policy-closed rows the marker and the
+      // title prefix agree on 1,714 with ZERO disagreements.
+      //
+      // Carried on the PAYLOAD rather than expressed as an event category, because
+      // `eventCategory` maps a TYPE to a category and cannot say "actionable only when the ask
+      // was agent-authored". Flipping the whole type to `actionable` would re-categorize every
+      // historical machine-filed row, which is noise pointed at the operator. Emitting a second
+      // event type would need a schema change for a distinction the payload already carries.
+      // mt#4926 owns removing the machine-filed emission entirely; once it lands, the type-level
+      // flip becomes correct and this field becomes uniformly false.
+      machineFiled: typeof result.metadata?.["commitMessage"] === "string",
     },
     actor: result.requestor,
     relatedTaskId: result.parentTaskId,

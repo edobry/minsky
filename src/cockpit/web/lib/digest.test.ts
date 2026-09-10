@@ -192,6 +192,44 @@ describe("summarizeCounts", () => {
   });
 });
 
+/** Shared event-type constants for the disposal split (mt#5046), per this file's own pattern. */
+const POLICY_CLOSED_EVENT = "ask.policy_closed";
+const ANSWERED_EVENT = "ask.answered";
+
+describe("mt#5046 — a policy close is a disposal, not an answer", () => {
+  // Before this split, `ask.policy_closed` incremented `asksAnswered` beside `ask.answered`,
+  // so the digest reported the system removing a decision from the operator as the operator
+  // having made it. There was NO test on either event type here, which is why the fold
+  // survived: the file's own count coverage never named them.
+  function countsFor(rows: DigestEventRow[]) {
+    const first = buildDigest(rows)[0];
+    if (!first) throw new Error("expected one group");
+    return first.counts;
+  }
+
+  test("a policy close does NOT increment asksAnswered", () => {
+    const counts = countsFor([row(POLICY_CLOSED_EVENT, { relatedTaskId: "mt#7" })]);
+    expect(counts.asksAnswered).toBe(0);
+    expect(counts.asksDisposed).toBe(1);
+  });
+
+  test("an answered ask still increments asksAnswered, and only that", () => {
+    // The negative control for the split: the fix must not move the OTHER event type.
+    const counts = countsFor([row(ANSWERED_EVENT, { relatedTaskId: "mt#7" })]);
+    expect(counts.asksAnswered).toBe(1);
+    expect(counts.asksDisposed).toBe(0);
+  });
+
+  test("the two are rendered as different things, and a disposal is never 'resolved'", () => {
+    const counts = countsFor([
+      row(ANSWERED_EVENT, { relatedTaskId: "mt#7" }),
+      row(POLICY_CLOSED_EVENT, { relatedTaskId: "mt#7" }),
+      row(POLICY_CLOSED_EVENT, { relatedTaskId: "mt#7" }),
+    ]);
+    expect(summarizeCounts(counts)).toBe("1 resolved · 2 auto-closed by policy");
+  });
+});
+
 describe("dayWindow", () => {
   test("offset 0 spans the current local calendar day; offset 1 the day before", () => {
     const now = new Date(2026, 6, 17, 15, 30, 0);
