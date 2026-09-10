@@ -1357,6 +1357,10 @@ export function hasSuppressionOutcome(record: CalibrationRecord): boolean {
  * exclude for those kinds, and this predicate returns `false` for them
  * unconditionally rather than guessing at a shape they don't have.
  */
+export function isEvaluationOnlyRecord(record: CalibrationRecord): boolean {
+  return "matches" in record && record.matches.length === 0;
+}
+
 /**
  * Whether a log's un-reviewed records should be SURFACED to a reviewer (mt#5047).
  *
@@ -1382,16 +1386,16 @@ export function hasSuppressionOutcome(record: CalibrationRecord): boolean {
  * and "log-only family". A log whose entire volume is log-only has
  * `allSuppressed === false` and `allWithheld === true`, and its records are
  * exactly what its review question needs.
+ *
+ * Takes the two fields it reads rather than a whole `CalibrationLogResult`, so
+ * the renderer can pass a result directly (structural typing) while a test can
+ * pass a two-field literal without constructing one.
  */
 export function shouldSurfaceRecords(result: {
   atCountThreshold: boolean;
   allWithheld: boolean;
 }): boolean {
   return result.atCountThreshold || result.allWithheld;
-}
-
-export function isEvaluationOnlyRecord(record: CalibrationRecord): boolean {
-  return "matches" in record && record.matches.length === 0;
 }
 
 /**
