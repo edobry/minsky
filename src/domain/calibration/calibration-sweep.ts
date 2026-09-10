@@ -1642,6 +1642,60 @@ export function parseCalibrationRecord(
   };
 }
 
+/**
+ * `outcome` tokens that mean the detector FOUND something (mt#5048).
+ *
+ * Deliberately only the two that are unambiguous across every writer that uses
+ * them. Measured over the live logs 2026-09-10: `matched` 936, `flagged` 10.
+ * A token that appears in exactly ONE log means something local to that log and
+ * does not belong here — see the fall-through comment at the branch.
+ */
+export const OUTCOME_MEANS_FIRE: readonly string[] = ["matched", "flagged"];
+
+/** True when an `outcome` token means the detector found something. */
+export function outcomeMeansFire(outcome: string): boolean {
+  return OUTCOME_MEANS_FIRE.includes(outcome);
+}
+
+/**
+ * `outcome` tokens that mean the detector evaluated and found nothing.
+ *
+ * These records are CORRECTLY evaluation-only. Listing the token explicitly —
+ * rather than letting the fallback synthesize the same empty match set — is
+ * mt#5048 SC4: a future reader can tell "this detector genuinely evaluates
+ * without matching" from "nobody has looked at this one yet", which a silent
+ * fallback cannot express. 30,695 records as of 2026-09-10.
+ */
+export const OUTCOME_MEANS_EVALUATED: readonly string[] = ["clean"];
+
+/** True when an `outcome` token means the detector evaluated and found nothing. */
+export function outcomeMeansEvaluated(outcome: string): boolean {
+  return OUTCOME_MEANS_EVALUATED.includes(outcome);
+}
+
+/**
+ * Logs whose records carry NO findings by construction — evaluation-only is the
+ * right answer and no parse branch is owed (mt#5048 SC4).
+ *
+ * A DECLARATION, not a comment, for the reason SC4 gives: silence cannot
+ * distinguish "verified as genuinely findings-free" from "not yet examined".
+ * Each entry states the evidence that settled it.
+ */
+export const FINDINGS_FREE_CALIBRATION_LOGS: Record<string, string> = {
+  "context-fill-gauge":
+    "A gauge. Every record carries fillTokens/windowTokens/fillRatioPct on every turn; it " +
+    "measures rather than matches, so it never has a finding to report.",
+  "agent-dispatch-record":
+    "A RECORD of a dispatch, not a detection — its outcome vocabulary is inserted/reconciled, " +
+    "which describe a write that happened rather than something found.",
+  "handoff-at-work-boundary":
+    "Carries an explicit `fired` boolean, so it already states its own answer; the records " +
+    "present are non-fires.",
+  "block-concurrent-bulk-mutation":
+    "All records `clean` as of 2026-09-10 — reached through OUTCOME_MEANS_EVALUATED above, " +
+    "listed here so the verdict is declared rather than inferred from that path.",
+};
+
 function parseCalibrationRecordCore(
   raw: Record<string, unknown>,
   kind: CalibrationLogEntry["kind"]
@@ -1871,6 +1925,92 @@ function parseCalibrationRecordCore(
       } satisfies StopAtDecisionRecord;
     }
 
+    // ---------------------------------------------------------------------
+    // The `outcome` convention (mt#5048)
+    // ---------------------------------------------------------------------
+    //
+    // 15 of the 31 logs in mt#5048's census carry an `outcome` field on EVERY
+    // record and no `matches` key at all. They have been recording whether they
+    // found something the whole time; the parser just did not know the
+    // convention existed, so all of them fell to the matches-shape fallback
+    // below, got `matches: []` synthesized, and read as "never matched
+    // anything" to `isEvaluationOnlyRecord`.
+    //
+    // Measured over the live logs 2026-09-10: 30,695 `clean` (correctly
+    // evaluation-only) against **946** `matched`/`flagged` records that are real
+    // findings and were misfiled.
+    //
+    // Guarded on `matches` not being an ARRAY, which is absent OR malformed —
+    // not "absent", as this comment claimed until PR #3709 R1 corrected it.
+    // The distinction is real: a record carrying a non-array `matches` AND an
+    // `outcome` string used to reach the fallback, which synthesizes `[]` and
+    // reads as evaluation-only; it now gets classified by its outcome instead.
+    //
+    // That is the better answer of the two — a detector that recorded
+    // `outcome: "matched"` did match something, whatever shape its `matches`
+    // key is in — but it IS a behaviour change, so it is stated rather than
+    // hidden behind a comment that says otherwise. Measured across all 55 live
+    // logs: **zero** records carry a non-array `matches`, so the case is
+    // currently empty in production.
+    //
+    // Otherwise unchanged: a record with a real `matches` array never enters
+    // this branch, so no existing per-kind branch and no existing well-formed
+    // record changes behaviour.
+    if (!Array.isArray(raw["matches"]) && typeof raw["outcome"] === "string") {
+      const outcome = String(raw["outcome"]);
+      const base = {
+        timestamp: String(raw["timestamp"] ?? raw["ts"] ?? ""),
+        // BOTH spellings, and camelCase is the one that actually matters here
+        // (PR #3709 R1). Measured over the live logs: **zero** of the 15
+        // outcome-convention logs write `session_id` — all 32,763 records use
+        // `sessionId`. Reading only the snake_case name would drop session
+        // identity for 100% of the records this branch handles, which costs
+        // `isRevisedAway` (`:2241`, scoped to `session_id`+timestamp) its
+        // ability to retract a superseded record, and costs review attribution
+        // its conversation id.
+        //
+        // Not a regression this branch introduced — the matches-shape fallback
+        // below reads `session_id` only, so these records never carried one.
+        // The precedent for fixing it is in this same function: the
+        // `nonexistent-search-path` branch (`:1804`) already maps
+        // `raw["sessionId"]`, with a note that its producer uses camelCase.
+        session_id:
+          raw["session_id"] !== undefined
+            ? String(raw["session_id"])
+            : raw["sessionId"] !== undefined
+              ? String(raw["sessionId"])
+              : undefined,
+      };
+      if (outcomeMeansFire(outcome)) {
+        return {
+          ...base,
+          matches: [
+            {
+              family: outcome,
+              // `reason` when the writer gives one, else the outcome token. The
+              // same axis choice the policy-coverage branch makes, and it keeps
+              // the phrase SHORT — widening it to an excerpt would make every
+              // record distinct and flatten the diversity signal to "always
+              // high", which is the defect mt#3781 is correcting elsewhere.
+              phrase: raw["reason"] !== undefined ? String(raw["reason"]) : outcome,
+            },
+          ],
+        } satisfies RetrospectiveTriggerRecord;
+      }
+      if (outcomeMeansEvaluated(outcome)) {
+        // Explicitly empty, and that is the CORRECT classification rather than
+        // an accident of the fallback: the detector ran and found nothing.
+        return { ...base, matches: [] } satisfies RetrospectiveTriggerRecord;
+      }
+      // Any other token — `gated`, `declined`, `inserted`, `reconciled`,
+      // `unmatched-shape`, `skipped`, `suppressed-*` — falls through to the
+      // fallback UNCHANGED. Each appears in exactly one log and means something
+      // local to it (`inserted` is a dispatch record; `unmatched-shape` is a
+      // parse failure), so classifying them from the token alone would be the
+      // same guess-from-shape move this task exists to remove. They keep
+      // per-log verdicts.
+    }
+
     // retrospective-trigger, ask-routing-deferral (mt#2498), OR pre-narration
     // (mt#2197) — same matches-shape family. retrospective-trigger labels each
     // match with `family`; ask-routing-deferral labels it with `class`;
@@ -1899,7 +2039,19 @@ function parseCalibrationRecordCore(
       : [];
     return {
       timestamp: String(raw["timestamp"] ?? ""),
-      session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
+      // Both spellings, same reason as the outcome branch above (PR #3709 R1),
+      // applied to the CLASS rather than the one instance the review named.
+      // Measured: `duplicate-signature-scan` reaches this fallback with 284
+      // matches-shaped records and writes `sessionId` on all 316 of them, zero
+      // `session_id` — so its conversation id has been dropped here all along.
+      // It carries no `supersedes`, so no count moves; what it regains is
+      // review attribution.
+      session_id:
+        raw["session_id"] !== undefined
+          ? String(raw["session_id"])
+          : raw["sessionId"] !== undefined
+            ? String(raw["sessionId"])
+            : undefined,
       matches,
       transcript_excerpt:
         raw["transcript_excerpt"] !== undefined ? String(raw["transcript_excerpt"]) : undefined,
