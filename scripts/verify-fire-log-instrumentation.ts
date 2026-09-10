@@ -108,6 +108,8 @@ async function main(): Promise<void> {
   }
 
   rmSync(stateDir, { recursive: true, force: true });
+  // The Stop-hook sentinel `payloadFor` wrote (PR #3715 R1) — leave nothing in /tmp.
+  rmSync(`/tmp/claude-typecheck-roots-${SESSION_ID}-main.txt`, { force: true });
 
   const failures = runs.filter((r) => r.rows !== 1);
   for (const r of runs) {

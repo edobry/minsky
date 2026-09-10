@@ -367,17 +367,21 @@ if (import.meta.main) {
   const mode = readMode();
 
   // mt#5081: fire-log every evaluation, exactly once. A recorder never denies
-  // or injects, so every exit is an `allow`; `guardOutcome` distinguishes a
-  // clean run from the analyzer failing. One recorder for the eight exits.
+  // or injects, so every exit is an `allow`. `guardOutcome` follows
+  // `merge-gate-fire-log.ts`'s `MergeGateOutcome`: `"decided"` only where the
+  // analyzer actually RAN, `"crashed"` where it threw, and UNSET on the six
+  // short-circuits before it (disabled, uncovered tool, no context, no
+  // transcript, no provider) — those are not clean-run evidence, and marking
+  // them so would inflate guard-health's recovery join (PR #3715 R1).
   // Explicitly typed, not inferred: TypeScript narrows through a `never`
   // call only when the callee's declared type is an annotation, so without
   // this every `if (!x) recordAndExit()` below would leave `x` nullable.
-  const recordAndExit: (outcome?: "decided" | "crashed") => never = (outcome = "decided") => {
+  const recordAndExit: (outcome?: "decided" | "crashed") => never = (outcome) => {
     recordFireLogEntry({
       guardName: GUARD_NAME,
       event: "PostToolUse",
       decision: "allow",
-      guardOutcome: outcome,
+      ...(outcome === undefined ? {} : { guardOutcome: outcome }),
       durationMs: Date.now() - startMs,
       toolName: input.tool_name,
       sessionId: input.session_id,
@@ -499,5 +503,6 @@ if (import.meta.main) {
     );
   }
 
-  recordAndExit();
+  // The analyzer ran to completion: the one exit that is clean-run evidence.
+  recordAndExit("decided");
 }

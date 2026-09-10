@@ -326,7 +326,16 @@ async function main(): Promise<void> {
   try {
     input = await readInput<ToolHookInput>();
   } catch {
-    process.exit(0); // malformed stdin — never block; nothing to attribute a row to
+    // Malformed stdin — never block. Recorded as a crash with no attribution
+    // (PR #3715 R1), consistent with every other guard this task touched.
+    recordFireLogEntry({
+      guardName: GUARD_NAME,
+      event: "PostToolUse",
+      decision: "allow",
+      guardOutcome: "crashed",
+      durationMs: Date.now() - startMs,
+    });
+    process.exit(0);
   }
 
   // Honor the gate's operator override (MINSKY_SKIP_DEPLOY_VERIFY): a bypass of the

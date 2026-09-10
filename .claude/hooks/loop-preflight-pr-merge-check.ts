@@ -428,17 +428,17 @@ if (import.meta.main) {
     recordAndExit("allow");
   }
 
-  // Check for override env var
-  const forceTerminal = process.env["MINSKY_FORCE_LOOP_TERMINAL"];
+  // Check for override env var. One binding for the read, the audit line and
+  // the fire-log fields, so the three cannot name different vars (PR #3715 R1).
+  const OVERRIDE_ENV_VAR = "MINSKY_FORCE_LOOP_TERMINAL";
+  const forceTerminal = process.env[OVERRIDE_ENV_VAR];
   if (forceTerminal === "1") {
     const ts = new Date().toISOString();
-    process.stdout.write(
-      `[loop-preflight] OVERRIDE active (MINSKY_FORCE_LOOP_TERMINAL=1) — ts=${ts}\n`
-    );
+    process.stdout.write(`[loop-preflight] OVERRIDE active (${OVERRIDE_ENV_VAR}=1) — ts=${ts}\n`);
     // Outcome deliberately UNSET: the guard did not run its check.
     recordAndExit("allow", {
-      overrideEnvVar: "MINSKY_FORCE_LOOP_TERMINAL",
-      overrideClassification: classifyOverride("MINSKY_FORCE_LOOP_TERMINAL"),
+      overrideEnvVar: OVERRIDE_ENV_VAR,
+      overrideClassification: classifyOverride(OVERRIDE_ENV_VAR),
       overrideSource: "env",
     });
   }

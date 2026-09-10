@@ -183,8 +183,13 @@ async function main(input: ToolHookInput): Promise<FireLogDecision> {
 
 if (import.meta.main) {
   const startMs = Date.now();
-  const input = await readInput<ToolHookInput>();
+  // `readInput` sits INSIDE the try (PR #3715 R1 BLOCKING): a malformed stdin
+  // must fail open like every other error here, not crash the process before
+  // the fire-log row is written. `input` stays undefined on that path, so the
+  // crash row carries no tool/session attribution — which is itself the signal.
+  let input: ToolHookInput | undefined;
   try {
+    input = await readInput<ToolHookInput>();
     const decision = await main(input);
     // mt#5081: fire-log every evaluation, exactly once.
     recordFireLogEntry({
@@ -210,8 +215,8 @@ if (import.meta.main) {
       decision: "allow",
       guardOutcome: "crashed",
       durationMs: Date.now() - startMs,
-      toolName: input.tool_name,
-      sessionId: input.session_id,
+      ...(input?.tool_name === undefined ? {} : { toolName: input.tool_name }),
+      ...(input?.session_id === undefined ? {} : { sessionId: input.session_id }),
     });
   }
 }

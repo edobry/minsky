@@ -89,6 +89,10 @@ export function sweepOverrideFireLogFields(
   if (resolution.source === "grant") {
     return { overrideClassification: "authorized_exception", overrideSource: "grant" };
   }
+  // Attribution mirrors `resolveGuardChannelOverride`'s precedence exactly: it
+  // tests the legacy var FIRST and returns `env` on a hit before consulting
+  // `MINSKY_HOOK_OVERRIDE`, so when both are set the legacy var is the one that
+  // fired, and naming it here is correct rather than a guess (PR #3715 R1).
   const overrideEnvVar =
     env["MINSKY_FORCE_PARALLEL"] === "1" ? "MINSKY_FORCE_PARALLEL" : "MINSKY_HOOK_OVERRIDE";
   return {

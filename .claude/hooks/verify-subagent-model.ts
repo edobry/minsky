@@ -301,8 +301,15 @@ async function main(): Promise<void> {
   try {
     input = await readInput<ToolHookInput>();
   } catch {
-    // Malformed stdin — exit silently. Never block. No input means nothing
-    // to attribute a row to, so this path stays unrecorded.
+    // Malformed stdin — never block. Recorded as a crash with no attribution
+    // (PR #3715 R1), consistent with every other guard this task touched.
+    recordFireLogEntry({
+      guardName: GUARD_NAME,
+      event: "PostToolUse",
+      decision: "allow",
+      guardOutcome: "crashed",
+      durationMs: Date.now() - startMs,
+    });
     process.exit(0);
   }
 
