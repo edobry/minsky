@@ -1362,20 +1362,41 @@ export function hasSuppressionOutcome(record: CalibrationRecord): boolean {
  * Deliberately a fixed list rather than a heuristic on the string: a substring
  * rule over words like "unavailable" would silently reclassify a future reason
  * whose author meant it as a verdict.
+ *
+ * **Every entry is an emitter that writes into `suppressionReasons`, cited at
+ * its line (PR #3700 R1, BLOCKING).** The first version of this list also
+ * carried `provider-unconfigured`, taken from reading four sibling nomination
+ * consumers — and that was wrong in a way worth recording rather than quietly
+ * deleting: those hooks emit it as a `degradedReason` into their OWN record
+ * shapes, never into `suppressionReasons`, so it could never have matched here.
+ * Enumerating the actual emitters (`grep 'suppressionReasons.push'`) and the
+ * actual observed corpus (23 distinct reasons across every calibration log's
+ * whole history) is what settled it; reading sibling code is what got it wrong.
+ * A classifier's key set is a measurement, not an inference.
+ *
+ * Adding an entry therefore obliges naming the line that emits it. The corpus
+ * test in `calibration-sweep.undetermined.test.ts` pins every reason this repo
+ * has ever written against its expected classification, so an over-broad prefix
+ * fails there rather than silently reclassifying another detector's verdicts.
  */
 export const COULD_NOT_CHECK_SUPPRESSION_PREFIXES: readonly string[] = [
-  // The Rung-2 dependency stage, all four of its exits.
+  // The Rung-2 dependency stage, all of its exits.
+  // `turn-end-stale-state-assertion-scan.ts` :596 / :593 / :585, and the
+  // `nomination-degraded` prefix its `run()` forwards from `nominate`.
   "nomination-deps-unavailable",
   "nomination-deps-timeout",
   "nomination-deps-threw",
   "nomination-degraded",
   // mt#5000's own addition — the process could not read configuration at all.
   "domain-bootstrap-failed",
-  // The label four sibling nomination consumers use for the same class.
-  "provider-unconfigured",
-  // Substrate reads that did not complete.
+  // Substrate reads that did not complete. Same hook, :1243 and :1194.
   "lookup-unavailable",
   "transcript-unreadable",
+  // The peer-ledger read, same hook, :736 and :741. Both are partial: they
+  // routinely co-occur with a real verdict, which is exactly why
+  // `isUndeterminedRecord` requires EVERY reason to be could-not-check.
+  "peer-read-failed",
+  "peer-read-unavailable",
 ];
 
 /**

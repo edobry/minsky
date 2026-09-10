@@ -56,6 +56,10 @@ import type { StopHookInput } from "./turn-end-retro-scan";
 import { flagKey, readFlagged, writeFlagged } from "./turn-end-scan-store";
 import { elideQuotedAndCodeContexts } from "./elision";
 import { ensureHookDomainBootstrap, describeProviderResolutionFailure } from "./domain-bootstrap";
+// mt#5000 / PR #3700 R1: the sanctioned credential-shape list, reused rather
+// than re-derived. The module has ZERO imports of its own, so this pulls no
+// domain tree into the hook process.
+import { scrubText } from "../../packages/domain/src/transcripts/credential-scrubber";
 import type { SqlCapablePersistenceProvider } from "../../packages/domain/src/persistence/types";
 // From @minsky/shared, a dependency-free leaf package — the lightest place to
 // share this helper. (The former reason given here, that hooks must avoid `src/`
@@ -565,6 +569,47 @@ async function withDeadline<T>(
   }
 }
 
+/**
+ * Longest error detail a degraded reason may carry into the calibration record.
+ *
+ * Sized to hold the message this actually exists for — "Configuration not
+ * initialized. Call initializeConfiguration() first." is 62 chars — while
+ * bounding a stack-carrying or otherwise unbounded message. A reason string is
+ * read in a review table, not a log viewer.
+ */
+const DEGRADED_DETAIL_MAX_CHARS = 200;
+
+/**
+ * Make an error message safe to persist into the calibration stream
+ * (PR #3700 R1, NON-BLOCKING).
+ *
+ * Calibration records are written to disk AND ingested into the transcripts DB,
+ * so a bootstrap failure's raw text is a durable surface, not scratch output. A
+ * config-init failure can carry a connection string or a provider URL.
+ *
+ * The scrub uses the SANCTIONED shape list rather than a pattern written here:
+ * per `terminal-command-best-practices.mdc`, a hand-rolled filter is a hypothesis
+ * about the text, and this project has broken it in both directions — mem#808
+ * (a `postgres://`-only pattern passed a `postgresql://` credential unchanged)
+ * and mem#972 (a pattern that also matched the masking it was checking). Reusing
+ * `credential-scrubber.ts` means this path inherits every future shape added
+ * there instead of drifting behind it.
+ *
+ * Truncation is applied AFTER scrubbing, deliberately. Cutting first can split a
+ * credential mid-token so no shape matches, which turns a redaction into a
+ * partial leak — `${K:0:4}` is a partial leak, and so is this.
+ *
+ * The cut itself goes through `safeTruncate` rather than a bare `slice`, which
+ * `custom/no-unsafe-string-truncation` flagged and was right to: a raw slice can
+ * land mid-surrogate-pair and emit a lone half, corrupting the record for every
+ * downstream reader. The helper this file already imports handles it.
+ */
+function safeDegradedDetail(raw: string): string {
+  const { text } = scrubText(raw);
+  if (text.length <= DEGRADED_DETAIL_MAX_CHARS) return text;
+  return `${safeTruncate(text, DEGRADED_DETAIL_MAX_CHARS, "head")}… (truncated)`;
+}
+
 /** The resolved, non-null shape `resolveNominationDeps` hands back on success. */
 type ResolvedNominationDeps = NonNullable<Awaited<ReturnType<typeof resolveNominationDeps>>>;
 
@@ -719,7 +764,7 @@ export async function nominatePendingClaims(
     // misdiagnosis (mt#3750).
     return {
       claims: [],
-      degradedReason: `domain-bootstrap-failed: ${stage.error}`,
+      degradedReason: `domain-bootstrap-failed: ${safeDegradedDetail(stage.error)}`,
       scores: [],
     };
   }

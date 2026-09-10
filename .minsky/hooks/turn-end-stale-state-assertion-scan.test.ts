@@ -636,6 +636,70 @@ describe("mt#5000 — the nomination path bootstraps the domain before resolving
     expect(outcome.kind).toBe("resolved");
   });
 
+  // ── PR #3700 R1 (NON-BLOCKING): the error text is a DURABLE surface ───────
+  //
+  // Calibration records are written to disk and ingested into the transcripts
+  // DB, so a raw bootstrap message is persisted, not scratch output.
+
+  test("a credential in the bootstrap error is scrubbed before it reaches the record", async () => {
+    const out = await nominatePendingClaims(TAIL_WITH_REF, {
+      resolve: async () => {
+        throw new Error(UNREACHABLE);
+      },
+      run: async () => {
+        throw new Error(UNREACHABLE);
+      },
+      bootstrap: async () =>
+        ({
+          ok: false,
+          error: "connect failed: postgresql://admin:hunter2@db.example.com:5432/minsky",
+        }) as const,
+    });
+
+    // Asserted on the OUTPUT, not on the scrubber: a test that exercised
+    // `scrubText` directly would pass even if this path never called it.
+    expect(out.degradedReason).toContain("domain-bootstrap-failed:");
+    expect(out.degradedReason).not.toContain("hunter2");
+  });
+
+  test("an ordinary bootstrap message survives scrubbing intact", async () => {
+    // The negative half. Without it, a scrubber that redacted EVERYTHING would
+    // pass the test above while destroying the diagnostic this feature exists
+    // to deliver.
+    const out = await nominatePendingClaims(TAIL_WITH_REF, {
+      resolve: async () => {
+        throw new Error(UNREACHABLE);
+      },
+      run: async () => {
+        throw new Error(UNREACHABLE);
+      },
+      bootstrap: async () => ({ ok: false, error: "Configuration not initialized." }) as const,
+    });
+    expect(out.degradedReason).toBe("domain-bootstrap-failed: Configuration not initialized.");
+  });
+
+  test("an unbounded message is truncated, and truncation happens AFTER scrubbing", async () => {
+    // Order matters: cutting first could split a credential mid-token so no
+    // shape matches, turning a redaction into a partial leak. The secret is
+    // placed past the cap so only scrub-then-truncate can remove it.
+    const out = await nominatePendingClaims(TAIL_WITH_REF, {
+      resolve: async () => {
+        throw new Error(UNREACHABLE);
+      },
+      run: async () => {
+        throw new Error(UNREACHABLE);
+      },
+      bootstrap: async () =>
+        ({
+          ok: false,
+          error: `${"x".repeat(400)} postgresql://admin:hunter2@db.example.com:5432/minsky`,
+        }) as const,
+    });
+    expect(out.degradedReason).not.toContain("hunter2");
+    expect(out.degradedReason).toContain("(truncated)");
+    expect(out.degradedReason?.length).toBeLessThan(300);
+  });
+
   test("the bootstrap runs BEFORE the resolver, which is the whole defect", async () => {
     const order: string[] = [];
     await nominatePendingClaims(TAIL_WITH_REF, {
