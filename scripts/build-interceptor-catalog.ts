@@ -56,6 +56,10 @@ import { dirname, join } from "node:path";
 import { format as prettierFormat, resolveConfig } from "prettier";
 import { GUARD_REGISTRY } from "../.minsky/hooks/registry";
 import {
+  CANARY_DISPOSITIONS,
+  STRATUM_CANARY_DISPOSITIONS,
+} from "../.minsky/hooks/canary-dispositions";
+import {
   FAILURE_CLASSES,
   INTERCEPTOR_DESCRIPTIONS,
   resolveCatalogEntry,
@@ -365,7 +369,15 @@ export function buildResolveInput(): ResolveCatalogInput {
   // §Data-access decision). The names cross that boundary as data.
   const standaloneCanaryNames = new Set(STANDALONE_GUARD_CANARIES.map((c) => c.guardName));
 
-  return { registryFacts, standaloneCanaryNames };
+  // mt#5079: the authored rulings for entities that have NO canary. Read here
+  // for the same boundary reason as `standaloneCanaryNames` — the resolver is a
+  // dependency-free leaf, so the records cross as data rather than as an import.
+  const canaryDispositions = {
+    byGuard: CANARY_DISPOSITIONS,
+    byStratum: STRATUM_CANARY_DISPOSITIONS,
+  };
+
+  return { registryFacts, standaloneCanaryNames, canaryDispositions };
 }
 
 /**

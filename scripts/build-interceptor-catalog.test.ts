@@ -17,6 +17,10 @@ import {
 } from "./build-interceptor-catalog";
 import { STANDALONE_GUARD_CANARIES } from "./lib/standalone-guard-canaries";
 import {
+  CANARY_DISPOSITIONS,
+  STRATUM_CANARY_DISPOSITIONS,
+} from "../.minsky/hooks/canary-dispositions";
+import {
   INTERCEPTOR_DESCRIPTIONS,
   resolveCatalogEntry,
 } from "../.minsky/hooks/interceptor-descriptions";
@@ -385,6 +389,142 @@ describe("the real corpus", () => {
         const entry = byName.get(guardName);
         if (entry === undefined || GUARD_REGISTRY.some((r) => r.name === guardName)) continue;
         expect([...entry.coverageGaps].sort()).toEqual(["attentionCost", "tuningOwnership"]);
+      }
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#5079 — every canary-gapped entity carries a recorded disposition
+  // (mt#4606 SC2 / SC4 / AT2)
+  // -------------------------------------------------------------------------
+
+  describe("canary dispositions (mt#5079)", () => {
+    const byName = new Map(real.entries.map((e) => [e.guardName, e]));
+    const gapped = real.entries.filter((e) => e.coverageGaps.includes("canary"));
+
+    // THE census gate (mt#4606 AT2). An INVARIANT, not a number: the population
+    // drifted 149 -> 154 in 16 days, so "81 are ruled" would go stale on the
+    // next merge while this stays true for any corpus. A newly added
+    // interceptor with no canary and no ruling fails here — which is the whole
+    // point, and is why the `standalone` and `registry` strata deliberately get
+    // no stratum-level ruling to fall back on.
+    test("no canary-gapped entity is left unruled", () => {
+      expect(gapped.length).toBeGreaterThan(0);
+      const unruled = gapped.filter((e) => e.canaryDisposition === null).map((e) => e.guardName);
+      expect(unruled).toEqual([]);
+    });
+
+    test("every entity in the catalog carries a disposition, gapped or not", () => {
+      const missing = real.entries
+        .filter((e) => e.canaryDisposition === null)
+        .map((e) => e.guardName);
+      expect(missing).toEqual([]);
+    });
+
+    // `canary-declared` is DERIVED. If it could be authored it would be a
+    // second source of truth for a fact the code already knows, and it would go
+    // stale silently the moment a canary was removed — the exact drift class
+    // this task exists to close.
+    test("canary-declared holds exactly for the entities with no canary gap", () => {
+      const declared = real.entries
+        .filter((e) => e.canaryDisposition?.disposition === "canary-declared")
+        .map((e) => e.guardName)
+        .sort();
+      const notGapped = real.entries
+        .filter((e) => !e.coverageGaps.includes("canary"))
+        .map((e) => e.guardName)
+        .sort();
+      expect(declared).toEqual(notGapped);
+    });
+
+    test("every canary-declared ruling is sourced 'derived', never authored", () => {
+      for (const entry of real.entries) {
+        if (entry.canaryDisposition?.disposition !== "canary-declared") continue;
+        expect(entry.canaryDisposition.source).toBe("derived");
+      }
+      // And the authored registry never contains that value at all — the type
+      // forbids it, so this guards a future widening of the type rather than
+      // today's data.
+      for (const record of CANARY_DISPOSITIONS.values()) {
+        expect(record.disposition).not.toBe("canary-declared");
+      }
+    });
+
+    // The authoring contract SC2 states: infeasible carries WHY, pending
+    // carries WHO. Without this a disposition could be recorded as an empty
+    // gesture that satisfies the census gate while telling a reader nothing.
+    test("every canary-infeasible ruling carries a substantive reason", () => {
+      const records = [...CANARY_DISPOSITIONS.values(), ...STRATUM_CANARY_DISPOSITIONS.values()];
+      const bad = records
+        .filter((r) => r.disposition === "canary-infeasible")
+        .filter((r) => (r.reason ?? "").trim().length < 40);
+      expect(bad).toEqual([]);
+    });
+
+    test("every canary-pending ruling names an owning task", () => {
+      const records = [...CANARY_DISPOSITIONS.values(), ...STRATUM_CANARY_DISPOSITIONS.values()];
+      const bad = records
+        .filter((r) => r.disposition === "canary-pending")
+        .filter((r) => !/^mt#\d+$/.test(r.owner ?? ""));
+      expect(bad).toEqual([]);
+    });
+
+    // Guards vacuity in the other direction: a ruling keyed to a name the
+    // catalog does not carry is dead data that no assertion above would notice,
+    // because every check here iterates the catalog rather than the registry.
+    test("every authored ruling names a real catalog entity", () => {
+      const orphans = [...CANARY_DISPOSITIONS.keys()].filter((name) => !byName.has(name));
+      expect(orphans).toEqual([]);
+    });
+
+    // A ruling for a guard that HAS a canary is stale by construction — the
+    // resolver would never reach it, so it would sit unread and unfalsifiable.
+    test("no authored ruling exists for a guard that already has a canary", () => {
+      const stale = [...CANARY_DISPOSITIONS.keys()].filter(
+        (name) => byName.get(name)?.coverageGaps.includes("canary") === false
+      );
+      expect(stale).toEqual([]);
+    });
+
+    // mt#4606 SC4: the pre-commit stratum gets ONE ruling rather than 27
+    // markers. Asserted as a property of the resolution — that those entities
+    // inherit rather than each carrying their own — not as a count.
+    test("the precommit, fixture and retired strata are ruled at the stratum level", () => {
+      expect([...STRATUM_CANARY_DISPOSITIONS.keys()].sort()).toEqual([
+        "fixture",
+        "precommit",
+        "retired",
+      ]);
+      for (const entry of gapped) {
+        if (entry.stratum === null) continue;
+        if (!["precommit", "fixture", "retired"].includes(entry.stratum)) continue;
+        expect(entry.canaryDisposition?.source).toBe("stratum");
+      }
+    });
+
+    // The counterpart, and the reason the census gate has teeth: standalone and
+    // registry entities must each be ruled individually, so a new guard in
+    // either stratum cannot inherit a verdict nobody made about it.
+    test("standalone and registry entities are ruled individually, never by stratum", () => {
+      for (const entry of gapped) {
+        if (entry.stratum !== "standalone" && entry.stratum !== "registry") continue;
+        expect(entry.canaryDisposition?.source).toBe("entity");
+      }
+    });
+
+    // SC5 reconciliation. `run-guard-canaries.ts` reports MISSING over the
+    // REGISTRY only, so its set is a strict subset of the catalog's 81 rather
+    // than equal to it — the two instruments have different universes, which is
+    // what mt#4606's SC5 wording did not distinguish. What must hold is that a
+    // guard the runner actively reports as missing is never ruled infeasible:
+    // the runner is telling us a canary is expected there.
+    test("the runner's MISSING set is ruled canary-pending, never infeasible", () => {
+      const runnerMissing = GUARD_REGISTRY.filter((r) => r.canary === undefined).map((r) => r.name);
+      expect(runnerMissing.length).toBeGreaterThan(0);
+      for (const name of runnerMissing) {
+        const entry = byName.get(name);
+        if (entry === undefined) continue;
+        expect(entry.canaryDisposition?.disposition).toBe("canary-pending");
       }
     });
   });
