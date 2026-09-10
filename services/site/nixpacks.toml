@@ -63,8 +63,15 @@
 # its own build context is tracked on mt#5061 and deliberately not bundled into
 # an incident fix.
 
+# `bun` is deliberately NOT in nixPkgs (PR #3703 R1). Shipping nix's bun 1.1.43
+# alongside the pinned 1.3.14 would put two bun binaries in the image — ~90MB of
+# weight, and worse, an ambiguity where a future phase written without the
+# absolute path would silently pick up the broken one. Every phase below calls
+# `/usr/local/bin/bun` explicitly, so nothing needs the nix package.
+#
+# `curl` and `unzip` are what the bun installer itself requires.
 [phases.setup]
-nixPkgs = ["bun", "curl", "unzip"]
+nixPkgs = ["curl", "unzip"]
 
 [phases.install]
 cmds = [

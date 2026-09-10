@@ -53,16 +53,41 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Pinned bun: $version"
 
+      # Installs under $HOME, NOT /usr/local (PR #3703 R1, blocking). The
+      # nixpacks build runs as root, so it can write /usr/local; a GitHub-hosted
+      # runner's `runner` user cannot, and the installer would fail with
+      # Permission denied. The PATH differs between the two by necessity; the
+      # VERSION is the thing that has to match, and it is read from
+      # nixpacks.toml above rather than restated here.
+      #
+      # curl and unzip (the installer needs both) are preinstalled on
+      # ubuntu-latest, so no apt-get step — but `set -euo pipefail` plus the
+      # explicit `--version` below means their absence would fail this step
+      # loudly rather than silently falling through to a different bun.
       - name: Install the pinned bun
         run: |
           set -euo pipefail
           curl -fsSL https://bun.sh/install \
-            | BUN_INSTALL=/usr/local bash -s -- "${{ steps.pin.outputs.version }}"
-          /usr/local/bin/bun --version
+            | BUN_INSTALL="$HOME/.bun" bash -s -- "${{ steps.pin.outputs.version }}"
+          "$HOME/.bun/bin/bun" --version
+
+      - name: Verify the installed bun matches the pin
+        run: |
+          set -euo pipefail
+          expected="${{ steps.pin.outputs.version }}"
+          expected="${expected#bun-v}"
+          actual="$("$HOME/.bun/bin/bun" --version)"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::Installed bun $actual does not match the pin $expected from" \
+                 "services/site/nixpacks.toml. This check would be exercising a different" \
+                 "toolchain than the deploy, which is the defect it exists to catch."
+            exit 1
+          fi
+          echo "bun $actual matches the pin"
 
       - name: Build the site
         working-directory: services/site
         run: |
           set -euo pipefail
-          /usr/local/bin/bun install
-          /usr/local/bin/bun run build
+          "$HOME/.bun/bin/bun" install
+          "$HOME/.bun/bin/bun" run build
