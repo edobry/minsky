@@ -21,6 +21,7 @@ import {
   boundaryToolsInContent,
   buildReport,
   describe as describeDistribution,
+  erroredToolUseIds,
   fillFromUsage,
   percentile,
   scanTranscriptText,
@@ -69,16 +70,22 @@ describe("boundaryToolsInContent", () => {
     return { type: "tool_use", name, input };
   }
 
+  const kinds = (c: unknown) => boundaryToolsInContent(c).map((u) => u.kind);
+
   test("recognizes each boundary tool", () => {
-    expect(boundaryToolsInContent([toolUse(MERGE_TOOL)])).toEqual(["merge"]);
-    expect(boundaryToolsInContent([toolUse(GH_MERGE_TOOL)])).toEqual(["merge"]);
-    expect(boundaryToolsInContent([toolUse(PR_CREATE_TOOL)])).toEqual(["pr-landing"]);
+    expect(kinds([toolUse(MERGE_TOOL)])).toEqual(["merge"]);
+    expect(kinds([toolUse(GH_MERGE_TOOL)])).toEqual(["merge"]);
+    expect(kinds([toolUse(PR_CREATE_TOOL)])).toEqual(["pr-landing"]);
+  });
+
+  test("carries the tool_use id through, so the result can be joined", () => {
+    expect(boundaryToolsInContent([{ ...toolUse(MERGE_TOOL), id: "toolu_abc" }])).toEqual([
+      { kind: "merge", toolUseId: "toolu_abc" },
+    ]);
   });
 
   test("a closeout is a status_set to DONE only", () => {
-    expect(boundaryToolsInContent([toolUse(STATUS_SET_TOOL, { status: "DONE" })])).toEqual([
-      "closeout",
-    ]);
+    expect(kinds([toolUse(STATUS_SET_TOOL, { status: "DONE" })])).toEqual(["closeout"]);
     expect(boundaryToolsInContent([toolUse(STATUS_SET_TOOL, { status: "IN-REVIEW" })])).toEqual([]);
   });
 
@@ -86,6 +93,22 @@ describe("boundaryToolsInContent", () => {
     expect(boundaryToolsInContent([{ type: "text", text: MERGE_TOOL }])).toEqual([]);
     expect(boundaryToolsInContent([toolUse(NON_BOUNDARY_TOOL)])).toEqual([]);
     expect(boundaryToolsInContent("not an array")).toEqual([]);
+  });
+});
+
+describe("erroredToolUseIds", () => {
+  test("collects the ids of tool_result blocks flagged is_error", () => {
+    expect(
+      erroredToolUseIds([
+        { type: "tool_result", tool_use_id: "a", is_error: true },
+        { type: "tool_result", tool_use_id: "b" },
+        { type: "text", text: "x" },
+      ])
+    ).toEqual(["a"]);
+  });
+
+  test("a non-array content is not an error source", () => {
+    expect(erroredToolUseIds(undefined)).toEqual([]);
   });
 });
 
@@ -161,6 +184,34 @@ describe("scanTranscriptText", () => {
   test("skips a boundary line carrying no usage rather than recording zero", () => {
     const raw = assistant("m1", 0, [mergeCall()], { withUsage: false });
     expect(scanTranscriptText(raw).boundaries).toEqual([]);
+  });
+
+  test("drops a boundary whose tool result came back an error", () => {
+    // The hook does not treat a failed merge as a boundary; without this join the
+    // measured population would be WIDER than the population the hook fires on,
+    // silently diverging the threshold's derivation from its mechanism.
+    const call = { type: "tool_use", name: MERGE_TOOL, input: {}, id: "toolu_x" };
+    const failed = [
+      assistant("m1", 700_000, [call]),
+      JSON.stringify({
+        type: "user",
+        message: {
+          content: [{ type: "tool_result", tool_use_id: "toolu_x", is_error: true }],
+        },
+      }),
+    ].join("\n");
+    expect(scanTranscriptText(failed).boundaries).toEqual([]);
+
+    // ...and the identical transcript WITHOUT the error keeps it, so the test
+    // discriminates rather than merely passing.
+    const ok = [
+      assistant("m1", 700_000, [call]),
+      JSON.stringify({
+        type: "user",
+        message: { content: [{ type: "tool_result", tool_use_id: "toolu_x" }] },
+      }),
+    ].join("\n");
+    expect(scanTranscriptText(ok).boundaries).toHaveLength(1);
   });
 
   test("captures compaction onset and its trigger", () => {

@@ -91,6 +91,15 @@ export interface BoundaryEvent {
   fillTokens: number;
   /** 0-based index of that request within the session, for the "how much earlier" arithmetic. */
   requestIndex: number;
+  /**
+   * The `tool_use` id, so the call can be joined to its RESULT.
+   *
+   * A failed merge is not a boundary — the hook drops one whose result says
+   * `success: false`. Without this join the measured population would be WIDER
+   * than the population the hook fires on, which is a silent divergence between
+   * the threshold's derivation and the mechanism it governs (PR #3702 R1).
+   */
+  toolUseId?: string;
 }
 
 export interface CompactionEvent {
@@ -125,13 +134,19 @@ export function fillFromUsage(usage: Record<string, unknown> | undefined): numbe
   );
 }
 
+/** A boundary `tool_use` block: its kind and the id its result will carry. */
+export interface BoundaryToolUse {
+  kind: BoundaryKind;
+  toolUseId?: string;
+}
+
 /** The boundary tools named by `tool_use` blocks on one assistant message. */
-export function boundaryToolsInContent(content: unknown): BoundaryKind[] {
+export function boundaryToolsInContent(content: unknown): BoundaryToolUse[] {
   if (!Array.isArray(content)) return [];
-  const kinds: BoundaryKind[] = [];
+  const uses: BoundaryToolUse[] = [];
   for (const block of content) {
     if (typeof block !== "object" || block === null) continue;
-    const b = block as { type?: unknown; name?: unknown; input?: unknown };
+    const b = block as { type?: unknown; name?: unknown; input?: unknown; id?: unknown };
     if (b.type !== "tool_use" || typeof b.name !== "string") continue;
     const kind = BOUNDARY_TOOLS[b.name];
     if (kind === undefined) continue;
@@ -142,9 +157,33 @@ export function boundaryToolsInContent(content: unknown): BoundaryKind[] {
       const status = input?.["status"];
       if (typeof status !== "string" || status.toUpperCase() !== "DONE") continue;
     }
-    kinds.push(kind);
+    uses.push({ kind, ...(typeof b.id === "string" ? { toolUseId: b.id } : {}) });
   }
-  return kinds;
+  return uses;
+}
+
+/**
+ * `tool_use` ids whose result came back as an error, read off a `user` record.
+ *
+ * `is_error` is the HARNESS-level failure flag, and it is not identical to the
+ * hook's test: the hook drops a call whose RESULT PAYLOAD says `success: false`,
+ * which a tool can return without the harness marking the block an error. So
+ * this join narrows the divergence rather than closing it completely — it
+ * removes the calls that visibly failed, and a payload-level `success: false`
+ * that the harness reported as a normal result is still counted. Stated rather
+ * than left implicit, because the residue is exactly the kind of gap that reads
+ * as absent once the obvious half is fixed.
+ */
+export function erroredToolUseIds(content: unknown): string[] {
+  if (!Array.isArray(content)) return [];
+  const ids: string[] = [];
+  for (const block of content) {
+    if (typeof block !== "object" || block === null) continue;
+    const b = block as { type?: unknown; is_error?: unknown; tool_use_id?: unknown };
+    if (b.type !== "tool_result" || b.is_error !== true) continue;
+    if (typeof b.tool_use_id === "string") ids.push(b.tool_use_id);
+  }
+  return ids;
 }
 
 /**
@@ -156,10 +195,24 @@ export function boundaryToolsInContent(content: unknown): BoundaryKind[] {
  * this produces is therefore a real request ordinal, which is what AT2's "how
  * many requests earlier" is measured in.
  */
-export function scanTranscriptText(raw: string): SessionScan {
+/**
+ * `includeFailed` keeps calls whose result came back an error.
+ *
+ * The default (false) is the population the HOOK fires on. The flag exists
+ * because the mt#5042 planning measurement did NOT filter, so reproducing its
+ * figures — the only external check this instrument has — requires the wider
+ * population. Keeping both re-runnable is what makes the cross-validation a
+ * claim a reader can settle rather than one they have to take on trust.
+ */
+export interface ScanOptions {
+  includeFailed?: boolean;
+}
+
+export function scanTranscriptText(raw: string, options: ScanOptions = {}): SessionScan {
   const boundaries: BoundaryEvent[] = [];
   const compactions: CompactionEvent[] = [];
   const seenMessageIds = new Set<string>();
+  const errored = new Set<string>();
   let requestIndex = -1;
 
   for (const line of raw.split("\n")) {
@@ -191,6 +244,14 @@ export function scanTranscriptText(raw: string): SessionScan {
       continue;
     }
 
+    // A tool RESULT rides on a `user` record and arrives AFTER the call that
+    // produced it, so errors are collected here and applied once at the end.
+    if (entry.type === "user") {
+      const content = (entry.message as { content?: unknown } | undefined)?.content;
+      for (const id of erroredToolUseIds(content)) errored.add(id);
+      continue;
+    }
+
     if (entry.type !== "assistant") continue;
     const message = entry.message as
       | { id?: unknown; usage?: Record<string, unknown>; content?: unknown }
@@ -206,17 +267,32 @@ export function scanTranscriptText(raw: string): SessionScan {
       requestIndex++;
     }
 
-    const kinds = boundaryToolsInContent(message?.content);
-    if (kinds.length === 0) continue;
+    const uses = boundaryToolsInContent(message?.content);
+    if (uses.length === 0) continue;
     const fillTokens = fillFromUsage(message?.usage);
     // A tool_use block with no usage on its own line: the fill is unknown for
     // that line, not zero. Skipping is the honest reading — a zero would drag
     // every percentile down and there is no way to tell the two apart later.
     if (fillTokens === 0) continue;
-    for (const kind of kinds) boundaries.push({ kind, fillTokens, requestIndex });
+    for (const use of uses) {
+      boundaries.push({
+        kind: use.kind,
+        fillTokens,
+        requestIndex,
+        ...(use.toolUseId !== undefined ? { toolUseId: use.toolUseId } : {}),
+      });
+    }
   }
 
-  return { boundaries, compactions, requests: seenMessageIds.size };
+  return {
+    // A call that visibly failed is not a boundary, matching the hook's own
+    // definition. Applied at the end because a result always postdates its call.
+    boundaries: options.includeFailed
+      ? boundaries
+      : boundaries.filter((b) => b.toolUseId === undefined || !errored.has(b.toolUseId)),
+    compactions,
+    requests: seenMessageIds.size,
+  };
 }
 
 /**
@@ -226,9 +302,9 @@ export function scanTranscriptText(raw: string): SessionScan {
  * An unreadable transcript is skipped, not fatal — the corpus is a directory of
  * files written by another process, some of which may be mid-write.
  */
-export function scanTranscript(filePath: string): SessionScan {
+export function scanTranscript(filePath: string, options: ScanOptions = {}): SessionScan {
   try {
-    return scanTranscriptText(readFileSync(filePath, "utf-8"));
+    return scanTranscriptText(readFileSync(filePath, "utf-8"), options);
   } catch {
     return { boundaries: [], compactions: [], requests: 0 };
   }
@@ -466,7 +542,14 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const scans = files.map(scanTranscript);
+  const includeFailed = args.includes("--include-failed");
+  if (includeFailed) {
+    console.log(
+      "NOTE: --include-failed keeps calls whose result errored. This is the WIDER population " +
+        "the mt#5042 planning pass measured, not the one the hook fires on.\n"
+    );
+  }
+  const scans = files.map((f) => scanTranscript(f, { includeFailed }));
   const report = buildReport(scans, new Date().toISOString());
 
   console.log(renderReport(report));

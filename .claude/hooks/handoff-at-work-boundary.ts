@@ -35,10 +35,10 @@
 //
 // A fill-only trigger may fire on ANY turn, so it can afford to wait until 950K
 // — there is always another turn. A boundary trigger may fire only AT a
-// boundary, and boundaries are SPARSE: measured over 2,233 merge events across
-// 593 local sessions, a 950K threshold catches 8 of the 93 merges that actually
-// preceded a compaction, missing 91% of them, because by the time fill reaches
-// 950K the last merge has usually already gone by.
+// boundary, and boundaries are SPARSE: measured over 2,644 boundary events
+// across 605 local sessions, a 950K threshold catches 8 of the 135 boundaries
+// that actually preceded a compaction, missing 94% of them, because by the time
+// fill reaches 950K the last boundary has usually already gone by.
 //
 // The conjunction that makes the trigger land at a clean narrative point is
 // therefore the same conjunction that forces it to fire EARLIER. mt#2531's
@@ -48,12 +48,22 @@
 // THE THRESHOLD IS A HYPOTHESIS, NOT A MEASUREMENT
 // ---------------------------------------------------------------------------
 //
-// Measured fill at merge: p10 345K, p25 426K, p50 542K, p75 690K, p90 805K.
+// Measured fill at a boundary: p10 330K, p25 415K, p50 542K, p75 694K, p90 811K.
 // Fire rate and recall trade against each other across the plausible band:
 //
-//   600K -> fires at 40.1% of merges, catches 63 of 93 pre-compaction merges
-//   800K -> fires at 10.5% of merges, catches 29 of 93
-//   950K -> fires at  0.8% of merges, catches  8 of 93
+//   600K -> fires at 40.3% of boundaries, catches 84 of 135 pre-compaction ones
+//   650K -> fires at 32.1%, catches 75 of 135, a median 95 requests earlier
+//   800K -> fires at 11.2%, catches 36 of 135
+//   950K -> fires at  0.7%, catches  8 of 135
+//
+// A NOTE ON THE POPULATION, because it moved the numbers by a third (PR #3702
+// R1). These count only boundaries whose tool call SUCCEEDED, matching what the
+// hook fires on — a denied or failed merge never reaches PostToolUse at all. In
+// a guard-dense repo that exclusion is large: 3,863 raw boundary events become
+// 2,644, and merges alone drop 38%. The mt#5042 planning pass and mt#2531 both
+// measured the WIDER population; `--include-failed` reproduces it, and doing so
+// reproduces their figures to within rounding (merge p50 542,135 against 542K),
+// which is what validates this instrument against the only external check it has.
 //
 // `DEFAULT_BOUNDARY_FILL_TOKENS` is 650_000: it sits BETWEEN two measured points
 // and nothing more. Do NOT cite it as a derived value — this sentence exists so
@@ -135,8 +145,18 @@ import type { FillMeasurement } from "./context-fill-gauge";
 import { logCalibrationRecord, logEvaluationRecord } from "./dispatcher";
 
 export const GUARD_NAME = "handoff-at-work-boundary";
-export const CALIBRATION_LOG = "handoff-at-work-boundary";
-export const EVALUATION_LOG_NAME = "handoff-at-work-boundary";
+
+/**
+ * ONE base name for BOTH streams (PR #3702 R1).
+ *
+ * `logCalibrationRecord` and `logEvaluationRecord` append their own suffixes —
+ * `-calibration.jsonl` and `-evaluations.jsonl` — so the two files are already
+ * distinct on disk and a shared base is what keeps them recognizably a pair.
+ * Three separate constants holding the same literal invited the reading that
+ * they might one day diverge; they must not, because the ingest manifest joins
+ * both streams to this one `guardName`.
+ */
+export const LOG_NAME = GUARD_NAME;
 
 /**
  * No bespoke `MINSKY_SKIP_*` name, deliberately.
@@ -335,8 +355,8 @@ export function run(input: ToolHookInput, deps: RunDeps = {}): BoundaryReading |
     fired: reading.wouldTrigger,
   };
 
-  logEvaluation(EVALUATION_LOG_NAME, row, { fallbackCwd: input.cwd });
-  if (reading.wouldTrigger) logCalibration(CALIBRATION_LOG, row);
+  logEvaluation(LOG_NAME, row, { fallbackCwd: input.cwd });
+  if (reading.wouldTrigger) logCalibration(LOG_NAME, row);
 
   return reading;
 }
