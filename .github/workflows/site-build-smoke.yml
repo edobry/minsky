@@ -85,9 +85,35 @@ jobs:
           fi
           echo "bun $actual matches the pin"
 
-      - name: Build the site
-        working-directory: services/site
+      # The site is copied OUT of the repo before building, and that isolation is
+      # load-bearing rather than tidiness.
+      #
+      # Railway builds this service with Root Directory `services/site`, so its
+      # build context contains NO repo-root `package.json`. A CI job that runs
+      # `bun install` inside the checked-out `services/site` gets the opposite:
+      # bun's workspace resolver walks UP, finds the root manifest, and installs
+      # the whole monorepo — including the root `minsky` package's postinstall,
+      # which promptly failed here with `bun: command not found` (exit 127).
+      #
+      # That failure was this check catching a defect in ITSELF: a build that
+      # resolves a different dependency graph than the deploy is not a
+      # reproduction of the deploy, and it would have been green or red for
+      # reasons unrelated to whether the site actually builds on Railway. Copying
+      # to a scratch directory reproduces Railway's context exactly, and is the
+      # same isolation the mt#5061 diagnosis used to identify the bun version as
+      # the culprit.
+      - name: Build the site in an isolated context (mirrors Railway Root Directory)
         run: |
           set -euo pipefail
-          "$HOME/.bun/bin/bun" install
-          "$HOME/.bun/bin/bun" run build
+          export PATH="$HOME/.bun/bin:$PATH"
+          ctx="$(mktemp -d)"
+          cp -R services/site/. "$ctx"/
+          rm -rf "$ctx/node_modules" "$ctx/dist"
+          cd "$ctx"
+          bun install
+          bun run build
+          test -f dist/index.html || {
+            echo "::error::astro build reported success but dist/index.html is missing."
+            exit 1
+          }
+          echo "site built: $(find dist -name '*.html' | wc -l) html file(s)"
