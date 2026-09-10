@@ -4,22 +4,84 @@
 # edobry/minsky and the service's `Root Directory` is `services/site`.
 # Under that setup, `bun install` / `bun run build` / `bun run start`
 # all execute with services/site/ as cwd and services/site/package.json
-# as the local manifest. The repo-root bun.lock is still resolvable
-# because Railway clones the whole repo and Bun's workspace resolver
-# walks up to find the root `workspaces` declaration in /app/package.json.
+# as the local manifest.
 #
 # If the Railway service is instead configured with Root Directory at the
 # repo root, replace the `cmds` below with `cd services/site && <cmd>`.
 # The setup is documented in services/site/README.md.
+#
+# ---------------------------------------------------------------------------
+# WHY BUN IS PINNED HERE (mt#5061)
+# ---------------------------------------------------------------------------
+#
+# `nixPkgs = ["bun"]` is UNPINNED: nixpacks resolves it against its own pinned
+# nixpkgs snapshot, which supplied **bun 1.1.43**. That bun's parser cannot read
+# react-dom's bun-specific server bundle, so `astro build` died on the SSR pass
+# with:
+#
+#   Unexpected keyword 'if'. Cannot find scope for the label 'a'.
+#     at <parse> (/app/node_modules/react-dom/cjs/react-dom-server.bun.production.js:6421)
+#
+# EVERY site deploy failed this way from 2026-09-09 18:45Z, across at least
+# three main commits. Nothing in the repo changed on the day it broke — two
+# unpinned things had to line up. `react-dom: ^19.2.0` picked up a newly
+# published 19.3.0, and the old bun could not parse it.
+#
+# Measured rather than assumed, which is what identifies the culprit: react-dom
+# **19.3.0 builds CLEAN under bun 1.3.14** (verified locally, 3 pages, exit 0).
+# So the defect is the toolchain version, not the dependency — pinning
+# react-dom would have treated a symptom and left the next release to break it
+# again.
+#
+# The pin is applied by INSTALLING bun explicitly rather than by naming a
+# version in `nixPkgs`, which nix does not support for this package, and rather
+# than pinning `nixpkgsArchive` to a snapshot that happens to carry a newer bun
+# — that would couple this service's bun version to an opaque nixpkgs commit
+# nobody would think to re-check. `/usr/local/bin/bun` is referenced by absolute
+# path in every phase below so the result cannot depend on PATH ordering
+# between the nix-provided bun and this one.
+#
+# 1.3 is the same major.minor `services/reviewer/Dockerfile` and
+# `services/cockpit/Dockerfile` already pin via `oven/bun:1.3-slim`, so all
+# three services now build on one bun line.
+#
+# ---------------------------------------------------------------------------
+# KNOWN RESIDUAL: dependencies still float (mt#5061 follow-up)
+# ---------------------------------------------------------------------------
+#
+# `--frozen-lockfile` was on the install command before this change and was
+# INERT: this service is a member of the ROOT workspace, so its resolutions live
+# in the repo-root `bun.lock`, which is NOT in the build context when Root
+# Directory is `services/site`. Bun therefore resolved fresh on every build,
+# which is exactly how react-dom floated 19.2.x -> 19.3.0 unnoticed. The flag is
+# dropped rather than kept, because a flag that implies a guarantee it cannot
+# deliver is worse than its absence — the misleading `--frozen-lockfile` is a
+# large part of why this failure mode was not anticipated.
+#
+# Pinning bun stops THIS break. It does not stop a future dependency release
+# from breaking the build the same way. Giving the site a lockfile resolvable in
+# its own build context is tracked on mt#5061 and deliberately not bundled into
+# an incident fix.
 
+# `bun` is deliberately NOT in nixPkgs (PR #3703 R1). Shipping nix's bun 1.1.43
+# alongside the pinned 1.3.14 would put two bun binaries in the image — ~90MB of
+# weight, and worse, an ambiguity where a future phase written without the
+# absolute path would silently pick up the broken one. Every phase below calls
+# `/usr/local/bin/bun` explicitly, so nothing needs the nix package.
+#
+# `curl` and `unzip` are what the bun installer itself requires.
 [phases.setup]
-nixPkgs = ["bun"]
+nixPkgs = ["curl", "unzip"]
 
 [phases.install]
-cmds = ["bun install --frozen-lockfile"]
+cmds = [
+  "curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash -s -- bun-v1.3.14",
+  "/usr/local/bin/bun --version",
+  "/usr/local/bin/bun install",
+]
 
 [phases.build]
-cmds = ["bun run build"]
+cmds = ["/usr/local/bin/bun run build"]
 
 [start]
-cmd = "bun run start"
+cmd = "/usr/local/bin/bun run start"
