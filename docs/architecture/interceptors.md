@@ -364,6 +364,51 @@ The store is a **sidecar module rather than a registry field or a DB table**; th
 thin-hooks direction, ADR-027's scope, and why a description belongs in the commit that changes
 the behavior it describes — is recorded in that module's header.
 
+### A canary gap is now RULED, not merely reported (mt#5079)
+
+Point 2 above says a missing `canary` is computed into `coverageGaps` rather than defaulted away.
+That reports the gap; it does not say whether the gap is **owed** or **deliberate** — and for 81 of
+154 entities the corpus could not tell those apart, which is what made "the guards are working"
+unfalsifiable for over half the corpus.
+
+Every entry therefore also carries a **`canaryDisposition`**, one of three verdicts:
+
+| Verdict             | Means                                                  | Carries  |
+| ------------------- | ------------------------------------------------------ | -------- |
+| `canary-declared`   | a canary exists on one of the two declaration surfaces | —        |
+| `canary-infeasible` | a synthetic invocation cannot exercise this entity     | `reason` |
+| `canary-pending`    | a canary is owed and somebody owns writing it          | `owner`  |
+
+Three properties of that field are load-bearing:
+
+1. **`canary-declared` is DERIVED, never authored.** It is computed from the absence of a canary
+   gap, which is itself computed from `GuardRegistration.canary` and `STANDALONE_GUARD_CANARIES`
+   (joined by mt#5072). Authoring it would create a second source of truth for a fact the code
+   already knows, and it would go stale silently the moment a canary was removed — the drift class
+   the field exists to close.
+2. **`null` is a distinct state and is a test failure.** It means nobody has ruled, which is not the
+   same as ruling that no canary is possible. `scripts/build-interceptor-catalog.test.ts` asserts the
+   INVARIANT — no gapped entity is unruled — rather than a count, so it does not go stale as the
+   population drifts, and a newly merged interceptor with no canary and no ruling fails the suite.
+3. **Strata may be ruled once, entities individually.** `precommit` (27 entities), `fixture` (5) and
+   `retired` (3) carry one stratum-level ruling each rather than 35 separate markers; a per-entity
+   ruling overrides its stratum's. `standalone` and `registry` deliberately have NO stratum ruling,
+   so a new guard in either cannot inherit a verdict nobody made about it — that absence is what
+   gives the census gate its teeth.
+
+The rulings live in `.minsky/hooks/canary-dispositions.ts` and reach the resolver as DATA passed by
+the builder in `scripts/`, for the same boundary reason as the canary names themselves:
+`.minsky/hooks/**` must not import `scripts/**` (mt#4010 §Data-access decision), and
+`interceptor-descriptions.ts` holds the dependency-free-leaf property.
+
+**Relation to the governing RFC.** _The evaluation loop — auditing the regulators_ (Accepted
+2026-07-08) scopes the canary to a CONDITIONAL diagnostic over an INSTRUMENTED guard — "a guard with
+zero fires over a rolling window gets its canary run." Requiring a ruling for every gapped entity is
+a deliberate EXTENSION of that, justified by the RFC's own Position 4 ("the ambiguity must be
+resolvable"), which cannot hold for an entity nobody has ever ruled on. The corollary matters for
+sequencing: for an entity with no fire-log at all, instrumentation is the RFC-ordered next step and a
+canary answers a question nothing asked.
+
 ---
 
 ## 5. Entity strata

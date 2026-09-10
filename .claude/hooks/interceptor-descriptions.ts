@@ -1562,10 +1562,111 @@ export interface ResolveCatalogInput {
    * "no standalone canaries known", which is the pre-mt#5072 behaviour.
    */
   readonly standaloneCanaryNames?: ReadonlySet<string>;
+  /**
+   * Authored canary rulings for entities that have no canary (mt#5079).
+   *
+   * Passed as DATA for the same reason as `standaloneCanaryNames` above: the
+   * records live in `.minsky/hooks/canary-dispositions.ts`, and this module is
+   * a dependency-free leaf that may not import it. The builder in `scripts/`
+   * reads both and hands them in.
+   *
+   * Optional so every existing caller and test keeps compiling; absent means
+   * "no rulings known", which resolves every gapped entity to `null` — the
+   * pre-mt#5079 behaviour.
+   */
+  readonly canaryDispositions?: CanaryDispositionInput;
 }
 
 /** The per-registry-field metadata a catalog entry can be missing. */
 export type CoverageGap = "tuningOwnership" | "attentionCost" | "canary";
+
+/**
+ * The three verdicts an entity's canary coverage can carry (mt#5079, mt#4606 SC2).
+ *
+ * `canary-declared` is DERIVED, never authored — see {@link resolveCanaryDisposition}.
+ * The other two are recorded in `.minsky/hooks/canary-dispositions.ts`.
+ */
+export type CanaryDispositionKind = "canary-declared" | "canary-infeasible" | "canary-pending";
+
+/**
+ * An AUTHORED ruling about an entity with no canary.
+ *
+ * `disposition` deliberately excludes `canary-declared`: that value is computed
+ * from an actual declaration, and allowing it to be authored would create a
+ * second source of truth that goes stale the moment a canary is removed.
+ */
+export interface CanaryDispositionRecord {
+  readonly disposition: Exclude<CanaryDispositionKind, "canary-declared">;
+  /** REQUIRED for `canary-infeasible`: why a synthetic invocation cannot exercise this entity. */
+  readonly reason?: string;
+  /** REQUIRED for `canary-pending`: the task that owns declaring the canary. */
+  readonly owner?: string;
+}
+
+/** A ruling as it appears on a catalog entry, carrying where it came from. */
+export interface ResolvedCanaryDisposition {
+  readonly disposition: CanaryDispositionKind;
+  readonly reason?: string;
+  readonly owner?: string;
+  /**
+   * `"derived"` — computed from a real canary declaration.
+   * `"entity"` — this entity's own authored ruling.
+   * `"stratum"` — inherited from its stratum's ruling (mt#4606 SC4).
+   */
+  readonly source: "derived" | "entity" | "stratum";
+}
+
+/** The authored disposition data, passed in as DATA — see `canary-dispositions.ts`. */
+export interface CanaryDispositionInput {
+  readonly byGuard: ReadonlyMap<string, CanaryDispositionRecord>;
+  readonly byStratum: ReadonlyMap<Stratum, CanaryDispositionRecord>;
+}
+
+/**
+ * Rule on one entity's canary coverage.
+ *
+ * Exported and pure so the precedence order is testable without building a
+ * catalog: a canary in hand beats every authored ruling, an entity's own ruling
+ * beats its stratum's, and `null` — the census-gate failure — means nobody has
+ * ruled at all.
+ */
+export function resolveCanaryDisposition(
+  guardName: string,
+  stratum: Stratum | null,
+  hasCanary: boolean,
+  dispositions: CanaryDispositionInput | undefined
+): ResolvedCanaryDisposition | null {
+  if (hasCanary) return { disposition: "canary-declared", source: "derived" };
+
+  const own = dispositions?.byGuard.get(guardName);
+  if (own !== undefined) return withSource(own, "entity");
+
+  const byStratum = stratum === null ? undefined : dispositions?.byStratum.get(stratum);
+  if (byStratum !== undefined) return withSource(byStratum, "stratum");
+
+  return null;
+}
+
+/**
+ * Widen an authored record into a resolved one.
+ *
+ * Spreads conditionally rather than `{ ...record, source }` so an absent
+ * `reason`/`owner` stays absent instead of becoming an explicit `undefined`
+ * property — the difference matters to `exactOptionalPropertyTypes` and to the
+ * generated JSON, where an explicit `undefined` would serialize as a missing
+ * key on some paths and a `null` on others.
+ */
+function withSource(
+  record: CanaryDispositionRecord,
+  source: "entity" | "stratum"
+): ResolvedCanaryDisposition {
+  return {
+    disposition: record.disposition,
+    ...(record.reason === undefined ? {} : { reason: record.reason }),
+    ...(record.owner === undefined ? {} : { owner: record.owner }),
+    source,
+  };
+}
 
 export interface CatalogEntry {
   readonly guardName: string;
@@ -1590,6 +1691,14 @@ export interface CatalogEntry {
    * every field, and `registered` is false.
    */
   readonly coverageGaps: readonly CoverageGap[];
+  /**
+   * The recorded verdict on this entity's canary coverage (mt#5079, mt#4606 SC2).
+   *
+   * `null` means NOBODY HAS RULED — the state mt#4606 exists to eliminate, and
+   * the one the census test fails on. It is distinct from `canary-infeasible`,
+   * which is a ruling that happens to close the gap permanently.
+   */
+  readonly canaryDisposition: ResolvedCanaryDisposition | null;
   readonly registered: boolean;
   /** True when no authored description exists — the explicit AT2 marker. */
   readonly undescribed: boolean;
@@ -1630,18 +1739,32 @@ export function resolveCatalogEntry(guardName: string, input: ResolveCatalogInpu
       // and a future gap kind is picked up here automatically.
       ALL_GAPS.filter((gap) => !(gap === "canary" && hasStandaloneCanary));
 
+  const stratum = described?.stratum ?? null;
+
+  // mt#5079: rule on the canary gap rather than merely reporting it. The
+  // has-a-canary input is read back off `coverageGaps` instead of recomputing
+  // `facts?.hasCanary || hasStandaloneCanary`, so the disposition can never
+  // disagree with the gap it is about — one derivation, not two.
+  const canaryDisposition = resolveCanaryDisposition(
+    guardName,
+    stratum,
+    !coverageGaps.includes("canary"),
+    input.canaryDispositions
+  );
+
   return {
     guardName,
     description: described?.description ?? null,
     failureClasses: described?.failureClasses ?? [],
     provenance: described?.provenance ?? [],
-    stratum: described?.stratum ?? null,
+    stratum,
     subject: described?.subject === "system" ? "system" : "trajectory",
     filenameNote: described?.filenameNote,
     note: described?.note,
     provenanceStatus:
       described === undefined ? "none" : (described.provenanceStatus ?? "implementation"),
     coverageGaps,
+    canaryDisposition,
     registered: facts !== undefined,
     undescribed: described === undefined,
   };

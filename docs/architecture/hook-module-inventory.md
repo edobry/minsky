@@ -61,8 +61,8 @@ larger than a subtraction from 60 suggests.
 | -------------- | ------- |
 | already-domain | 13      |
 | movable        | 89      |
-| immovable      | 83      |
-| **total**      | **185** |
+| immovable      | 84      |
+| **total**      | **186** |
 
 Of the 88 movable, **18** land in ADR-026 tier 1 (they reach persistence, so the
 `ensureHookDomainBootstrap` requirement attaches); the other 71 are tier 2 —
@@ -73,7 +73,7 @@ Immovable splits by reason class:
 
 | Reason class                    | Count |
 | ------------------------------- | ----- |
-| no-decision: library            | 43    |
+| no-decision: library            | 44    |
 | no-decision: store              | 11    |
 | host-lifecycle                  | 10    |
 | no-decision: registry           | 10    |
@@ -259,7 +259,7 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `warn-stale-forward-reference.ts`          | standalone-hook  | findForwardReferences, decideStaleForwardReference                | side-effecting (injector+recorder)            | plant | advisory   |
 | `warn-unwired-task-relationship.ts`        | dispatcher-guard | findRelationshipAssertions, isDischarged                          | side-effecting (recorder)                     | plant | advisory   |
 
-## immovable (83)
+## immovable (84)
 
 | Module                                    | Role                | Reason                                                                                                                                                                                                                                                                                             | Effects                                       | Plane   |
 | ----------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ------- |
@@ -271,6 +271,7 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `ask-verification.ts`                     | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `authored-spec-text.ts`                   | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | side-effecting (derived: writes fs / spawns)  | plant   |
 | `bare-entity-ref-scan.ts`                 | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
+| `canary-dispositions.ts`                  | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `canary-runner.ts`                        | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | side-effecting (derived: writes fs / spawns)  | plant   |
 | `canary-transcript.ts`                    | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 | `check-branch-fresh.ts`                   | standalone-hook     | Untransportable local context: runs real `git merge`/`git merge --abort` in the working tree. RFC §What's still open lists this guard as 'likely stays fat' — an OPEN question, not the exclusion list; classified immovable here on the observed git-in-worktree behaviour, not on RFC authority. | decides-only (derived: no fs write, no spawn) | plant   |

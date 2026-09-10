@@ -35,8 +35,11 @@ import {
   findMissingProvenance,
   findUndocumentedFailureClasses,
   interceptorsByFailureClass,
+  resolveCanaryDisposition,
   resolveCatalog,
   resolveCatalogEntry,
+  type CanaryDispositionInput,
+  type CanaryDispositionRecord,
   type FailureClass,
   type RegistryFacts,
   type ResolveCatalogInput,
@@ -425,5 +428,95 @@ describe("unverified content is marked, not invented", () => {
       expect(desc?.stratum).toBe("fixture");
       expect(desc?.description).toContain("Not an interceptor");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#5079 — canary disposition precedence (mt#4606 SC2 / SC4)
+// ---------------------------------------------------------------------------
+//
+// `resolveCanaryDisposition` is exported and pure precisely so this precedence
+// can be exercised on synthetic inputs. Asserting it only through the real
+// corpus would test today's DATA and leave the ORDER — which is the mechanism —
+// unverified in every direction the current data does not happen to exercise.
+
+describe("resolveCanaryDisposition (mt#5079)", () => {
+  const INFEASIBLE_KIND = "canary-infeasible" as const;
+  const INFEASIBLE: CanaryDispositionRecord = {
+    disposition: INFEASIBLE_KIND,
+    reason: "synthetic",
+  };
+  const PENDING: CanaryDispositionRecord = { disposition: "canary-pending", owner: "mt#5080" };
+
+  const dispositions: CanaryDispositionInput = {
+    byGuard: new Map([["ruled-guard", INFEASIBLE]]),
+    byStratum: new Map([["precommit", PENDING]]),
+  };
+
+  test("a real canary outranks every authored ruling", () => {
+    // Even with an explicit infeasible ruling on the same name: the declaration
+    // is a fact and the ruling is an opinion about its absence, so a stale
+    // ruling can never contradict a canary that exists.
+    const result = resolveCanaryDisposition("ruled-guard", "standalone", true, dispositions);
+    expect(result).toEqual({ disposition: "canary-declared", source: "derived" });
+  });
+
+  test("an entity's own ruling outranks its stratum's", () => {
+    const result = resolveCanaryDisposition("ruled-guard", "precommit", false, dispositions);
+    expect(result?.disposition).toBe(INFEASIBLE_KIND);
+    expect(result?.source).toBe("entity");
+  });
+
+  test("an unruled entity inherits its stratum's ruling", () => {
+    const result = resolveCanaryDisposition("unruled-guard", "precommit", false, dispositions);
+    expect(result?.disposition).toBe("canary-pending");
+    expect(result?.source).toBe("stratum");
+    expect(result?.owner).toBe("mt#5080");
+  });
+
+  // THE negative control for the census gate. If this returned anything but
+  // null the gate in `build-interceptor-catalog.test.ts` could never fail, and
+  // a newly added interceptor would be silently absorbed — the exact drift
+  // mt#4606 AT2 exists to stop.
+  test("an entity with no ruling and no stratum ruling resolves to null", () => {
+    const result = resolveCanaryDisposition("unruled-guard", "standalone", false, dispositions);
+    expect(result).toBeNull();
+  });
+
+  test("a null stratum cannot inherit, and does not throw", () => {
+    expect(resolveCanaryDisposition("unruled-guard", null, false, dispositions)).toBeNull();
+  });
+
+  test("absent disposition data resolves every gapped entity to null", () => {
+    // The pre-mt#5079 behaviour, preserved so every existing caller and test
+    // that omits the field keeps its previous result rather than silently
+    // acquiring a verdict.
+    expect(resolveCanaryDisposition("ruled-guard", "precommit", false, undefined)).toBeNull();
+    // ...but a canary in hand still resolves without any authored data at all.
+    expect(resolveCanaryDisposition("ruled-guard", "precommit", true, undefined)).toEqual({
+      disposition: "canary-declared",
+      source: "derived",
+    });
+  });
+
+  test("an absent reason or owner stays absent rather than becoming an explicit undefined", () => {
+    // `withSource` spreads conditionally for this: an explicit `undefined`
+    // property serializes inconsistently into the generated catalog JSON.
+    const result = resolveCanaryDisposition("unruled-guard", "precommit", false, dispositions);
+    expect(Object.hasOwn(result as object, "reason")).toBe(false);
+    expect(Object.hasOwn(result as object, "owner")).toBe(true);
+  });
+
+  test("resolveCatalogEntry surfaces the ruling on the entry", () => {
+    // The wiring, not just the helper: an entry with no registry facts and no
+    // canary carries the ruling its stratum supplies.
+    const input: ResolveCatalogInput = {
+      registryFacts: new Map<string, RegistryFacts>(),
+      canaryDispositions: dispositions,
+    };
+    const entry = resolveCatalogEntry("ruled-guard", input);
+    expect(entry.coverageGaps).toContain("canary");
+    expect(entry.canaryDisposition?.disposition).toBe(INFEASIBLE_KIND);
+    expect(entry.canaryDisposition?.source).toBe("entity");
   });
 });

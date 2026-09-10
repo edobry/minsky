@@ -66,6 +66,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -93,6 +98,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -126,6 +136,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -159,6 +173,10 @@
       "note": "The ontology (§3c) records this as the entity the genus definition fits worst: it is in the corpus because it occupies an interception point and fires on the same machinery, not because it decides anything.",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -191,6 +209,10 @@
       "filenameNote": "The fire-log key is `bare-prohibition`; the module is `warn-bare-prohibition-dispatch.ts`. Name and file diverge, so a filename-derived lookup misses it.",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost"],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -223,6 +245,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -253,6 +279,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -280,6 +310,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost"],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -307,6 +341,12 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "reason": "Exports zero functions today, so there is no injectable decision function to call. mt#5080 must either extract one or move this to `canary-infeasible` with that reason — it is explicitly not to be left silently pending.",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -334,6 +374,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -361,6 +406,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -388,6 +438,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -418,6 +472,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -448,6 +507,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -475,6 +539,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PostToolUse",
@@ -503,6 +572,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -531,6 +604,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -562,6 +640,10 @@
       "filenameNote": "Named `*-detector` but its declared effect is `additionalContext` (injector) — it injects, it does not record.",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -593,6 +675,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -624,6 +710,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -652,6 +742,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Its real evaluation has side effects a synthetic invocation cannot safely trigger: a live `git fetch`, an actual `git merge` on the blocked-plus-clean-tree auto-merge path (mt#2815), and a CAS-marker write on allow. Reason carried over verbatim from `docs/architecture/evaluation-loop-fire-log.md`, which already documents it as fire-log-only.",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -679,6 +774,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost"],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -706,6 +805,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -733,6 +836,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -760,6 +868,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost"],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -787,6 +899,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -815,6 +931,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -845,6 +966,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -873,6 +998,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -903,6 +1033,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -935,6 +1069,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -962,6 +1101,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -989,6 +1133,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -1019,6 +1168,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -1047,6 +1200,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -1078,6 +1235,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost"],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -1109,6 +1270,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -1140,6 +1305,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -1169,6 +1338,11 @@
       "note": "No source module exists — a fixture name corresponds to no enforcement point, so the oracle's declaration is the only honest pointer. mt#3756 incident, 2026-08-03. The contained replacement is `scripts/run-dispatcher-scenario.ts`, which runs the real dispatcher against synthetic registrations inside an isolated state dir. These records skew override counts and deny-rate distributions until they are purged.",
       "provenanceStatus": "declaration-only",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Dispatcher test fixtures (`denier`, `first-guard`, `second-guard`, `overridden-guard`, `mt3612-live-rewrite`), not production interceptors. A canary over a fixture verifies the test harness rather than any enforcement the operator relies on, and the fixtures are already exercised directly by `dispatcher.test.ts`.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": null,
@@ -1192,6 +1366,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -1219,6 +1398,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PostToolUse",
@@ -1247,6 +1431,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -1279,6 +1468,11 @@
       "filenameNote": "Named for the event, not an intervention — it delegates, and the family filters must read its delegates rather than this entry.",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "A dispatcher entry point, not a guard. It routes to the registered guards and records their fire-log rows under the ROUTED guard's name (`dispatcher.ts:1089`), so a canary keyed to this name would assert on a name nothing ever writes. The routing itself is what the 73 passing canaries exercise on every run.",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -1310,6 +1504,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Dispatcher entry point for the Stop event — same reason as `dispatch-pretooluse`: it records under the routed guard's name, never its own.",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "Stop",
@@ -1341,6 +1540,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Dispatcher entry point for UserPromptSubmit — same reason as `dispatch-pretooluse`. Note mt#3531 reports this entry point's own e2e canaries failing on main; that is a defect in an EXISTING end-to-end canary, not evidence that a per-name canary is feasible here.",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -1368,6 +1572,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -1395,6 +1604,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -1422,6 +1636,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PostToolUse",
@@ -1450,6 +1669,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost"],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PostToolUse",
@@ -1478,6 +1701,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -1510,6 +1737,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -1545,6 +1776,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -1572,6 +1808,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -1603,6 +1843,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -1631,6 +1875,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -1658,6 +1907,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -1688,6 +1942,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -1716,6 +1974,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -1744,6 +2007,11 @@
       "note": "No source module exists — a fixture name corresponds to no enforcement point, so the oracle's declaration is the only honest pointer. mt#3756 incident, 2026-08-03. The contained replacement is `scripts/run-dispatcher-scenario.ts`, which runs the real dispatcher against synthetic registrations inside an isolated state dir. These records skew override counts and deny-rate distributions until they are purged.",
       "provenanceStatus": "declaration-only",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Dispatcher test fixtures (`denier`, `first-guard`, `second-guard`, `overridden-guard`, `mt3612-live-rewrite`), not production interceptors. A canary over a fixture verifies the test harness rather than any enforcement the operator relies on, and the fixtures are already exercised directly by `dispatcher.test.ts`.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": null,
@@ -1770,6 +2038,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -1802,6 +2074,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost"],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -1830,6 +2106,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "SessionEnd",
@@ -1862,6 +2143,10 @@
       "filenameNote": "Named `*-detector` but its declared effect is `additionalContext` (injector) — it injects, it does not record.",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -1893,6 +2178,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost"],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PostToolUse",
@@ -1921,6 +2210,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -1948,6 +2242,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -1975,6 +2274,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -2003,6 +2306,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -2031,6 +2338,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -2059,6 +2370,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -2087,6 +2402,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -2115,6 +2434,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -2143,6 +2466,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -2171,6 +2499,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -2201,6 +2534,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "Stop",
@@ -2232,6 +2569,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Writes no fire-log record by design per ADR-028 D1/D7(5), stated in its own docblock at `.minsky/hooks/linkify-message-display.ts:67`; it keeps a separate `linkify-fire-log.jsonl`. Its contract is a rewritten message rather than a decision, so there is no allow/deny/inject outcome for `expects` to assert.",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "MessageDisplay",
@@ -2259,6 +2601,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Narrow trigger — it fires only inside a `/loop` preflight on a merge call, a context a synthetic input cannot reconstruct without standing up the loop harness. Reason carried over from `docs/architecture/evaluation-loop-fire-log.md`.",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -2287,6 +2634,10 @@
       "filenameNote": "Named `*-detector` but its declared effect is `additionalContext` (injector) — it injects, it does not record.",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -2315,6 +2666,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -2343,6 +2698,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -2371,6 +2731,11 @@
       "note": "Last seen 2026-07-29. No source module exists — the step was split into its two successors, so the oracle's declaration is the only honest pointer.",
       "provenanceStatus": "declaration-only",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Retired entities kept in the catalog so historical fire-log and canary rows still resolve to a name. There is no live mechanism to exercise. `policy-coverage` was retired by mt#4197 and its `guard_canary_runs` rows predate that; `unit-tests` and `migration-guard-and-duplicate-content-check` were superseded by successor steps.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -2398,6 +2763,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -2425,6 +2795,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -2453,6 +2828,11 @@
       "note": "No source module exists — a fixture name corresponds to no enforcement point, so the oracle's declaration is the only honest pointer. mt#3756 incident, 2026-08-03. The contained replacement is `scripts/run-dispatcher-scenario.ts`, which runs the real dispatcher against synthetic registrations inside an isolated state dir. These records skew override counts and deny-rate distributions until they are purged.",
       "provenanceStatus": "declaration-only",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Dispatcher test fixtures (`denier`, `first-guard`, `second-guard`, `overridden-guard`, `mt3612-live-rewrite`), not production interceptors. A canary over a fixture verifies the test harness rather than any enforcement the operator relies on, and the fixtures are already exercised directly by `dispatcher.test.ts`.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": null,
@@ -2479,6 +2859,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -2510,6 +2894,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -2538,6 +2926,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -2568,6 +2961,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -2596,6 +2993,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -2623,6 +3025,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -2651,6 +3057,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -2679,6 +3089,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -2710,6 +3124,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -2739,6 +3157,11 @@
       "note": "No source module exists — a fixture name corresponds to no enforcement point, so the oracle's declaration is the only honest pointer. mt#3756 incident, 2026-08-03. The contained replacement is `scripts/run-dispatcher-scenario.ts`, which runs the real dispatcher against synthetic registrations inside an isolated state dir. These records skew override counts and deny-rate distributions until they are purged.",
       "provenanceStatus": "declaration-only",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Dispatcher test fixtures (`denier`, `first-guard`, `second-guard`, `overridden-guard`, `mt3612-live-rewrite`), not production interceptors. A canary over a fixture verifies the test harness rather than any enforcement the operator relies on, and the fixtures are already exercised directly by `dispatcher.test.ts`.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": null,
@@ -2762,6 +3185,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Its `tasks_create` duplicate-child path (`runTasksCreateGuardInner`) resolves its decision via an internal `switch` with no return value bubbled to the call site, so there is no injectable decision function to call. Attributing an outcome would require restructuring that void return into a decision-returning one — a larger change than a canary declaration. Reason carried over from `docs/architecture/evaluation-loop-fire-log.md`. Note its embedding-backed sibling `standalone-duplicate-matcher` (`parallel-work-guard-standalone.ts`) IS separately instrumented and is ruled pending.",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -2790,6 +3218,11 @@
       "note": "Retired 2026-08-16 by mt#4197 (ask#8752). Ran log-only for its entire life and blocked nothing; measured over its 1,760-record log it classified 97.7% of actions 'covered' on incidental keyword matches, and its target problem was postulated from LLM training dynamics rather than observed (mt#1035 cites zero incidents). No source module exists — the oracle's declaration is the only honest pointer. The fire log is append-only history, so its 12,135 records persist under this name permanently.",
       "provenanceStatus": "declaration-only",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Retired entities kept in the catalog so historical fire-log and canary rows still resolve to a name. There is no live mechanism to exercise. `policy-coverage` was retired by mt#4197 and its `guard_canary_runs` rows predate that; `unit-tests` and `migration-guard-and-duplicate-content-check` were superseded by successor steps.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -2825,6 +3258,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PostToolUse",
@@ -2853,6 +3291,11 @@
       "note": "The corpus's only entity with an AI classifier — `mechanism: \"model\"`, ADR-024's rung 3. mt#4038 measured that rung as unexercised across the fire-log population, a population this hook is absent from because it never fire-logs.",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PostToolUse",
@@ -2881,6 +3324,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PostToolUse",
@@ -2912,6 +3360,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -2945,6 +3397,11 @@
       "note": "No source module exists. UNVERIFIED — description deliberately withheld rather than inferred. `rationalization-review` appears only in `known-guard-names.ts`'s STANDALONE_GUARD_NAMES and in one fire-log record; a repo-wide grep finds no implementing module. Either it is a retired name that belongs in RETIRED_GUARD_NAMES, or its module is named something this search did not reach. Resolve before the catalog renders it as a live interceptor.",
       "provenanceStatus": "declaration-only",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Not an interceptor: a corpus NAME for the RFC's periodic rationalization-review pass, carried in `known-guard-names.ts` with `deliberatelyUnauthored: true`, no interception point, no role and no implementing module. There is nothing to invoke.",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": null,
@@ -2968,6 +3425,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -3004,6 +3465,12 @@
       "note": "Fail-open is a hard contract: it is git-tracked and reaches every dispatched-subagent workspace, so a conversation whose events do not land degrades to UNKNOWN in the cockpit rather than failing a turn.",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "reason": "Fires on PostCompact, which a canary must simulate rather than observe.",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PostCompact",
@@ -3032,6 +3499,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "SubagentStop",
@@ -3061,6 +3533,12 @@
       "note": "Ontology §3c calls this the `record(framework)` case, distinct from `record(review)`: nothing in `/calibration-review` consumes it.",
       "provenanceStatus": "implementation",
       "coverageGaps": ["canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "reason": "One of the two entities in `scripts/run-guard-canaries.ts`'s own MISSING set — it holds a `GuardRegistration` with no `canary`, so the registry canary path applies directly and no extraction is needed.",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": true,
       "undescribed": false,
       "point": "Stop",
@@ -3092,6 +3570,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -3122,6 +3605,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -3152,6 +3640,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -3182,6 +3674,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost"],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -3216,6 +3712,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -3246,6 +3747,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -3276,6 +3782,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost"],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -3306,6 +3816,12 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "reason": "The other entity in the runner's MISSING set — registered with no `canary`, so the registry canary path applies directly.",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -3337,6 +3853,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -3369,6 +3889,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -3397,6 +3922,11 @@
       "note": "No source module exists — a fixture name corresponds to no enforcement point, so the oracle's declaration is the only honest pointer. mt#3756 incident, 2026-08-03. The contained replacement is `scripts/run-dispatcher-scenario.ts`, which runs the real dispatcher against synthetic registrations inside an isolated state dir. These records skew override counts and deny-rate distributions until they are purged.",
       "provenanceStatus": "declaration-only",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Dispatcher test fixtures (`denier`, `first-guard`, `second-guard`, `overridden-guard`, `mt3612-live-rewrite`), not production interceptors. A canary over a fixture verifies the test harness rather than any enforcement the operator relies on, and the fixtures are already exercised directly by `dispatcher.test.ts`.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": null,
@@ -3423,6 +3953,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -3451,6 +3985,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -3478,6 +4017,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "SessionStart",
@@ -3512,6 +4056,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -3548,6 +4096,10 @@
       "filenameNote": "Named `*-detector` but its declared effect is `additionalContext` (injector) — it injects, it does not record. Axis 2 is inject, not record.",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -3579,6 +4131,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -3614,6 +4170,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -3642,6 +4202,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -3669,6 +4234,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -3697,6 +4266,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PostToolUse",
@@ -3725,6 +4299,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PostToolUse",
@@ -3753,6 +4332,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PostToolUse",
@@ -3785,6 +4369,12 @@
       "note": "Live in the fire log (87 records) but ABSENT from `known-guard-names.ts`'s `STANDALONE_GUARD_NAMES` snapshot until mt#4008 added it — so `scripts/audit-fire-log.ts` was reporting a legitimate enforcement point as an actionable unknown, exactly the false-positive failure mode that module's staleness note warns about.",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "reason": "Embedding-backed (`mechanism: \"embedding\"`), so a canary needs a fixture corpus with stable vectors rather than a single synthetic payload. Feasible, but a different shape from the structural guards — and mem#819 records that this matcher cannot discriminate at the distances real duplicates sit at, which is a tuning question a canary would not settle either way.",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -3816,6 +4406,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -3848,6 +4442,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost"],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -3875,6 +4473,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "SessionEnd",
@@ -3906,6 +4509,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -3938,6 +4545,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "Stop",
@@ -3970,6 +4581,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "Stop",
@@ -4005,6 +4620,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["attentionCost"],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "Stop",
@@ -4036,6 +4655,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "Stop",
@@ -4071,6 +4694,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "Stop",
@@ -4106,6 +4733,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "Stop",
@@ -4138,6 +4769,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PostToolUse",
@@ -4166,6 +4802,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -4193,6 +4834,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PostToolUse",
@@ -4225,6 +4871,12 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "reason": "Exports zero functions today — same disposition requirement as `block-github-mcp-pr-writes`: mt#5080 extracts a decision function or rules it infeasible with a reason.",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "SubagentStop",
@@ -4253,6 +4905,11 @@
       "note": "Last seen 2026-07-20. No source module exists — a retired step's implementation is gone by definition, so the oracle's declaration is the only honest pointer. The fire log is append-only history, so its records persist under this name permanently.",
       "provenanceStatus": "declaration-only",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Retired entities kept in the catalog so historical fire-log and canary rows still resolve to a name. There is no live mechanism to exercise. `policy-coverage` was retired by mt#4197 and its `guard_canary_runs` rows predate that; `unit-tests` and `migration-guard-and-duplicate-content-check` were superseded by successor steps.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -4280,6 +4937,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PostToolUse",
@@ -4311,6 +4973,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
@@ -4339,6 +5005,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost"],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -4366,6 +5036,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
+        "source": "stratum"
+      },
       "registered": false,
       "undescribed": false,
       "point": "pre-commit",
@@ -4393,6 +5068,12 @@
       "subject": "system",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "reason": "Records to its own flat state file rather than the guard fire-log, so its shipping state is currently checkable only through that file; a canary is the instrument that would make it checkable from outside.",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PostToolUse",
@@ -4421,6 +5102,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "UserPromptSubmit",
@@ -4452,6 +5137,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PostToolUse",
@@ -4483,6 +5173,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
@@ -4514,6 +5209,11 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
       "registered": false,
       "undescribed": false,
       "point": "PostToolUse",
@@ -4545,6 +5245,10 @@
       "subject": "trajectory",
       "provenanceStatus": "implementation",
       "coverageGaps": [],
+      "canaryDisposition": {
+        "disposition": "canary-declared",
+        "source": "derived"
+      },
       "registered": true,
       "undescribed": false,
       "point": "PreToolUse",
