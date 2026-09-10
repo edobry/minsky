@@ -43,7 +43,12 @@ import { recordFireLogEntry } from "./fire-log";
 export const GUARD_NAME = "deploy-verification-after-merge";
 import { deriveRepoFromGit, makeProdPrDeps } from "./require-execution-evidence-before-merge";
 import type { PrFile } from "./require-execution-evidence-before-merge";
-import { findDeploySurfaceFiles, findLocalAppDeploySurfaceFiles } from "./deploy-surface-detector";
+import {
+  findAffectedServices,
+  findDeploySurfaceFiles,
+  findLocalAppDeploySurfaceFiles,
+  listServicesWithDeployConfig,
+} from "./deploy-surface-detector";
 import { isOverrideSet, OVERRIDE_ENV_VAR } from "./require-deploy-verification-before-merge";
 
 /** The MCP tool this hook reacts to. */
@@ -107,22 +112,97 @@ export function extractMergedPrRef(
   return { repo, prNumber };
 }
 
-/** Build the post-merge reminder for a set of touched deploy-surface files. */
-export function buildDeployVerificationReminder(deploySurfaceFiles: string[]): string {
+/**
+ * Render the affected-services line for the reminder (mt#5002).
+ *
+ * The reminder used to say "for the affected service(s)" and leave the agent to
+ * pick one. The only reasoning material at hand is which service CONSUMES the
+ * changed file, and that answer is routinely wrong: `src/generated/**` is consumed
+ * by the cockpit but bundled into — and deploys with — `minsky-mcp`
+ * (`DEPLOY_SURFACE_SERVICE_MAP`'s `/^src\//` entry, mt#4013). Two sessions picked
+ * `cockpit`, ran `verify-deploy.ts cockpit`, got a true-but-irrelevant "no
+ * deployment was created", and concluded the GATE was broken (2026-09-04 and
+ * 2026-09-09; the second spent a planning cycle and a READY transition on it).
+ *
+ * Naming the services removes the hand-pick at the moment it happens. The list
+ * comes from `findAffectedServices` — the same predicate the merge gate and the
+ * post-merge deploy watch read — so the reminder cannot drift from the machinery
+ * it is quoting.
+ *
+ * An EMPTY list is a finding, not a formatting case: it means every touched file
+ * resolves to a service with no `deploy.config.ts`, so there is nothing to wait
+ * on. Say so explicitly rather than printing an empty bullet list, because an
+ * empty list reads as a rendering bug and sends the agent hunting for a service
+ * anyway — which is the failure this line exists to prevent.
+ */
+export function renderAffectedServicesLine(affectedServices: readonly string[]): string {
+  if (affectedServices.length === 0) {
+    return (
+      "Affected service(s): NONE resolved — every touched deploy-surface file maps to a service " +
+      "with no `deploy.config.ts`, so there is no deployment to wait on. Do NOT pick a service " +
+      "by reasoning about which one consumes the file; if this seems wrong, the fix is in " +
+      "`DEPLOY_SURFACE_SERVICE_MAP` (`packages/domain/src/deployment/deploy-surface.ts`)."
+    );
+  }
+  return `Affected service(s), per \`findAffectedServices\`: ${affectedServices.map((s) => `\`${s}\``).join(", ")}`;
+}
+
+/**
+ * Build the post-merge reminder for a set of touched deploy-surface files.
+ *
+ * `affectedServices` is the result of `findAffectedServices` over those files
+ * (mt#5002) — see {@link renderAffectedServicesLine} for why it is named rather
+ * than left to the reader.
+ */
+export function buildDeployVerificationReminder(
+  deploySurfaceFiles: string[],
+  affectedServices: readonly string[]
+): string {
   const fileList = deploySurfaceFiles.map((f) => `  - ${f}`).join("\n");
+
+  // PR #3713 R1 BLOCKING — an empty resolution gets its OWN reminder, without
+  // the wait-for-latest block. "No deployment to wait on" followed by "run
+  // deployment_wait-for-latest for EACH service named above" is contradictory
+  // guidance, and the contradiction resolves the wrong way: an agent handed an
+  // instruction to run a check and no service to run it against will pick one
+  // by consumption reasoning, which is the exact failure this line exists to
+  // prevent. So the empty case says what IS actionable — the map — and nothing
+  // about deploys.
+  if (affectedServices.length === 0) {
+    return [
+      "DEPLOY-SURFACE MERGE — but NO deployment resolves for these files.",
+      "",
+      "This PR touched deploy/infra config:",
+      fileList,
+      "",
+      renderAffectedServicesLine(affectedServices),
+      "",
+      "**There is no `deployment_wait-for-latest` to run here.** A deploy-surface file whose",
+      "service has no `deploy.config.ts` is a MAP gap, not a deploy to verify: either the",
+      "file should not be deploy surface, or its service needs a `deploy.config.ts`. Read",
+      "`DEPLOY_SURFACE_SERVICE_MAP` and `listServicesWithDeployConfig` before deciding",
+      "which, and record the answer on the task — do not report a deploy as verified,",
+      "and do not report one as missing.",
+    ].join("\n");
+  }
+
   return [
     "DEPLOY-SURFACE MERGE — the task is NOT done yet.",
     "",
     "This PR touched deploy/infra config:",
     fileList,
     "",
+    renderAffectedServicesLine(affectedServices),
+    "",
     "DONE was set at merge, but the DEPLOY happens NOW, after merge, and can fail in",
     "ways no pre-merge check catches (Dockerfile breakage, config-as-code resolution",
     "error, crash on start — mt#2345).",
     "",
     "**Required next action (do NOT report the task complete until this passes):**",
-    "- Run `mcp__minsky__deployment_wait-for-latest` for the affected service(s) and",
-    "  confirm it returns SUCCESS.",
+    "- Run `mcp__minsky__deployment_wait-for-latest` for EACH service named above and",
+    "  confirm it returns SUCCESS. Pass `service:` explicitly — do NOT substitute a",
+    "  service you infer from which code consumes the changed file; the list above",
+    "  is what the deploy machinery attributes the files to, and the two differ.",
     "- Confirm the runtime actually STARTED — the deploy's /health, or",
     '  `mcp__minsky__deployment_logs(..., type: "deploy")` showing the service booted.',
     '  deploy-SUCCESS is necessary but NOT sufficient; "applied" / "pulumi up exit-0"',
@@ -193,6 +273,13 @@ export function buildTrayReinstallReminder(trayFiles: string[]): string {
 export interface PostMergeDeps {
   deriveRepo: (cwd: string) => string | null;
   fetchPrFiles: (repo: string, prNumber: number) => { files: PrFile[]; warning?: string };
+  /**
+   * Services that have a `deploy.config.ts` under `<cwd>/services/` (mt#5002).
+   * Injected rather than read inside `decideDeployReminder` so the decision stays
+   * unit-testable without a services/ tree on disk; production wires
+   * `listServicesWithDeployConfig`.
+   */
+  listAvailableServices: (cwd: string) => readonly string[];
 }
 
 /**
@@ -224,7 +311,14 @@ export function decideDeployReminder(
   if (railwayFiles.length === 0 && trayFiles.length === 0) return null;
 
   const sections: string[] = [];
-  if (railwayFiles.length > 0) sections.push(buildDeployVerificationReminder(railwayFiles));
+  if (railwayFiles.length > 0) {
+    // mt#5002: name the services rather than leaving the agent to pick one. The
+    // available-services read is injected (see `PostMergeDeps`); a failure there
+    // is caught by `main()`'s outer try and goes silent, matching every other
+    // failure mode of this informational hook.
+    const { services } = findAffectedServices(railwayFiles, deps.listAvailableServices(input.cwd));
+    sections.push(buildDeployVerificationReminder(railwayFiles, services));
+  }
   if (trayFiles.length > 0) sections.push(buildTrayReinstallReminder(trayFiles));
   return sections.join("\n\n---\n\n");
 }
@@ -255,6 +349,7 @@ async function main(): Promise<void> {
   const deps: PostMergeDeps = {
     deriveRepo: deriveRepoFromGit,
     fetchPrFiles: (repo, prNumber) => makeProdPrDeps(input.cwd).fetchPrFiles(repo, prNumber),
+    listAvailableServices: (cwd) => listServicesWithDeployConfig(cwd),
   };
 
   let reminder: string | null = null;
