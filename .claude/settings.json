@@ -453,6 +453,17 @@
     ],
     "PostToolUse": [
       {
+        "_comment": "mt#5042 handoff-at-work-boundary — LOG-ONLY observer, never blocks and never injects. Records the session's context fill at a WORK BOUNDARY (a merge, a PR landing, a tasks_status_set to DONE) and marks whether a trigger at the pre-registered 650K threshold WOULD have fired. Auto-compaction is resource-triggered, so it fires at the point of maximum re-upload and lands mid-narrative; a boundary is where a handoff would be cheap and lossless. Measured over 3,859 boundary events: 650K fires at 29.4% of boundaries and catches 53.9% of the boundaries that preceded a compaction, a median 91 requests earlier. The threshold is a HYPOTHESIS the calibration stream exists to price, not a derived value. An ESTIMATED fill reading (unknown model -> assumed window, mt#4968) is recorded but can never fire. Timeout 10: the hook parses one local transcript and appends one JSONL row — no subprocess, no network, no DB. Override: MINSKY_HOOK_OVERRIDE=handoff-at-work-boundary (no bespoke MINSKY_SKIP_* name, per ADR-028 D3).",
+        "matcher": "mcp__minsky__session_pr_merge|mcp__github__merge_pull_request|mcp__minsky__session_pr_create|mcp__minsky__tasks_status_set",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/handoff-at-work-boundary.ts",
+            "timeout": 10
+          }
+        ]
+      },
+      {
         "matcher": "Write|Edit|mcp__minsky__session_write_file|mcp__minsky__session_edit_file|mcp__minsky__session_search_replace",
         "hooks": [
           {

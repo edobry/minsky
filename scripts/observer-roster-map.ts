@@ -47,6 +47,7 @@ export const ROSTER_TO_GUARDS: Record<string, readonly string[]> = {
   "Wall-of-text": ["wall-of-text-detector"],
   "Silent-stretch": ["silent-stretch-detector"],
   "Context-fill gauge": ["context-fill-gauge"],
+  "Handoff-at-work-boundary": ["handoff-at-work-boundary"],
   "Chained-verification-commands": ["chained-verification-commands"],
   "Nonexistent-search-path": ["nonexistent-search-path"],
   "Truncated-outcome-read": ["truncated-outcome-read"],

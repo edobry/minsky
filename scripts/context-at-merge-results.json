@@ -1,0 +1,132 @@
+{
+  "generatedAt": "2026-09-10T00:42:29.738Z",
+  "corpus": {
+    "transcriptsScanned": 957,
+    "sessionsWithBoundary": 605,
+    "boundaryEvents": 3861,
+    "sessionsWithCompaction": 25,
+    "compactionEvents": 25
+  },
+  "fillAtBoundary": {
+    "count": 3861,
+    "p10": 327989,
+    "p25": 408783,
+    "p50": 522787,
+    "p75": 678349,
+    "p90": 799681,
+    "p99": 938222,
+    "max": 997804
+  },
+  "fillAtBoundaryByKind": {
+    "merge": {
+      "count": 2238,
+      "p10": 345319,
+      "p25": 426050,
+      "p50": 542052,
+      "p75": 690199,
+      "p90": 804949,
+      "p99": 943848,
+      "max": 994840
+    },
+    "pr-landing": {
+      "count": 1517,
+      "p10": 318585,
+      "p25": 388274,
+      "p50": 490122,
+      "p75": 656400,
+      "p90": 774271,
+      "p99": 909629,
+      "max": 991766
+    },
+    "closeout": {
+      "count": 106,
+      "p10": 244496,
+      "p25": 360568,
+      "p50": 493036,
+      "p75": 708704,
+      "p90": 871097,
+      "p99": 950275,
+      "max": 997804
+    }
+  },
+  "preCompactionBoundaries": {
+    "count": 193,
+    "p10": 408333,
+    "p25": 468165,
+    "p50": 671018,
+    "p75": 793096,
+    "p90": 915120,
+    "p99": 992823,
+    "max": 994840
+  },
+  "thresholds": [
+    {
+      "thresholdTokens": 500000,
+      "fires": 2101,
+      "firesPct": 54.4,
+      "preCompactionCaught": 136,
+      "preCompactionPct": 70.5,
+      "medianRequestsEarlier": 116
+    },
+    {
+      "thresholdTokens": 600000,
+      "fires": 1445,
+      "firesPct": 37.4,
+      "preCompactionCaught": 116,
+      "preCompactionPct": 60.1,
+      "medianRequestsEarlier": 101
+    },
+    {
+      "thresholdTokens": 650000,
+      "fires": 1135,
+      "firesPct": 29.4,
+      "preCompactionCaught": 104,
+      "preCompactionPct": 53.9,
+      "medianRequestsEarlier": 91
+    },
+    {
+      "thresholdTokens": 700000,
+      "fires": 842,
+      "firesPct": 21.8,
+      "preCompactionCaught": 85,
+      "preCompactionPct": 44,
+      "medianRequestsEarlier": 66
+    },
+    {
+      "thresholdTokens": 800000,
+      "fires": 383,
+      "firesPct": 9.9,
+      "preCompactionCaught": 48,
+      "preCompactionPct": 24.9,
+      "medianRequestsEarlier": 38
+    },
+    {
+      "thresholdTokens": 950000,
+      "fires": 25,
+      "firesPct": 0.6,
+      "preCompactionCaught": 12,
+      "preCompactionPct": 6.2,
+      "medianRequestsEarlier": 11
+    }
+  ],
+  "compactionOnset": {
+    "count": 25,
+    "p10": 999364,
+    "p25": 999992,
+    "p50": 1001365,
+    "p75": 1004743,
+    "p90": 1007676,
+    "p99": 1029784,
+    "max": 1029784
+  },
+  "autoCompactionOnset": {
+    "count": 24,
+    "p10": 999425,
+    "p25": 999992,
+    "p50": 1001365,
+    "p75": 1004743,
+    "p90": 1007676,
+    "p99": 1029784,
+    "max": 1029784
+  }
+}

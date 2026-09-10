@@ -64,6 +64,10 @@ export const EVALUATION_STREAM_PRODUCERS: Record<string, string> = {
   // does not see it. The census keys on the IMPORT instead, which is why this one is not a
   // blind spot — it was, for the first pass of mt#4804's own investigation.
   "context-fill-gauge": ".minsky/hooks/context-fill-gauge.ts",
+  // Same injected-seam shape as its sibling above: `run` takes
+  // `logEvaluationRecordFn` defaulting to `logEvaluationRecord`, so keying on the
+  // literal call site would miss it.
+  "handoff-at-work-boundary": ".minsky/hooks/handoff-at-work-boundary.ts",
   // Declared and wired, but has never fired: no `criterion-reconciliation-evaluations.jsonl`
   // exists on disk. That is the concrete case for preferring declarations over a filesystem
   // scan — a scan of written logs sees what has FIRED, so it would report this set complete.

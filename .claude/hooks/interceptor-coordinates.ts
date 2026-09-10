@@ -753,6 +753,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ["drive-ready-to-implementation", conditionalFeeder],
   ["unowned-finding-scan", structuralRecorder],
   [
+    "handoff-at-work-boundary",
+    {
+      interventions: [recordReview],
+      mechanism: "structural",
+      role: "judge",
+      note: "Decides on a NUMERIC COMPARISON — fill against a token threshold — so it has no paraphrase axis and ADR-024's rung ladder does not govern it (same posture context-fill-gauge records for its own sibling signal). Log-only for a different reason: the threshold is a pre-registered hypothesis, and the calibration stream is how it gets priced before anything acts on it.",
+    },
+  ],
+  [
     "guard-events-ingest-on-session-end",
     {
       interventions: [recordFramework],
