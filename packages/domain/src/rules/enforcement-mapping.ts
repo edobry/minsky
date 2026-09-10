@@ -741,6 +741,11 @@ export interface NonEnforcementHook {
  */
 export const NON_ENFORCEMENT_CLAUDE_HOOKS: NonEnforcementHook[] = [
   {
+    configPath: ".claude/hooks/handoff-at-work-boundary.ts",
+    reason:
+      "PostToolUse recorder (mt#5042); at a work boundary — a merge, a PR landing, a tasks_status_set to DONE — records the session's context fill and whether a trigger at the pre-registered 650K threshold would have fired. Enforces no rule: it returns a reading to its own caller, writes an empty hook output, and neither denies nor injects. The rule it would eventually enforce (work-completion.mdc's category-(c) amendment, drafted in mt#2531 §Authorization) is deliberately NOT landed — v1 acts on nothing, so there is nothing to authorize yet, and the threshold is the least-grounded part of the design",
+  },
+  {
     configPath: ".claude/hooks/coverage-claim-path-detector.ts",
     reason:
       "PreToolUse recorder (mt#4426); on a write to a TS-ish file, records comments that claim coverage/convention/precedent at a path which does not resolve. Enforces no rule: it returns null on every path, emits no hook output, and ships log-only per the ADR-024 ladder — a flip to live is a separate disposition through /calibration-review's Ask path. Its measured precision (21 of 22 corpus fires real) is the input to that decision, not a substitute for it",

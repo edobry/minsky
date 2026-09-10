@@ -208,6 +208,7 @@ const CALIBRATION_STREAMS: GuardEventStreamSource[] = [
   { stream: "evidence-record-provenance", guardName: "evidence-record-provenance" },
   { stream: "flakiness-control", guardName: "flakiness-control-detector" },
   { stream: "gate-walk-provenance", guardName: "gate-walk-provenance" },
+  { stream: "handoff-at-work-boundary", guardName: "handoff-at-work-boundary" },
   { stream: "new-surface-design-pass", guardName: "new-surface-design-pass" },
   { stream: "nonexistent-search-path", guardName: "nonexistent-search-path" },
   { stream: "secret-request-in-chat", guardName: "secret-request-in-chat-detector" },
@@ -275,6 +276,11 @@ const EVALUATION_STREAMS: GuardEventStreamSource[] = [
     guardName: "criterion-reconciliation-scan",
   },
   { stream: "cross-turn-hedge-evaluations", guardName: "cross-turn-hedge-detector" },
+  // mt#5042: the boundary trigger records EVERY work boundary here, not only the
+  // ones over threshold — the non-firing rows ARE the fill-at-boundary
+  // distribution the 650K hypothesis has to be re-derived from, so a fire-only
+  // stream would leave the calibration with nothing to price.
+  { stream: "handoff-at-work-boundary-evaluations", guardName: "handoff-at-work-boundary" },
   {
     stream: "secret-request-in-chat-evaluations",
     guardName: "secret-request-in-chat-detector",

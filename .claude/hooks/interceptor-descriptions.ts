@@ -799,6 +799,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "handoff-at-work-boundary",
+    {
+      description:
+        "Records context fill at a WORK BOUNDARY — a merge, a PR landing, a status_set to DONE — and whether a trigger at the pre-registered 650K threshold would have fired. Auto-compaction is resource-triggered, so it fires at the point of maximum re-upload and lands mid-narrative; a boundary is where a handoff would be cheap. Adds the boundary conjunction to context-fill-gauge's reading, which forces a LOWER threshold because boundaries are sparse. Log-only: it records and acts on nothing.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("handoff-at-work-boundary"), HOOK_OBSERVERS_RULE],
+      stratum: "standalone",
+    },
+  ],
+  [
     "build-claim-injection-detector",
     {
       description:

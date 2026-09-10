@@ -507,6 +507,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_SKIP_CONTEXT_FILL_GAUGE: "operator-override", // .claude/hooks/context-fill-gauge.ts (mt#4291) — override for the context-fill gauge
   MINSKY_CONTEXT_FILL_WARN_RATIO_PCT: "tunable", // .claude/hooks/context-fill-gauge.ts (mt#4291) — preference-class threshold: warn tier as % of context window (default 80)
   MINSKY_CONTEXT_FILL_CRITICAL_RATIO_PCT: "tunable", // .claude/hooks/context-fill-gauge.ts (mt#4291) — preference-class threshold: critical tier as % of context window (default 95)
+  MINSKY_HANDOFF_BOUNDARY_FILL_TOKENS: "tunable", // .claude/hooks/handoff-at-work-boundary.ts (mt#5042) — preference-class threshold: fill at a work boundary, in TOKENS rather than a ratio (default 650000, a pre-registered hypothesis the calibration stream exists to price)
   MINSKY_SILENT_STRETCH_TOOL_CALLS: "tunable", // .claude/hooks/silent-stretch-detector.ts (mt#3518) — preference-class threshold: heartbeat call count (default 15)
   MINSKY_WALL_OF_TEXT_WORD_BUDGET: "tunable", // .claude/hooks/wall-of-text-detector.ts (mt#3518) — preference-class threshold: turn-report lead word budget (default 200)
   MINSKY_SKIP_OPERATOR_INSTRUCTION_TRIGGER: "operator-override", // .claude/hooks/substrate-bypass-detector.ts (mt#2303) — skip the log-only operator-instruction-as-feature-delivery calibration surface

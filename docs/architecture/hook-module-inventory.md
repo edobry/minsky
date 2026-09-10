@@ -60,9 +60,9 @@ larger than a subtraction from 60 suggests.
 | Bucket         | Count   |
 | -------------- | ------- |
 | already-domain | 13      |
-| movable        | 88      |
+| movable        | 89      |
 | immovable      | 83      |
-| **total**      | **184** |
+| **total**      | **185** |
 
 Of the 88 movable, **18** land in ADR-026 tier 1 (they reach persistence, so the
 `ensureHookDomainBootstrap` requirement attaches); the other 71 are tier 2 —
@@ -148,7 +148,7 @@ mt#4374 is extracting toward — `flakiness-control-detector.ts` calls itself "t
 | `tasks-status-set-guard.ts`            | standalone-hook  | `validateStatusTransition (tasks/status-transitions)`                | decides-only (derived: no fs write, no spawn) | plant |
 | `warn-bare-prohibition-dispatch.ts`    | standalone-hook  | `analyzeNegativeConstraints (validation/negative-constraint)`        | side-effecting (derived: writes fs / spawns)  | plant |
 
-## movable (88)
+## movable (89)
 
 Decision is inline in the hook module. `Extraction unit` names the function a wave lifts; where no
 `detect*`/`scan*`/`decide*` export exists the cell says so rather than guessing, and that module
@@ -180,6 +180,7 @@ bootstrap requirement.
 | `check-task-spec-read.ts`                      | standalone-hook  | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | decides-only (derived: no fs write, no spawn)                 | plant | —          |
 | `claim-provenance-scan.ts`                     | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read)                               | side-effecting (recorder)                                     | plant | advisory   |
 | `context-fill-gauge.ts`                        | dispatcher-guard | findLastUsage, measureFill                                                                      | side-effecting (injector+recorder)                            | plant | preference |
+| `handoff-at-work-boundary.ts`                  | standalone-hook  | classifyBoundary, decideBoundaryReading                                                         | decides-only (derived: no fs write, no spawn)                 | plant | preference |
 | `coverage-claim-path.ts`                       | library          | findUnresolvedCoverageClaims                                                                    | decides-only (pure; existence check is an injected parameter) | plant | preference |
 | `deploy-verification-after-merge.ts`           | standalone-hook  | decideDeployReminder                                                                            | decides-only (derived: no fs write, no spawn)                 | plant | —          |
 | `drive-ready-to-implementation.ts`             | standalone-hook  | decideReminder                                                                                  | decides-only (derived: no fs write, no spawn)                 | plant | —          |

@@ -24,6 +24,52 @@ import { enforcementEffect, advisoryEffect, recorderEffect } from "../../.minsky
 
 export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
   {
+    guardName: "handoff-at-work-boundary",
+    // Record-only by design: it never denies and never injects, so `calibration`
+    // is the outcome-shaped expectation — the record IS the effect.
+    effects: [recorderEffect()],
+    expects: "calibration",
+    calibrationLog: "handoff-at-work-boundary",
+    // The canary is what makes a LOG-ONLY guard's shipping state checkable at
+    // all. It records and does nothing else, so there is no denial and no
+    // injection to observe from outside; without a canary the only evidence it
+    // still works would be fires appearing in a log nobody is watching, which
+    // is the dormant-vs-dead ambiguity mt#3502's three-state model exists to
+    // remove. Declaring the log here is ALSO what puts it on the calibration
+    // sweep (`deriveCalibrationLogEntries`) — an undeclared log is written and
+    // never reviewed, which for a guard whose whole v1 purpose is to be
+    // reviewed would make it inert on arrival.
+    check: async () => {
+      const { decideBoundaryReading, DEFAULT_BOUNDARY_FILL_TOKENS } = await import(
+        "../../.minsky/hooks/handoff-at-work-boundary"
+      );
+      // A merge at a fill above the threshold, on a MEASURED window: the exact
+      // shape that would fire. No fs, no network — the decision core is pure.
+      const reading = decideBoundaryReading(
+        {
+          tool_name: "mcp__minsky__session_pr_merge",
+          tool_input: {},
+          tool_result: { success: true },
+        } as never,
+        [
+          {
+            type: "assistant",
+            message: {
+              model: "claude-opus-5",
+              usage: {
+                input_tokens: 700_000,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+              },
+            },
+          } as never,
+        ],
+        DEFAULT_BOUNDARY_FILL_TOKENS
+      );
+      return reading?.wouldTrigger === true;
+    },
+  },
+  {
     guardName: "block-git-gh-cli",
     effects: [enforcementEffect()],
     expects: "deny",

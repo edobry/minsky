@@ -1882,6 +1882,37 @@
       "sourceFile": "guard-health-escalation-detector"
     },
     {
+      "guardName": "handoff-at-work-boundary",
+      "description": "Records context fill at a WORK BOUNDARY — a merge, a PR landing, a status_set to DONE — and whether a trigger at the pre-registered 650K threshold would have fired. Auto-compaction is resource-triggered, so it fires at the point of maximum re-upload and lands mid-narrative; a boundary is where a handoff would be cheap. Adds the boundary conjunction to context-fill-gauge's reading, which forces a LOWER threshold because boundaries are sparse. Log-only: it records and acts on nothing.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [
+        ".minsky/hooks/handoff-at-work-boundary.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PostToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "handoff-at-work-boundary"
+    },
+    {
       "guardName": "hook-permission-check",
       "description": "Verifies every generated hook file is executable, since a hook without the execute bit silently never runs.",
       "failureClasses": ["broken-main", "blind-enforcement"],
