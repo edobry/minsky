@@ -220,6 +220,8 @@ export function scanTranscriptText(raw: string, options: ScanOptions = {}): Sess
   const compactions: CompactionEvent[] = [];
   const seenMessageIds = new Set<string>();
   const errored = new Set<string>();
+  /** message.id -> that response's fill, so a later block can borrow it. */
+  const fillByMessageId = new Map<string, number>();
   let requestIndex = -1;
 
   for (const line of raw.split("\n")) {
@@ -274,12 +276,32 @@ export function scanTranscriptText(raw: string, options: ScanOptions = {}): Sess
       requestIndex++;
     }
 
+    // Remember this message's fill, so a later BLOCK of the same response can
+    // use it (PR #3702 R3).
+    //
+    // Claude Code writes one line per content block, and only the LINE carries
+    // `usage`. If a boundary `tool_use` ever lands on a block whose line has no
+    // usage record, reading that line alone yields 0 and the `continue` below
+    // would silently drop the boundary — an undercount with nothing to notice,
+    // which is the same class this instrument was already corrected for twice.
+    //
+    // Measured over the full local corpus (395,769 assistant lines, 7,165
+    // boundary calls): every boundary call currently sits on a line that DOES
+    // carry usage, and only 0.11% of assistant lines lack one at all. So this is
+    // robustness against a harness-format change rather than a fix for an
+    // observed loss — stated plainly so a later reader does not cite it as
+    // having corrected a real undercount.
+    const lineFill = fillFromUsage(message?.usage);
+    if (lineFill > 0) fillByMessageId.set(id, lineFill);
+
     const uses = boundaryToolsInContent(message?.content);
     if (uses.length === 0) continue;
-    const fillTokens = fillFromUsage(message?.usage);
-    // A tool_use block with no usage on its own line: the fill is unknown for
-    // that line, not zero. Skipping is the honest reading — a zero would drag
-    // every percentile down and there is no way to tell the two apart later.
+    // This line's usage, else any other line of the SAME response — they are one
+    // request and share one context size. Only when NO line of the message
+    // carries usage is the fill genuinely unknown, and then the boundary is
+    // skipped: a zero would drag every percentile down with no way to tell the
+    // two apart later.
+    const fillTokens = lineFill > 0 ? lineFill : (fillByMessageId.get(id) ?? 0);
     if (fillTokens === 0) continue;
     for (const use of uses) {
       boundaries.push({

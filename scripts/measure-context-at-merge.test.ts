@@ -181,8 +181,32 @@ describe("scanTranscriptText", () => {
     expect(scan.boundaries).toEqual([{ kind: "merge", fillTokens: 100, requestIndex: 0 }]);
   });
 
-  test("skips a boundary line carrying no usage rather than recording zero", () => {
+  test("skips a boundary when NO line of the message carries usage", () => {
+    // Genuinely unknown fill — recording zero would drag every percentile down.
     const raw = assistant("m1", 0, [mergeCall()], { withUsage: false });
+    expect(scanTranscriptText(raw).boundaries).toEqual([]);
+  });
+
+  test("borrows the fill from another line of the SAME response", () => {
+    // One API response, two content blocks, two JSONL lines: usage on the first,
+    // the boundary tool_use on the second. They are one request and share one
+    // context size, so the boundary must not be dropped (PR #3702 R3).
+    const raw = [
+      assistant("m1", 700_000),
+      assistant("m1", 0, [mergeCall()], { withUsage: false }),
+    ].join("\n");
+    expect(scanTranscriptText(raw).boundaries).toEqual([
+      { kind: "merge", fillTokens: 700_000, requestIndex: 0 },
+    ]);
+  });
+
+  test("does NOT borrow across different responses", () => {
+    // A different message.id is a different request with a different context
+    // size; borrowing there would fabricate a reading rather than recover one.
+    const raw = [
+      assistant("m1", 700_000),
+      assistant("m2", 0, [mergeCall()], { withUsage: false }),
+    ].join("\n");
     expect(scanTranscriptText(raw).boundaries).toEqual([]);
   });
 
