@@ -256,6 +256,29 @@ suppression condition, if detections that should have reached the operator were
 withheld) or **keep** (the suppression is correct and the detector is working as
 intended) — a **flip** is meaningless for a log nothing is injecting.
 
+**Read `undeterminedSinceLastReview` BEFORE answering that question (mt#5000).**
+It is the subset of `suppressedSinceLastReview` whose reasons mean the detector
+**could not complete its check** — a dependency it never reached, a substrate
+read that failed, a bootstrap that did not run — as opposed to checking and
+declining to inject. On a population that is mostly could-not-check, *"is this
+gate too broad?"* is not merely hard to answer, it is **the wrong question**:
+nothing ran that could be broad. The finding there is a broken detector, and the
+disposition is neither **tune** nor **keep** — it is **file a defect against the
+detector** and leave the gate alone.
+
+Measured instance, and the reason this paragraph exists: `stale-state-assertion`
+reported 242 suppressions across 388 records with **220 of them (91%)
+undetermined** — its Rung-2 nomination stage never reached the embedding provider
+because the hook did not bootstrap the domain. Every prior pass over that log
+arrived under this leg and read the suppression as a gate to judge. None could
+see that the detector had been blind, because until mt#5000 the column did not
+exist.
+
+**Do not read a LOW `undeterminedSinceLastReview` as clearance for a detector you
+have not otherwise checked.** The column classifies the reasons a detector
+actually WROTE; a detector failing in a way it does not record still reports
+zero here.
+
 **A below-count-bar log returns `newRecords: []` BY DESIGN** — `computeLogResult`
 gates that field on `atCountThreshold`, so an empty array here means "under the
 bar," never "no evidence exists." Read the raw JSONL for those logs

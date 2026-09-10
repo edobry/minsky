@@ -478,6 +478,12 @@ export function projectCalibrationLogResult(r: CalibrationLogResult) {
     // names the MCP form — which returns this JSON — as the invocation, so
     // until mt#5011 that instruction pointed at a key the payload lacked.
     logOnlyFamilySinceLastReview: r.logOnlyFamilySinceLastReview,
+    // mt#5000: the could-not-check SUBSET of `suppressedSinceLastReview`. It has
+    // to reach the JSON for the same reason `logOnlyFamilySinceLastReview` did —
+    // `/calibration-review` reads this payload, and a reviewer asked "is the
+    // suppression gate too broad?" about a population that never ran a check has
+    // been handed an unanswerable question with no way to see that it is one.
+    undeterminedSinceLastReview: r.undeterminedSinceLastReview,
     distinctFiresSinceLastReview: r.distinctFiresSinceLastReview,
     ungroupableSinceLastReview: r.ungroupableSinceLastReview,
     distinctPhrases: r.distinctPhrases,

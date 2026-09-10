@@ -31,7 +31,14 @@ import {
   nominatePendingClaims,
   NOMINATION_EXEMPLARS,
   toolInputHaystack,
+  // mt#5000 — the domain bootstrap on the Rung-2 nomination path
+  runDepsStage,
+  selectBootstrap,
 } from "./turn-end-stale-state-assertion-scan";
+// Imported for identity comparison only. `domain-bootstrap`'s sole static import
+// is the reflect polyfill; its config work is behind a dynamic import that runs
+// only when the function is CALLED, so this pulls in no domain tree and no IO.
+import { ensureHookDomainBootstrap } from "./domain-bootstrap";
 
 /** The literal shape of mem#669 R17's closing message — the originating case. */
 const R17_MESSAGE =
@@ -513,6 +520,202 @@ describe("mt#4580 — cost discipline: no ref means no IO", () => {
     });
     expect(out.claims).toEqual([]);
     expect(out.degradedReason).toBe("nomination-deps-unavailable");
+  });
+});
+
+describe("mt#5000 — the nomination path bootstraps the domain before resolving", () => {
+  /** A resolver that succeeds, so a degraded outcome can only come from the bootstrap. */
+  const resolveOkDeps = async () => ({ embeddingService: {}, semantic: true }) as never;
+  const bootstrapOk = async () => ({ ok: true }) as const;
+
+  // ── SC1: the production path bootstraps at all ─────────────────────────────
+  //
+  // This is the assertion that would have failed before the fix, and the reason
+  // it is written against `selectBootstrap` rather than through
+  // `nominatePendingClaims`: the defect lived in a branch that every existing
+  // test injected its way past.
+
+  test("with NOTHING injected — the production shape — a bootstrap is selected", () => {
+    expect(selectBootstrap(undefined)).toBe(ensureHookDomainBootstrap);
+  });
+
+  test("an injected resolver with no bootstrap opts out, keeping unit tests hermetic", () => {
+    expect(
+      selectBootstrap({
+        resolve: async () => null,
+        run: async () => {
+          throw new Error(UNREACHABLE);
+        },
+      })
+    ).toBeUndefined();
+  });
+
+  test("an explicitly injected bootstrap is the one used", () => {
+    const injected = async () => ({ ok: true }) as const;
+    expect(
+      selectBootstrap({
+        resolve: async () => null,
+        run: async () => {
+          throw new Error(UNREACHABLE);
+        },
+        bootstrap: injected,
+      })
+    ).toBe(injected);
+  });
+
+  // ── SC2: the two failure states are DISTINGUISHABLE ────────────────────────
+  //
+  // ADR-035 rule 3. Asserting each reason on its own would pass even if both
+  // rendered identically, so the discriminating assertion is the inequality at
+  // the end — that is the collapse this task exists to remove.
+
+  test("a bootstrap failure names the cause instead of the provider", async () => {
+    const out = await nominatePendingClaims(TAIL_WITH_REF, {
+      resolve: async () => {
+        throw new Error("resolve must not be reached when the bootstrap failed");
+      },
+      run: async () => {
+        throw new Error(UNREACHABLE);
+      },
+      bootstrap: async () => ({ ok: false, error: "Configuration not initialized." }) as const,
+    });
+    expect(out.claims).toEqual([]);
+    expect(out.degradedReason).toBe("domain-bootstrap-failed: Configuration not initialized.");
+  });
+
+  test("a bootstrap failure and an unconfigured provider do NOT render the same", async () => {
+    const bootstrapFailed = await nominatePendingClaims(TAIL_WITH_REF, {
+      resolve: resolveOkDeps,
+      run: async () => {
+        throw new Error(UNREACHABLE);
+      },
+      bootstrap: async () => ({ ok: false, error: "boom" }) as const,
+    });
+    const providerUnconfigured = await nominatePendingClaims(TAIL_WITH_REF, {
+      resolve: async () => null,
+      run: async () => {
+        throw new Error(UNREACHABLE);
+      },
+      bootstrap: bootstrapOk,
+    });
+
+    expect(bootstrapFailed.degradedReason).toBe("domain-bootstrap-failed: boom");
+    expect(providerUnconfigured.degradedReason).toBe("nomination-deps-unavailable");
+    expect(bootstrapFailed.degradedReason).not.toBe(providerUnconfigured.degradedReason);
+  });
+
+  // ── The stage function, covered exhaustively over its three outcomes ───────
+
+  test("runDepsStage: a failing bootstrap short-circuits before the resolver runs", async () => {
+    let resolveCalls = 0;
+    const outcome = await runDepsStage(
+      async () => {
+        resolveCalls += 1;
+        return null;
+      },
+      async () => ({ ok: false, error: "no config" }) as const
+    );
+    // Short-circuiting is what keeps the two states separable: a resolver that
+    // ran after a failed bootstrap would return null and re-collapse them.
+    expect(resolveCalls).toBe(0);
+    expect(outcome).toEqual({ kind: "bootstrap-failed", error: "no config" });
+  });
+
+  test("runDepsStage: bootstrap ok + null resolver is deps-unavailable, not a bootstrap failure", async () => {
+    const outcome = await runDepsStage(async () => null, bootstrapOk);
+    expect(outcome).toEqual({ kind: "deps-unavailable" });
+  });
+
+  test("runDepsStage: bootstrap ok + a real provider resolves", async () => {
+    const outcome = await runDepsStage(resolveOkDeps, bootstrapOk);
+    expect(outcome.kind).toBe("resolved");
+  });
+
+  test("runDepsStage: an undefined bootstrap resolves without one", async () => {
+    const outcome = await runDepsStage(resolveOkDeps, undefined);
+    expect(outcome.kind).toBe("resolved");
+  });
+
+  // ── PR #3700 R1 (NON-BLOCKING): the error text is a DURABLE surface ───────
+  //
+  // Calibration records are written to disk and ingested into the transcripts
+  // DB, so a raw bootstrap message is persisted, not scratch output.
+
+  test("a credential in the bootstrap error is scrubbed before it reaches the record", async () => {
+    const out = await nominatePendingClaims(TAIL_WITH_REF, {
+      resolve: async () => {
+        throw new Error(UNREACHABLE);
+      },
+      run: async () => {
+        throw new Error(UNREACHABLE);
+      },
+      bootstrap: async () =>
+        ({
+          ok: false,
+          error: "connect failed: postgresql://admin:hunter2@db.example.com:5432/minsky",
+        }) as const,
+    });
+
+    // Asserted on the OUTPUT, not on the scrubber: a test that exercised
+    // `scrubText` directly would pass even if this path never called it.
+    expect(out.degradedReason).toContain("domain-bootstrap-failed:");
+    expect(out.degradedReason).not.toContain("hunter2");
+  });
+
+  test("an ordinary bootstrap message survives scrubbing intact", async () => {
+    // The negative half. Without it, a scrubber that redacted EVERYTHING would
+    // pass the test above while destroying the diagnostic this feature exists
+    // to deliver.
+    const out = await nominatePendingClaims(TAIL_WITH_REF, {
+      resolve: async () => {
+        throw new Error(UNREACHABLE);
+      },
+      run: async () => {
+        throw new Error(UNREACHABLE);
+      },
+      bootstrap: async () => ({ ok: false, error: "Configuration not initialized." }) as const,
+    });
+    expect(out.degradedReason).toBe("domain-bootstrap-failed: Configuration not initialized.");
+  });
+
+  test("an unbounded message is truncated, and truncation happens AFTER scrubbing", async () => {
+    // Order matters: cutting first could split a credential mid-token so no
+    // shape matches, turning a redaction into a partial leak. The secret is
+    // placed past the cap so only scrub-then-truncate can remove it.
+    const out = await nominatePendingClaims(TAIL_WITH_REF, {
+      resolve: async () => {
+        throw new Error(UNREACHABLE);
+      },
+      run: async () => {
+        throw new Error(UNREACHABLE);
+      },
+      bootstrap: async () =>
+        ({
+          ok: false,
+          error: `${"x".repeat(400)} postgresql://admin:hunter2@db.example.com:5432/minsky`,
+        }) as const,
+    });
+    expect(out.degradedReason).not.toContain("hunter2");
+    expect(out.degradedReason).toContain("(truncated)");
+    expect(out.degradedReason?.length).toBeLessThan(300);
+  });
+
+  test("the bootstrap runs BEFORE the resolver, which is the whole defect", async () => {
+    const order: string[] = [];
+    await nominatePendingClaims(TAIL_WITH_REF, {
+      resolve: async () => {
+        order.push("resolve");
+        return null;
+      },
+      run: async () => {
+        throw new Error(UNREACHABLE);
+      },
+      bootstrap: async () => {
+        order.push("bootstrap");
+        return { ok: true } as const;
+      },
+    });
+    expect(order).toEqual(["bootstrap", "resolve"]);
   });
 });
 

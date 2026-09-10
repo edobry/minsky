@@ -39,6 +39,7 @@ const DOMAIN_RESULT_FIELDS: Record<keyof CalibrationLogResult, true> = {
   injectedFiresSinceLastReview: true,
   evaluatedOnlySinceLastReview: true,
   logOnlyFamilySinceLastReview: true,
+  undeterminedSinceLastReview: true,
   distinctFiresSinceLastReview: true,
   ungroupableSinceLastReview: true,
   distinctPhrases: true,
