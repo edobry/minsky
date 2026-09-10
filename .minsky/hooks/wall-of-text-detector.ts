@@ -869,6 +869,62 @@ export const DEPTH_REQUEST_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }>
   // the records name is how this list would become the arms race ADR-024
   // §Context describes.
   { name: "help-me-understand", re: /\bhelp me understand\b/i },
+  // mt#4969 — evidence-based widening from the 2026-09-04 calibration window
+  // (`head -120` of the mt#4748 state-dir log: 75 injected / 45 suppressed),
+  // via the same signal the narrowness note above reserves for it. Three
+  // injected over-budget records carry `suppressedByDepthRequest: false`
+  // beside a captured, UNTRUNCATED prompt that asks in so many words for more
+  // than the Tier-1 default:
+  //   - 2026-08-31T22:03:42.843Z (367w) and 2026-08-31T22:41:16.646Z (368w):
+  //     "... lets dive deeper into the community discourse around this ..."
+  //   - 2026-09-02T20:59:40.022Z (489w):
+  //     "tell me more about their concept of an \"exit handoff\" ..."
+  // The existing `deep-dive` entry misses the first two on BOTH alternatives:
+  // "lets dive deeper into" is neither "a deep dive" nor "deep-?dive into".
+  //
+  // **`lets-dive-deeper` requires the hortative lead, and that requirement is
+  // the entry's whole design — not an accident of wording.** The obvious
+  // pattern, a bare /\bdive deeper into\b/, matches a FOURTH injected record
+  // in the same window (2026-09-02T20:07:35.858Z, 407w) whose 960-character
+  // prompt reaches "... or if we want to dive deeper into the claude code
+  // binary itself, disassembling it ..." only around offset 830. There the
+  // phrase names one of two candidate research TARGETS inside a hypothetical
+  // ("if we want to"), not a request for a longer ANSWER — the same class as
+  // the "Go ahead and review everything Opus did" fires that mt#4969's
+  // re-measurement classifies as TRUE positives. Measured per-record over the
+  // window: bare form -> 4 newly-suppressed, hortative form -> 3. mt#4969's
+  // AT1 pins the count at EXACTLY 3, so the bare form FAILS the acceptance
+  // test rather than passing it.
+  //
+  // Both entries stay imperative-shaped and reach no further than the records
+  // name — no bare "deeper", no bare "tell me" — preserving the over- vs
+  // under-suppression asymmetry the v1 narrowness note documents: a phrase we
+  // should have matched but did not still fires the reminder, and logs the
+  // `suppressedByDepthRequest: false` record a later pass would widen on.
+  // The apostrophe alternation covers "let's" as well as the measured bare
+  // "lets"; ’ is the curly form macOS substitutes. Same phrase, same act
+  // — punctuation, not an adjacent phrasing.
+  { name: "lets-dive-deeper", re: /\blet(?:'|’)?s\s+dive\s+deeper\b/i },
+  // PR #3699 R1 BLOCKING — anchored to an imperative position rather than
+  // matched anywhere in the prompt. A bare /\btell me more\b/i also matches
+  // "don't tell me more" and "please do not tell me more", which are requests
+  // for LESS: it would suppress the reminder exactly when the principal asked
+  // for brevity, inverting the entry's intent and violating this task's SC5.
+  //
+  // Anchoring is used in preference to the negative-lookbehind form the review
+  // suggested, because enumerating negators is its own arms race — "never",
+  // "no need to", "rather than", "instead of" would each need adding, and the
+  // list would be wrong until the next one showed up. Requiring the phrase to
+  // BEGIN a line or a sentence is immune to all of them by construction: any
+  // negation of "tell me more" necessarily precedes it in the same sentence,
+  // which is what breaks the anchor. `m` is set so a request opening a later
+  // paragraph of a multi-line prompt still counts.
+  //
+  // Cost, accepted knowingly: a mid-sentence request ("ok, tell me more about
+  // X") no longer matches. That is the under-suppression direction the v1
+  // narrowness note calls the SAFER failure — the reminder still fires, and
+  // the record it logs is the evidence a later pass would widen on.
+  { name: "tell-me-more", re: /(?:^|[.!?]\s+)(?:please\s+)?tell me more\b/im },
 ];
 
 /** Text content of a single user-role transcript line (string or text-block-array content). */

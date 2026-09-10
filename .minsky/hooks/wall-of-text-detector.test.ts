@@ -777,7 +777,7 @@ describe("run — mt#4031 help-me-understand override", () => {
 });
 
 describe("detectDepthRequest / DEPTH_REQUEST_PATTERNS", () => {
-  test("exposes the three mt#3112 patterns, the four mt#3336 widenings, and the mt#4031 widening", () => {
+  test("exposes the three mt#3112 patterns, the four mt#3336 widenings, and the mt#4031 + mt#4969 widenings", () => {
     expect(DEPTH_REQUEST_PATTERNS.map((p) => p.name)).toEqual([
       "walk-me-through",
       "show-the-detail",
@@ -787,6 +787,8 @@ describe("detectDepthRequest / DEPTH_REQUEST_PATTERNS", () => {
       "be-expansive",
       "in-full-detail",
       "help-me-understand",
+      "lets-dive-deeper",
+      "tell-me-more",
     ]);
   });
 
