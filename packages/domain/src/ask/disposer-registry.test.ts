@@ -28,7 +28,7 @@ import {
   DISPOSER_REGISTRY,
   DISPOSED_STATES,
   NON_DISPOSER_TERMINAL_WRITERS,
-  MACHINE_FILED_TITLE_PREFIX,
+  MACHINE_FILED_SQL_PREDICATE,
   findUnregisteredDisposalSites,
   isDisposalSite,
   hasReviewTriple,
@@ -93,7 +93,7 @@ describe("mt#5046 SC1 — every disposer declares the review triple", () => {
     // machine-filed against 10 agent-authored, so pooling overstates one by ~170x.
     for (const entry of DISPOSER_REGISTRY) {
       expect(entry.populationQuery.separates.length).toBeGreaterThanOrEqual(2);
-      expect(entry.populationQuery.sql).toContain(MACHINE_FILED_TITLE_PREFIX);
+      expect(entry.populationQuery.sql).toContain(MACHINE_FILED_SQL_PREDICATE);
     }
   });
 });

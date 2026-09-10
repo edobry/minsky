@@ -29,10 +29,6 @@ import type { PolicyCitation } from "./policy";
 import { closeWithPolicy } from "./transports/policy-resolver";
 import type { ClientCapabilityRegistry } from "../client-capabilities";
 import type { SystemEventInput } from "../storage/schemas/system-events-schema";
-// One definition of the machine-filed discriminator, shared with the disposer registry's
-// population queries (mt#5046). A second copy here would be the drift that makes the two
-// disagree about which population a row belongs to.
-import { MACHINE_FILED_TITLE_PREFIX } from "./disposer-registry";
 
 // ---------------------------------------------------------------------------
 // Service-window: page threshold constant
@@ -600,9 +596,17 @@ export function buildPolicyClosedEvent(
       title: result.title,
       citationSource: citation?.source ?? "unknown",
       ...(citation?.lineRange ? { citationLines: citation.lineRange } : {}),
-      // mt#5046. The policy-closed population is TWO phenomena — measured 2026-09-10, 1,713
+      // mt#5046. The policy-closed population is TWO phenomena — measured 2026-09-10, 1,714
       // machine-filed commit-authorization rows against 10 agent-authored decisions — and a
       // reader that does not separate them overstates one by ~170x while hiding the other.
+      //
+      // Keyed on `metadata.commitMessage`, the marker `sessionCommit`'s emit site stamps
+      // (`session/session-commands.ts`), NOT on the title. That is this repo's existing
+      // discriminator — `isCommitAuthAsk` in `stale-suspended-close.ts` calls it "a
+      // designed-for-purpose marker, not a title heuristic" — and reading it here keeps the
+      // router free of any dependency on the review-side registry (PR #3708 R1). Verified
+      // equivalent before switching: across all 1,724 policy-closed rows the marker and the
+      // title prefix agree on 1,714 with ZERO disagreements.
       //
       // Carried on the PAYLOAD rather than expressed as an event category, because
       // `eventCategory` maps a TYPE to a category and cannot say "actionable only when the ask
@@ -611,7 +615,7 @@ export function buildPolicyClosedEvent(
       // event type would need a schema change for a distinction the payload already carries.
       // mt#4926 owns removing the machine-filed emission entirely; once it lands, the type-level
       // flip becomes correct and this field becomes uniformly false.
-      machineFiled: result.title.startsWith(MACHINE_FILED_TITLE_PREFIX),
+      machineFiled: typeof result.metadata?.["commitMessage"] === "string",
     },
     actor: result.requestor,
     relatedTaskId: result.parentTaskId,

@@ -110,8 +110,11 @@ async function main(): Promise<void> {
     // Skip gracefully with a clear reason, per the §7a artifact contract. A missing DB is an
     // absent environment, not a failed review.
     console.log(
-      "\n[review-disposers] SKIP: no DATABASE_URL / MINSKY_SESSIONDB_URL set — queries printed " +
-        "above, not executed. Run them against the review database, or re-run with the env set."
+      // Names exactly the variable the code reads. The first draft named a second one it did
+      // not check — PR #3708 R1, non-blocking: a skip message that sends the reader to set an
+      // env var the script ignores is worse than no message.
+      "\n[review-disposers] SKIP: DATABASE_URL is not set — queries printed above, not executed. " +
+        "Run them against the review database, or re-run with DATABASE_URL set."
     );
     return;
   }

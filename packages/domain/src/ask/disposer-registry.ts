@@ -76,13 +76,21 @@ export type DisposedState = Extract<AskState, "closed" | "cancelled" | "expired"
 export const DISPOSED_STATES: readonly DisposedState[] = ["closed", "cancelled", "expired"];
 
 /**
- * Title prefix of the machine-filed commit-authorization asks.
+ * SQL predicate identifying a machine-filed commit-authorization ask.
  *
  * Load-bearing for every population query below: the policy-closed population is TWO phenomena,
  * and a query that does not separate them overstates one by ~170x and hides the other. Measured
- * 2026-09-10: 1,713 machine-filed against 10 agent-authored.
+ * 2026-09-10: 1,714 machine-filed against 10 agent-authored.
+ *
+ * Keyed on `metadata.commitMessage` — the marker `sessionCommit`'s emit site stamps
+ * (`session/session-commands.ts`) and the one `isCommitAuthAsk` (`stale-suspended-close.ts`)
+ * already uses, whose docblock calls it *"a designed-for-purpose marker, not a title
+ * heuristic."* The first draft of this module keyed on the `"Commit authorization:"` title
+ * prefix, which is precisely the heuristic that predicate exists to avoid. Verified equivalent
+ * before switching: over all 1,724 policy-closed rows the two agree on 1,714 with **zero
+ * disagreements** — so the change is a move to the designed marker, not a change of population.
  */
-export const MACHINE_FILED_TITLE_PREFIX = "Commit authorization:";
+export const MACHINE_FILED_SQL_PREDICATE = "metadata->>'commitMessage' is not null";
 
 /**
  * Where a disposer's per-disposal record lands.
@@ -146,7 +154,7 @@ export interface DisposerRegistration {
 }
 
 /** Base of every population query — the ask-level filter each entry narrows. */
-const POLICY_CLOSED_BASE = `select case when title like '${MACHINE_FILED_TITLE_PREFIX}%' then 'machine' else 'agent' end as population, count(*) from asks`;
+const POLICY_CLOSED_BASE = `select case when ${MACHINE_FILED_SQL_PREDICATE} then 'machine' else 'agent' end as population, count(*) from asks`;
 
 /**
  * The enrolled disposers.
@@ -186,7 +194,7 @@ export const DISPOSER_REGISTRY: readonly DisposerRegistration[] = [
       // matching a matcher for the thing (the mt#5056 shape). That judgement belongs to the
       // review step, and keeping it out of the query is the evaluation-loop RFC's own posture:
       // early-phase metrics are deliberately judgment-free.
-      sql: `with pc as (select case when title like '${MACHINE_FILED_TITLE_PREFIX}%' then 'machine' else 'agent' end as population, response->'payload'->'citation'->>'quote' as quote from asks where kind = 'authorization.approve' and routing_target = 'policy' and state = 'closed') select population, count(*) as closes, count(distinct quote) as distinct_citations from pc group by 1`,
+      sql: `with pc as (select case when ${MACHINE_FILED_SQL_PREDICATE} then 'machine' else 'agent' end as population, response->'payload'->'citation'->>'quote' as quote from asks where kind = 'authorization.approve' and routing_target = 'policy' and state = 'closed') select population, count(*) as closes, count(distinct quote) as distinct_citations from pc group by 1`,
       separates: ["machine-filed commit authorization", "agent-authored decisions"],
     },
     reviewCadence: "per-calibration-review",
