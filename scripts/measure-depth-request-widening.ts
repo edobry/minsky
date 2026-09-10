@@ -73,6 +73,21 @@ import { DEPTH_REQUEST_PATTERNS } from "../.minsky/hooks/wall-of-text-detector";
 /** The two entries mt#4969 adds. BEFORE is the shipped list minus these. */
 const NEW_PATTERN_NAMES = ["lets-dive-deeper", "tell-me-more"] as const;
 
+/**
+ * One probe per new entry, each drawn from the record that entry is calibrated
+ * from. `assertCanary` requires every probe to match AFTER *via its own named
+ * pattern* and to match nothing in BEFORE — so the canary fails closed if
+ * either entry is renamed, removed, or broadened enough to swallow the other's
+ * probe.
+ */
+const CANARY_PROBES: ReadonlyArray<{ pattern: string; probe: string }> = [
+  {
+    pattern: "lets-dive-deeper",
+    probe: "lets dive deeper into the community discourse around this",
+  },
+  { pattern: "tell-me-more", probe: "tell me more about their concept of an exit handoff" },
+];
+
 /** The calibration stream this detector writes to. */
 const CALIBRATION_LOG_NAME = "wall-of-text";
 
@@ -156,12 +171,29 @@ function assertCanary(before: ReadonlyArray<Pattern>, after: ReadonlyArray<Patte
       `canary: BEFORE/AFTER differ by ${after.length - before.length}, expected ${NEW_PATTERN_NAMES.length}`
     );
   }
-  // A positive control on each side: the measured phrase must match AFTER and
-  // must NOT match BEFORE. This is what makes the newly-suppressed count below
-  // evidence about the CHANGE rather than about the corpus.
-  const probe = "lets dive deeper into the community discourse around this";
-  if (matches(after, probe) === null) die(2, "canary: measured phrase does not match AFTER");
-  if (matches(before, probe) !== null) die(2, "canary: measured phrase already matches BEFORE");
+  // A positive control per ENTRY, on each side: every probe must match AFTER
+  // *through its own pattern* and must NOT match BEFORE. This is what makes
+  // the newly-suppressed count below evidence about the CHANGE rather than
+  // about the corpus.
+  //
+  // PR #3699 R1 NON-BLOCKING — one probe covering only `lets-dive-deeper` left
+  // the canary able to pass while `tell-me-more` was renamed, broadened, or
+  // removed, since the surviving entry satisfied it alone. Probing per entry,
+  // and asserting the MATCHING PATTERN'S NAME rather than merely that
+  // something matched, closes both halves: a probe that starts resolving
+  // through a different entry now fails closed too.
+  for (const { pattern, probe } of CANARY_PROBES) {
+    const hit = matches(after, probe);
+    if (hit !== pattern) {
+      die(
+        2,
+        `canary: "${probe}" matches AFTER via ${hit ?? "nothing"}, expected ${pattern} — the probe no longer exercises the entry it is for`
+      );
+    }
+    if (matches(before, probe) !== null) {
+      die(2, `canary: "${probe}" already matches BEFORE — it cannot evidence the ${pattern} entry`);
+    }
+  }
 }
 
 function loadWindow(logPath: string, window: number): ReplayRecord[] {

@@ -905,7 +905,26 @@ export const DEPTH_REQUEST_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }>
   // "lets"; ’ is the curly form macOS substitutes. Same phrase, same act
   // — punctuation, not an adjacent phrasing.
   { name: "lets-dive-deeper", re: /\blet(?:'|’)?s\s+dive\s+deeper\b/i },
-  { name: "tell-me-more", re: /\btell me more\b/i },
+  // PR #3699 R1 BLOCKING — anchored to an imperative position rather than
+  // matched anywhere in the prompt. A bare /\btell me more\b/i also matches
+  // "don't tell me more" and "please do not tell me more", which are requests
+  // for LESS: it would suppress the reminder exactly when the principal asked
+  // for brevity, inverting the entry's intent and violating this task's SC5.
+  //
+  // Anchoring is used in preference to the negative-lookbehind form the review
+  // suggested, because enumerating negators is its own arms race — "never",
+  // "no need to", "rather than", "instead of" would each need adding, and the
+  // list would be wrong until the next one showed up. Requiring the phrase to
+  // BEGIN a line or a sentence is immune to all of them by construction: any
+  // negation of "tell me more" necessarily precedes it in the same sentence,
+  // which is what breaks the anchor. `m` is set so a request opening a later
+  // paragraph of a multi-line prompt still counts.
+  //
+  // Cost, accepted knowingly: a mid-sentence request ("ok, tell me more about
+  // X") no longer matches. That is the under-suppression direction the v1
+  // narrowness note calls the SAFER failure — the reminder still fires, and
+  // the record it logs is the evidence a later pass would widen on.
+  { name: "tell-me-more", re: /(?:^|[.!?]\s+)(?:please\s+)?tell me more\b/im },
 ];
 
 /** Text content of a single user-role transcript line (string or text-block-array content). */
