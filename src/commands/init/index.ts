@@ -9,6 +9,7 @@ import { Command } from "commander";
 import { sharedCommandRegistry } from "../../adapters/shared/command-registry";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import { RULE_FORMAT_DESCRIPTION } from "../../utils/option-descriptions";
+import { getAvailableBackendsString } from "@minsky/domain/tasks/taskConstants";
 
 export function createInitCommand(): Command {
   const cmd = new Command("init");
@@ -16,7 +17,12 @@ export function createInitCommand(): Command {
 
   // Mirror all options from the shared command definition (init.ts)
   cmd.option("--repo <path>", "Repository path to initialize");
-  cmd.option("--backend <string>", "Backend type (available: github, minsky)");
+  // Derived, not hand-written (mt#4673). This line used to carry its own copy of
+  // the "(available: github, minsky)" string, so it stayed wrong even where the
+  // shared parameter description was corrected — the second copy is exactly what
+  // makes a fix verified against `getAvailableBackends()` alone look complete
+  // while `init --help`, the surface the defect was reported on, still lied.
+  cmd.option("--backend <string>", `Backend type (available: ${getAvailableBackendsString()})`);
   cmd.option("--overwrite", "Overwrite existing resources", false);
   cmd.option("--workspace-path <path>", "Workspace path");
   cmd.option("--github-owner <string>", "GitHub repository owner");

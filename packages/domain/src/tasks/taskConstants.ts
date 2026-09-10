@@ -1,4 +1,5 @@
 import { isQualifiedTaskId } from "./task-id";
+import { TaskBackend } from "../configuration/backend-types";
 
 /**
  * Centralized task status constants
@@ -143,11 +144,36 @@ export const TASK_REGEX_PATTERNS = {
 // ============================================================================
 
 /**
- * Get list of available task backends for CLI help and error messages
- * This ensures backend lists in help text and errors are always up-to-date
+ * The backend names `--backend` help text advertises.
+ *
+ * Derived from {@link TaskBackend} rather than written as a literal (mt#4673).
+ * The previous implementation returned a hardcoded `["github", "minsky"]` under
+ * a docstring claiming it "ensures backend lists in help text and errors are
+ * always up-to-date" — a guarantee a literal cannot make, and the reason the
+ * drift below went unnoticed for as long as it did. A call site reading that
+ * sentence has no reason to check the value.
+ *
+ * What it had drifted to: `minsky init --help` advertised `github`, and
+ * `minsky init --backend github` answered `Backend "github" is not supported.`
+ * — the first flag a new user is required to pass, sending them to a value the
+ * command rejects (mt#2929 dogfood, GAP-2). Meanwhile `init`'s own
+ * non-interactive error already named the correct pair, so two of this
+ * command's three surfaces disagreed with the third.
+ *
+ * `TaskBackend.GITHUB` ("github") is deliberately EXCLUDED. It exists in the
+ * enum, but `init`'s switch accepts only `github-issues` and `minsky`
+ * (`packages/domain/src/init.ts`), and mt#4673 settled the alias-or-remove
+ * question as remove: adding `github` as an accepted alias would expand the
+ * API surface to fix a documentation defect. `TaskBackend.DB` is excluded for
+ * the same reason — not accepted by any `--backend` validator.
+ *
+ * Enum-derived rather than a new literal so that adding a backend to
+ * `TaskBackend` surfaces here, and `taskConstants.test.ts` asserts this set
+ * equals what `init` actually accepts, so the two cannot drift apart silently
+ * again.
  */
 export function getAvailableBackends(): string[] {
-  return ["github", "minsky"];
+  return [TaskBackend.MINSKY, TaskBackend.GITHUB_ISSUES];
 }
 
 /**

@@ -1215,7 +1215,7 @@
                 },
                 {
                   "flags": ["--backend"],
-                  "description": "Backend type (available: github, minsky)",
+                  "description": "Backend type (available: minsky, github-issues)",
                   "takesValue": true
                 },
                 {
@@ -1253,7 +1253,7 @@
                 },
                 {
                   "flags": ["--backend"],
-                  "description": "Backend type (available: github, minsky)",
+                  "description": "Backend type (available: minsky, github-issues)",
                   "takesValue": true
                 },
                 {
@@ -1307,7 +1307,7 @@
                 },
                 {
                   "flags": ["--backend"],
-                  "description": "Backend type (available: github, minsky)",
+                  "description": "Backend type (available: minsky, github-issues)",
                   "takesValue": true
                 },
                 {
@@ -1345,7 +1345,7 @@
                 },
                 {
                   "flags": ["--backend"],
-                  "description": "Backend type (available: github, minsky)",
+                  "description": "Backend type (available: minsky, github-issues)",
                   "takesValue": true
                 },
                 {
@@ -1451,7 +1451,7 @@
             },
             {
               "flags": ["--backend"],
-              "description": "Backend type (available: github, minsky)",
+              "description": "Backend type (available: minsky, github-issues)",
               "takesValue": true
             },
             {
@@ -1482,7 +1482,7 @@
             },
             {
               "flags": ["--backend"],
-              "description": "Backend type (available: github, minsky)",
+              "description": "Backend type (available: minsky, github-issues)",
               "takesValue": true
             },
             {
@@ -1572,7 +1572,7 @@
             },
             {
               "flags": ["--backend"],
-              "description": "Backend type (available: github, minsky)",
+              "description": "Backend type (available: minsky, github-issues)",
               "takesValue": true
             },
             {
@@ -1637,7 +1637,7 @@
             },
             {
               "flags": ["--backend"],
-              "description": "Backend type (available: github, minsky)",
+              "description": "Backend type (available: minsky, github-issues)",
               "takesValue": true
             },
             {
@@ -1700,7 +1700,7 @@
             },
             {
               "flags": ["--backend"],
-              "description": "Backend type (available: github, minsky)",
+              "description": "Backend type (available: minsky, github-issues)",
               "takesValue": true
             },
             {
@@ -1742,7 +1742,7 @@
             },
             {
               "flags": ["--backend"],
-              "description": "Backend type (available: github, minsky)",
+              "description": "Backend type (available: minsky, github-issues)",
               "takesValue": true
             },
             {
@@ -1827,7 +1827,7 @@
             },
             {
               "flags": ["--backend"],
-              "description": "Backend type (available: github, minsky)",
+              "description": "Backend type (available: minsky, github-issues)",
               "takesValue": true
             },
             {
@@ -1912,7 +1912,7 @@
             },
             {
               "flags": ["--backend"],
-              "description": "Backend type (available: github, minsky)",
+              "description": "Backend type (available: minsky, github-issues)",
               "takesValue": true
             },
             {
@@ -1974,7 +1974,7 @@
             },
             {
               "flags": ["--backend"],
-              "description": "Backend type (available: github, minsky)",
+              "description": "Backend type (available: minsky, github-issues)",
               "takesValue": true
             },
             {
@@ -8105,7 +8105,7 @@
         },
         {
           "flags": ["--backend"],
-          "description": "Backend type (available: github, minsky)",
+          "description": "Backend type (available: minsky, github-issues)",
           "takesValue": true
         },
         {
