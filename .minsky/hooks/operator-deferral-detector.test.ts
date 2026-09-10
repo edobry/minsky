@@ -40,9 +40,13 @@ import {
   CREDENTIALS_LIST_TOOL,
   DEFERRAL_PROSE,
   FIXTURE_PATH,
+  OPERATOR_DEFERRAL_TRUE_POSITIVES,
   OPERATOR_ROUTED_RESULT,
   RAILWAY_ACCESS,
   R5_LABEL,
+  UNQUOTED_DEFERRAL_PROSE,
+  WRAPPED_QUOTE_SAY_THE_WORD,
+  WRAPPED_QUOTE_UNLESS,
   askTurn,
   assistantText,
   correlatedToolResult,
@@ -1980,4 +1984,39 @@ describe("mt#4111 — the negative control: neighbouring real positives still fi
       ])
     ).toHaveLength(1);
   });
+});
+
+describe("mt#5056 — a WRAPPED quotation is data, not a deferral (SC1, SC2)", () => {
+  // Records `2026-09-04T17:48:40.712Z` and `...:56.124Z`. Quotation-aware elision
+  // already shipped (mt#3273) and already worked on a single line; these fired
+  // only because the quote's close sat on the NEXT line while the matchers join
+  // words with `\s+`, which crosses one. Fixtures are verbatim from the source
+  // transcripts, not from the log's already-elided 240-char context.
+  test.each([
+    ["offer-shape:unless, quoted across a line", WRAPPED_QUOTE_UNLESS],
+    ["say-the-word, quoted across a line", WRAPPED_QUOTE_SAY_THE_WORD],
+  ])("suppressed: %s", (_label, prose) => {
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  test.each(UNQUOTED_DEFERRAL_PROSE)(
+    "branch B still fires, by design: %s",
+    (_label, prose: string) => {
+      // NOT a defect and NOT an oversight. These carry no quotation at all, so no
+      // quotation discriminator reaches them at any bound. mt#3987 (DONE) owns
+      // the discussion-framing mechanism that would and declined to build it on
+      // the evidence then available; this window is the recurrence it named as
+      // its revisit condition. Pinned so the carve-out is tested, not assumed.
+      expect(detectCapabilityDeferral([assistantText(prose)])).toHaveLength(1);
+    }
+  );
+
+  test.each(OPERATOR_DEFERRAL_TRUE_POSITIVES)(
+    "real positive still fires: %s",
+    (_label, prose: string) => {
+      // The fire direction of SC2, on the same run as the suppressions above:
+      // silencing alone would be a regression toward ADR-032's permanent silence.
+      expect(detectPermissionDeferral([assistantText(prose)])).toHaveLength(1);
+    }
+  );
 });

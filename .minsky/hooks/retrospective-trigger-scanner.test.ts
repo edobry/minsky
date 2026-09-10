@@ -1037,10 +1037,40 @@ describe("mt#2672 — codified boundaries (PR #1834 R1)", () => {
     expect(matches.some((m) => m.family === "R1")).toBe(true);
   });
 
-  test("boundary: multiline double-quoted material is NOT elided by quote elision — still fires (markdown quoting uses blockquotes, which ARE elided)", async () => {
+  test("AMENDED by mt#5056 — multiline double-quoted material IS elided; the premise behind the old boundary was falsified", async () => {
+    // This boundary previously asserted the OPPOSITE, on a stated premise:
+    // "markdown quoting uses blockquotes, which ARE elided" — so a multi-line
+    // double-quoted span was held not to need handling.
+    //
+    // The premise is false for this corpus, measured rather than argued. On
+    // `operator-deferral`'s live log, 5 of 48 records carried a newline INSIDE
+    // the matched phrase, and the two false positives traced to their source
+    // transcripts were ordinary INLINE `"…"` quotations that the repo's ~100-
+    // column prose width wrapped — not blockquotes, and only ~40 characters
+    // long. Agents quoting a phrase mid-sentence in a report is the dominant
+    // shape; blockquote-style quotation is what the premise assumed.
+    //
+    // Eliding these also makes this detector CONSISTENT with itself: the
+    // single-line form of exactly this text is already elided ("double-quoted
+    // trigger phrase in ordinary prose does not fire", above). The carve-out
+    // made the same quotation fire or not depending on where a line happened to
+    // wrap.
+    //
+    // Accepted false negative, bounded and smaller than this detector's
+    // existing whole-turn meta suppression: an agent quoting ITSELF making a
+    // live admission across a line break is now missed. That ambiguity is
+    // identical in the single-line case this suite already chose to elide.
     const text = 'She wrote: "first line of quote\nI made a mistake on the config\nlast line" end.';
-    const matches = detectTriggerPhrases(text);
-    expect(matches.some((m) => m.family === "R1")).toBe(true);
+    expect(detectTriggerPhrases(text).length).toBe(0);
+  });
+
+  test("boundary: a span past the 200-char cap still fires even when it wraps", async () => {
+    // The length cap is UNCHANGED by mt#5056 — only the same-line requirement
+    // was lifted. Pins that the two bounds are independent, so a future reader
+    // does not conclude the cap went away with the newline restriction.
+    const padding = "x".repeat(210);
+    const text = `The log contains "${padding}\nI made a mistake ${padding}" as one entry.`;
+    expect(detectTriggerPhrases(text).some((m) => m.family === "R1")).toBe(true);
   });
 
   test("boundary: the same multiline material as a blockquote IS elided — no fire", async () => {

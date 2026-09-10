@@ -54,12 +54,80 @@ export function elideQuotedContexts(text: string): string {
 }
 
 /**
+ * How many line breaks a quoted span may cross and still be elided (mt#5056).
+ *
+ * Grounded in the corpus, not picked round: repo prose hard-wraps near 100
+ * columns, so the 200-character cap below already admits about two breaks in
+ * ordinary text, and every wrapped quotation in `operator-deferral`'s live
+ * false-positive set crossed exactly ONE. Three leaves headroom over the
+ * observed maximum while still refusing to traverse a run of SHORT lines — a
+ * bulleted list can fit six or more breaks inside the same 200 characters, and
+ * that is the shape a length cap alone does not bound.
+ */
+const MAX_QUOTED_SPAN_NEWLINES = 3;
+
+/**
+ * Every line-break encoding, so the budget counts BREAKS rather than `\n`
+ * characters. `\r\n` must come first — alternation is ordered, and putting
+ * `\r` first would score a CRLF break as two.
+ *
+ * PR #3705 R1 flagged this line for CRLF. Measured, CRLF was already correct:
+ * `\r\n` CONTAINS a `\n`, so a `/\n/g` count scored it as one break exactly
+ * like LF, and the budget bit identically on both (2/4/6 breaks → elided /
+ * not / not, for either encoding). The finding named the right line for the
+ * wrong reason — and one case over there was a real hole: a LONE `\r`, the
+ * classic-Mac ending, contains no `\n` at all, so a span broken six times
+ * scored ZERO and sailed past a cap of three. Counting breaks closes that and
+ * leaves CRLF and LF untouched.
+ */
+const LINE_BREAK = /\r\n|\r|\n/g;
+
+/** True when a candidate span is within the line-crossing budget above. */
+function withinLineBudget(span: string): boolean {
+  return (span.match(LINE_BREAK)?.length ?? 0) <= MAX_QUOTED_SPAN_NEWLINES;
+}
+
+/**
  * Blank double-quoted prose spans (straight `"..."` and curly “...”),
- * single-line and length-bounded so a stray unpaired quote cannot swallow a
- * paragraph. This is the elision class `elideQuotedContexts` misses: all 5
- * false positives in the 2026-07-08 calibration review window were trigger
- * phrases quoted in double quotes in ordinary prose ("I should have caught",
- * "I made a mistake") while discussing the detector or its calibration data.
+ * length-bounded so a stray unpaired quote cannot swallow a paragraph. This is
+ * the elision class `elideQuotedContexts` misses: all 5 false positives in the
+ * 2026-07-08 calibration review window were trigger phrases quoted in double
+ * quotes in ordinary prose ("I should have caught", "I made a mistake") while
+ * discussing the detector or its calibration data.
+ *
+ * **A span may cross a line break (mt#5056).** It could not until then, and the
+ * asymmetry that created WAS the defect: every consumer matcher joins its words
+ * with `\s+`, which crosses a newline, while this pass required the closing
+ * quote on the same line. So a quotation long enough to wrap — which a quoted
+ * report excerpt normally is — leaked its contents into the residual and the
+ * phrase inside it matched as though the author had asserted it. Measured on
+ * `operator-deferral`'s live log: 5 of 48 records carried a newline INSIDE the
+ * matched phrase, and both of its confirmed quoted-as-data false positives were
+ * wrapped quotations, traced to their source transcripts rather than inferred —
+ * `"Proceeding with\n  that unless you redirect."` and `"Say the word\n  and
+ * I'll write it up as a task"`. Note both are ~40 characters: they were missed
+ * for crossing a line, never for being long.
+ *
+ * Two independent bounds keep this docblock's original promise, because
+ * crossing lines is exactly what makes paragraph-swallowing possible: the
+ * 200-character cap, unchanged, and {@link MAX_QUOTED_SPAN_NEWLINES}.
+ *
+ * **The residual risk is a MIS-PAIR, and it is safe in the one direction that
+ * matters.** A stray unpaired quote can now pair with a later one across a line
+ * and blank text that was never quoted. Both caps bound how far that reaches,
+ * and blanking uses a same-length, non-matching filler — so a mis-pair can only
+ * ever REMOVE a match, never manufacture one (ADR-024 Rung 1's invariant, as
+ * amended by mt#4792). Its cost is recall; the cost of the old behaviour was a
+ * false positive on every wrapped quotation.
+ *
+ * **Not covered, deliberately: an UNTERMINATED quotation** — an opening quote
+ * with no close inside the budget. Closing that would mean blanking to
+ * end-of-paragraph, which is precisely the swallow the caps exist to prevent.
+ * Nothing in the measured corpus needs it: all four of the records examined
+ * closed their quotes, and the two that LOOKED unterminated were the
+ * calibration log's own 240-character context window cutting them off — the
+ * stored context is a derived view, and the source transcript is what settled
+ * it.
  *
  * Deliberately NOT covering single quotes: apostrophes ("I'll", "detector's")
  * make single-quote pairing unreliable.
@@ -67,9 +135,9 @@ export function elideQuotedContexts(text: string): string {
 export function elideDoubleQuotedSpans(text: string): string {
   let out = text;
   // Straight double quotes.
-  out = out.replace(/"[^"\n]{1,200}"/g, (m) => blankSameLength(m));
+  out = out.replace(/"[^"]{1,200}"/g, (m) => (withinLineBudget(m) ? blankSameLength(m) : m));
   // Curly double quotes.
-  out = out.replace(/“[^”\n]{1,200}”/g, (m) => blankSameLength(m));
+  out = out.replace(/“[^”]{1,200}”/g, (m) => (withinLineBudget(m) ? blankSameLength(m) : m));
   return out;
 }
 
