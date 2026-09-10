@@ -59,7 +59,7 @@
 //      earlier compaction strictly cheaper
 // ---------------------------------------------------------------------------
 
-import { readdirSync, readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -173,6 +173,13 @@ export function boundaryToolsInContent(content: unknown): BoundaryToolUse[] {
  * that the harness reported as a normal result is still counted. Stated rather
  * than left implicit, because the residue is exactly the kind of gap that reads
  * as absent once the obvious half is fixed.
+ *
+ * The residue has an OWNER rather than only this note: mt#5058 measures its size
+ * before deciding whether to parse the payload. That ordering is deliberate — the
+ * obvious half was assumed small and turned out to be 31.5% of the population, so
+ * calling the remainder negligible without measuring it would repeat the mistake
+ * one layer down. Direction of the bias is known even though its size is not:
+ * this OVER-counts boundaries relative to the hook.
  */
 export function erroredToolUseIds(content: unknown): string[] {
   if (!Array.isArray(content)) return [];
@@ -575,8 +582,6 @@ async function main(): Promise<void> {
 
   writeFileSync(outPath, `${JSON.stringify(report, null, 2)}\n`, "utf-8");
   console.log(`\nwrote ${outPath}`);
-
-  if (!existsSync(outPath)) process.exit(1);
 }
 
 if (import.meta.main) {
