@@ -146,7 +146,20 @@ export const TASK_REGEX_PATTERNS = {
 /**
  * The backend names `--backend` help text advertises.
  *
- * Derived from {@link TaskBackend} rather than written as a literal (mt#4673).
+ * Written with {@link TaskBackend} members rather than bare strings (mt#4673).
+ *
+ * **It is a hand-picked SUBSET, not an enum derivation** (PR #3704 R2). Saying
+ * "derived from TaskBackend" would overstate it: adding a member to that enum
+ * does NOT add it here, and it must not — `TaskBackend` holds every backend
+ * name the codebase knows, while this answers the narrower question of what
+ * `--backend` accepts. Those sets genuinely differ today (`github`, `db`).
+ *
+ * Stating that precisely matters more than usual here, because a docstring
+ * promising more than its code delivers is the exact defect this function is
+ * being fixed FOR — see below. Using enum members buys one real thing: renaming
+ * a backend breaks the build rather than silently rotting the help text. The
+ * set's CORRECTNESS is held by `available-backends.test.ts`, which parses
+ * `init.ts`'s own `case` labels and asserts they equal this list.
  * The previous implementation returned a hardcoded `["github", "minsky"]` under
  * a docstring claiming it "ensures backend lists in help text and errors are
  * always up-to-date" — a guarantee a literal cannot make, and the reason the
@@ -167,10 +180,9 @@ export const TASK_REGEX_PATTERNS = {
  * API surface to fix a documentation defect. `TaskBackend.DB` is excluded for
  * the same reason — not accepted by any `--backend` validator.
  *
- * Enum-derived rather than a new literal so that adding a backend to
- * `TaskBackend` surfaces here, and `taskConstants.test.ts` asserts this set
- * equals what `init` actually accepts, so the two cannot drift apart silently
- * again.
+ * The drift-prevention is the TEST, not this function's shape — stated plainly
+ * because the previous version's mistake was expecting a shape to carry that
+ * weight on its own.
  */
 export function getAvailableBackends(): string[] {
   return [TaskBackend.MINSKY, TaskBackend.GITHUB_ISSUES];
