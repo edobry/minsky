@@ -485,13 +485,17 @@ describe("bunBuildArgs / bunBuildCommand (mt#3091)", () => {
       "tiktoken",
       "--external",
       "@pnpm/tabtab",
+      "--external",
+      "typescript",
+      "--external",
+      "vite",
       "src/cli.ts",
     ]);
   });
 
   test("bunBuildCommand() renders the default args as a shell-ready string", () => {
     expect(bunBuildCommand()).toBe(
-      "bun build --target=bun --outdir=dist --entry-naming minsky.js --sourcemap=external --minify --external tiktoken --external @pnpm/tabtab src/cli.ts"
+      "bun build --target=bun --outdir=dist --entry-naming minsky.js --sourcemap=external --minify --external tiktoken --external @pnpm/tabtab --external typescript --external vite src/cli.ts"
     );
   });
 
@@ -510,6 +514,10 @@ describe("bunBuildArgs / bunBuildCommand (mt#3091)", () => {
       "tiktoken",
       "--external",
       "@pnpm/tabtab",
+      "--external",
+      "typescript",
+      "--external",
+      "vite",
       "/tmp/src/cli.ts",
     ]);
   });

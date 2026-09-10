@@ -157,10 +157,29 @@ export function bunBuildArgs(opts?: {
     // its own lib paths through `__dirname`, so leaving it baked left a real
     // runtime lookup pinned to the build host.
     //
-    // The remaining three (typescript, rollup, esbuild) genuinely are transitive
-    // and stay registered — see mt#5067.
     "--external",
     "@pnpm/tabtab",
+    // mt#5067. typescript is a DECLARED peer (`peerDependencies.typescript:
+    // 5.8.3`, required, no peerDependenciesMeta) — verified installed in a
+    // fresh `bun add <tarball>` consumer tree by `bun pm why typescript`, and
+    // by the production-shaped install in `scripts/verify-npm-pack-install.ts`
+    // step 4c. Bundled, typescript.js carried a baked `__filename`, and its
+    // `getDefaultLibFilePath` walks from `sys.getExecutingFilePath()` — that
+    // `__filename` — so every `ts.createProgram` in the published CLI looked for
+    // `lib.*.d.ts` on the build host. External, it resolves the consumer's own
+    // typescript, lib files included.
+    "--external",
+    "typescript",
+    // mt#5067. vite is a devDependency reached only through
+    // `cockpit start --dev` (`src/commands/cockpit/start-command.ts`), which
+    // exits with "Dev mode requires a source checkout" before the dynamic
+    // `import("vite")` from any installed layout — measured from a packed
+    // tarball. Bundling it dragged esbuild and rollup in, each with a baked
+    // `__dirname` beside its native-binary lookup. External, the dev server is
+    // resolved at runtime from the source checkout that is the only place the
+    // path can run, and the two transitive bakes leave the bundle entirely.
+    "--external",
+    "vite",
     sourceEntry,
   ];
 }
