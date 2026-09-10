@@ -1,5 +1,5 @@
 /**
- * mt#5063 SC6 — tests for the bundle-portability registry check.
+ * mt#5063 SC6 / mt#5067 SC5 — tests for the bundle-portability registry check.
  *
  * The script's value depends entirely on its ability to FAIL, so these exercise the
  * non-clean branches directly rather than only the happy path a fixed build produces.
@@ -7,16 +7,16 @@
  */
 import { describe, it, expect } from "bun:test";
 
-import { auditBundle, packageOfBakedPath } from "./verify-bundle-portability";
+import { auditBundle, packageOfBakedPath, RETIRED_BAKES } from "./verify-bundle-portability";
 
 /** The literal bun emits for a bundled CJS module, with the builder's own absolute path. */
-function baked(absPath: string): string {
-  return `var __dirname="${absPath}",x=1;`;
+function baked(absPath: string, identifier: "__dirname" | "__filename" = "__dirname"): string {
+  return `var ${identifier}="${absPath}",x=1;`;
 }
 
-/** A registered package, so a fixture can be clean without being empty. */
-const KNOWN = "/somewhere/node_modules/esbuild/lib";
-/** The package this whole task exists for — externalised, so it must never reappear. */
+/** The one registered bake (mt#5067): braintrust's label-only `__filename`. */
+const KNOWN = "/somewhere/node_modules/braintrust/dist/index.mjs";
+/** The package mt#5063 exists for — externalised, so it must never reappear. */
 const TIKTOKEN = "/home/runner/work/minsky/minsky/node_modules/tiktoken";
 
 describe("mt#5063 — packageOfBakedPath", () => {
@@ -27,7 +27,11 @@ describe("mt#5063 — packageOfBakedPath", () => {
 
   it("keeps the subdirectory, because that is what distinguishes the entries", () => {
     // `esbuild/lib` and a hypothetical `esbuild/bin` are different bakes.
-    expect(packageOfBakedPath(KNOWN)).toBe("esbuild/lib");
+    expect(packageOfBakedPath("/somewhere/node_modules/esbuild/lib")).toBe("esbuild/lib");
+  });
+
+  it("keeps the FILE for a __filename bake, so it is a distinct key from its directory", () => {
+    expect(packageOfBakedPath(KNOWN)).toBe("braintrust/dist/index.mjs");
   });
 
   it("returns null for a path with no node_modules segment", () => {
@@ -37,8 +41,8 @@ describe("mt#5063 — packageOfBakedPath", () => {
 });
 
 describe("mt#5063 — auditBundle", () => {
-  it("passes a bundle whose only baked __dirname is registered", () => {
-    const audit = auditBundle(baked(KNOWN));
+  it("passes a bundle whose only bake is registered", () => {
+    const audit = auditBundle(baked(KNOWN, "__filename"));
     expect(audit.total).toBe(1);
     expect(audit.findings).toEqual([]);
   });
@@ -64,14 +68,16 @@ describe("mt#5063 — auditBundle", () => {
   });
 
   it("counts every bake and flags only the unregistered ones", () => {
-    const audit = auditBundle(`${baked(KNOWN)}${baked(TIKTOKEN)}${baked(KNOWN)}`);
+    const audit = auditBundle(
+      `${baked(KNOWN, "__filename")}${baked(TIKTOKEN)}${baked(KNOWN, "__filename")}`
+    );
     expect(audit.total).toBe(3);
     expect(audit.findings.map((f) => f.pkg)).toEqual(["tiktoken"]);
   });
 
-  it("a bundle with no baked __dirname is clean and reports zero", () => {
+  it("a bundle with no baked path is clean and reports zero", () => {
     // The end-state this task is driving toward; must not be mistaken for a broken matcher.
-    const audit = auditBundle("var x=1;const y=__dirname;");
+    const audit = auditBundle("var x=1;const y=__dirname;const z=__filename;");
     expect(audit.total).toBe(0);
     expect(audit.findings).toEqual([]);
   });
@@ -108,7 +114,9 @@ describe("mt#5063 — auditBundle", () => {
 
   it("still resolves a registered package under backslash separators", () => {
     // The normalisation must not turn a KNOWN entry into a false finding either.
-    const audit = auditBundle(String.raw`var __dirname="C:\b\node_modules\esbuild\lib";`);
+    const audit = auditBundle(
+      String.raw`var __filename="C:\b\node_modules\braintrust\dist\index.mjs";`
+    );
     expect(audit.findings).toEqual([]);
   });
 
@@ -117,5 +125,46 @@ describe("mt#5063 — auditBundle", () => {
     // the check fire on correct code.
     const audit = auditBundle('path.join(__dirname,"./asset.wasm")');
     expect(audit.total).toBe(0);
+  });
+});
+
+describe("mt#5067 — __filename is a bake too", () => {
+  // Until mt#5067 the matcher read `__dirname` only, and typescript's default-lib lookup
+  // walks from `__filename`. A check that cannot see half the class passes a bundle that
+  // still pins that lookup to the build host.
+
+  it("FAILS on an unregistered __filename bake, and says which identifier it was", () => {
+    const audit = auditBundle(
+      baked("/build/node_modules/typescript/lib/typescript.js", "__filename")
+    );
+    expect(audit.findings).toHaveLength(1);
+    expect(audit.findings[0]).toEqual({
+      identifier: "__filename",
+      path: "/build/node_modules/typescript/lib/typescript.js",
+      pkg: "typescript/lib/typescript.js",
+    });
+  });
+
+  it("carries the identifier on a __dirname finding as well", () => {
+    const audit = auditBundle(baked(TIKTOKEN));
+    expect(audit.findings[0]?.identifier).toBe("__dirname");
+  });
+
+  it("registration is keyed on the exact baked path, so a directory entry does not cover its file", () => {
+    // `braintrust/dist/index.mjs` is registered; `braintrust/dist` is not. A `__dirname` bake
+    // for the same package would be a NEW decision, not covered by the file's ruling.
+    const audit = auditBundle(baked("/build/node_modules/braintrust/dist"));
+    expect(audit.findings.map((f) => f.pkg)).toEqual(["braintrust/dist"]);
+  });
+
+  it("every RETIRED bake is a finding — a decided fix must not silently regress", () => {
+    // tiktoken, @pnpm/tabtab, typescript, esbuild, rollup were ruled on by REMOVAL
+    // (`--external`), so none is registered and each reappearing is a failure.
+    expect(RETIRED_BAKES.length).toBeGreaterThan(0);
+    for (const pkg of RETIRED_BAKES) {
+      const identifier = pkg.endsWith(".js") ? "__filename" : "__dirname";
+      const audit = auditBundle(baked(`/build/node_modules/${pkg}`, identifier));
+      expect(audit.findings.map((f) => f.pkg)).toEqual([pkg]);
+    }
   });
 });

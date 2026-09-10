@@ -4,9 +4,9 @@
  *
  * ## The defect this exists to catch
  *
- * `bun build` replaces `__dirname` in bundled CommonJS modules with a STRING LITERAL captured
- * at build time. For a module that resolves a runtime asset relative to `__dirname`, that
- * silently pins the lookup to the builder's filesystem. Measured on the published
+ * `bun build` replaces `__dirname` and `__filename` in bundled CommonJS modules with a STRING
+ * LITERAL captured at build time. For a module that resolves a runtime asset relative to either,
+ * that silently pins the lookup to the builder's filesystem. Measured on the published
  * `@edobry/minsky@0.2.0`:
  *
  *     var __dirname="/home/runner/work/minsky/minsky/node_modules/tiktoken"
@@ -21,15 +21,31 @@
  * touches the tokenizer. The npm tarball is the one artifact nobody exercised, and it is the only
  * one a new user touches (the same blind spot mt#5013 named one layer out).
  *
+ * ## The class is CJS-only, and bun offers no switch for it (mt#5067)
+ *
+ * Only CommonJS modules get the literal: bun's CJS→ESM wrapper injects
+ * `var __dirname="…"` / `var __filename="…"` per module, while first-party ESM `__dirname`
+ * is left as a runtime global (upstream's own observation on oven-sh/bun#10604: "This works if
+ * we import an ES Module instead"). There is NO bundler-level setting that stops it — this is
+ * oven-sh/bun#4216, open and labelled `confirmed bug` (read 2026-09-10; #10604 and #12509 were
+ * closed as its duplicates). The thread's `--define "__dirname=import.meta.dir"` workaround was
+ * retracted by its own author: it substitutes the string literal `"import.meta.dir"`. So this
+ * registry is the permanent shape until that issue closes, not a stopgap — and the only real
+ * fixes are `--external` for a DECLARED dependency, or not reaching the code path at all.
+ *
+ * `__filename` matters as much as `__dirname`: typescript's `getDefaultLibFilePath` walks from
+ * `sys.getExecutingFilePath()`, which is `__filename`, so a check that only read `__dirname`
+ * (this file until mt#5067) would have passed a bundle that still pins that lookup.
+ *
  * ## What this checks, and why an allowlist rather than a ban
  *
- * A baked `__dirname` is not intrinsically a defect: it only breaks when the module USES it to
- * find something at runtime. Banning all of them would fail on four packages whose reachability
- * is unestablished, which would make this check unshippable and therefore useless.
+ * A baked path is not intrinsically a defect: it only breaks when the module USES it to find
+ * something at runtime. Banning all of them would fail on packages whose reachability has been
+ * ruled on, which would make this check unshippable and therefore useless.
  *
- * So it is a REGISTRY, not a ban. Every baked `__dirname` in the bundle must appear in
- * {@link KNOWN_BAKED_DIRNAMES} with a recorded disposition. A package that starts baking one —
- * or tiktoken RETURNING to the bundle after being externalised — fails here, at build time,
+ * So it is a REGISTRY, not a ban. Every baked `__dirname` or `__filename` in the bundle must
+ * appear in {@link KNOWN_BAKED_PATHS} with a recorded disposition. A package that starts baking
+ * one — or tiktoken RETURNING to the bundle after being externalised — fails here, at build time,
  * instead of on a user's first command.
  *
  * The check is deliberately keyed on the PACKAGE, not on the absolute path: the baked value is
@@ -48,41 +64,63 @@ import { join } from "path";
 /** Default bundle location, matching `package.json`'s `build` script `--outdir`. */
 const DEFAULT_BUNDLE = join(process.cwd(), "dist", "minsky.js");
 
+/** The two identifiers bun bakes into a bundled CJS module. */
+export type BakedIdentifier = "__dirname" | "__filename";
+
 /**
- * Packages whose baked `__dirname` is known and dispositioned.
+ * Packages whose baked `__dirname` / `__filename` is known and dispositioned.
  *
  * Adding an entry is a DECISION, not a formality: it asserts that this package either does not
- * resolve a runtime asset through `__dirname`, or that the consequence has been accepted. Record
- * which, so the next reader inherits a judgement rather than a name on a list.
+ * resolve a runtime asset through the baked value, or that the consequence has been accepted.
+ * Record which, so the next reader inherits a judgement rather than a name on a list. `pkg` is
+ * the path AFTER the last `node_modules/` segment, exactly as {@link packageOfBakedPath} returns
+ * it — a directory for a `__dirname` bake, a file for a `__filename` bake.
  */
-const KNOWN_BAKED_DIRNAMES: ReadonlyArray<{ pkg: string; disposition: string }> = [
+const KNOWN_BAKED_PATHS: ReadonlyArray<{ pkg: string; disposition: string }> = [
   {
-    pkg: "typescript/lib",
+    pkg: "braintrust/dist/index.mjs",
     disposition:
-      "Transitive (declared in neither dependencies nor devDependencies), so it CANNOT be " +
-      "externalised the way tiktoken was — an external import of a package that may not be " +
-      "installed fails at the point of use instead of at build. TypeScript resolves its " +
-      "`lib.*.d.ts` files relative to __dirname, so this could fire; reachability from the CLI " +
-      "is UNESTABLISHED, not ruled out. Tracked at mt#5067.",
-  },
-  {
-    pkg: "rollup/dist",
-    disposition:
-      "Transitive; same externalisation constraint as typescript. Its baked __dirname sits " +
-      "beside native-binary/platform detection, so it could fire. Reachability UNESTABLISHED. " +
-      "Tracked at mt#5067.",
-  },
-  {
-    pkg: "esbuild/lib",
-    disposition:
-      "Transitive; same constraint. esbuild resolves its platform BINARY relative to __dirname, " +
-      "which is the most likely of the four to fire if reached. Reachability UNESTABLISHED. " +
-      "Tracked at mt#5067.",
+      "ACCEPTED — label only. braintrust's sole use is " +
+      '`typeof __filename !== "undefined" ? __filename : "unknown"` (dist/index.mjs, one ' +
+      "occurrence; zero __dirname), a diagnostic string that names the module. Nothing is " +
+      "resolved through it, so a wrong value cannot change behaviour. Ruled 2026-09-10, mt#5067.",
   },
 ];
 
 /**
- * Matches `__dirname = <quoted abs path>` as bun emits it, capturing the path.
+ * Packages that WERE baked and have been ruled on by REMOVAL rather than registration
+ * (mt#5063, mt#5067). None may reappear: a bake from any of these is a regression of a
+ * decided fix, so it is deliberately NOT in {@link KNOWN_BAKED_PATHS} and fails this check.
+ *
+ * - `tiktoken` — `--external` (declared dependency). Resolved `tiktoken_bg.wasm` through
+ *   `__dirname`; the published 0.2.0 broke `minsky --help` on it. mt#5063.
+ * - `@pnpm/tabtab` — `--external` (declared dependency). mt#5063 R2.
+ * - `typescript` — `--external` (declared REQUIRED peer, 5.8.3). Reachable via
+ *   `context generate --components error-context` → `ts.createProgram`, whose default-lib
+ *   lookup walks from the baked `__filename`. Measured from a packed tarball with the CI
+ *   build path substituted: the component fails identically on the checkout and the install
+ *   today because it throws earlier (`getPreEmitDiagnostics` on a SourceFile foreign to the
+ *   program — a separate defect, tracked at mt#5084), so the bake is MASKED, not harmless.
+ *   External, the consumer's own typescript — lib files included — is what runs. mt#5067.
+ * - `esbuild`, `rollup` — gone by externalising their only importer, `vite` (a devDependency
+ *   reached solely via `cockpit start --dev`). Measured from a packed tarball: that command
+ *   exits 1 with "Dev mode requires a source checkout" BEFORE the dynamic `import("vite")`,
+ *   so neither bake was reachable from an installed layout; the externalisation removes them
+ *   rather than merely ruling them unreachable. mt#5067.
+ */
+export const RETIRED_BAKES: ReadonlyArray<string> = [
+  "tiktoken",
+  "@pnpm/tabtab/lib",
+  "typescript/lib",
+  "typescript/lib/typescript.js",
+  "esbuild/lib",
+  "esbuild/lib/main.js",
+  "rollup/dist",
+];
+
+/**
+ * Matches `__dirname = <quoted abs path>` or `__filename = <quoted abs path>` as bun emits it,
+ * capturing the identifier and the path.
  *
  * Accepts DOUBLE, SINGLE and BACKTICK quoting (PR #3706 R1). Minified output is a bundler's
  * choice, not a contract: bun emits double quotes today, and a matcher that silently sees
@@ -90,7 +128,7 @@ const KNOWN_BAKED_DIRNAMES: ReadonlyArray<{ pkg: string; disposition: string }> 
  * cannot fail. The backreference keeps the closing quote matched to the opening one, so an
  * apostrophe inside a double-quoted path does not truncate the capture.
  */
-const BAKED_DIRNAME = /__dirname\s*=\s*(["'`])((?:(?!\1).)+)\1/g;
+const BAKED_PATH = /(__dirname|__filename)\s*=\s*(["'`])((?:(?!\2).)+)\2/g;
 
 /**
  * The package a baked path belongs to — everything after the last `node_modules` segment.
@@ -113,6 +151,7 @@ export function packageOfBakedPath(absPath: string): string | null {
 }
 
 export interface PortabilityFinding {
+  readonly identifier: BakedIdentifier;
   readonly path: string;
   readonly pkg: string | null;
 }
@@ -122,17 +161,18 @@ export function auditBundle(source: string): {
   total: number;
   findings: PortabilityFinding[];
 } {
-  const known = new Set(KNOWN_BAKED_DIRNAMES.map((e) => e.pkg));
+  const known = new Set(KNOWN_BAKED_PATHS.map((e) => e.pkg));
   const findings: PortabilityFinding[] = [];
   let total = 0;
 
-  for (const match of source.matchAll(BAKED_DIRNAME)) {
-    // Group 2: group 1 is the quote character the backreference pins.
-    const absPath = match[2];
-    if (absPath === undefined) continue;
+  for (const match of source.matchAll(BAKED_PATH)) {
+    // Group 1: the identifier. Group 3: the path — group 2 is the quote the backreference pins.
+    const identifier = match[1] as BakedIdentifier | undefined;
+    const absPath = match[3];
+    if (identifier === undefined || absPath === undefined) continue;
     total += 1;
     const pkg = packageOfBakedPath(absPath);
-    if (pkg === null || !known.has(pkg)) findings.push({ path: absPath, pkg });
+    if (pkg === null || !known.has(pkg)) findings.push({ identifier, path: absPath, pkg });
   }
 
   return { total, findings };
@@ -165,24 +205,26 @@ function main(): void {
 
   if (findings.length > 0) {
     console.error(
-      `[verify-bundle-portability] FAIL — ${findings.length} of ${total} baked \`__dirname\` ` +
-        `value(s) are not registered in KNOWN_BAKED_DIRNAMES:`
+      `[verify-bundle-portability] FAIL — ${findings.length} of ${total} baked \`__dirname\` / ` +
+        `\`__filename\` value(s) are not registered in KNOWN_BAKED_PATHS:`
     );
     for (const f of findings) {
-      console.error(`  - ${f.pkg ?? "(no node_modules segment)"}\n      ${f.path}`);
+      console.error(
+        `  - ${f.identifier}  ${f.pkg ?? "(no node_modules segment)"}\n      ${f.path}`
+      );
     }
     console.error(
-      `\n  A baked \`__dirname\` pins a runtime lookup to the machine that built the bundle.\n` +
+      `\n  A baked \`__dirname\` or \`__filename\` pins a runtime lookup to the machine that built the bundle.\n` +
         `  If the package resolves an asset through it, the published CLI breaks for every user.\n` +
         `  Either mark the package \`--external\` in package.json's \`build\` script (only safe for a\n` +
-        `  DECLARED dependency), or add it to KNOWN_BAKED_DIRNAMES with a recorded disposition.`
+        `  DECLARED dependency), or add it to KNOWN_BAKED_PATHS with a recorded disposition.`
     );
     process.exit(1);
   }
 
   console.log(
-    `[verify-bundle-portability] OK — all ${total} baked \`__dirname\` value(s) are registered; ` +
-      `no package pins a runtime lookup to the build host unreviewed.`
+    `[verify-bundle-portability] OK — all ${total} baked \`__dirname\` / \`__filename\` value(s) ` +
+      `are registered; no package pins a runtime lookup to the build host unreviewed.`
   );
 }
 

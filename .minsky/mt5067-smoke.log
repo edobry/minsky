@@ -1,0 +1,65 @@
+PASS  npm pack — edobry-minsky-0.2.1-dev.0.tgz
+PASS  packed manifest has no local-only protocol deps — 0 offenders
+PASS  bun add <tarball> — installed
+PASS  installed bin prints a version — 0.2.1-dev.0
+PASS  installed bin runs --help (the first command a new user runs) — help [command]     display help for command
+PASS  tokenizer resolves and encodes from the installed package — tokens=2
+PASS  typescript resolves from the installed package, with its lib files — typescript=5.8.3 lib=/private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/minsky-pack-smoke-DHGFPD/local/node_modules/typescript/lib/lib.es2020.full.d.ts
+PASS  migrations apply from installed package — SKIP — DATABASE_URL not set (set it to also run this falsifier)
+PASS  bun add -g <tarball> — installed
+PASS  global bin prints a version — 0.2.1-dev.0
+{
+  "ok": true,
+  "results": [
+    {
+      "step": "npm pack",
+      "ok": true,
+      "detail": "edobry-minsky-0.2.1-dev.0.tgz"
+    },
+    {
+      "step": "packed manifest has no local-only protocol deps",
+      "ok": true,
+      "detail": "0 offenders"
+    },
+    {
+      "step": "bun add <tarball>",
+      "ok": true,
+      "detail": "installed"
+    },
+    {
+      "step": "installed bin prints a version",
+      "ok": true,
+      "detail": "0.2.1-dev.0"
+    },
+    {
+      "step": "installed bin runs --help (the first command a new user runs)",
+      "ok": true,
+      "detail": "help [command]     display help for command"
+    },
+    {
+      "step": "tokenizer resolves and encodes from the installed package",
+      "ok": true,
+      "detail": "tokens=2"
+    },
+    {
+      "step": "typescript resolves from the installed package, with its lib files",
+      "ok": true,
+      "detail": "typescript=5.8.3 lib=/private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/minsky-pack-smoke-DHGFPD/local/node_modules/typescript/lib/lib.es2020.full.d.ts"
+    },
+    {
+      "step": "migrations apply from installed package",
+      "ok": true,
+      "detail": "SKIP — DATABASE_URL not set (set it to also run this falsifier)"
+    },
+    {
+      "step": "bun add -g <tarball>",
+      "ok": true,
+      "detail": "installed"
+    },
+    {
+      "step": "global bin prints a version",
+      "ok": true,
+      "detail": "0.2.1-dev.0"
+    }
+  ]
+}

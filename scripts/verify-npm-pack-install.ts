@@ -245,6 +245,44 @@ try {
     throw new Error("tokenizer did not resolve from the installed package");
   }
 
+  // ── 4c. typescript resolves from the installed package (mt#5067) ────────────
+  //
+  // Same shape as 4b, for the second externalised package. typescript is a
+  // DECLARED peer (`peerDependencies.typescript: 5.8.3`), which bun and npm≥7
+  // auto-install — but "declared" is a manifest claim, and this is the run that
+  // checks it against the tree a consumer actually gets. If typescript ever
+  // stops arriving alongside the package, `--external typescript` turns into a
+  // point-of-use failure inside `context generate --components error-context`
+  // instead of a build-time one, and this is the only check that would see it.
+  //
+  // `getDefaultLibFilePath` is asserted too: it walks from typescript's OWN
+  // `__filename`, which is the lookup the bundled copy pinned to the build host.
+  // Resolved from the consumer's tree it must point at a lib file that exists.
+  const typescriptProbe = join(localDir, "verify-typescript.ts");
+  writeFileSync(
+    typescriptProbe,
+    [
+      "const ts = await import('typescript');",
+      "const { existsSync } = await import('fs');",
+      "const lib = ts.getDefaultLibFilePath({ target: ts.ScriptTarget.ES2020 });",
+      "if (!existsSync(lib)) throw new Error('default lib not found at ' + lib);",
+      "console.log('typescript=' + ts.version + ' lib=' + lib);",
+    ].join("\n"),
+    "utf8"
+  );
+  const typescriptRun = run("bun", [typescriptProbe], { cwd: localDir });
+  if (
+    !record(
+      "typescript resolves from the installed package, with its lib files",
+      typescriptRun.ok && /typescript=\d+\.\d+\.\d+ lib=/.test(typescriptRun.stdout),
+      typescriptRun.ok
+        ? lastLine(typescriptRun.stdout) || "(no output)"
+        : lastLine(typescriptRun.stderr)
+    )
+  ) {
+    throw new Error("typescript did not resolve from the installed package");
+  }
+
   // ── 4b. Apply migrations against a real Postgres, from the INSTALLED layout ─
   // (mt#3887) Falsifies the `meta/*_snapshot.json` exclusion by running, not by reading
   // drizzle's docs. Env-gated: a throwaway Postgres isn't always available locally, so this
