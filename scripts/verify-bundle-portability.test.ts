@@ -76,6 +76,42 @@ describe("mt#5063 — auditBundle", () => {
     expect(audit.findings).toEqual([]);
   });
 
+  // ── PR #3706 R1: the matcher must not be brittle on emitter variants ───────
+  //
+  // Quoting style and path separator are the BUNDLER's choice, not a contract.
+  // A matcher that silently sees nothing when either changes is a check that
+  // cannot fail — the failure mode this whole file exists to argue against.
+
+  it("catches a single-quoted bake", () => {
+    const audit = auditBundle(`var __dirname='${TIKTOKEN}';`);
+    expect(audit.findings.map((f) => f.pkg)).toEqual(["tiktoken"]);
+  });
+
+  it("catches a backtick-quoted bake", () => {
+    const audit = auditBundle(`var __dirname=\`${TIKTOKEN}\`;`);
+    expect(audit.findings.map((f) => f.pkg)).toEqual(["tiktoken"]);
+  });
+
+  it("catches a Windows-style bake with backslash separators", () => {
+    // A `/`-only matcher returns null here and reports "no node_modules segment"
+    // instead of `tiktoken` — letting the guarded regression through on Windows.
+    const audit = auditBundle(String.raw`var __dirname="C:\build\node_modules\tiktoken";`);
+    expect(audit.findings.map((f) => f.pkg)).toEqual(["tiktoken"]);
+  });
+
+  it("an apostrophe inside a double-quoted path does not truncate the capture", () => {
+    // The backreference pins the closing quote to the opening one. Without it the
+    // path would be cut at the apostrophe and mis-resolve to the wrong package.
+    const audit = auditBundle(`var __dirname="/Users/o'brien/node_modules/tiktoken";`);
+    expect(audit.findings.map((f) => f.pkg)).toEqual(["tiktoken"]);
+  });
+
+  it("still resolves a registered package under backslash separators", () => {
+    // The normalisation must not turn a KNOWN entry into a false finding either.
+    const audit = auditBundle(String.raw`var __dirname="C:\b\node_modules\esbuild\lib";`);
+    expect(audit.findings).toEqual([]);
+  });
+
   it("does not match a bare __dirname reference — only an assignment to a literal", () => {
     // `__dirname` used at runtime is fine and is the PORTABLE form; flagging it would make
     // the check fire on correct code.

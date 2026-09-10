@@ -172,6 +172,17 @@ EXPOSE 3000
 RUN bun build --target=bun --outdir=dist --entry-naming minsky.js --sourcemap=external --minify --external tiktoken src/cli.ts
 # === END GENERATED: bun build invocation ===
 
+# mt#5063 — the container build calls `bun build` DIRECTLY, so it never runs
+# `package.json`'s `build` script and never picked up the portability guard
+# wired in there. That is exactly the gap PR #3706 R1 flagged: the image is a
+# published artifact too, and the defect this guards (a `__dirname` baked to the
+# BUILD host, breaking a runtime asset lookup for everyone) would ship here
+# unchecked while the npm path was covered.
+#
+# Fails the image build rather than warning: a bundle pinned to the builder's
+# filesystem is not a degraded image, it is a broken one.
+RUN bun scripts/verify-bundle-portability.ts
+
 # mt#1767 — copy Drizzle migrations next to the bundle so the bundled
 # `postgres-provider.ts`'s `resolveMigrationsFolder()` can find them via the
 # `./storage/migrations/pg` candidate (relative to `import.meta.url` of

@@ -207,6 +207,44 @@ try {
     throw new Error("installed bin could not run --help");
   }
 
+  // ── 4b. The TOKENIZER resolves and works from the installed package (mt#5063 SC3) ─
+  //
+  // `--help` proves the tokenizer no longer breaks BOOT; it does not prove the
+  // tokenizer WORKS, because mt#5063 externalised it and `--help` never reaches
+  // it. Those are opposite failure modes and one check cannot cover both: an
+  // `--external` package that is not installed fails at the point of USE, which
+  // is silent until something tokenizes.
+  //
+  // So exercise the dependency the way a real consumer does — resolve it from
+  // the installed tree and actually encode. Written to a file and run with
+  // `bun`, so it exercises MODULE RESOLUTION from `localDir` rather than this
+  // script's own.
+  const tokenizerProbe = join(localDir, "verify-tokenizer.ts");
+  writeFileSync(
+    tokenizerProbe,
+    [
+      "const { get_encoding } = await import('tiktoken');",
+      "const enc = get_encoding('cl100k_base');",
+      "const n = enc.encode('hello world').length;",
+      "enc.free();",
+      "if (n < 1) throw new Error('tokenizer returned no tokens');",
+      "console.log('tokens=' + n);",
+    ].join("\n"),
+    "utf8"
+  );
+  const tokenizerRun = run("bun", [tokenizerProbe], { cwd: localDir });
+  if (
+    !record(
+      "tokenizer resolves and encodes from the installed package",
+      tokenizerRun.ok && /tokens=\d+/.test(tokenizerRun.stdout),
+      tokenizerRun.ok
+        ? lastLine(tokenizerRun.stdout) || "(no output)"
+        : lastLine(tokenizerRun.stderr)
+    )
+  ) {
+    throw new Error("tokenizer did not resolve from the installed package");
+  }
+
   // ── 4b. Apply migrations against a real Postgres, from the INSTALLED layout ─
   // (mt#3887) Falsifies the `meta/*_snapshot.json` exclusion by running, not by reading
   // drizzle's docs. Env-gated: a throwaway Postgres isn't always available locally, so this

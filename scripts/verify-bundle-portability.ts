@@ -87,20 +87,35 @@ const KNOWN_BAKED_DIRNAMES: ReadonlyArray<{ pkg: string; disposition: string }> 
   },
 ];
 
-/** Matches `__dirname="<abs path>"` as bun emits it, capturing the path. */
-const BAKED_DIRNAME = /__dirname\s*=\s*"([^"]+)"/g;
+/**
+ * Matches `__dirname = <quoted abs path>` as bun emits it, capturing the path.
+ *
+ * Accepts DOUBLE, SINGLE and BACKTICK quoting (PR #3706 R1). Minified output is a bundler's
+ * choice, not a contract: bun emits double quotes today, and a matcher that silently sees
+ * nothing if that changes is the failure mode this whole file argues against — a check that
+ * cannot fail. The backreference keeps the closing quote matched to the opening one, so an
+ * apostrophe inside a double-quoted path does not truncate the capture.
+ */
+const BAKED_DIRNAME = /__dirname\s*=\s*(["'`])((?:(?!\1).)+)\1/g;
 
 /**
- * The package a baked path belongs to — everything after the last `node_modules/`.
+ * The package a baked path belongs to — everything after the last `node_modules` segment.
  *
- * Returns null for a path with no `node_modules` segment, which is not a package bake and is
- * left to the caller to report as unknown rather than silently dropped.
+ * Backslash separators are normalised first (PR #3706 R1): a Windows-built bundle bakes
+ * `C:\…\node_modules\tiktoken`, and a `/`-only matcher would return null for it — reported as
+ * "no node_modules segment" rather than as `tiktoken`, which would let the exact regression
+ * this file guards through on that platform.
+ *
+ * Returns null for a path with genuinely no `node_modules` segment. That is NOT silently
+ * dropped: `auditBundle` reports it as an unknown finding, because an unrecognised SHAPE must
+ * not read as clean.
  */
 export function packageOfBakedPath(absPath: string): string | null {
+  const normalised = absPath.replace(/\\/g, "/");
   const marker = "node_modules/";
-  const at = absPath.lastIndexOf(marker);
+  const at = normalised.lastIndexOf(marker);
   if (at === -1) return null;
-  return absPath.slice(at + marker.length);
+  return normalised.slice(at + marker.length);
 }
 
 export interface PortabilityFinding {
@@ -118,7 +133,8 @@ export function auditBundle(source: string): {
   let total = 0;
 
   for (const match of source.matchAll(BAKED_DIRNAME)) {
-    const absPath = match[1];
+    // Group 2: group 1 is the quote character the backreference pins.
+    const absPath = match[2];
     if (absPath === undefined) continue;
     total += 1;
     const pkg = packageOfBakedPath(absPath);
