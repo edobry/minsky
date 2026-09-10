@@ -185,6 +185,28 @@ try {
     throw new Error("installed bin did not print a version");
   }
 
+  // ── 4a. The bin runs the command a new user runs FIRST (mt#5063) ────────────
+  //
+  // `--version` is not a sufficient smoke: it returns before the command tree is
+  // built, so it never touches the tokenizer. The published 0.2.0 passed this
+  // whole job while `minsky --help` exited 1 with `Missing tiktoken_bg.wasm` for
+  // every user — the bundler had baked the CI runner's `__dirname` into
+  // tiktoken's wasm lookup.
+  //
+  // `--help` costs one more spawn and traverses the full command tree, which is
+  // what makes it able to fail. This is the assertion whose absence let a broken
+  // first command ship past a green pack-install check.
+  const localHelp = run(localBin, ["--help"], { cwd: localDir });
+  if (
+    !record(
+      "installed bin runs --help (the first command a new user runs)",
+      localHelp.ok && localHelp.stdout.includes("Usage:"),
+      localHelp.ok ? lastLine(localHelp.stdout) || "(no output)" : lastLine(localHelp.stderr)
+    )
+  ) {
+    throw new Error("installed bin could not run --help");
+  }
+
   // ── 4b. Apply migrations against a real Postgres, from the INSTALLED layout ─
   // (mt#3887) Falsifies the `meta/*_snapshot.json` exclusion by running, not by reading
   // drizzle's docs. Env-gated: a throwaway Postgres isn't always available locally, so this
