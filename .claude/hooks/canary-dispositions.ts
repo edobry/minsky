@@ -292,3 +292,115 @@ export const CANARY_DISPOSITIONS: ReadonlyMap<string, CanaryDispositionRecord> =
   ["warn-peer-task-activity", pending()],
   ["warn-stale-forward-reference", pending()],
 ]);
+
+// ---------------------------------------------------------------------------
+// Fire-log instrumentation — the OTHER axis (mt#5081, mt#4606 amendment 3)
+// ---------------------------------------------------------------------------
+//
+// A canary asks "does this guard still DECIDE correctly?" and presupposes a
+// fire-log to go quiet in. 29 standalone entities have no fire-log at all
+// (measured 2026-09-10: zero `guard_events` rows, and none of the three
+// instrumentation paths in their source). This map records, per entity, the
+// ruling mt#5081 made — the same shape as the canary ruling above, kept beside
+// it as mt#4606 SC2 asked, and for the same reason: an unruled gap and a
+// ruled-out gap must not look alike.
+//
+// The RFC's Position 3 is "every ENFORCEMENT point should write a fire-log."
+// A recorder, a stamper, a session-lifecycle hook or a dispatcher ENTRY POINT is
+// not an enforcement point — it performs an effect rather than a decision — so
+// those are ruled `not-an-enforcement-point` with the reason, and the 14 judges
+// and feeders are `instrumented` by mt#5081 through the direct call.
+
+/** How, or why not, an entity reaches the guard fire-log. */
+export type FireLogInstrumentation =
+  | {
+      readonly status: "instrumented";
+      /** Which of the three paths carries its rows. */
+      readonly path: "direct" | "merge-gate-wrapper" | "dispatcher-routed";
+      /** The task that added it. */
+      readonly task: string;
+    }
+  | {
+      readonly status: "not-an-enforcement-point";
+      readonly reason: string;
+    };
+
+const INSTRUMENTED_BY_5081: FireLogInstrumentation = {
+  status: "instrumented",
+  path: "direct",
+  task: "mt#5081",
+};
+
+/** The two multi-exit PreToolUse guards reuse the merge-gate family's recorder. */
+const INSTRUMENTED_BY_5081_VIA_WRAPPER: FireLogInstrumentation = {
+  status: "instrumented",
+  path: "merge-gate-wrapper",
+  task: "mt#5081",
+};
+
+function notEnforcement(reason: string): FireLogInstrumentation {
+  return { status: "not-an-enforcement-point", reason };
+}
+
+const DISPATCHER_ENTRY_POINT =
+  "A dispatcher entry point, not a guard. It routes to the registered guards and records " +
+  "each one's fire-log row under the ROUTED guard's name (`dispatcher.ts:1089`); a row " +
+  "under its own name would double-count every evaluation it already records.";
+
+const RECORDER =
+  "A recorder: it writes a stamp, a link or an ingest row and decides nothing. There is " +
+  "no allow/warn/deny to attribute, and the row it writes is itself the evidence it ran.";
+
+/**
+ * The 29 entities with no fire-log as of 2026-09-10, each ruled. Keys are the
+ * measured population, not a derivation — a new silent guard is caught by the
+ * catalog census and `scripts/check-coverage-receipts.ts`, not by this map.
+ */
+export const FIRE_LOG_INSTRUMENTATION: ReadonlyMap<string, FireLogInstrumentation> = new Map([
+  // -- instrumented by mt#5081: judges and feeders, all through the direct call --
+  ["ask-permission-bridge", INSTRUMENTED_BY_5081],
+  ["block-github-mcp-pr-writes", INSTRUMENTED_BY_5081],
+  ["bridge-memory-retirement", INSTRUMENTED_BY_5081],
+  ["check-prompt-watermark", INSTRUMENTED_BY_5081],
+  ["deploy-verification-after-merge", INSTRUMENTED_BY_5081],
+  ["drive-pr-to-convergence", INSTRUMENTED_BY_5081],
+  ["inject-success-criteria", INSTRUMENTED_BY_5081],
+  ["loop-preflight-pr-merge-check", INSTRUMENTED_BY_5081_VIA_WRAPPER],
+  ["parallel-work-guard", INSTRUMENTED_BY_5081_VIA_WRAPPER],
+  ["post-merge-unasked-direction-scan", INSTRUMENTED_BY_5081],
+  ["two-strikes-record", INSTRUMENTED_BY_5081],
+  ["typecheck-on-stop", INSTRUMENTED_BY_5081],
+  ["unowned-finding-scan", INSTRUMENTED_BY_5081],
+  ["verify-subagent-model", INSTRUMENTED_BY_5081],
+
+  // -- not enforcement points: silent by design, with the reason --
+  ["dispatch-pretooluse", notEnforcement(DISPATCHER_ENTRY_POINT)],
+  ["dispatch-stop", notEnforcement(DISPATCHER_ENTRY_POINT)],
+  ["dispatch-userpromptsubmit", notEnforcement(DISPATCHER_ENTRY_POINT)],
+  [
+    "linkify-message-display",
+    notEnforcement(
+      "Off the guard dispatcher by ADR-028 D1/D7(5) and states in its own docblock " +
+        "(`linkify-message-display.ts:67`) that it writes no fire-log record; it keeps its own " +
+        "`linkify-fire-log.jsonl`. Its contract is a rewritten message, not a decision."
+    ),
+  ],
+  ["guard-events-ingest-on-session-end", notEnforcement(RECORDER)],
+  ["post-merge-pull", notEnforcement(RECORDER)],
+  ["post-session-start", notEnforcement(RECORDER)],
+  ["record-conversation-run-state", notEnforcement(RECORDER)],
+  ["record-subagent-invocation", notEnforcement(RECORDER)],
+  ["session-start", notEnforcement(RECORDER)],
+  ["stamp-ask-conversation", notEnforcement(RECORDER)],
+  ["stamp-pr-author-link", notEnforcement(RECORDER)],
+  ["stamp-session-creator-link", notEnforcement(RECORDER)],
+  ["transcript-ingest-on-session-end", notEnforcement(RECORDER)],
+  [
+    "typecheck-on-edit",
+    notEnforcement(
+      "Runs the typechecker after an edit and injects the result as context; it records a " +
+        "state file for `typecheck-on-stop`, which is the guard that DECIDES on it — and that " +
+        "one is instrumented above."
+    ),
+  ],
+]);

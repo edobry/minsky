@@ -40,6 +40,10 @@ import { execWithPath, readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
 import { resolveMergeGateTaskId } from "./merge-gate-task-resolution";
 import { extractSuccessCriteriaSection } from "./success-criteria-coverage";
+import { recordFireLogEntry } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#5081). */
+export const GUARD_NAME = "inject-success-criteria";
 
 /** Budget for the spec fetch. Mirrors the AT path's 15s allowance for the same CLI call. */
 const SPEC_FETCH_TIMEOUT_MS = 15000;
@@ -100,23 +104,42 @@ export function buildSuccessCriteriaContext(task: string, specContent: string): 
   );
 }
 
-if (import.meta.main) {
-  const input = await readInput<ToolHookInput>();
-
+/** Resolve the injection, or null when there is nothing to inject. Pure over its inputs. */
+function resolveInjection(input: ToolHookInput): string | null {
   const resolution = resolveMergeGateTaskId(input);
-  if (!resolution.taskId) process.exit(0);
+  if (!resolution.taskId) return null;
 
   const specContent = fetchSpecContent(resolution.taskId, input.cwd);
-  if (specContent === null) process.exit(0);
+  if (specContent === null) return null;
 
-  const context = buildSuccessCriteriaContext(resolution.taskId, specContent);
-  if (context === null) process.exit(0);
+  return buildSuccessCriteriaContext(resolution.taskId, specContent);
+}
 
-  writeOutput({
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      additionalContext: context,
-    },
+if (import.meta.main) {
+  const startMs = Date.now();
+  const input = await readInput<ToolHookInput>();
+  const context = resolveInjection(input);
+
+  if (context !== null) {
+    writeOutput({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        additionalContext: context,
+      },
+    });
+  }
+
+  // mt#5081: fire-log every evaluation, exactly once. `warn` when context was
+  // injected, `allow` on pass-through — the dispatcher's mapping
+  // (`dispatcher.ts`, `additionalContext ? "warn" : "allow"`).
+  recordFireLogEntry({
+    guardName: GUARD_NAME,
+    event: "PreToolUse",
+    decision: context !== null ? "warn" : "allow",
+    guardOutcome: "decided",
+    durationMs: Date.now() - startMs,
+    toolName: input.tool_name,
+    sessionId: input.session_id,
   });
   process.exit(0);
 }

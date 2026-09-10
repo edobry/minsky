@@ -23,6 +23,8 @@
 
 import { checkOverride } from "./dispatcher";
 import type { OverrideResult } from "./dispatcher";
+import { classifyOverride } from "./fire-log";
+import type { MergeGateOverrideFields } from "./merge-gate-fire-log";
 import { GUARD_REGISTRY } from "./registry";
 
 /**
@@ -73,6 +75,32 @@ export type GuardOverrideResolution =
 
 /** Back-compat alias — the duplicate-child matcher's resolution predates the shared core. */
 export type DuplicateGuardOverrideResolution = GuardOverrideResolution;
+
+/**
+ * The fire-log override fields for an ACTIVE resolution (mt#5081). A grant
+ * carries no env-var name (`MergeGateOverrideFields`); an env override names
+ * whichever var carried it — the legacy `MINSKY_FORCE_PARALLEL` or the unified
+ * `MINSKY_HOOK_OVERRIDE` — and classifies it against the known-override registry.
+ */
+export function sweepOverrideFireLogFields(
+  resolution: Extract<GuardOverrideResolution, { active: true }>,
+  env: NodeJS.ProcessEnv
+): MergeGateOverrideFields {
+  if (resolution.source === "grant") {
+    return { overrideClassification: "authorized_exception", overrideSource: "grant" };
+  }
+  // Attribution mirrors `resolveGuardChannelOverride`'s precedence exactly: it
+  // tests the legacy var FIRST and returns `env` on a hit before consulting
+  // `MINSKY_HOOK_OVERRIDE`, so when both are set the legacy var is the one that
+  // fired, and naming it here is correct rather than a guess (PR #3715 R1).
+  const overrideEnvVar =
+    env["MINSKY_FORCE_PARALLEL"] === "1" ? "MINSKY_FORCE_PARALLEL" : "MINSKY_HOOK_OVERRIDE";
+  return {
+    overrideEnvVar,
+    overrideClassification: classifyOverride(overrideEnvVar),
+    overrideSource: "env",
+  };
+}
 
 /**
  * Shared override-resolution core for this hook's two guards (mt#1637): a

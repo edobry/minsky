@@ -24,6 +24,11 @@
 // @see parallel-work-guard.ts — reference implementation (same shape)
 
 import { readInput, writeOutput, execWithPath, readHostCap, deriveBudgets } from "./types";
+import { classifyOverride } from "./fire-log";
+import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
+
+/** This guard's fire-log identifier (mt#5081). */
+export const GUARD_NAME = "loop-preflight-pr-merge-check";
 import { TERMINAL_TASK_STATUSES } from "./task-statuses";
 import type { ToolHookInput } from "./types";
 
@@ -402,27 +407,37 @@ export function runLoopPreflightCheck(
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
+
+  // mt#5081: fire-log every evaluation, exactly once — the merge-gate family's
+  // recorder, reused: one closure for the six exits below.
+  const recordAndExit: RecordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
 
   // Only act on the Skill tool
   if (input.tool_name !== "Skill") {
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   // Only act when skill === "loop"
   const skillName = input.tool_input["skill"] as string | undefined;
   if (skillName !== "loop") {
-    process.exit(0);
+    recordAndExit("allow");
   }
 
-  // Check for override env var
-  const forceTerminal = process.env["MINSKY_FORCE_LOOP_TERMINAL"];
+  // Check for override env var. One binding for the read, the audit line and
+  // the fire-log fields, so the three cannot name different vars (PR #3715 R1).
+  const OVERRIDE_ENV_VAR = "MINSKY_FORCE_LOOP_TERMINAL";
+  const forceTerminal = process.env[OVERRIDE_ENV_VAR];
   if (forceTerminal === "1") {
     const ts = new Date().toISOString();
-    process.stdout.write(
-      `[loop-preflight] OVERRIDE active (MINSKY_FORCE_LOOP_TERMINAL=1) — ts=${ts}\n`
-    );
-    process.exit(0);
+    process.stdout.write(`[loop-preflight] OVERRIDE active (${OVERRIDE_ENV_VAR}=1) — ts=${ts}\n`);
+    // Outcome deliberately UNSET: the guard did not run its check.
+    recordAndExit("allow", {
+      overrideEnvVar: OVERRIDE_ENV_VAR,
+      overrideClassification: classifyOverride(OVERRIDE_ENV_VAR),
+      overrideSource: "env",
+    });
   }
 
   // Derive budget from host cap
@@ -435,7 +450,7 @@ if (import.meta.main) {
 
   // If no PR/task references, permit immediately
   if (prNumbers.length === 0 && taskIds.length === 0) {
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   const warnings: string[] = [];
@@ -460,7 +475,7 @@ if (import.meta.main) {
         permissionDecisionReason: formatBlockMessage(result.terminalPrs, result.terminalTasks),
       },
     });
-    process.exit(0);
+    recordAndExit("deny", undefined, "decided");
   }
 
   // Permit: surface any warnings in additionalContext
@@ -471,7 +486,8 @@ if (import.meta.main) {
         additionalContext: warnings.map((w) => `[loop-preflight] ${w}`).join("\n"),
       },
     });
+    recordAndExit("warn", undefined, "decided");
   }
 
-  process.exit(0);
+  recordAndExit("allow", undefined, "decided");
 }

@@ -19,6 +19,10 @@
 
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
+import { recordFireLogEntry } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#5081). */
+export const GUARD_NAME = "check-prompt-watermark";
 
 // ---------------------------------------------------------------------------
 // Pure detection (exported for testing)
@@ -88,12 +92,15 @@ export const DENY_REASON =
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
+  const startMs = Date.now();
+  let input: ToolHookInput | undefined;
   try {
-    const input = await readInput<ToolHookInput>();
+    input = await readInput<ToolHookInput>();
     const prompt = (input.tool_input?.prompt as string | undefined) ?? "";
     const subagentType = (input.tool_input?.subagent_type as string | undefined) ?? "";
+    const deny = shouldDeny(prompt, subagentType);
 
-    if (shouldDeny(prompt, subagentType)) {
+    if (deny) {
       writeOutput({
         hookSpecificOutput: {
           hookEventName: "PreToolUse",
@@ -103,11 +110,32 @@ if (import.meta.main) {
       });
     }
 
+    // mt#5081: fire-log every evaluation, exactly once.
+    recordFireLogEntry({
+      guardName: GUARD_NAME,
+      event: "PreToolUse",
+      decision: deny ? "deny" : "allow",
+      guardOutcome: "decided",
+      durationMs: Date.now() - startMs,
+      toolName: input.tool_name,
+      sessionId: input.session_id,
+    });
     process.exit(0);
   } catch (err) {
     process.stderr.write(
       `[check-prompt-watermark] fail-open: ${err instanceof Error ? err.message : String(err)}\n`
     );
+    // A crash is an evaluation too, and the one most worth a row: it is the
+    // fail-open path, where the guard allowed without deciding.
+    recordFireLogEntry({
+      guardName: GUARD_NAME,
+      event: "PreToolUse",
+      decision: "allow",
+      guardOutcome: "crashed",
+      durationMs: Date.now() - startMs,
+      ...(input?.tool_name === undefined ? {} : { toolName: input.tool_name }),
+      ...(input?.session_id === undefined ? {} : { sessionId: input.session_id }),
+    });
     process.exit(0);
   }
 }

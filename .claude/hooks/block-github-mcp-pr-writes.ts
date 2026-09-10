@@ -20,7 +20,11 @@
 
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
+import { recordFireLogEntry } from "./fire-log";
 import { checkToolDenial } from "@minsky/domain/detectors/github-mcp-pr-write-denial";
+
+/** This guard's fire-log identifier (mt#5081). */
+export const GUARD_NAME = "block-github-mcp-pr-writes";
 
 // ---------------------------------------------------------------------------
 // Hook entry point
@@ -28,6 +32,7 @@ import { checkToolDenial } from "@minsky/domain/detectors/github-mcp-pr-write-de
 
 // Only invoke the hook body when run as a script, not when imported by tests.
 if (import.meta.main) {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
   const reason = checkToolDenial(input.tool_name);
 
@@ -41,5 +46,17 @@ if (import.meta.main) {
     });
   }
 
+  // mt#5081: fire-log every evaluation, exactly once. Before this the guard
+  // was one of 29 with no fire-log at all, so "working" and "never ran" were
+  // indistinguishable from every downstream instrument.
+  recordFireLogEntry({
+    guardName: GUARD_NAME,
+    event: "PreToolUse",
+    decision: reason ? "deny" : "allow",
+    guardOutcome: "decided",
+    durationMs: Date.now() - startMs,
+    toolName: input.tool_name,
+    sessionId: input.session_id,
+  });
   process.exit(0);
 }

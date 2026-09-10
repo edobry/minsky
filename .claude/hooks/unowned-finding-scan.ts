@@ -92,6 +92,7 @@
 //   structured-trace discriminator this applies by analogy
 
 import { logCalibrationRecord } from "./dispatcher";
+import { recordFireLogEntry } from "./fire-log";
 import { execWithPath, readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
 
@@ -395,9 +396,22 @@ export function isOverridden(env: Record<string, string | undefined>): boolean {
 }
 
 async function main(): Promise<void> {
+  const startMs = Date.now();
   const input = (await readInput()) as ToolHookInput;
   if (isOverridden(process.env)) {
     writeOutput({});
+    // mt#5081: an override is an evaluation too — recorded as such, with the
+    // env var named so the classification join can see it.
+    recordFireLogEntry({
+      guardName: GUARD_NAME,
+      event: "PostToolUse",
+      decision: "allow",
+      durationMs: Date.now() - startMs,
+      toolName: input.tool_name,
+      sessionId: input.session_id,
+      overrideEnvVar: OVERRIDE_ENV_VAR,
+      overrideSource: "env",
+    });
     return;
   }
 
@@ -415,6 +429,20 @@ async function main(): Promise<void> {
 
   // LOG-ONLY: never denies, never injects.
   writeOutput({});
+
+  // mt#5081: fire-log every evaluation, exactly once. Until this, the only
+  // telemetry was the calibration record above, written ONLY on a match — so a
+  // scan that ran clean was indistinguishable from one that never ran. This is
+  // the same shape as `coverage-claim-path`, mt#4606's named instance.
+  recordFireLogEntry({
+    guardName: GUARD_NAME,
+    event: "PostToolUse",
+    decision: "allow",
+    guardOutcome: "decided",
+    durationMs: Date.now() - startMs,
+    toolName: input.tool_name,
+    sessionId: input.session_id,
+  });
 }
 
 if (import.meta.main) {

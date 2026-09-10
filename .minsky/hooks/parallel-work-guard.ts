@@ -1,4 +1,13 @@
 #!/usr/bin/env bun
+/* eslint-disable max-lines -- mt#5081's fire-log instrumentation tipped this file from ~1495
+ * to 1505 ESLint-counted (comments/blanks excluded) lines, past the 1500 error threshold — the
+ * same shape as `src/hooks/pre-commit.ts` under mt#3613. The addition is already at its floor:
+ * one shared `makeRecordAndExit` closure, the two `runTasksCreateGuard` call sites reading its
+ * returned decision, and the override-field construction moved OUT to
+ * `parallel-work-guard-overrides.ts`. What remains over the line is the file's pre-existing
+ * bulk. The inventory (`docs/architecture/hook-module-inventory.md`) classifies this module
+ * `movable` with extraction units `findOverlappingFiles` / `checkOpenPrs`, so decomposition is
+ * owned by mt#4374's extraction waves, not by an instrumentation task. */
 // PreToolUse hook: block mcp__minsky__session_start — or mcp__minsky__tasks_dispatch in
 // existing-task mode (a `taskId` param present, mt#2657 R3 fix) — when parallel work is
 // detected.
@@ -48,13 +57,24 @@
 import { readInput, writeOutput, execWithPath } from "./types";
 import { TERMINAL_TASK_STATUSES } from "./task-statuses";
 import type { ToolHookInput } from "./types";
+import type { FireLogDecision } from "./fire-log";
+import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 import {
   DUPLICATE_CHILD_GUARD_NAME,
   OPEN_PR_SWEEP_GUARD_NAME,
   resolveDuplicateGuardOverride,
   resolveOpenPrSweepOverride,
+  sweepOverrideFireLogFields,
 } from "./parallel-work-guard-overrides";
 import { runStandaloneDuplicateGuard } from "./parallel-work-guard-standalone";
+
+/**
+ * This module's fire-log identifier (mt#5081) — the catalog's name for the
+ * file. The two guards it carries keep their own override names
+ * (`DUPLICATE_CHILD_GUARD_NAME`, `OPEN_PR_SWEEP_GUARD_NAME`); the fire-log row
+ * is keyed to the interceptor the catalog counts.
+ */
+export const GUARD_NAME = "parallel-work-guard";
 
 // NOTE: execWithPath is centralized in types.ts and imported above.
 // This avoids duplicating the PATH-augmentation logic across hooks.
@@ -2390,29 +2410,41 @@ export function decideTasksCreateGuard(
 // parent to enumerate a sibling pool).
 // ---------------------------------------------------------------------------
 
-/** Entrypoint wrapper: resolve the decision and map it to hook output. */
-async function runTasksCreateGuard(input: ToolHookInput): Promise<void> {
+/**
+ * Entrypoint wrapper: resolve the decision and map it to hook output.
+ *
+ * Returns `[decision, outcome]` rather than `void` (mt#5081).
+ * `evaluation-loop-fire-log.md` recorded this path as uninstrumentable because
+ * the inner `switch` bubbled nothing to the call site; each arm already held
+ * the decision, so returning it is the whole change.
+ */
+async function runTasksCreateGuard(
+  input: ToolHookInput
+): Promise<[FireLogDecision, "decided" | "crashed"]> {
   try {
-    await runTasksCreateGuardInner(input);
+    return [await runTasksCreateGuardInner(input), "decided"];
   } catch (err) {
     process.stderr.write(
       `[parallel-work-guard] tasks_create dup-guard errored — failing open (permit): ${
         err instanceof Error ? err.message : String(err)
       }\n`
     );
+    return ["allow", "crashed"];
   }
 }
 
-async function runTasksCreateGuardInner(input: ToolHookInput): Promise<void> {
+async function runTasksCreateGuardInner(input: ToolHookInput): Promise<FireLogDecision> {
   const parentForScope = resolveDuplicateGuardParent(input.tool_input) || undefined;
 
   if (!parentForScope) {
     // Standalone (parentless) create — mt#2813. The duplicate-CHILD matcher
     // below needs a parent to enumerate a sibling pool; a standalone create
     // has none, so it falls through to the STANDALONE-duplicate probe
-    // instead (embeddings search against ACTIVE tasks repo-wide).
+    // instead (embeddings search against ACTIVE tasks repo-wide). That probe
+    // is advisory and records its own fire-log row under its own name
+    // (`standalone-duplicate-matcher`), so this guard's row says `allow`.
     await runStandaloneDuplicateGuard(input);
-    return;
+    return "allow";
   }
 
   const overrideResolution = resolveDuplicateGuardOverride(parentForScope, process.env);
@@ -2435,7 +2467,7 @@ async function runTasksCreateGuardInner(input: ToolHookInput): Promise<void> {
           `[parallel-work-guard] tasks_create dedup skipped — ${decision.reason}\n`
         );
       }
-      return;
+      return "allow";
     case "warn":
       // stdout for log-grep compatibility; additionalContext so host UIs
       // that only surface hookSpecificOutput content still see the advisory
@@ -2447,7 +2479,7 @@ async function runTasksCreateGuardInner(input: ToolHookInput): Promise<void> {
           additionalContext: decision.message,
         },
       });
-      return;
+      return "warn";
     case "override": {
       const parent = parentForScope ?? "";
       const title = typeof input.tool_input["title"] === "string" ? input.tool_input["title"] : "";
@@ -2462,7 +2494,7 @@ async function runTasksCreateGuardInner(input: ToolHookInput): Promise<void> {
       process.stdout.write(
         `[parallel-work-guard] override fired: parent=${parent}, title="${title}", duplicate_match=${decision.auditMatch} source=${source}${reasonPart} ts=${ts}\n`
       );
-      return;
+      return "allow";
     }
     case "block":
       writeOutput({
@@ -2472,9 +2504,9 @@ async function runTasksCreateGuardInner(input: ToolHookInput): Promise<void> {
           permissionDecisionReason: decision.message,
         },
       });
-      return;
+      return "deny";
     case "permit":
-      return;
+      return "allow";
   }
 }
 
@@ -2529,13 +2561,21 @@ export function resolveSessionStartLikeTaskId(input: ToolHookInput): string {
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
+
+  // mt#5081: fire-log every evaluation, exactly once — the merge-gate family's
+  // recorder, reused: one closure for the nine exits below, so the decision
+  // and the exit cannot drift apart. This file carries two guards (the
+  // tasks_create duplicate-child matcher and the open-PR sweep); the catalog
+  // names the module, so the row does too.
+  const recordAndExit: RecordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
 
   // tasks_create with a parent → duplicate-child guard (mt#1435). Fires at the
   // mutating action, upstream of where session_start would catch it.
   if (input.tool_name === "mcp__minsky__tasks_create") {
-    await runTasksCreateGuard(input);
-    process.exit(0);
+    const [decision, outcome] = await runTasksCreateGuard(input);
+    recordAndExit(decision, undefined, outcome);
   }
 
   // tasks_dispatch NEW-TASK mode (`title`, no `taskId`) creates the subtask
@@ -2545,15 +2585,15 @@ if (import.meta.main) {
   // `parentTaskId`; without it the guard skips (root create, nothing to dedup).
   // Existing-task mode falls through to the open-PR sweep below.
   if (input.tool_name === DISPATCH_TOOL_NAME && isNewTaskModeDispatch(input.tool_input)) {
-    await runTasksCreateGuard(input);
-    process.exit(0);
+    const [decision, outcome] = await runTasksCreateGuard(input);
+    recordAndExit(decision, undefined, outcome);
   }
 
   // session_start (the original Tier-3 ceiling) OR tasks_dispatch existing-task
   // mode (mt#2657 R3 fix) — both bind a session from a taskId and must run the
   // SAME open-PR sweep. Any other tool exits here.
   if (input.tool_name !== "mcp__minsky__session_start" && input.tool_name !== DISPATCH_TOOL_NAME) {
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   const taskId = resolveSessionStartLikeTaskId(input);
@@ -2563,7 +2603,7 @@ if (import.meta.main) {
     process.stdout.write(
       `[parallel-work-guard] No resolvable existing-task id for ${input.tool_name} — check skipped\n`
     );
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   // Override resolution (mt#1637): legacy MINSKY_FORCE_PARALLEL=1 env var,
@@ -2587,7 +2627,8 @@ if (import.meta.main) {
         `[parallel-work-guard] OVERRIDE active — task=${taskId} source=${sweepOverride.source}${reasonPart} ts=${ts}\n`
       );
     }
-    process.exit(0);
+    // Outcome deliberately UNSET: the guard did not run its check.
+    recordAndExit("allow", sweepOverrideFireLogFields(sweepOverride, process.env));
   }
 
   // Resolve in-scope files (mt#2811: prefers tasks_dispatch's own `scope`
@@ -2614,7 +2655,7 @@ if (import.meta.main) {
           `(source=${resolved.source}) — parallel-work file-overlap check SKIPPED\n`
       );
     }
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   // Extraction succeeded (possibly via a fallback strategy) — surface how on
@@ -2641,7 +2682,7 @@ if (import.meta.main) {
     process.stdout.write(
       `[parallel-work-guard] Could not derive owner/repo from git remote — check skipped\n`
     );
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   // Detect the actual current branch — the only own-branch signal used by
@@ -2676,7 +2717,7 @@ if (import.meta.main) {
         permissionDecisionReason: formatBlockMessage(taskId, result.collisions, actionLabel),
       },
     });
-    process.exit(0);
+    recordAndExit("deny", undefined, "decided");
   }
 
   // When permitting (not blocking), include any aggregated warnings in
@@ -2690,7 +2731,8 @@ if (import.meta.main) {
         additionalContext: result.warnings.map((w) => `[parallel-work-guard] ${w}`).join("\n"),
       },
     });
+    recordAndExit("warn", undefined, "decided");
   }
 
-  process.exit(0);
+  recordAndExit("allow", undefined, "decided");
 }

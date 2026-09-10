@@ -25,6 +25,10 @@
 //      always return null (found by the lint rule this task ships)
 
 import { readInput } from "./types";
+import { recordFireLogEntry } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#5081). */
+export const GUARD_NAME = "post-merge-unasked-direction-scan";
 import type { ToolHookInput } from "./types";
 // mt#3046: STATIC — installs the tsyringe reflect polyfill before any domain
 // module loads. `loadTranscript`'s dynamic persistence import needs it, and a
@@ -358,15 +362,39 @@ async function buildCompletionService(): Promise<unknown | null> {
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
   const mode = readMode();
 
-  if (mode === "disabled") {
+  // mt#5081: fire-log every evaluation, exactly once. A recorder never denies
+  // or injects, so every exit is an `allow`. `guardOutcome` follows
+  // `merge-gate-fire-log.ts`'s `MergeGateOutcome`: `"decided"` only where the
+  // analyzer actually RAN, `"crashed"` where it threw, and UNSET on the six
+  // short-circuits before it (disabled, uncovered tool, no context, no
+  // transcript, no provider) — those are not clean-run evidence, and marking
+  // them so would inflate guard-health's recovery join (PR #3715 R1).
+  // Explicitly typed, not inferred: TypeScript narrows through a `never`
+  // call only when the callee's declared type is an annotation, so without
+  // this every `if (!x) recordAndExit()` below would leave `x` nullable.
+  const recordAndExit: (outcome?: "decided" | "crashed") => never = (outcome) => {
+    recordFireLogEntry({
+      guardName: GUARD_NAME,
+      event: "PostToolUse",
+      decision: "allow",
+      ...(outcome === undefined ? {} : { guardOutcome: outcome }),
+      durationMs: Date.now() - startMs,
+      toolName: input.tool_name,
+      sessionId: input.session_id,
+    });
     process.exit(0);
+  };
+
+  if (mode === "disabled") {
+    recordAndExit();
   }
 
   if (!COVERED_TOOL_NAMES.has(input.tool_name)) {
-    process.exit(0);
+    recordAndExit();
   }
 
   const ctx = resolveSessionContext(input);
@@ -378,7 +406,7 @@ if (import.meta.main) {
       `[post-merge-unasked-direction-scan] Could not resolve a workspace sessionId — skipping. ` +
         `${describeToolResultShape(input)}\n`
     );
-    process.exit(0);
+    recordAndExit();
   }
 
   // mt#3066: the transcript is keyed by the HARNESS CONVERSATION id, which the
@@ -390,7 +418,7 @@ if (import.meta.main) {
     process.stderr.write(
       "[post-merge-unasked-direction-scan] Hook input carried no session_id (harness conversation id) — skipping\n"
     );
-    process.exit(0);
+    recordAndExit();
   }
 
   // mt#4778: the store root no longer derives from `input.cwd` AT ALL.
@@ -416,7 +444,7 @@ if (import.meta.main) {
         `(workspace session ${ctx.sessionId}) — skipping. If this repeats for every merge, the ` +
         "ingest path is behind, not the conversation empty.\n"
     );
-    process.exit(0);
+    recordAndExit();
   }
 
   const completionService = await buildCompletionService();
@@ -424,7 +452,7 @@ if (import.meta.main) {
     process.stderr.write(
       "[post-merge-unasked-direction-scan] No AI provider configured — skipping analyzer\n"
     );
-    process.exit(0);
+    recordAndExit();
   }
 
   let output;
@@ -455,7 +483,7 @@ if (import.meta.main) {
       message,
       { taskId: ctx.taskId }
     );
-    process.exit(0);
+    recordAndExit("crashed");
   }
 
   const wrote = await writeFindings(projectRoot, ctx.sessionId, output, {
@@ -475,5 +503,6 @@ if (import.meta.main) {
     );
   }
 
-  process.exit(0);
+  // The analyzer ran to completion: the one exit that is clean-run evidence.
+  recordAndExit("decided");
 }

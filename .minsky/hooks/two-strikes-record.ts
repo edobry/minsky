@@ -38,6 +38,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } fr
 import { join, dirname } from "path";
 import { readInput } from "./types";
 import type { ToolHookInput } from "./types";
+import { recordFireLogEntry } from "./fire-log";
 import {
   TwoStrikesTracker,
   type TrackerSnapshot,
@@ -318,12 +319,28 @@ export function defaultDeps(): HookDeps {
 // documented "never propagates failure to the agent" was code-level
 // aspirational rather than enforced.
 if (import.meta.main) {
+  const startMs = Date.now();
+  let input: ToolHookInput | undefined;
+  let outcome: "decided" | "crashed" = "decided";
   try {
-    const input = await readInput<ToolHookInput>();
+    input = await readInput<ToolHookInput>();
     runHook(input, defaultDeps());
   } catch (err) {
+    outcome = "crashed";
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`two-strikes-record hook failed: ${msg}\n`);
   }
+  // mt#5081: fire-log every evaluation, exactly once. A recorder never denies
+  // or injects, so the decision is always `allow`; the row is the evidence it
+  // ran, and `guardOutcome` says whether it ran cleanly.
+  recordFireLogEntry({
+    guardName: "two-strikes-record",
+    event: "PostToolUse",
+    decision: "allow",
+    guardOutcome: outcome,
+    durationMs: Date.now() - startMs,
+    ...(input?.tool_name === undefined ? {} : { toolName: input.tool_name }),
+    ...(input?.session_id === undefined ? {} : { sessionId: input.session_id }),
+  });
   process.exit(0);
 }

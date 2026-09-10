@@ -36,6 +36,10 @@
 
 import { execWithPath, readInput, writeOutput } from "./types";
 import type { ToolHookInput, HookOutput, ExecResult } from "./types";
+import { recordFireLogEntry } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#5081). */
+export const GUARD_NAME = "bridge-memory-retirement";
 
 /** Override env var name (source of truth — used in tests and CLAUDE.md docs). */
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_BRIDGE_RETIREMENT";
@@ -452,26 +456,46 @@ export function decide(
  * informational and must never block the tool call's success surfacing.
  */
 async function main(): Promise<void> {
+  const startMs = Date.now();
   let input: ToolHookInput;
   try {
     input = await readInput<ToolHookInput>();
   } catch {
-    // Malformed stdin — exit silently. Never block.
+    // Malformed stdin — never block. Recorded as a crash with no attribution
+    // (PR #3715 R1), consistent with every other guard this task touched.
+    recordFireLogEntry({
+      guardName: GUARD_NAME,
+      event: "PostToolUse",
+      decision: "allow",
+      guardOutcome: "crashed",
+      durationMs: Date.now() - startMs,
+    });
     process.exit(0);
   }
 
   const reminder = decide(input);
-  if (reminder === null) {
-    process.exit(0);
+
+  if (reminder !== null) {
+    const output: HookOutput = {
+      hookSpecificOutput: {
+        hookEventName: "PostToolUse",
+        additionalContext: reminder,
+      },
+    };
+    writeOutput(output);
   }
 
-  const output: HookOutput = {
-    hookSpecificOutput: {
-      hookEventName: "PostToolUse",
-      additionalContext: reminder,
-    },
-  };
-  writeOutput(output);
+  // mt#5081: fire-log every evaluation, exactly once — `warn` on injection,
+  // `allow` on pass-through, the dispatcher's mapping.
+  recordFireLogEntry({
+    guardName: GUARD_NAME,
+    event: "PostToolUse",
+    decision: reminder !== null ? "warn" : "allow",
+    guardOutcome: "decided",
+    durationMs: Date.now() - startMs,
+    toolName: input.tool_name,
+    sessionId: input.session_id,
+  });
   process.exit(0);
 }
 
