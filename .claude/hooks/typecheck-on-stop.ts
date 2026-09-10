@@ -12,11 +12,18 @@
 import { existsSync, readFileSync, unlinkSync } from "fs";
 import { readInput, execSync, resolveTsgoBinary } from "./types";
 import type { StopHookInput } from "./types";
+import { recordFireLogEntry } from "./fire-log";
 
+/** This guard's fire-log identifier (mt#5081). */
+const GUARD_NAME = "typecheck-on-stop";
+
+const startMs = Date.now();
 const input = await readInput<StopHookInput>();
 
 const sessionId = input.session_id ?? "default";
 const agentId = input.agent_id;
+// Registered on both Stop and SubagentStop; the agent_id is what tells them apart.
+const FIRE_LOG_EVENT = agentId ? "SubagentStop" : "Stop";
 // Determine state file: keyed by session_id and (if subagent) agent_id
 const stateFile = agentId
   ? `/tmp/claude-typecheck-roots-${sessionId}-${agentId}.txt`
@@ -86,6 +93,15 @@ if (failedRoots.length > 0) {
     reason: `TypeScript errors must be fixed before completing:\n${preview}\n\nTotal: ${totalCount} error(s). Fix all type errors before returning.`,
   };
   process.stdout.write(JSON.stringify(output));
+  // mt#5081: fire-log every evaluation, exactly once.
+  recordFireLogEntry({
+    guardName: GUARD_NAME,
+    event: FIRE_LOG_EVENT,
+    decision: "deny",
+    guardOutcome: "decided",
+    durationMs: Date.now() - startMs,
+    sessionId: input.session_id,
+  });
   process.exit(2);
 }
 
@@ -93,4 +109,12 @@ if (failedRoots.length > 0) {
 if (existsSync(stateFile)) {
   unlinkSync(stateFile);
 }
+recordFireLogEntry({
+  guardName: GUARD_NAME,
+  event: FIRE_LOG_EVENT,
+  decision: "allow",
+  guardOutcome: "decided",
+  durationMs: Date.now() - startMs,
+  sessionId: input.session_id,
+});
 process.exit(0);

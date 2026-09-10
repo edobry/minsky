@@ -37,6 +37,10 @@
 
 import { readInput } from "./types";
 import type { ToolHookInput, HookOutput } from "./types";
+import { recordFireLogEntry } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#5081). */
+export const GUARD_NAME = "deploy-verification-after-merge";
 import { deriveRepoFromGit, makeProdPrDeps } from "./require-execution-evidence-before-merge";
 import type { PrFile } from "./require-execution-evidence-before-merge";
 import { findDeploySurfaceFiles, findLocalAppDeploySurfaceFiles } from "./deploy-surface-detector";
@@ -226,11 +230,12 @@ export function decideDeployReminder(
 }
 
 async function main(): Promise<void> {
+  const startMs = Date.now();
   let input: ToolHookInput;
   try {
     input = await readInput<ToolHookInput>();
   } catch {
-    process.exit(0); // malformed stdin — never block
+    process.exit(0); // malformed stdin — never block; nothing to attribute a row to
   }
 
   // Honor the gate's operator override (MINSKY_SKIP_DEPLOY_VERIFY): a bypass of the
@@ -253,20 +258,38 @@ async function main(): Promise<void> {
   };
 
   let reminder: string | null = null;
+  let outcome: "decided" | "crashed" = "decided";
   try {
     reminder = decideDeployReminder(input, deps, suppressRailway);
   } catch {
-    process.exit(0); // any failure → silent (informational hook)
+    outcome = "crashed"; // any failure → silent (informational hook), but recorded
   }
-  if (reminder === null) process.exit(0);
 
-  const output: HookOutput = {
-    hookSpecificOutput: {
-      hookEventName: "PostToolUse",
-      additionalContext: reminder,
-    },
-  };
-  process.stdout.write(JSON.stringify(output));
+  if (reminder !== null) {
+    const output: HookOutput = {
+      hookSpecificOutput: {
+        hookEventName: "PostToolUse",
+        additionalContext: reminder,
+      },
+    };
+    process.stdout.write(JSON.stringify(output));
+  }
+
+  // mt#5081: fire-log every evaluation, exactly once — `warn` on injection,
+  // `allow` on pass-through, the dispatcher's mapping. The override, when set,
+  // is recorded as an env-sourced override so the classification join sees it.
+  recordFireLogEntry({
+    guardName: GUARD_NAME,
+    event: "PostToolUse",
+    decision: reminder !== null ? "warn" : "allow",
+    guardOutcome: outcome,
+    durationMs: Date.now() - startMs,
+    toolName: input.tool_name,
+    sessionId: input.session_id,
+    ...(suppressRailway
+      ? { overrideEnvVar: OVERRIDE_ENV_VAR, overrideSource: "env" as const }
+      : {}),
+  });
   process.exit(0);
 }
 

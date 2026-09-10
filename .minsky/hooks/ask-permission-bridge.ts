@@ -54,6 +54,10 @@ import {
   type AskGrant,
 } from "./ask-grant-store";
 import { verifyApprovedAsk, type AskVerificationResult } from "./ask-verification";
+import { recordFireLogEntry, type FireLogDecision } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#5081). */
+export const GUARD_NAME = "ask-permission-bridge";
 
 const BRIDGE_TOOLS = new Set(["Bash", "mcp__minsky__session_exec"]);
 
@@ -103,15 +107,18 @@ function emitAuditEvent(grant: AskGrant, command: string): void {
   }
 }
 
-async function main(): Promise<void> {
-  const input = await readInput<ToolHookInput>();
-
+/**
+ * Decide, and say what was decided. Every "defer to normal flow" return is an
+ * `allow` from the fire-log's point of view — the guard did not deny — which
+ * matches how `warn-peer-task-activity` records its pass-through (mt#5081).
+ */
+async function main(input: ToolHookInput): Promise<FireLogDecision> {
   // (1) Main-agent mechanism only — subagent calls keep the normal flow.
-  if (input.agent_id) return;
+  if (input.agent_id) return "allow";
 
   // (2) Tool / command extraction.
   const command = extractCommand(input.tool_name, input.tool_input ?? {});
-  if (!command) return;
+  if (!command) return "allow";
 
   // (3) Store read — conservative: unreadable store means no allow.
   const storePath = getAskGrantStorePath();
@@ -121,12 +128,12 @@ async function main(): Promise<void> {
       `[ask-permission-bridge] WARNING: grant store unreadable (${read.message}); ` +
         `deferring to normal permission flow.\n`
     );
-    return;
+    return "allow";
   }
 
   // (4) Grant match.
   const grant = findValidAskGrant(read.grants, { tool: input.tool_name, command }, Date.now());
-  if (!grant) return;
+  if (!grant) return "allow";
 
   // (5)/(6) Server-side re-verification of the referenced Ask.
   const verification = verifyApprovedAsk(grant.askId);
@@ -136,7 +143,7 @@ async function main(): Promise<void> {
         `(${verification.detail}); deferring to normal permission flow — never allowing on ` +
         `unverifiable state.\n`
     );
-    return;
+    return "allow";
   }
   if (verification.verdict === "not-approved") {
     writeOutput({
@@ -146,7 +153,7 @@ async function main(): Promise<void> {
         permissionDecisionReason: buildDenyReason(grant, verification),
       },
     });
-    return;
+    return "deny";
   }
 
   // (7) One-shot consumption BEFORE emitting the allow.
@@ -156,7 +163,7 @@ async function main(): Promise<void> {
       `[ask-permission-bridge] grant for ask ${grant.askId} was already consumed; ` +
         `deferring to normal permission flow.\n`
     );
-    return;
+    return "allow";
   }
 
   emitAuditEvent(grant, command);
@@ -168,10 +175,25 @@ async function main(): Promise<void> {
       permissionDecisionReason: buildAllowReason(grant),
     },
   });
+  return "allow";
 }
 
 if (import.meta.main) {
-  main().catch((err) => {
+  const startMs = Date.now();
+  const input = await readInput<ToolHookInput>();
+  try {
+    const decision = await main(input);
+    // mt#5081: fire-log every evaluation, exactly once.
+    recordFireLogEntry({
+      guardName: GUARD_NAME,
+      event: "PreToolUse",
+      decision,
+      guardOutcome: "decided",
+      durationMs: Date.now() - startMs,
+      toolName: input.tool_name,
+      sessionId: input.session_id,
+    });
+  } catch (err) {
     // A crashed bridge must never block or allow anything — swallow to
     // exit 0 (defer) with a loud stderr trace.
     process.stderr.write(
@@ -179,5 +201,14 @@ if (import.meta.main) {
         err instanceof Error ? (err.stack ?? err.message) : String(err)
       }\n`
     );
-  });
+    recordFireLogEntry({
+      guardName: GUARD_NAME,
+      event: "PreToolUse",
+      decision: "allow",
+      guardOutcome: "crashed",
+      durationMs: Date.now() - startMs,
+      toolName: input.tool_name,
+      sessionId: input.session_id,
+    });
+  }
 }

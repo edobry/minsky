@@ -37,7 +37,11 @@
 
 import { readInput } from "./types";
 import type { ToolHookInput, HookOutput } from "./types";
+import { recordFireLogEntry } from "./fire-log";
 import { decidePrConvergenceReminder } from "@minsky/domain/detectors/pr-convergence-reminder";
+
+/** This guard's fire-log identifier (mt#5081). */
+export const GUARD_NAME = "drive-pr-to-convergence";
 
 /**
  * Parse a hook payload into the decision's inputs, then relay the verdict.
@@ -67,26 +71,39 @@ export function decideReminderFromPayload(input: ToolHookInput): string | null {
  * and must never block the tool call's success surfacing.
  */
 async function main(): Promise<void> {
+  const startMs = Date.now();
   let input: ToolHookInput;
   try {
     input = await readInput<ToolHookInput>();
   } catch {
-    // Malformed stdin — exit silently. Never block.
+    // Malformed stdin — exit silently. Never block. No input means no
+    // tool/session to attribute a row to, so this path stays unrecorded.
     process.exit(0);
   }
 
   const reminder = decideReminderFromPayload(input);
-  if (reminder === null) {
-    process.exit(0);
+
+  if (reminder !== null) {
+    const output: HookOutput = {
+      hookSpecificOutput: {
+        hookEventName: "PostToolUse",
+        additionalContext: reminder,
+      },
+    };
+    process.stdout.write(JSON.stringify(output));
   }
 
-  const output: HookOutput = {
-    hookSpecificOutput: {
-      hookEventName: "PostToolUse",
-      additionalContext: reminder,
-    },
-  };
-  process.stdout.write(JSON.stringify(output));
+  // mt#5081: fire-log every evaluation, exactly once — `warn` on injection,
+  // `allow` on pass-through, the dispatcher's mapping.
+  recordFireLogEntry({
+    guardName: GUARD_NAME,
+    event: "PostToolUse",
+    decision: reminder !== null ? "warn" : "allow",
+    guardOutcome: "decided",
+    durationMs: Date.now() - startMs,
+    toolName: input.tool_name,
+    sessionId: input.session_id,
+  });
   process.exit(0);
 }
 

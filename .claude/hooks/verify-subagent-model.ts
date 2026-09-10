@@ -61,6 +61,10 @@
 
 import { readInput } from "./types";
 import type { ToolHookInput, HookOutput } from "./types";
+import { recordFireLogEntry } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#5081). */
+export const GUARD_NAME = "verify-subagent-model";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
@@ -292,11 +296,13 @@ export function appendMismatchRecord(
 }
 
 async function main(): Promise<void> {
+  const startMs = Date.now();
   let input: ToolHookInput;
   try {
     input = await readInput<ToolHookInput>();
   } catch {
-    // Malformed stdin — exit silently. Never block.
+    // Malformed stdin — exit silently. Never block. No input means nothing
+    // to attribute a row to, so this path stays unrecorded.
     process.exit(0);
   }
 
@@ -308,6 +314,16 @@ async function main(): Promise<void> {
     process.stderr.write(
       `[verify-subagent-model] Decision error: ${err instanceof Error ? err.message : String(err)}\n`
     );
+    // mt#5081: the fail-open path is the row most worth having.
+    recordFireLogEntry({
+      guardName: GUARD_NAME,
+      event: "PostToolUse",
+      decision: "allow",
+      guardOutcome: "crashed",
+      durationMs: Date.now() - startMs,
+      toolName: input.tool_name,
+      sessionId: input.session_id,
+    });
     process.exit(0);
   }
 
@@ -325,6 +341,18 @@ async function main(): Promise<void> {
     process.stdout.write(JSON.stringify(output));
   }
 
+  // mt#5081: fire-log every evaluation, exactly once — `warn` when guidance
+  // was injected, `allow` otherwise (the dispatcher's mapping). A log-only
+  // mismatch is an `allow` that also wrote its own flat-file record.
+  recordFireLogEntry({
+    guardName: GUARD_NAME,
+    event: "PostToolUse",
+    decision: decision.kind === "warn" ? "warn" : "allow",
+    guardOutcome: "decided",
+    durationMs: Date.now() - startMs,
+    toolName: input.tool_name,
+    sessionId: input.session_id,
+  });
   process.exit(0);
 }
 
