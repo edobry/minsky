@@ -260,7 +260,11 @@ import {
 
 // mt#2782: the secondary alert channel's decisions — coalesce, payload shape,
 // and reading the response as an OUTCOME rather than a transport status.
-import { runAskAlert } from "../packages/domain/src/deployment/monitor-ask-alert";
+import {
+  runAskAlert,
+  runAskRecoveryClose,
+} from "../packages/domain/src/deployment/monitor-ask-alert";
+import { withMcpSession } from "../packages/domain/src/deployment/monitor-mcp-session";
 
 // ---------------------------------------------------------------------------
 // Service definitions — discovered at runtime from deploy.config.ts files
@@ -1475,9 +1479,26 @@ async function resolveP0IfRecovered(
 // Secondary alert: MCP asks_create (best-effort)
 // ---------------------------------------------------------------------------
 
-const MINSKY_MCP_URL = "https://minsky-mcp-production.up.railway.app/mcp";
-const MCP_TIMEOUT_MS = 15_000;
+// The session shell — the init handshake, the JSON-RPC envelope, and the
+// SSE-aware body read — lives in
+// `packages/domain/src/deployment/monitor-mcp-session.ts` as of mt#4012.
+//
+// It was inline here, and that is the whole reason its defect survived: this
+// script calls `main()` at module scope, so nothing can import it, so the one
+// piece of the channel whose correctness is a claim about the WIRE was
+// unreachable from any test or probe. The only thing that ever exercised it was
+// a production outage. `scripts/verify-monitor-ask-channel.ts` now drives the
+// same code path against a live server on demand.
+//
+// Decisions and response reading stay in `monitor-ask-alert.ts`, pure and
+// tested; this file keeps the orchestration.
 
+/**
+ * SECONDARY alert channel: raise an ask for a failing service (mt#2782).
+ *
+ * Thin over `withMcpSession` + `runAskAlert` — the list/decide/create/verify
+ * sequence is in the domain module.
+ */
 async function alertViaMcp(
   mcpAuthToken: string,
   service: string,
@@ -1485,107 +1506,63 @@ async function alertViaMcp(
   subject: string,
   details: string
 ): Promise<void> {
-  // JSON-RPC asks_create over HTTP MCP (mt#2782).
-  //
-  // This path had never created an ask AND logged "sent successfully" every
-  // time, because it checked only the HTTP status — a JSON-RPC error comes back
-  // as 200 with an `error` member. Three things changed:
-  //   1. the registered tool name, not the Claude Code harness prefix;
-  //   2. declared params only (title/question/metadata), not subject/body/priority;
-  //   3. success is the RETURNED ASK ID. `parseAskCreateResponse` treats an
-  //      accepted call that created nothing as a failure, which is the case
-  //      "it didn't throw" cannot see.
-  // It also coalesces, so a sustained outage does not open one ask per 10-minute
-  // tick. Decisions live in the domain module; the fetches stay here.
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), MCP_TIMEOUT_MS);
+  const result = await withMcpSession({ authToken: mcpAuthToken }, (callTool) =>
+    runAskAlert({ callTool, service, failureClass, subject, details })
+  );
 
-  try {
-    // Initialize MCP session first.
-    const initRes = await fetch(MINSKY_MCP_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${mcpAuthToken}`,
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {
-          protocolVersion: "2024-11-05",
-          capabilities: {},
-          clientInfo: { name: "post-deploy-health-monitor", version: "1.0" },
-        },
-      }),
-      signal: controller.signal,
-    });
+  if (result.outcome === "coalesced") {
+    console.log(
+      `[mcp] asks_create skipped — ask ${result.existingAskId} is already open for ` +
+        `${service}/${failureClass} (coalesced)`
+    );
+    return;
+  }
 
-    if (!initRes.ok) {
-      throw new Error(`MCP init HTTP ${initRes.status}`);
-    }
+  console.log(`[mcp] asks_create created ask ${result.askId} for ${service}/${failureClass}`);
+}
 
-    // Extract session ID from response headers (minsky-mcp uses Mcp-Session-Id).
-    const sessionId = initRes.headers.get("mcp-session-id");
-    if (!sessionId) {
-      throw new Error("MCP init response missing mcp-session-id header");
-    }
-
-    const callTool = async (id: number, name: string, args: object): Promise<unknown> => {
-      const res = await fetch(MINSKY_MCP_URL, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${mcpAuthToken}`,
-          "Content-Type": "application/json",
-          Accept: "application/json, text/event-stream",
-          "mcp-session-id": sessionId,
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id,
-          method: "tools/call",
-          params: { name, arguments: args },
-        }),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        // Still checked — a transport failure is a real failure. It is just no
-        // longer treated as the ONLY way this can fail.
-        throw new Error(`MCP ${name} HTTP ${res.status}`);
-      }
-      // Deliberately untyped at this boundary: the two parsers in
-      // monitor-ask-alert.ts take `unknown` and do the narrowing, which is where
-      // the shape assertions are tested. Typing it here would be a claim about
-      // the wire format that nothing checks.
-      const parsed: unknown = await res.json();
-      return parsed;
-    };
-
-    // List -> decide -> create -> verify. The sequence lives in the domain
-    // module so it is testable end-to-end with an injected caller (PR #2888 R1);
-    // this shell owns only the session and the JSON-RPC envelope.
-    let nextRequestId = 2;
-    const result = await runAskAlert({
-      callTool: (name, args) => callTool(nextRequestId++, name, args),
+/**
+ * Retire the ask a recovered class left open (mt#4012).
+ *
+ * The ask-channel counterpart of `resolveP0IfRecovered`, called from the same
+ * loop and gated by the same evidence. Without it, `decideAskAlert`'s coalesce
+ * turns into a leak: one ask per incident instead of one per tick is right, but
+ * an ask opened for a class that later recovers would otherwise stay open
+ * forever — the exact gap mt#3963 closed on the GitHub-issue side.
+ *
+ * **Only call this for a class `observedRecoveredClasses` reports.** That
+ * function requires positive evidence the detecting check RAN and found no
+ * problem, so a check that could not run closes nothing. "No alert fired this
+ * run" is not recovery.
+ */
+async function retireAskOnRecoveryViaMcp(
+  mcpAuthToken: string,
+  service: string,
+  failureClass: string,
+  runRef: string
+): Promise<void> {
+  const result = await withMcpSession({ authToken: mcpAuthToken }, (callTool) =>
+    runAskRecoveryClose({
+      callTool,
       service,
       failureClass,
-      subject,
-      details,
-    });
+      reason:
+        `post-deploy-health-monitor observed ${service}/${failureClass} recovered ` +
+        `(${runRef}). Retiring the alert; no answer was needed.`,
+    })
+  );
 
-    if (result.outcome === "coalesced") {
-      console.log(
-        `[mcp] asks_create skipped — ask ${result.existingAskId} is already open for ` +
-          `${service}/${failureClass} (coalesced)`
-      );
-      return;
-    }
-
-    console.log(`[mcp] asks_create created ask ${result.askId} for ${service}/${failureClass}`);
-  } finally {
-    clearTimeout(timeoutId);
+  if (result.outcome === "none") {
+    // Routine: most recovered classes never had an ask open. Logged at all only
+    // because this channel's history is of silent no-ops that read as success.
+    console.log(`  [mcp] no open ask for ${service}/${failureClass} — nothing to retire`);
+    return;
   }
+
+  console.log(
+    `  [mcp] retired ask ${result.askId} for ${service}/${failureClass} ` +
+      `(${result.disposition})`
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -2127,6 +2104,22 @@ async function main(): Promise<void> {
         runRef,
         dryRun
       );
+
+      // mt#4012 — the same retirement, one channel over. The coalesce added by
+      // mt#2782 means a sustained outage opens ONE ask instead of one per tick;
+      // without this, that one ask stays open after the condition clears. Same
+      // loop, same recovery evidence, same dry-run posture as the P0 path above,
+      // and best-effort for the same reason `alertViaMcp` is: the secondary
+      // channel must never break the primary.
+      if (mcpAuthToken && !dryRun) {
+        try {
+          await retireAskOnRecoveryViaMcp(mcpAuthToken, svc.name, recoveredClass, runRef);
+        } catch (err) {
+          console.warn(`  [mcp] ask retirement failed (non-fatal): ${err}`);
+        }
+      } else if (mcpAuthToken && dryRun) {
+        console.log(`  [dry-run] Would retire any open ask for ${svc.name}/${recoveredClass}`);
+      }
     }
 
     // A Record, not a ternary chain (mt#1495) — same reason as `issueTitle`. The

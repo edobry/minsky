@@ -11,14 +11,21 @@ import { describe, expect, test } from "bun:test";
 import {
   COALESCE_KEY_FIELD,
   MONITOR_ALERT_ASK_KIND,
+  MONITOR_RECOVERY_RESPONDER,
   buildAskCreateArguments,
   buildCoalesceKey,
   decideAskAlert,
+  decideAskCancel,
+  describeResponseBody,
+  parseAskCancelResponse,
   parseAskCreateResponse,
   parseOpenAsksResponse,
   runAskAlert,
+  runAskRecoveryClose,
+  selectJsonRpcResponse,
   type ExistingAsk,
 } from "./monitor-ask-alert";
+import { parseSseEventData } from "../../../../src/mcp/shim/sse";
 
 const SERVICE = "minsky-ops";
 const FAILURE_CLASS = "digest-lag";
@@ -371,5 +378,360 @@ describe("parseAskCreateResponse — success is the returned id, not the absence
       result: { content: [{ type: "text", text: `Created ask#8014 for the alert.` }] },
     });
     expect(outcome).toEqual({ ok: true, askId: "ask#8014" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4012 — reading an SSE-framed response body
+// ---------------------------------------------------------------------------
+
+/**
+ * Frame a JSON-RPC message the way the MCP Streamable-HTTP transport does.
+ * Mirrors a real captured body: `event: message` then one `data:` line.
+ */
+function sseFrame(message: unknown): string {
+  return `event: message\ndata: ${JSON.stringify(message)}\n\n`;
+}
+
+/** The content type the transport does NOT send for a tool call — the contrast case. */
+const JSON_CONTENT_TYPE = "application/json";
+
+/** The disposition that makes a re-run safe (AT4). */
+const ALREADY_TERMINAL = "already-terminal";
+
+describe("selectJsonRpcResponse (mt#4012)", () => {
+  test("REGRESSION: the exact production body shape parses instead of throwing", () => {
+    // This is the defect. `await res.json()` on this body threw
+    // `SyntaxError: Failed to parse JSON` on every call the channel ever made,
+    // across at least the 2026-09-09/10 site outage and the 2026-08-19 reviewer
+    // outage. Verified byte-exact against a live `minsky mcp start --http`.
+    const body =
+      "event: message\n" +
+      `data: {"result":{"content":[{"type":"text","text":"{\\"id\\":\\"${ASK_UUID}\\"}"}]},"jsonrpc":"2.0","id":2}\n\n`;
+
+    // The old read, kept as an executable statement of what was broken.
+    expect(() => JSON.parse(body)).toThrow();
+
+    const message = selectJsonRpcResponse(parseSseEventData(body), 2);
+    expect(parseAskCreateResponse(message)).toEqual({ ok: true, askId: ASK_UUID });
+  });
+
+  test("selects the frame whose JSON-RPC id matches the request", () => {
+    const buffers = parseSseEventData(
+      sseFrame({ jsonrpc: "2.0", method: "notifications/progress", params: {} }) +
+        sseFrame({ jsonrpc: "2.0", id: 7, result: { content: [] } }) +
+        sseFrame({ jsonrpc: "2.0", id: 8, result: { content: [] } })
+    );
+    expect(selectJsonRpcResponse(buffers, 8)).toMatchObject({ id: 8 });
+  });
+
+  test("a progress notification ahead of the result does not win", () => {
+    // The reason this matches on id rather than taking the first frame.
+    const buffers = parseSseEventData(
+      sseFrame({ jsonrpc: "2.0", method: "notifications/progress", params: { progress: 1 } }) +
+        sseFrame({ jsonrpc: "2.0", id: 3, result: { content: [{ type: "text", text: "{}" }] } })
+    );
+    expect(selectJsonRpcResponse(buffers, 3)).toMatchObject({ id: 3 });
+  });
+
+  test("falls back to the first parseable object when no id matches", () => {
+    const buffers = parseSseEventData(sseFrame({ jsonrpc: "2.0", id: 99, result: {} }));
+    expect(selectJsonRpcResponse(buffers, 2)).toMatchObject({ id: 99 });
+  });
+
+  test("a non-JSON frame is skipped rather than failing the whole read", () => {
+    const buffers = parseSseEventData(
+      `event: message\ndata: not-json\n\n${sseFrame({ jsonrpc: "2.0", id: 4, result: {} })}`
+    );
+    expect(selectJsonRpcResponse(buffers, 4)).toMatchObject({ id: 4 });
+  });
+
+  test("returns null when nothing parsed, which the outcome parsers read as FAILURE", () => {
+    expect(selectJsonRpcResponse([], 2)).toBeNull();
+    // The fallback can never manufacture a success.
+    expect(parseAskCreateResponse(selectJsonRpcResponse([], 2)).ok).toBe(false);
+  });
+});
+
+describe("describeResponseBody (mt#4012)", () => {
+  test("identifies SSE frames — the shape that was failing in production", () => {
+    expect(describeResponseBody("text/event-stream", sseFrame({ id: 2 }))).toContain(
+      "shape=sse-frames"
+    );
+  });
+
+  test("distinguishes the other candidate shapes the diagnosis had to rule out", () => {
+    expect(describeResponseBody(JSON_CONTENT_TYPE, '{"a":1}')).toContain("shape=json-object");
+    expect(describeResponseBody("text/html", "<html><body>401</body></html>")).toContain("markup");
+    expect(describeResponseBody(null, "   ")).toContain("shape=empty");
+    expect(describeResponseBody(null, "")).toContain('content-type="(absent)"');
+  });
+
+  test("reports byte length, so an empty body is distinguishable from a missing read", () => {
+    expect(describeResponseBody(JSON_CONTENT_TYPE, '{"a":1}')).toContain("7 bytes");
+  });
+
+  test("counts UTF-8 BYTES, not UTF-16 code units", () => {
+    // Pins the PR #3707 R1 change from `Buffer.byteLength` to `TextEncoder`:
+    // both count UTF-8 bytes, and `.length` on the string would not. "é" is one
+    // character and two bytes; the emoji is one code point and four.
+    expect(describeResponseBody(null, "é")).toContain("2 bytes");
+    expect(describeResponseBody(null, "🚀")).toContain("4 bytes");
+  });
+
+  test("emits NO body content — this string lands in a public Actions log", () => {
+    const secretish = JSON.stringify({ token: "ghp_examplevalue", title: "prod outage detail" });
+    const described = describeResponseBody(JSON_CONTENT_TYPE, secretish);
+    expect(described).not.toContain("ghp_examplevalue");
+    expect(described).not.toContain("prod outage detail");
+    expect(described).not.toContain("token");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4012 — retiring an ask when its class recovers
+// ---------------------------------------------------------------------------
+
+const COALESCED_ASK: ExistingAsk = {
+  id: ASK_UUID,
+  state: "suspended",
+  metadata: { [COALESCE_KEY_FIELD]: buildCoalesceKey(SERVICE, FAILURE_CLASS) },
+};
+
+describe("decideAskCancel (mt#4012)", () => {
+  test("cancels the ask carrying this incident's coalesce key", () => {
+    expect(
+      decideAskCancel({ openAsks: [COALESCED_ASK], service: SERVICE, failureClass: FAILURE_CLASS })
+    ).toEqual({ action: "cancel", askId: ASK_UUID });
+  });
+
+  test("matches the SAME key decideAskAlert coalesces on, so the two agree", () => {
+    // Whatever ask the alert path would have coalesced onto is the one the
+    // recovery path retires — asserted against the alert decision itself.
+    const alert = decideAskAlert({
+      openAsks: [COALESCED_ASK],
+      service: SERVICE,
+      failureClass: FAILURE_CLASS,
+    });
+    const cancel = decideAskCancel({
+      openAsks: [COALESCED_ASK],
+      service: SERVICE,
+      failureClass: FAILURE_CLASS,
+    });
+    expect(alert).toEqual({ action: "skip", reason: "already-open", existingAskId: ASK_UUID });
+    expect(cancel).toEqual({ action: "cancel", askId: ASK_UUID });
+  });
+
+  test("a different service or class is NOT retired", () => {
+    expect(
+      decideAskCancel({
+        openAsks: [COALESCED_ASK],
+        service: "minsky-mcp",
+        failureClass: FAILURE_CLASS,
+      })
+    ).toEqual({ action: "none", reason: "no-open-ask" });
+    expect(
+      decideAskCancel({ openAsks: [COALESCED_ASK], service: SERVICE, failureClass: "health-down" })
+    ).toEqual({ action: "none", reason: "no-open-ask" });
+  });
+
+  test("an already-terminal ask is not retired again (AT4)", () => {
+    for (const state of ["closed", "cancelled", "expired"]) {
+      expect(
+        decideAskCancel({
+          openAsks: [{ ...COALESCED_ASK, state }],
+          service: SERVICE,
+          failureClass: FAILURE_CLASS,
+        })
+      ).toEqual({ action: "none", reason: "no-open-ask" });
+    }
+  });
+
+  test("no open asks at all is a no-op, not an error", () => {
+    expect(
+      decideAskCancel({ openAsks: [], service: SERVICE, failureClass: FAILURE_CLASS })
+    ).toEqual({
+      action: "none",
+      reason: "no-open-ask",
+    });
+  });
+});
+
+describe("parseAskCancelResponse (mt#4012)", () => {
+  test.each(["cancelled", "closed", ALREADY_TERMINAL])(
+    "%s is a terminal disposition — SUCCESS",
+    (outcome) => {
+      expect(parseAskCancelResponse(jsonResult({ askId: ASK_UUID, outcome }))).toEqual({
+        ok: true,
+        askId: ASK_UUID,
+        outcome,
+      });
+    }
+  );
+
+  test.each(["not-found", "skipped"])(
+    "%s leaves the ask unretired — FAILURE, not a benign no-op",
+    (outcome) => {
+      const result = parseAskCancelResponse(jsonResult({ askId: ASK_UUID, outcome }));
+      expect(result.ok).toBe(false);
+    }
+  );
+
+  test("a JSON-RPC error is a FAILURE even though HTTP was 200", () => {
+    const result = parseAskCancelResponse({ error: { message: "no such tool", code: -32601 } });
+    expect(result.ok).toBe(false);
+    expect(result).toMatchObject({ error: expect.stringContaining("-32601") });
+  });
+
+  test("isError is a FAILURE", () => {
+    expect(
+      parseAskCancelResponse({
+        result: { isError: true, content: [{ type: "text", text: "boom" }] },
+      }).ok
+    ).toBe(false);
+  });
+
+  test("a success-shaped result with no outcome is a FAILURE", () => {
+    // Same rule as the create path: only a real disposition proves anything.
+    expect(parseAskCancelResponse(jsonResult({ askId: ASK_UUID })).ok).toBe(false);
+    expect(parseAskCancelResponse(jsonResult({})).ok).toBe(false);
+  });
+
+  test("a non-object body is a FAILURE", () => {
+    expect(parseAskCancelResponse(null).ok).toBe(false);
+    expect(parseAskCancelResponse("cancelled").ok).toBe(false);
+  });
+});
+
+describe("runAskRecoveryClose (mt#4012)", () => {
+  function caller(responses: Record<string, unknown>) {
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+    const callTool = async (name: string, args: object) => {
+      calls.push({ name, args: args as Record<string, unknown> });
+      return responses[name];
+    };
+    return { calls, callTool };
+  }
+
+  test("AT2: an open coalesced ask is listed, cancelled, and verified", async () => {
+    const { calls, callTool } = caller({
+      asks_list: jsonResult([COALESCED_ASK]),
+      asks_cancel: jsonResult({ askId: ASK_UUID, outcome: "cancelled" }),
+    });
+
+    const result = await runAskRecoveryClose({
+      callTool,
+      service: SERVICE,
+      failureClass: FAILURE_CLASS,
+      reason: "recovered",
+    });
+
+    expect(result).toEqual({ outcome: "cancelled", askId: ASK_UUID, disposition: "cancelled" });
+    expect(calls.map((c) => c.name)).toEqual(["asks_list", "asks_cancel"]);
+    expect(calls[1]?.args).toMatchObject({ id: ASK_UUID, reason: "recovered" });
+  });
+
+  test("records a SYSTEM responder, never the operator (SC3)", async () => {
+    // `asks.cancel` REJECTS a literal `operator` responder, because cancelling
+    // is not answering — recording the principal would misreport an automated
+    // withdrawal as a decision they made.
+    const { calls, callTool } = caller({
+      asks_list: jsonResult([COALESCED_ASK]),
+      asks_cancel: jsonResult({ askId: ASK_UUID, outcome: "cancelled" }),
+    });
+    await runAskRecoveryClose({
+      callTool,
+      service: SERVICE,
+      failureClass: FAILURE_CLASS,
+      reason: "recovered",
+    });
+    expect(calls[1]?.args.responder).toBe(MONITOR_RECOVERY_RESPONDER);
+    expect(MONITOR_RECOVERY_RESPONDER).toStartWith("system:");
+    expect(MONITOR_RECOVERY_RESPONDER).not.toBe("operator");
+  });
+
+  test("no open ask: does NOT call asks_cancel at all", async () => {
+    const { calls, callTool } = caller({ asks_list: jsonResult([]) });
+    const result = await runAskRecoveryClose({
+      callTool,
+      service: SERVICE,
+      failureClass: FAILURE_CLASS,
+      reason: "recovered",
+    });
+    expect(result).toEqual({ outcome: "none", reason: "no-open-ask" });
+    expect(calls.map((c) => c.name)).toEqual(["asks_list"]);
+  });
+
+  test("AT4: a re-run after the close neither reopens nor duplicates", async () => {
+    // Second tick sees the ask already terminal, so it short-circuits at the
+    // decision and issues no cancel.
+    const { calls, callTool } = caller({
+      asks_list: jsonResult([{ ...COALESCED_ASK, state: "cancelled" }]),
+    });
+    const result = await runAskRecoveryClose({
+      callTool,
+      service: SERVICE,
+      failureClass: FAILURE_CLASS,
+      reason: "recovered",
+    });
+    expect(result).toEqual({ outcome: "none", reason: "no-open-ask" });
+    expect(calls.map((c) => c.name)).toEqual(["asks_list"]);
+  });
+
+  test("AT4: an already-terminal disposition from the tool is still a success", async () => {
+    // The race where two ticks overlap: we decided to cancel, someone else got
+    // there first. Idempotent by `asks.cancel`'s own contract.
+    const { callTool } = caller({
+      asks_list: jsonResult([COALESCED_ASK]),
+      asks_cancel: jsonResult({ askId: ASK_UUID, outcome: ALREADY_TERMINAL }),
+    });
+    const result = await runAskRecoveryClose({
+      callTool,
+      service: SERVICE,
+      failureClass: FAILURE_CLASS,
+      reason: "recovered",
+    });
+    expect(result).toMatchObject({ outcome: "cancelled", disposition: ALREADY_TERMINAL });
+  });
+
+  test("a cancel that did not retire the ask THROWS rather than reading as success", async () => {
+    const { callTool } = caller({
+      asks_list: jsonResult([COALESCED_ASK]),
+      asks_cancel: jsonResult({ askId: ASK_UUID, outcome: "not-found" }),
+    });
+    await expect(
+      runAskRecoveryClose({
+        callTool,
+        service: SERVICE,
+        failureClass: FAILURE_CLASS,
+        reason: "recovered",
+      })
+    ).rejects.toThrow(/did not retire ask/);
+  });
+
+  test("an unreadable asks_list retires NOTHING (fails safe)", async () => {
+    // parseOpenAsksResponse returns [] on any unreadable shape. On the alert
+    // side that duplicates an ask; here it simply retires nothing, which is the
+    // safe direction — a mis-parse must never close a live incident's ask.
+    const { calls, callTool } = caller({ asks_list: { error: { message: "boom" } } });
+    const result = await runAskRecoveryClose({
+      callTool,
+      service: SERVICE,
+      failureClass: FAILURE_CLASS,
+      reason: "recovered",
+    });
+    expect(result).toEqual({ outcome: "none", reason: "no-open-ask" });
+    expect(calls.map((c) => c.name)).toEqual(["asks_list"]);
+  });
+
+  test("lists the monitor's own ask kind", async () => {
+    const { calls, callTool } = caller({ asks_list: jsonResult([]) });
+    await runAskRecoveryClose({
+      callTool,
+      service: SERVICE,
+      failureClass: FAILURE_CLASS,
+      reason: "recovered",
+    });
+    expect(calls[0]?.args).toEqual({ kind: MONITOR_ALERT_ASK_KIND });
   });
 });
