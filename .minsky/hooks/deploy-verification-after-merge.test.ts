@@ -8,8 +8,10 @@ import {
   buildDeployVerificationReminder,
   buildTrayReinstallReminder,
   decideDeployReminder,
+  renderAffectedServicesLine,
   type PostMergeDeps,
 } from "./deploy-verification-after-merge";
+import { findAffectedServices } from "./deploy-surface-detector";
 import type { ToolHookInput } from "./types";
 import type { PrFile } from "./require-execution-evidence-before-merge";
 
@@ -18,6 +20,9 @@ const PR_URL = "https://github.com/edobry/minsky/pull/1741";
 const REPO = "edobry/minsky";
 const INFRA_INDEX = "infra/index.ts";
 const TRAY_FILE = "cockpit-tray/src-tauri/src/menu.rs";
+// mt#5002's originating file: consumed by the cockpit at build time, but attributed
+// to minsky-mcp by DEPLOY_SURFACE_SERVICE_MAP's `/^src\//` entry (mt#4013).
+const CATALOG_JSON = "src/generated/interceptor-catalog.json";
 const DEPLOY_WAIT = "deployment_wait-for-latest";
 const INSTALL_LOCAL = "install-local.sh";
 const f = (filename: string): PrFile => ({ filename, status: "modified" });
@@ -82,11 +87,61 @@ describe("extractMergedPrRef (mt#2353)", () => {
 
 describe("buildDeployVerificationReminder (mt#2353)", () => {
   test("names the files and the mandatory verify action + flake-is-blocker rule", () => {
-    const r = buildDeployVerificationReminder([INFRA_INDEX]);
+    const r = buildDeployVerificationReminder([INFRA_INDEX], ["minsky-mcp"]);
     expect(r).toContain(INFRA_INDEX);
     expect(r).toContain(DEPLOY_WAIT);
     expect(r).toContain("BLOCKER");
     expect(r).toContain("not the OUTCOME");
+  });
+});
+
+// mt#5002 — the reminder NAMES the affected services instead of saying "the
+// affected service(s)". Two sessions (2026-09-04, 2026-09-09) read that phrase,
+// picked the service by reasoning about which code consumes the changed file,
+// ran the check against the wrong one, and concluded the gate was broken.
+describe("renderAffectedServicesLine (mt#5002)", () => {
+  test("names every service, backticked, and cites the predicate it came from", () => {
+    const line = renderAffectedServicesLine(["minsky-mcp", "reviewer"]);
+    expect(line).toContain("`minsky-mcp`");
+    expect(line).toContain("`reviewer`");
+    expect(line).toContain("findAffectedServices");
+  });
+
+  // AT3 — an empty set is a finding, not a formatting case. The line must say so
+  // and must NOT send the agent hunting for a service by consumption reasoning.
+  test("an EMPTY set is stated explicitly, with the anti-pattern named", () => {
+    const line = renderAffectedServicesLine([]);
+    expect(line).toContain("NONE resolved");
+    expect(line).toContain("Do NOT pick a service");
+    expect(line).toContain("DEPLOY_SURFACE_SERVICE_MAP");
+    // Never an empty backtick pair or a dangling colon — the shape that reads as a bug.
+    expect(line).not.toMatch(/:\s*$/);
+    expect(line).not.toContain("``");
+  });
+});
+
+describe("buildDeployVerificationReminder names services (mt#5002)", () => {
+  // AT1 — the originating file class: consumed by the cockpit, attributed to minsky-mcp.
+  test("AT1: names the attributed service and drops the unqualified 'affected service(s)' hunt", () => {
+    const r = buildDeployVerificationReminder([CATALOG_JSON], ["minsky-mcp"]);
+    expect(r).toContain("`minsky-mcp`");
+    expect(r).not.toContain("for the affected service(s)");
+    // The instruction now says which, and says not to substitute a guess.
+    expect(r).toContain("EACH service named above");
+    expect(r).toContain("do NOT substitute");
+  });
+
+  // AT2 — several services, every one named.
+  test("AT2: names every service when several are affected", () => {
+    const r = buildDeployVerificationReminder(["package.json"], ["minsky-mcp", "reviewer"]);
+    expect(r).toContain("`minsky-mcp`");
+    expect(r).toContain("`reviewer`");
+  });
+
+  // AT3 — carried through from the line renderer into the full reminder.
+  test("AT3: an empty set is stated explicitly in the full reminder", () => {
+    const r = buildDeployVerificationReminder([INFRA_INDEX], []);
+    expect(r).toContain("NONE resolved");
   });
 });
 
@@ -101,9 +156,17 @@ describe("buildTrayReinstallReminder (mt#2976)", () => {
 });
 
 describe("decideDeployReminder (mt#2353)", () => {
-  const depsReturning = (files: PrFile[]): PostMergeDeps => ({
+  // The available-services list is injected (mt#5002) so these tests need no
+  // services/ tree on disk. The default mirrors production's real set at the
+  // time of writing; individual tests override it where the point is the list.
+  const AVAILABLE = ["cockpit", "minsky-mcp", "minsky-ops", "reviewer", "site"] as const;
+  const depsReturning = (
+    files: PrFile[],
+    available: readonly string[] = AVAILABLE
+  ): PostMergeDeps => ({
     deriveRepo: () => REPO,
     fetchPrFiles: () => ({ files }),
+    listAvailableServices: () => available,
   });
 
   test("reminds when the merged PR touched a deploy surface", () => {
@@ -113,6 +176,53 @@ describe("decideDeployReminder (mt#2353)", () => {
     );
     expect(reminder).not.toBeNull();
     expect(reminder).toContain(INFRA_INDEX);
+  });
+
+  // AT4 (mt#5002) — the reminder's service list is pinned against the REAL
+  // predicate's own return for the same inputs, so the text cannot drift from
+  // the machinery it quotes. This is the load-bearing test: it is the one that
+  // fails if a future edit renders a hand-maintained list, or a different
+  // predicate, or forgets a service.
+  test("AT4: the named services are exactly findAffectedServices' answer for the same files", () => {
+    const files = [f(CATALOG_JSON), f("services/reviewer/src/index.ts")];
+    const reminder = decideDeployReminder(mergeInput({ pr_url: PR_URL }), depsReturning(files));
+    expect(reminder).not.toBeNull();
+
+    const expected = findAffectedServices(
+      files.map((x) => x.filename),
+      AVAILABLE
+    ).services;
+    // Positive control on the fixture itself: this input must resolve to more
+    // than one service, or the assertion below cannot distinguish "named every
+    // service" from "named the first one".
+    expect(expected.length).toBeGreaterThan(1);
+    for (const svc of expected) expect(reminder).toContain(`\`${svc}\``);
+    // And no service OUTSIDE the predicate's answer is named.
+    for (const svc of AVAILABLE) {
+      if (!expected.includes(svc)) expect(reminder).not.toContain(`\`${svc}\``);
+    }
+  });
+
+  // AT1 (mt#5002), end to end through decide(): the originating file. Consumed
+  // by the cockpit; attributed to minsky-mcp; the reminder must say the latter
+  // and must not name the former.
+  test("AT1: the generated catalog names minsky-mcp, not the cockpit that consumes it", () => {
+    const reminder = decideDeployReminder(
+      mergeInput({ pr_url: PR_URL }),
+      depsReturning([f(CATALOG_JSON)])
+    );
+    expect(reminder).toContain("`minsky-mcp`");
+    expect(reminder).not.toContain("`cockpit`");
+  });
+
+  // AT3 (mt#5002) — when nothing resolves, the reminder says so rather than
+  // printing an empty list. Reached by removing every service the file maps to.
+  test("AT3: no resolvable service is stated explicitly, not rendered as an empty list", () => {
+    const reminder = decideDeployReminder(
+      mergeInput({ pr_url: PR_URL }),
+      depsReturning([f(CATALOG_JSON)], ["cockpit", "site"])
+    );
+    expect(reminder).toContain("NONE resolved");
   });
 
   test("silent when the merged PR touched no deploy surface", () => {
@@ -152,6 +262,18 @@ describe("decideDeployReminder (mt#2353)", () => {
     expect(reminder).toContain(INSTALL_LOCAL);
     expect(reminder).toContain(TRAY_FILE);
     expect(reminder).not.toContain(DEPLOY_WAIT);
+  });
+
+  // AT5 (mt#5002) — the tray section is byte-identical to its standalone builder
+  // for a tray-only merge: the service-naming change lives entirely in the
+  // Railway section and must not leak a services line into the tray reminder.
+  test("AT5: a tray-only merge renders exactly buildTrayReinstallReminder, no services line", () => {
+    const reminder = decideDeployReminder(
+      mergeInput({ pr_url: PR_URL }),
+      depsReturning([f(TRAY_FILE)])
+    );
+    expect(reminder).toBe(buildTrayReinstallReminder([TRAY_FILE]));
+    expect(reminder).not.toContain("Affected service(s)");
   });
 
   test("emits BOTH reminders for a mixed Railway + tray merge (mt#2976)", () => {
