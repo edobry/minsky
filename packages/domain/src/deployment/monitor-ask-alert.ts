@@ -334,6 +334,262 @@ export async function runAskAlert(input: {
   return { outcome: "created", askId: created.askId };
 }
 
+// ---------------------------------------------------------------------------
+// Reading the response body (mt#4012)
+// ---------------------------------------------------------------------------
+
+/**
+ * Pick THIS request's JSON-RPC message out of an SSE-framed response body.
+ *
+ * ## Why this exists
+ *
+ * The MCP Streamable-HTTP transport answers `tools/call` with
+ * `Content-Type: text/event-stream` unless the server opts into
+ * `enableJsonResponse`, which `src/mcp/server.ts` does not (the SDK default is
+ * `false`). So the body is `event: message\ndata: {...}`, not JSON — and the
+ * script's `await res.json()` threw `SyntaxError: Failed to parse JSON` on
+ * EVERY call for the life of this channel.
+ *
+ * It failed at the tool call rather than at `initialize` because the init step
+ * reads only the `mcp-session-id` HEADER and never touches its (equally
+ * SSE-framed) body. And `res.ok` is true throughout: the transport returns a
+ * perfectly good HTTP 200, so the existing status guard could never see it.
+ *
+ * The lexing is NOT reimplemented here — `parseSseEventData`
+ * (`src/mcp/shim/sse.ts`) already does it spec-correctly per the WHATWG
+ * event-stream algorithm, and the shim client has branched on this since
+ * mt#3812. The caller passes its data buffers in; what belongs here is the
+ * DECISION of which message is the answer to the request we made.
+ *
+ * Matches on the JSON-RPC `id` rather than taking the first frame, because a
+ * single response stream may legitimately carry notifications (progress events)
+ * alongside the result. Falls back to the first parseable object when no id
+ * matches, so a server that omits or rewrites the id still yields something the
+ * outcome parsers can judge — and they treat an unrecognized shape as FAILURE,
+ * so the fallback can never manufacture a false success.
+ *
+ * @param dataBuffers the `data:` payloads from one SSE response body, in order
+ * @param requestId the `id` sent on the JSON-RPC request
+ * @returns the matching message, or `null` when nothing parsed
+ */
+export function selectJsonRpcResponse(dataBuffers: string[], requestId: number): unknown {
+  let firstParsed: unknown = null;
+  let sawParsed = false;
+
+  for (const buffer of dataBuffers) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(buffer);
+    } catch {
+      // A frame that is not JSON is not this response — keep scanning rather
+      // than failing the whole read on one malformed or non-JSON-RPC event.
+      continue;
+    }
+    if (!parsed || typeof parsed !== "object") continue;
+
+    if (!sawParsed) {
+      firstParsed = parsed;
+      sawParsed = true;
+    }
+    if ((parsed as { id?: unknown }).id === requestId) return parsed;
+  }
+
+  return firstParsed;
+}
+
+/**
+ * Describe a response body's SHAPE for a diagnostic log line.
+ *
+ * The originating defect produced 43 minutes of production failure and exactly
+ * one repeated exception name, because the read path discarded the body before
+ * anything could look at it. This renders enough to identify the shape on the
+ * next occurrence.
+ *
+ * **Emits no body CONTENT, deliberately.** A tool response carries real records
+ * (ask titles, service details), and this string lands in a public GitHub
+ * Actions run log. Content-type, byte length and a structural classification
+ * are enough to tell an SSE frame from an auth redirect from an empty body —
+ * which is the whole diagnostic question — without putting payload text into a
+ * log. The classification reads only the first non-blank character, never a
+ * substring of the body.
+ */
+export function describeResponseBody(contentType: string | null, bodyText: string): string {
+  const type = contentType && contentType.trim() ? contentType.trim() : "(absent)";
+  const bytes = Buffer.byteLength(bodyText, "utf8");
+  return `content-type=${JSON.stringify(type)}, ${bytes} bytes, shape=${classifyBodyShape(bodyText)}`;
+}
+
+/** Structural classification only — never a substring of the body. */
+function classifyBodyShape(bodyText: string): string {
+  const trimmed = bodyText.trim();
+  if (!trimmed) return "empty";
+  if (/^(event|data|id|retry):/m.test(trimmed)) return "sse-frames";
+  const first = trimmed[0];
+  if (first === "{") return "json-object";
+  if (first === "[") return "json-array";
+  if (first === "<") return "markup (html/xml — likely an error or auth page)";
+  return "other-text";
+}
+
+// ---------------------------------------------------------------------------
+// Retiring an ask whose condition recovered (mt#4012)
+// ---------------------------------------------------------------------------
+
+/**
+ * Responder recorded on a monitor-driven cancellation.
+ *
+ * `system:<event>` per `asks.cancel`'s documented convention. The command
+ * REJECTS the literal `operator` outright, which is the property this channel
+ * depends on: the monitor is withdrawing an alert nobody answered, and
+ * recording the principal as the responder would misreport that as a decision
+ * they made (mt#3353).
+ */
+export const MONITOR_RECOVERY_RESPONDER = "system:monitor-observed-recovery";
+
+export type AskCancelDecision =
+  | { action: "cancel"; askId: string }
+  | { action: "none"; reason: "no-open-ask" };
+
+/**
+ * Decide whether a recovered class has an open ask to retire.
+ *
+ * The mirror image of `decideAskAlert`, matching on the SAME coalesce key, so
+ * the ask a recovery closes is by construction the one the alert opened.
+ *
+ * **Caller precondition — this function cannot enforce it.** Call this ONLY for
+ * a class `observedRecoveredClasses` reports, which requires POSITIVE evidence
+ * that the detecting check RAN and found no problem. "No alert fired this run"
+ * is NOT recovery (mt#3963), and a check that could not run is not recovery
+ * either — an unrunnable check must close nothing. The same precondition
+ * governs `resolveP0IfRecovered` on the GitHub-issue side, and both are called
+ * from the one loop that already establishes it.
+ */
+export function decideAskCancel(input: {
+  openAsks: ExistingAsk[];
+  service: string;
+  failureClass: string;
+}): AskCancelDecision {
+  const key = buildCoalesceKey(input.service, input.failureClass);
+  const existing = input.openAsks.find(
+    (ask) => isOpenAsk(ask.state) && ask.metadata?.[COALESCE_KEY_FIELD] === key
+  );
+  return existing
+    ? { action: "cancel", askId: existing.id }
+    : { action: "none", reason: "no-open-ask" };
+}
+
+export type AskCancelOutcome =
+  | { ok: true; askId: string; outcome: string }
+  | { ok: false; error: string };
+
+/**
+ * Read an `asks_cancel` response as an OUTCOME.
+ *
+ * Same discipline as `parseAskCreateResponse`, and for the same reason: this
+ * channel's founding defect was treating "the call did not throw" as evidence.
+ * Success here is a terminal disposition coming back — `cancelled`, `closed`,
+ * or `already-terminal`, the last being what makes a re-run safe (AT4).
+ *
+ * `not-found` and `skipped` are FAILURES rather than benign no-ops: both mean
+ * the ask we matched on is still out there unretired, which is the state this
+ * path exists to prevent, and reporting them as success would rebuild the
+ * original lie one command over.
+ */
+const TERMINAL_CANCEL_OUTCOMES: ReadonlySet<string> = new Set([
+  "cancelled",
+  "closed",
+  "already-terminal",
+]);
+
+export function parseAskCancelResponse(body: unknown): AskCancelOutcome {
+  if (!body || typeof body !== "object") {
+    return { ok: false, error: "response body was not an object" };
+  }
+  const envelope = body as {
+    error?: { message?: string; code?: number };
+    result?: { isError?: boolean; content?: unknown };
+  };
+
+  if (envelope.error) {
+    const code = envelope.error.code === undefined ? "" : ` (code ${envelope.error.code})`;
+    return { ok: false, error: `JSON-RPC error${code}: ${envelope.error.message ?? "unknown"}` };
+  }
+  if (!envelope.result) {
+    return { ok: false, error: "response carried neither result nor error" };
+  }
+  if (envelope.result.isError) {
+    return { ok: false, error: `tool reported isError: ${extractText(envelope.result.content)}` };
+  }
+
+  const text = extractText(envelope.result.content);
+  let parsed: { askId?: unknown; outcome?: unknown };
+  try {
+    parsed = JSON.parse(text) as { askId?: unknown; outcome?: unknown };
+  } catch {
+    return { ok: false, error: "cancel result was not JSON" };
+  }
+
+  const outcome = typeof parsed.outcome === "string" ? parsed.outcome : "";
+  if (!TERMINAL_CANCEL_OUTCOMES.has(outcome)) {
+    return {
+      ok: false,
+      error: `cancel did not retire the ask (outcome: ${outcome || "absent"})`,
+    };
+  }
+  return {
+    ok: true,
+    askId: typeof parsed.askId === "string" ? parsed.askId : "(unknown)",
+    outcome,
+  };
+}
+
+export type AskRecoveryCloseResult =
+  | { outcome: "cancelled"; askId: string; disposition: string }
+  | { outcome: "none"; reason: "no-open-ask" };
+
+/**
+ * List -> decide -> cancel -> verify, for a class observed RECOVERED.
+ *
+ * The symmetric counterpart of `runAskAlert`, sharing its structure so the two
+ * halves of the channel's lifecycle read the same way. Throws on a cancel that
+ * did not retire the ask, for the same reason `runAskAlert` throws on a create
+ * that produced no id: a failure that looks like a success is the one defect
+ * this whole module exists to prevent.
+ *
+ * See `decideAskCancel` for the recovery-evidence precondition the caller owns.
+ */
+export async function runAskRecoveryClose(input: {
+  callTool: McpToolCaller;
+  service: string;
+  failureClass: string;
+  reason: string;
+}): Promise<AskRecoveryCloseResult> {
+  const openAsks = parseOpenAsksResponse(
+    await input.callTool("asks_list", { kind: MONITOR_ALERT_ASK_KIND })
+  );
+
+  const decision = decideAskCancel({
+    openAsks,
+    service: input.service,
+    failureClass: input.failureClass,
+  });
+  if (decision.action === "none") {
+    return { outcome: "none", reason: decision.reason };
+  }
+
+  const cancelled = parseAskCancelResponse(
+    await input.callTool("asks_cancel", {
+      id: decision.askId,
+      reason: input.reason,
+      responder: MONITOR_RECOVERY_RESPONDER,
+    })
+  );
+  if (!cancelled.ok) {
+    throw new Error(`asks_cancel did not retire ask ${decision.askId}: ${cancelled.error}`);
+  }
+  return { outcome: "cancelled", askId: decision.askId, disposition: cancelled.outcome };
+}
+
 /** Flatten MCP `content` blocks to text. */
 function extractText(content: unknown): string {
   if (typeof content === "string") return content;
