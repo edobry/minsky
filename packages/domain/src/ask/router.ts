@@ -29,6 +29,10 @@ import type { PolicyCitation } from "./policy";
 import { closeWithPolicy } from "./transports/policy-resolver";
 import type { ClientCapabilityRegistry } from "../client-capabilities";
 import type { SystemEventInput } from "../storage/schemas/system-events-schema";
+// One definition of the machine-filed discriminator, shared with the disposer registry's
+// population queries (mt#5046). A second copy here would be the drift that makes the two
+// disagree about which population a row belongs to.
+import { MACHINE_FILED_TITLE_PREFIX } from "./disposer-registry";
 
 // ---------------------------------------------------------------------------
 // Service-window: page threshold constant
@@ -596,6 +600,18 @@ export function buildPolicyClosedEvent(
       title: result.title,
       citationSource: citation?.source ?? "unknown",
       ...(citation?.lineRange ? { citationLines: citation.lineRange } : {}),
+      // mt#5046. The policy-closed population is TWO phenomena — measured 2026-09-10, 1,713
+      // machine-filed commit-authorization rows against 10 agent-authored decisions — and a
+      // reader that does not separate them overstates one by ~170x while hiding the other.
+      //
+      // Carried on the PAYLOAD rather than expressed as an event category, because
+      // `eventCategory` maps a TYPE to a category and cannot say "actionable only when the ask
+      // was agent-authored". Flipping the whole type to `actionable` would re-categorize every
+      // historical machine-filed row, which is noise pointed at the operator. Emitting a second
+      // event type would need a schema change for a distinction the payload already carries.
+      // mt#4926 owns removing the machine-filed emission entirely; once it lands, the type-level
+      // flip becomes correct and this field becomes uniformly false.
+      machineFiled: result.title.startsWith(MACHINE_FILED_TITLE_PREFIX),
     },
     actor: result.requestor,
     relatedTaskId: result.parentTaskId,

@@ -315,6 +315,38 @@ Note this is the per-FAMILY case. The per-DETECTOR sibling — a whole detector
 quieted via `injection_enabled` — is still unsurfaced and owned by mt#4318; a
 log can be affected by one, the other, or both.
 
+### Step 1c — Disposer panel (mt#5046)
+
+Run every pass, alongside Step 1b, and for the same reason it exists: this population is
+invisible to Step 1's thresholds. A **disposer** is a code path that can set a terminal ask
+state — `closed`, `cancelled`, `expired` — on an ask bound for the operator, with a responder
+that is not the operator. Steps 1 and 1b both enroll by SUBSTRATE (a guard, a hook, a
+calibration log), so a domain function that disposes of a principal-bound decision appears in
+neither.
+
+- CLI: `bun scripts/review-disposers.ts --sql-only`
+
+It prints one panel per enrolled disposer — site, terminal states, event stream, and the
+population query — from `packages/domain/src/ask/disposer-registry.ts`. Read two things:
+
+- **`events: NONE EMITTED`** — the disposer runs and records nothing, so its population cannot
+  be reviewed from events at all. The declared `gap` says what is missing. As of 2026-09-10
+  this is **3 of 4** enrolled disposers; that is the finding, not a formatting artifact.
+- **The population query.** Run it against the review database and read the distribution. Every
+  query separates **machine-filed** (`Commit authorization:` titles) from **agent-authored**
+  rows, and that separation is load-bearing: measured 2026-09-10, the policy-closed population
+  is 1,714 machine-filed against 10 agent-authored, so a pooled rate overstates one by ~170x
+  and hides the other entirely.
+
+**What the panel does NOT tell you, and must not be read as telling you.** Whether a citation
+actually GRANTS the action it was used to authorize is a judgement — yours. A word-level
+"grant vocabulary" regex over the quotes returns 111 of 1,724, and every one is a quote
+*discussing* authorization rather than conferring it. The panel gives you counts and
+distributions; the classification is Step 2's job, exactly as it is for a detector's records.
+
+Origin: the router closed 1,700+ operator-bound asks over two months with no population ever
+read, while six well-written recurrence notes accumulated against it (mem#1378).
+
 ### Step 1b — Coverage-receipt check (mt#2554)
 
 Independent of the past-threshold gate above (a DEAD detector fires rarely, so it

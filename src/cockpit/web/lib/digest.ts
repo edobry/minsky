@@ -44,6 +44,16 @@ export interface DigestGroup {
     prsMerged: number;
     asksCreated: number;
     asksAnswered: number;
+    /**
+     * Asks the SYSTEM disposed of, counted apart from the ones a person answered (mt#5046).
+     *
+     * These used to be folded into `asksAnswered` and rendered as "resolved". A policy close
+     * is not a resolution — it is the router deciding the ask should not have been open, with
+     * `responder: "policy"` and no human involved. Measured 2026-09-10: 1,723 such closes, of
+     * which 10 were agent-authored decisions; every one of them read to the digest as an ask
+     * somebody answered.
+     */
+    asksDisposed: number;
     sessionsStarted: number;
     memories: number;
     deploys: number;
@@ -132,6 +142,7 @@ export function buildDigest(rows: DigestEventRow[]): DigestGroup[] {
           prsMerged: 0,
           asksCreated: 0,
           asksAnswered: 0,
+          asksDisposed: 0,
           sessionsStarted: 0,
           memories: 0,
           deploys: 0,
@@ -176,9 +187,15 @@ export function buildDigest(rows: DigestEventRow[]): DigestGroup[] {
         group.counts.asksCreated += 1;
         break;
       }
-      case "ask.answered":
-      case "ask.policy_closed": {
+      case "ask.answered": {
         group.counts.asksAnswered += 1;
+        break;
+      }
+      case "ask.policy_closed": {
+        // Split from `ask.answered` by mt#5046. A disposal counted as an answer is the
+        // reporting-side instance of the class this task is about: the digest reported the
+        // system removing a decision from the operator as the operator having made it.
+        group.counts.asksDisposed += 1;
         break;
       }
       case "session.started": {
@@ -237,6 +254,10 @@ export function summarizeCounts(counts: DigestGroup["counts"]): string {
   if (counts.asksCreated > 0)
     parts.push(`${counts.asksCreated} ask${counts.asksCreated > 1 ? "s" : ""} raised`);
   if (counts.asksAnswered > 0) parts.push(`${counts.asksAnswered} resolved`);
+  // Deliberately NOT "resolved": the wording is what made the fold invisible. "auto-closed by
+  // policy" names the actor, so a run of these reads as the system disposing rather than as
+  // work someone did.
+  if (counts.asksDisposed > 0) parts.push(`${counts.asksDisposed} auto-closed by policy`);
   if (counts.memories > 0)
     parts.push(`${counts.memories} memor${counts.memories > 1 ? "ies" : "y"} saved`);
   if (counts.deploys > 0)
