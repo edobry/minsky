@@ -435,6 +435,9 @@ export class MinskyStdioProxy {
       );
     }
     this.setupSignalHandlers();
+    // Before the first spawn pipes stdin: the listener must be in place before
+    // any byte — or EOF — is read off the upstream (mt#5096).
+    this.watchUpstreamStdin();
     this.armChildMemoryCeiling();
     await this.spawnChild();
   }
@@ -1263,31 +1266,76 @@ export class MinskyStdioProxy {
   }
 
   /**
-   * Install SIGTERM and SIGINT handlers.
-   * Sets `isShuttingDown=true`, forwards the signal to the child,
-   * then exits after the child terminates (or times out).
+   * End the proxy: stop respawning, disarm the memory bound, end the child
+   * gracefully, exit 0.
+   *
+   * One method for every "the proxy's reason to exist is gone" trigger — a
+   * SIGTERM/SIGINT, or the upstream closing its end of the pipe (mt#5096) —
+   * so the two paths cannot drift apart. Idempotent: `isShuttingDown` is set
+   * first, and `onChildClose` reads it to exit rather than respawn when the
+   * child's `close` lands before `killChild` resolves.
+   *
+   * Exit 0 on every trigger, including upstream EOF: a closed reader is a
+   * normal way for a pipeline to end (the same reasoning as `installBrokenPipeGuard`
+   * in `@minsky/shared/logger`), and the MCP spec's stdio shutdown sequence
+   * has the client close stdin first and WAIT for the server to exit.
+   */
+  private async shutdown(trigger: string): Promise<void> {
+    if (this.isShuttingDown) return;
+    this.isShuttingDown = true;
+
+    log.debug("[proxy] Shutting down", { trigger });
+
+    // mt#4112: disarm before the kill below, so a tick landing mid-teardown
+    // cannot start a restart of the child we are deliberately stopping.
+    this.childMemoryWatcher?.stop();
+    this.childMemoryWatcher = null;
+
+    // `killChild` short-circuits when the child has already exited — which is
+    // the usual case on upstream EOF, since the pipe propagates `end` to the
+    // child's stdin and the inner server exits on it — and SIGTERM→SIGKILLs a
+    // child that has not.
+    if (this.child && this.child.pid) {
+      await this.killChild(this.child);
+    }
+
+    process.exit(0);
+  }
+
+  /**
+   * Install SIGTERM and SIGINT handlers — both route to {@link shutdown}.
    */
   private setupSignalHandlers(): void {
-    const handleSignal = async (signal: NodeJS.Signals) => {
-      if (this.isShuttingDown) return;
-      this.isShuttingDown = true;
+    proc.on("SIGTERM", () => void this.shutdown("SIGTERM"));
+    proc.on("SIGINT", () => void this.shutdown("SIGINT"));
+  }
 
-      log.debug("[proxy] Signal received; shutting down", { signal });
-
-      // mt#4112: disarm before the kill below, so a tick landing mid-teardown
-      // cannot start a restart of the child we are deliberately stopping.
-      this.childMemoryWatcher?.stop();
-      this.childMemoryWatcher = null;
-
-      if (this.child && this.child.pid) {
-        await this.killChild(this.child);
-      }
-
-      process.exit(0);
-    };
-
-    proc.on("SIGTERM", () => void handleSignal("SIGTERM"));
-    proc.on("SIGINT", () => void handleSignal("SIGINT"));
+  /**
+   * Treat the upstream closing its end of the pipe as a shutdown (mt#5096).
+   *
+   * Without this the proxy never learns its client is gone. The pipe
+   * propagates `end` to `child.stdin`, the inner server exits clean on
+   * `stdin_close`, `onChildClose` classifies that as the staleness-exit shape
+   * it exists to absorb, and respawns — into the same already-ended stdin.
+   * Measured 2026-09-11 against a client that died without signaling: 38
+   * full inner-server boots in ~25 s, each one creating a persistence
+   * provider and rewriting the daemon-state file, with nothing to bound it
+   * (clean exits are excluded from the crash-loop counter by design).
+   *
+   * The MCP spec's stdio shutdown is exactly this signal: the client closes
+   * the server's stdin FIRST and waits for it to exit, sending SIGTERM only if
+   * it does not. A spec-following client therefore paid one wasted respawn per
+   * normal exit before this listener; one that dies without signaling paid the
+   * loop. The ADR-038 shim already ends on `stdin` `end` (`src/mcp/shim/main.ts`).
+   *
+   * `once` on both `end` and `close`: `end` is the EOF; `close` follows it, and
+   * on a stream destroyed without a clean EOF may be the only one of the two
+   * that fires. {@link shutdown} is idempotent, so the second is a no-op.
+   */
+  private watchUpstreamStdin(): void {
+    const stdin = proc.stdin as Readable;
+    stdin.once("end", () => void this.shutdown("upstream stdin end"));
+    stdin.once("close", () => void this.shutdown("upstream stdin close"));
   }
 
   /** For testing: expose internal state. */

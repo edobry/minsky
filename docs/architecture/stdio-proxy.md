@@ -282,6 +282,19 @@ process died. See "Disconnect-tracker integration" below.
 forwards it to the child. When `isShuttingDown = true`, the proxy does not respawn;
 it exits after the child terminates.
 
+**Upstream-EOF exits** (mt#5096) occur when the proxy's OWN stdin ends — the MCP client
+closed its end of the pipe, either as step 1 of the spec's stdio shutdown sequence (close
+stdin, wait for the server to exit, SIGTERM only if it does not) or by dying without
+signaling. The proxy takes the same path as a signal: `isShuttingDown = true`, the memory
+bound is disarmed, the child is ended (`killChild`, which short-circuits when the child has
+already exited on its own propagated EOF), and the proxy exits 0. Before this listener the
+proxy never observed its client leaving: the pipe propagated `end` to `child.stdin`, the
+inner server exited clean on `stdin_close`, that read as a staleness exit, and the proxy
+respawned into the same dead stdin — without bound, because clean exits are excluded from
+the crash counter below. Measured at 38 full inner-server boots in ~25 s against a client
+that died without signaling. The residual — a child that exits clean immediately for any
+OTHER reason still respawns unbounded — is mt#5114.
+
 **Crash exits** are counted in a sliding window (`FAILURE_WINDOW_MS = 60_000 ms`). If
 `MAX_CONSECUTIVE_FAILURES = 5` crashes occur in the window, the proxy gives up and
 exits with code 1. This prevents infinite restart loops for a fatally broken inner
