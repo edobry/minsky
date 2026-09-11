@@ -84,13 +84,12 @@ unestablished — they are mt#4608's own open questions (its SC1/SC2), and this 
 nothing about any of them. That determination, and the artifact's retirement once it is made,
 belongs to mt#4608 (see §Follow-up below).
 
-### (c) A fourth sense: the drive (working term; noun pending ask#11428)
+### (c) A fourth sense: the drive (noun decided — "drive"; ask#11428, ask#12011)
 
 A fourth concept needs marking, distinct from all three above: the cockpit's supervised
 subject-surface that spawns and reconnects a harness process (`DrivenSessionRecord`,
-`src/cockpit/driven-session-host.ts`). This ADR records it under the **working term "drive"** —
-the owned noun is a principal decision, open as **ask#11428**, and choosing it is explicitly out
-of this amendment's scope.
+`src/cockpit/driven-session-host.ts`). This ADR records it as **Drive** — the owned noun was a
+principal decision, decided by **ask#11428** ("Own noun") and **ask#12011** ("drive").
 
 Verified lifecycle (module docblock `driven-session-host.ts:1-26`;
 `packages/domain/src/storage/schemas/driven-sessions-schema.ts`):
@@ -128,6 +127,9 @@ vocabulary; the finding confirms the target vocabulary needs no change, rather t
 - **Other** (an option not yet on the table) — this section is revised again once the ask
   resolves; nothing else in this amendment depends on which of the three happens.
 
+Decided 2026-09-11: ask#11428 answered "Own noun" (2026-09-04) and ask#12011 answered "drive";
+the fourth sense is **drive**. Identifier rename: mt#2527 phase 3.
+
 ### (d) The alternatives record corrected
 
 Line 22 above states workspace's "only collision" is bun monorepo "workspaces." That undercounts:
@@ -151,4 +153,5 @@ package, which version, whether it implements the 2026-07-28 revision).
 - Related tasks: mt#2522 (epic), mt#2513 (this decision + full inventory/research), mt#2523–2527 (tracks), mt#2686 (stage 1: vocabulary in new code/docs/cockpit + this Accepted flip), mt#2527 (stage 2: mechanical tool-surface rename, gated by this amendment's phase-3 precondition), mt#2516 (param bug), mt#2420 (id-space bug), mt#2191 (origin, CLOSED), mt#2234 (indexing), mt#4838 (this amendment), mt#4608 (freeze-and-retire owner for the transport artifact)
 - Research: 2026-06-18/19 inventory + ecosystem + branded-types research, persisted in mt#2513's spec
 - Funding decision: 2026-07-06, ask f0782a96; living record memory 805ef48f
-- Open principal decision: ask#11428 (the drive's owned noun, or composite treatment)
+- Open principal decision: ask#11428 (the drive's owned noun, or composite treatment) —
+  answered "Own noun"; ask#12011 (the noun itself) — answered "drive", 2026-09-11

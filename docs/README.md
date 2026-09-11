@@ -13,7 +13,7 @@ For the brand foundation (locked myth, cultural code, vocabulary), see the [`min
 
 ## Core Concepts
 
-- [**Domain Concepts**](../src/domain/concepts.md) — Core Minsky concepts (Repository, Session, Workspace)
+- [**Domain Concepts**](../packages/domain/src/concepts.md) — Core Minsky concepts (Repository, Session, Workspace)
 - [**Theory of Operation**](./theory-of-operation.md) — How cybernetic theory maps to code modules (VSM, environmental pre-delegation)
 - [**Architecture Overview**](./architecture.md) — System architecture, command registry, persistence, DI
 

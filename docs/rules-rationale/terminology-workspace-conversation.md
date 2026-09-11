@@ -63,12 +63,13 @@ renamed` section above.
    stating in its own Outcome that it will not, in which case a standalone freeze-and-retire task
    is filed).
 
-## The fourth sense — the drive (added 2026-09-04, mt#4838)
+## The fourth sense — the drive (added 2026-09-04, mt#4838; noun decided 2026-09-11)
 
 A fourth concept sits alongside workspace/conversation/transport: the cockpit's supervised
 subject-surface that spawns and reconnects a harness process (`DrivenSessionRecord`,
-`src/cockpit/driven-session-host.ts`). The rule records it under the **working term "drive"** —
-the owned noun is a principal decision, open as **ask#11428**, and this rule does not pick one.
+`src/cockpit/driven-session-host.ts`). The rule records it as **Drive** — the owned noun was a
+principal decision, decided by **ask#11428** ("Own noun", 2026-09-04) and **ask#12011**
+("drive", 2026-09-11).
 
 Verified lifecycle (module docblock `driven-session-host.ts:1-26`;
 `packages/domain/src/storage/schemas/driven-sessions-schema.ts`):
@@ -104,6 +105,9 @@ rule's existing vocabulary. The finding confirms the target vocabulary needs no 
 - **Other** (an option not yet on the table) — these sections are revised again once the ask
   resolves.
 
+Decided 2026-09-11: ask#11428 answered "Own noun" (2026-09-04) and ask#12011 answered "drive";
+the fourth sense is **drive**. Identifier rename: mt#2527 phase 3.
+
 ## Cross-references
 
 - `docs/architecture/adr-022-session-vs-conversation-terminology.md` — the ADR this rule
@@ -118,5 +122,6 @@ rule's existing vocabulary. The finding confirms the target vocabulary needs no 
 - mt#4838 — this file's 2026-09-04 update (transport sense retired, drive sense added).
 - mt#4608 — owns retiring the frozen `mcp-session-id`/`McpSessionId` artifact once the MCP SDK
   pin upgrades past the 2026-07-28 revision.
-- ask#11428 — the open principal decision on the drive's owned noun.
+- ask#11428 / ask#12011 — the principal decision on the drive's owned noun, decided 2026-09-11
+  as "drive".
 - Funding decision: 2026-07-06, ask f0782a96; living record memory 805ef48f.

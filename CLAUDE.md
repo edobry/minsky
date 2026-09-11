@@ -1431,10 +1431,10 @@ rename the existing `session_*` tool/API surface (stage 2, mt#2527, separately s
 | --- | --- | --- | --- |
 | **workspace** | The Minsky per-task isolated git-clone + branch (`SessionRecord`, `~/.local/state/minsky/sessions/`, ~59 `session_*` tools) | "session" | cockpit `/agents/:id` detail page (workspace-session id-space) |
 | **conversation** | A harness chat (Claude Code conversation UUID, `agent_session_id`, transcripts, `claude --resume`) | "session" (ecosystem-dominant term) | cockpit `/conversation/:id`, `transcripts_*` MCP tools |
-| **drive** (working term; noun pending ask#11428) | Cockpit subject-surface that spawns/reconnects a harness process across a series of conversations (`DrivenSessionRecord`) | none — working label only | driven-session host |
+| **drive** (noun decided 2026-09-11 — ask#11428, ask#12011) | Cockpit subject-surface that spawns/reconnects a harness process across a series of conversations (`DrivenSessionRecord`) | none — new sense | driven-session host |
 | **transport session** — legacy artifact, do not propagate; frozen pending mt#4608 | The MCP client↔server connection (`Mcp-Session-Id`); spec referent retired 2026-07-28 | "session" (MCP-spec term, pre-2026-07-28) | disconnect tracker, `processRole` |
 
-Use **workspace**, **conversation**, and the working term **drive** in new prose, comments,
+Use **workspace**, **conversation**, and **drive** in new prose, comments,
 variable/type names, and UI copy. Bare **session** is not a Minsky vocabulary word for any sense
 — it survives only as quoted foreign vocabulary, at four boundaries: harness field names
 (`agent_session_id`, stream-json `session_id`), the frozen `minsky://session/<uuid>` deeplink URI
@@ -1470,7 +1470,7 @@ sense it shows, not blend the words.
 `docs/architecture/adr-022-session-vs-conversation-terminology.md` · `cockpit-deeplinks.mdc` (the
 `session` URI-type/route divergence this generalizes) · mt#2522 (epic) · mt#2686 (this rule's
 origin) · mt#2527 (stage 2) · mt#4838 (2026-09-04 amendment: transport row retired, drive row
-added) · ask#11428 (the drive's pending noun). Full index:
+added) · ask#11428 / ask#12011 (the drive's noun, decided 2026-09-11 as "drive"). Full index:
 `docs/rules-rationale/terminology-workspace-conversation.md`.
 
 # User Preferences
