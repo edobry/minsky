@@ -1431,22 +1431,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
-    "rules-compile-check",
-    {
-      description:
-        "Blocks a commit where a `.minsky/rules/*.mdc` source changed but its generated outputs did not — the exact gap that ships a rule edit no agent ever reads.",
-      failureClasses: ["broken-main"],
-      provenance: [PRECOMMIT, "src/hooks/rules-compile-check.test.ts"],
-      stratum: "precommit",
-    },
-  ],
-  [
     "compile-check",
     {
       description:
-        "Blocks a commit where any compile target's generated output is out of sync with its source.",
+        "Blocks a commit where any compile target's generated output is out of sync with its source — including a `.minsky/rules/*.mdc` edit whose CLAUDE.md / AGENTS.md / .claude/rules outputs did not follow, the gap the retired `rules-compile-check` step guarded until mt#3058 moved those targets here (mt#2993 deleted its no-op remainder).",
       failureClasses: ["broken-main"],
-      provenance: [PRECOMMIT, "src/hooks/compile-check-targets.test.ts"],
+      provenance: [
+        PRECOMMIT,
+        "src/hooks/compile-check-targets.test.ts",
+        "src/hooks/compile-check.test.ts",
+      ],
       stratum: "precommit",
     },
   ],
@@ -1488,6 +1482,18 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       provenanceStatus: "declaration-only",
       stratum: "retired",
       note: "Last seen 2026-07-29. No source module exists — the step was split into its two successors, so the oracle's declaration is the only honest pointer.",
+    },
+  ],
+  [
+    "rules-compile-check",
+    {
+      description:
+        "Retired pre-commit step (Step 9) that ran the legacy `rules compile --check` over CLAUDE.md / AGENTS.md / .claude/rules; those targets moved to `compile-check` at the mt#3058 cutover, which left this a no-op, and mt#2993 deleted the remainder.",
+      failureClasses: ["broken-main"],
+      provenance: [KNOWN_NAMES],
+      provenanceStatus: "declaration-only",
+      stratum: "retired",
+      note: "Last seen 2026-09-11. Every record after the 2026-07-23 cutover is the no-op shell's unconditional success. No source module exists — the oracle's declaration is the only honest pointer; the fire log is append-only history, so its records persist under this name permanently.",
     },
   ],
 

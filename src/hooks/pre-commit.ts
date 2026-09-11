@@ -94,10 +94,11 @@ import {
 
 /**
  * Env var that, when truthy (`1`, `true`, `yes`), skips a size-budget-exceeded
- * failure from `runRulesCompileCheck` (mt#2802). Scoped narrowly to the
- * "budget-exceeded" failure class — a genuinely STALE target still blocks
- * the commit even with this override set (see the `errorKind` branch in
- * `runRulesCompileCheck`). Registered in `HOOK_ONLY_ENV_VARS` at
+ * failure from `runCompileCheck` (mt#2802; carried over from the legacy check by
+ * mt#3058, which retired that check, and mt#2993, which deleted it). Scoped
+ * narrowly to the "budget-exceeded" failure class — a genuinely STALE target
+ * still blocks the commit even with this override set (see the `errorKind`
+ * branch in `runCompileCheck`). Registered in `HOOK_ONLY_ENV_VARS` at
  * packages/domain/src/configuration/sources/environment.ts per the mt#1788
  * ESLint rule contract. Follows the same override-with-audit pattern as
  * `NUL_BYTE_CHECK_OVERRIDE_ENV` etc. (`isOverrideTruthy`, imported above).
@@ -308,7 +309,7 @@ export class PreCommitHook {
       }
 
       // Step 1b: Completion-manifest regeneration (mt#2622). Unlike the
-      // "compile --check" family below (Step 9 / 9b), which BLOCK the commit
+      // "compile --check" step below (Step 9), which BLOCKS the commit
       // and tell the operator to re-run a generator by hand, this step
       // auto-regenerates the shell-completion manifest and re-stages it —
       // the same auto-fix-and-restage shape as Step 1's lint-staged, not the
@@ -559,7 +560,7 @@ export class PreCommitHook {
       }
 
       // Step 3f: claude-hooks compile auto-regeneration (mt#2977). Unlike the
-      // block-on-drift Step 9b compile-check, this REGENERATES + re-stages the
+      // block-on-drift Step 9 compile-check, this REGENERATES + re-stages the
       // .claude/hooks/ outputs when this commit touches hooks sources — no
       // manual `compile --target claude-hooks` + re-commit needed. Same
       // auto-fix-and-restage shape as Step 1b / Step 3c; no override (a
@@ -635,20 +636,11 @@ export class PreCommitHook {
         return ruleTestsResult;
       }
 
-      // Step 9: Rules compile staleness check (legacy `rules compile` system)
-      const rulesCheckResult = await this.instrumented(
-        "rules-compile-check",
-        () => this.runRulesCompileCheck(),
-        SIZE_BUDGET_CHECK_OVERRIDE_ENV
-      );
-      if (!rulesCheckResult.success) {
-        return rulesCheckResult;
-      }
-
-      // Step 9b: Compile staleness check (new `compile` system — mt#2252).
-      // mt#3058: now also carries the monolithic (claude.md/agents.md) +
-      // claude-rules targets and their size-budget override, so the override
-      // env is threaded here exactly as on Step 9.
+      // Step 9: Compile staleness check (`compile --check`, mt#2252). The ONLY
+      // compile-staleness step: mt#3058 moved the monolithic (claude.md /
+      // agents.md) + claude-rules targets and their size-budget override here
+      // from the legacy `rules compile` check, and mt#2993 deleted that check's
+      // no-op remainder (formerly Step 9, with this one as 9b).
       const compileCheckResult = await this.instrumented(
         "compile-check",
         () => this.runCompileCheck(),
@@ -2235,7 +2227,7 @@ export class PreCommitHook {
    * silently missing a CLI-shape change made through a path it didn't
    * anticipate, reintroducing exactly the staleness this step exists to
    * prevent. This mirrors the "compile --check" family's unconditional,
-   * repo-wide scope (Step 9 / 9b) rather than lint-staged's staged-file
+   * repo-wide scope (Step 9) rather than lint-staged's staged-file
    * scoping (Step 1) — but AUTO-FIXES and re-stages instead of blocking, per
    * the Step 1b rationale above.
    */
@@ -2339,35 +2331,10 @@ export class PreCommitHook {
   }
 
   /**
-   * Legacy `rules compile` staleness check — RETIRED by the mt#3058 cutover.
-   *
-   * Its three targets — agents.md, claude.md, and claude-rules — moved to the
-   * new-pipeline `runCompileCheck` (below), which now regenerates and
-   * staleness-checks CLAUDE.md / AGENTS.md / .claude/rules (and carries their
-   * MINSKY_SKIP_SIZE_BUDGET override). Banner-based detection could not be used
-   * to "turn this off" because the new pipeline emits the identical generation
-   * banner during coexistence — so the method is reduced to a no-op rather than
-   * left detecting targets it must no longer own.
-   *
-   * This is a no-op SHELL, not a full removal: deleting the method, its Step-9
-   * registration, and its tests is mt#2993's scope (the epic's phase-4
-   * cleanup). Retained here so this cutover PR stays a focused wiring flip.
-   */
-  private async runRulesCompileCheck(): Promise<HookResult> {
-    log.cli(
-      "✅ Legacy rules-compile check retired (mt#3058) — CLAUDE.md / AGENTS.md / .claude/rules are now covered by the new compile check."
-    );
-    return {
-      success: true,
-      message: "Legacy rules compile check retired (mt#3058)",
-      exitCode: 0,
-    };
-  }
-
-  /**
-   * Run `compile --check` for the NEW definition-compile system's targets
-   * (distinct from the legacy `rules compile` system handled by
-   * runRulesCompileCheck). This closes the mt#2182 gap: the `claude-skills`
+   * Run `compile --check` for the definition-compile system's targets — the
+   * only compile-staleness check since mt#2993 deleted the legacy `rules
+   * compile` check's no-op remainder (mt#3058 had already moved its three
+   * targets here). This closes the mt#2182 gap: the `claude-skills`
    * target silently skipped all sources for weeks with no staleness guard.
    *
    * Targets checked (opted in when their `.minsky/` source dir exists):
@@ -2453,7 +2420,7 @@ export class PreCommitHook {
 
     // mt#3058: the size-budget-bearing targets (claude.md/agents.md) moved onto
     // this check at cutover, so MINSKY_SKIP_SIZE_BUDGET must be honored HERE now,
-    // exactly as it was on the legacy runRulesCompileCheck. Tracks whether THIS
+    // exactly as it was on the legacy check mt#2993 deleted. Tracks whether THIS
     // invocation actually took the skip branch so the success return reports
     // `overridden: true` only then (never from a blanket env-presence check).
     let overrodeSizeBudget = false;
@@ -2465,13 +2432,13 @@ export class PreCommitHook {
         // "cursor-rules-ts", "claude-agents", "claude-hooks", "claude.md",
         // "agents.md", and "claude-rules". Bounded enum, no shell
         // metacharacters — no safeShellQuote needed (mirrors
-        // runRulesCompileCheck / mt#1829).
+        // the legacy check / mt#1829).
         await execAsync(`bun run src/cli.ts compile --check --target ${target}`, {
           cwd: this.projectRoot,
           timeout: 30000,
         });
       } catch (error) {
-        const result = classifyCompileCheckError(error, target, "compile");
+        const result = classifyCompileCheckError(error, target);
 
         // mt#3676: a PER-RULE ceiling breach is priced to the author. If this
         // commit stages none of the offending rules, it did not cause the
@@ -2507,7 +2474,7 @@ export class PreCommitHook {
 
         // mt#2802/mt#3058: MINSKY_SKIP_SIZE_BUDGET overrides ONLY the
         // size-budget failure class — a genuinely stale target still blocks the
-        // commit even with the override set. Mirrors runRulesCompileCheck.
+        // commit even with the override set (the legacy check's rule, kept).
         if (
           result.errorKind === "budget-exceeded" &&
           isOverrideTruthy(process.env[SIZE_BUDGET_CHECK_OVERRIDE_ENV])
@@ -2621,7 +2588,7 @@ export function classifyDockerfileWorkspaceCopyRegenError(error: unknown): {
  * exported for unit testing (mt#2497).
  *
  * mt#3058 cutover: `claude.md`, `agents.md`, and `claude-rules` moved here from
- * the legacy `runRulesCompileCheck`. All three are sourced from `.minsky/rules/`,
+ * the legacy `rules compile` check (deleted by mt#2993). All three are sourced from `.minsky/rules/`,
  * so they gate on `present.rules` alongside `cursor-rules-ts`. Kept in sync with
  * `minskyCompileTargetsFromPresence` (packages/domain/src/compile/compile.ts).
  *
@@ -2779,12 +2746,12 @@ export {
 
 /**
  * Classify a failed compile-check subprocess error as either genuine staleness
- * or an unrelated compile-command error (e.g., setup-incomplete). Serves BOTH
- * compile systems via `kind`: the legacy `rules compile --check` (kind="rules")
- * and the new `compile --check` (kind="compile"). All user-facing hints derive
- * the command name from `kind` so they never name the wrong system.
+ * or an unrelated compile-command error (e.g., setup-incomplete). Reads the
+ * `compile --check` markers only: until mt#2993 this took a `kind` parameter
+ * that also matched the legacy `rules compile --check` prefix, for a legacy
+ * check mt#3058 had already reduced to a no-op.
  *
- * When the CLI detects stale output it prints a `[<cmd> --check] ... is STALE`
+ * When the CLI detects stale output it prints a `[compile --check] ... is STALE`
  * marker to stdout before throwing. Any other non-zero exit means the compile
  * command itself failed — telling the operator to "regenerate" would be
  * misleading because the same error will recur.
@@ -2808,7 +2775,7 @@ export {
  *
  * Each of the three ordered pairs (stale-vs-aggregate, stale-vs-per-rule,
  * aggregate-vs-per-rule) has a direct unit test in
- * `src/hooks/rules-compile-check.test.ts` asserting the correct marker wins
+ * `src/hooks/compile-check.test.ts` asserting the correct marker wins
  * when BOTH are present in the same stdout (a scenario that should not occur
  * in practice — the CLI's own `reportSingleTargetCompile` returns on the
  * first failure it finds in this same order — but the classifier's
@@ -2891,19 +2858,14 @@ export function perRuleBreachIsStaged(
 
 export function classifyCompileCheckError(
   error: unknown,
-  target: string,
-  // Which compile system emitted the check: the legacy `rules compile` command
-  // or the new `compile` command. Determines both the STALE-marker prefix to
-  // match and the regenerate hint to print. Defaults to "rules" for backward
-  // compatibility with existing callers/tests.
-  kind: "rules" | "compile" = "rules"
+  target: string
 ): {
   logLines: string[];
   message: string;
   /**
-   * Discriminates the failure class (mt#2802 adds "budget-exceeded" for the
-   * legacy `rules compile` size-budget check). Callers (e.g.
-   * `runRulesCompileCheck`) use this to decide whether an override env var
+   * Discriminates the failure class (mt#2802 added "budget-exceeded" for the
+   * size-budget check, which mt#3058 moved onto `compile --check`). Callers
+   * (`runCompileCheck`) use this to decide whether an override env var
    * applies — overrides are keyed to a specific failure class, not to "any
    * compile --check failure".
    */
@@ -2935,13 +2897,12 @@ export function classifyCompileCheckError(
   const stdout = execError.stdout ?? "";
   const stderr = execError.stderr ?? "";
 
-  // The two CLIs emit a marker line of the exact form:
-  //   [rules compile --check] Target "<target>" is STALE   (legacy)
-  //   [compile --check] Target "<target>" is STALE          (new)
+  // The CLI emits a marker line of the exact form:
+  //   [compile --check] Target "<target>" is STALE
   // to stdout only when output is verified out-of-date. Match this with a
   // per-target line-anchored regex so near-misses (a STALE marker for a
   // different target, or incidental prose) do not count.
-  const cmd = kind === "rules" ? "rules compile" : "compile";
+  const cmd = "compile";
   const escapedTarget = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const staleLineRe = new RegExp(`\\[${cmd} --check\\] Target "${escapedTarget}" is STALE`, "m");
   const isGenuinelyStale = staleLineRe.test(stdout);
@@ -2950,16 +2911,21 @@ export function classifyCompileCheckError(
     return {
       logLines: [
         `❌ Compile output for target "${target}" is stale.`,
-        `💡 Run "bun run minsky ${cmd} --target ${target}" to regenerate.`,
+        // Same shape as the compile CLI's own hint (compile-commands.ts) and the
+        // setup hint below: the `minsky` executable, not `bun run minsky` — which
+        // works only inside this repo, through package.json's `minsky` script
+        // (PR #3738 R1).
+        `💡 Run "minsky ${cmd} --target ${target}" to regenerate.`,
       ],
       message: `Compile output for target "${target}" is stale`,
       errorKind: "stale",
     };
   }
 
-  // mt#2802: size-budget-exceeded classification. Legacy `rules compile` only —
-  // the new `compile` system's targets don't enforce a size budget, so this
-  // marker never appears in "compile"-kind stdout.
+  // mt#2802: size-budget-exceeded classification. Emitted by
+  // `packages/domain/src/compile/size-budget-report.ts` for the monolithic
+  // targets since mt#3058 moved the budget onto `compile --check` (this comment
+  // said "legacy only" until mt#2993, which was true before that cutover).
   const budgetExceededLineRe = new RegExp(
     `\\[${cmd} --check\\] Target "${escapedTarget}" EXCEEDS SIZE BUDGET`,
     "m"

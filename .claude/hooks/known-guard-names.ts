@@ -102,7 +102,6 @@ export const PRECOMMIT_STEP_NAMES: readonly string[] = [
   "migration-journal-check",
   "node-shim-check",
   "nul-byte-check",
-  "rules-compile-check",
   "secret-scanning",
   "sql-capability-message-check",
   "type-check",
@@ -197,6 +196,13 @@ export const RETIRED_GUARD_NAMES: ReadonlyMap<string, { lastSeen: string; note: 
       {
         lastSeen: "2026-08-17",
         note: "`lastSeen` is the last date records APPEAR IN THE LOG, which is one day after the 2026-08-16 retirement decision and is not a contradiction: the detector kept firing from the main workspace's settings.json until this change merged, and the final observed record was 2026-08-17T03:05Z. Read this field as an observation of the log, never as an inactivity watermark or a decision date. Surface 1 policy-coverage detector, retired by mt#4197 (hook + module deleted). 12,135 fire-log records under this name — RETIRED rather than deleted from KNOWN_GUARD_NAMES precisely so that history does not read as an anomaly.",
+      },
+    ],
+    [
+      "rules-compile-check",
+      {
+        lastSeen: "2026-09-11",
+        note: "pre-commit Step 9, the legacy `rules compile --check` staleness step. mt#3058 reduced it to a no-op (its targets moved to `compile-check`); mt#2993 deleted the remainder. 4,435 records on the authoring machine's log, the last at 2026-09-11T20:27Z — every one after 2026-07-23 is the no-op shell's unconditional success.",
       },
     ],
   ]

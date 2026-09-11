@@ -994,7 +994,6 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ["node-shim-check", structuralGate],
   ["conflict-marker-check", structuralGate],
   ["nul-byte-check", structuralGate],
-  ["rules-compile-check", structuralGate],
   [
     "secret-scanning",
     {
@@ -1034,6 +1033,14 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       ...structuralGate,
       point: "pre-commit",
       note: "RETIRED. Superseded by `fast-related-tests`, which scopes the run to staged files.",
+    },
+  ],
+  [
+    "rules-compile-check",
+    {
+      ...structuralGate,
+      point: "pre-commit",
+      note: "RETIRED 2026-09-11 (mt#2993). The legacy `rules compile --check` step; its targets moved to `compile-check` at the mt#3058 cutover and the remaining no-op shell was deleted. Coordinates are the original step's, recorded for historical fire-log rows.",
     },
   ],
   [

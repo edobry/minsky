@@ -1,7 +1,12 @@
 /**
  * Unit tests for `classifyCompileCheckError` — the discriminating logic that
- * distinguishes genuine `rules compile --check` staleness from unrelated
+ * distinguishes genuine `compile --check` staleness from unrelated
  * compile-command failures (e.g., "Developer setup incomplete").
+ *
+ * Was `rules-compile-check.test.ts` until mt#2993, exercising the same
+ * classifier through its legacy `[rules compile --check]` marker prefix; the
+ * cases are unchanged, only the prefix moved with the classifier's single
+ * remaining caller (`runCompileCheck`).
  *
  * These tests cover the two acceptance-test scenarios from mt#1940:
  *   1. Setup-missing: non-zero exit WITHOUT the stale marker → surfaces the
@@ -10,6 +15,10 @@
  *      shows the staleness message and the regenerate command.
  */
 import { describe, test, expect } from "bun:test";
+// eslint-disable-next-line custom/no-real-fs-in-tests -- the mt#2993 pin below reads pre-commit.ts as DATA (its step roster is not importable); read-only, no fixtures written
+import { readFileSync } from "fs";
+import { join } from "path";
+import { PRECOMMIT_STEP_NAMES, RETIRED_GUARD_NAMES } from "../../.minsky/hooks/known-guard-names";
 import {
   classifyCompileCheckError,
   extractPerRuleViolationIds,
@@ -21,17 +30,17 @@ const NOT_STALENESS_MARKER = "not a staleness issue";
 
 /** Build the exact STALE marker line the CLI emits for a target (see classifyCompileCheckError). */
 function staleMarker(target: string): string {
-  return `[rules compile --check] Target "${target}" is STALE`;
+  return `[compile --check] Target "${target}" is STALE`;
 }
 
 /** Build the exact EXCEEDS SIZE BUDGET marker line the CLI emits for a target (mt#2802). */
 function budgetExceededMarker(target: string): string {
-  return `[rules compile --check] Target "${target}" EXCEEDS SIZE BUDGET`;
+  return `[compile --check] Target "${target}" EXCEEDS SIZE BUDGET`;
 }
 
 /** Build the exact per-rule-ceiling marker line the CLI emits for a target (mt#2874). */
 function perRuleCeilingExceededMarker(target: string): string {
-  return `[rules compile --check] Target "${target}" HAS RULE(S) EXCEEDING PER-RULE CEILING`;
+  return `[compile --check] Target "${target}" HAS RULE(S) EXCEEDING PER-RULE CEILING`;
 }
 
 /** Human-readable phrase classifyCompileCheckError emits for the aggregate budget-exceeded class. */
@@ -58,7 +67,7 @@ function makeExecError(opts: {
 describe("classifyCompileCheckError — mt#1940 acceptance tests", () => {
   describe("Acceptance test 1: setup-incomplete error (not staleness)", () => {
     test("reports the actual error, not a staleness message", () => {
-      // Simulates: `bun run src/cli.ts rules compile --check --target agents.md`
+      // Simulates: `bun run src/cli.ts compile --check --target agents.md`
       // exiting non-zero because setup is incomplete.
       // The CLI emits "Validation error: Developer setup incomplete. Run `minsky setup` first."
       // to stderr, and NO stale marker to stdout.
@@ -118,23 +127,27 @@ describe("classifyCompileCheckError — mt#1940 acceptance tests", () => {
     test("reports staleness and suggests regenerate command", () => {
       // Simulates: the CLI emits the staleness marker to stdout, then exits non-zero.
       // compile-migrate-commands.ts emits:
-      //   log.cli('[rules compile --check] Target "agents.md" is STALE')
+      //   log.cli('[compile --check] Target "agents.md" is STALE')
       //   log.cli('  Stale file: /path/AGENTS.md')
-      //   log.cli('  Run "minsky rules compile --target agents.md" to regenerate.')
+      //   log.cli('  Run "minsky compile --target agents.md" to regenerate.')
       const error = makeExecError({
         stdout: [
           staleMarker("agents.md"),
           "  Stale file: /workspace/AGENTS.md",
-          '  Run "minsky rules compile --target agents.md" to regenerate.',
+          '  Run "minsky compile --target agents.md" to regenerate.',
         ].join("\n"),
-        stderr: '❌ rules compile --check: target "agents.md" is stale (/workspace/AGENTS.md)',
+        stderr: '❌ compile --check: target "agents.md" is stale (/workspace/AGENTS.md)',
       });
 
       const result = classifyCompileCheckError(error, "agents.md");
 
-      // Must suggest regenerating
+      // Must suggest regenerating — with the same command shape the compile CLI's
+      // own hint uses (`minsky compile --target <t>`), not the repo-only
+      // `bun run minsky` spelling (PR #3738 R1).
       const allOutput = result.logLines.join("\n");
       expect(allOutput).toContain("regenerate");
+      expect(allOutput).toContain('Run "minsky compile --target agents.md"');
+      expect(allOutput).not.toContain("bun run minsky");
       expect(allOutput).toContain("is stale");
 
       // Must NOT claim this is a "compile failed" error
@@ -221,10 +234,10 @@ describe("classifyCompileCheckError — mt#1940 acceptance tests", () => {
 
   describe("BLOCKING #2 — line-anchored stale detection for correct target only", () => {
     test("stale-looking note for previous run does NOT classify as stale", () => {
-      // Near-miss: contains 'STALE' and '[rules compile --check]' but
+      // Near-miss: contains 'STALE' and '[compile --check]' but
       // it is a diagnostic note, not the exact per-target stale marker.
       const error = makeExecError({
-        stdout: "[rules compile --check] note: previous run detected STALE files",
+        stdout: "[compile --check] note: previous run detected STALE files",
         stderr: "",
       });
 
@@ -249,7 +262,7 @@ describe("classifyCompileCheckError — mt#1940 acceptance tests", () => {
 
       // Must NOT classify as staleness for agents.md
       expect(allOutput).toContain(NOT_STALENESS_MARKER);
-      expect(allOutput).not.toContain('Run "bun run minsky rules compile --target agents.md"');
+      expect(allOutput).not.toContain('Run "bun run minsky compile --target agents.md"');
     });
 
     test("stale marker for the CORRECT target DOES classify as stale", () => {
@@ -270,7 +283,7 @@ describe("classifyCompileCheckError — mt#1940 acceptance tests", () => {
       // Actual stderr has a validation error; stdout happens to look stale-ish
       // but is NOT the exact per-target marker.
       const error = makeExecError({
-        stdout: "[rules compile --check] note: previous run detected STALE files",
+        stdout: "[compile --check] note: previous run detected STALE files",
         stderr: "Validation error: some other problem",
       });
 
@@ -314,7 +327,7 @@ describe("classifyCompileCheckError — mt#2802 size-budget-exceeded classificat
   test("EXCEEDS SIZE BUDGET marker for the correct target classifies as budget-exceeded", () => {
     const error = makeExecError({
       stdout: [
-        '[rules compile] Target "claude.md" output size: 145000 chars',
+        '[compile] Target "claude.md" output size: 145000 chars',
         budgetExceededMarker("claude.md"),
         "  Size: 145000 chars (fail threshold: 140000 chars)",
         "  Top contributing rules:",
@@ -386,7 +399,7 @@ describe("classifyCompileCheckError — mt#2874 per-rule-ceiling-exceeded classi
   test("HAS RULE(S) EXCEEDING PER-RULE CEILING marker classifies as budget-exceeded", () => {
     const error = makeExecError({
       stdout: [
-        '[rules compile] Target "claude.md" output size: 110000 chars',
+        '[compile] Target "claude.md" output size: 110000 chars',
         perRuleCeilingExceededMarker("claude.md"),
         '  Rule "hook-files": 15868 chars',
       ].join("\n"),
@@ -580,5 +593,33 @@ describe("per-rule ceiling is priced to the author (mt#3676)", () => {
       );
       expect(perRule.errorKind).toBe(aggregate.errorKind);
     });
+  });
+});
+
+// PR #3738 R1 — the in-repo form of the evidence the PR body took from a local
+// fire-log: exactly ONE compile-staleness step is wired into the pre-commit
+// pipeline, and the retired one is recorded as retired rather than merely
+// absent. The step roster is not data (each step is an inline
+// `this.instrumented("<name>", …)` call), so the count is pinned against the
+// source text; the roster half is pinned against the census module the
+// fire-log audit reads.
+describe("one compile-staleness step (mt#2993)", () => {
+  // eslint-disable-next-line custom/no-real-fs-in-tests -- reads the committed source as data; a mock fs would make the pin assert nothing
+  const PRE_COMMIT_SOURCE = String(readFileSync(join(import.meta.dir, "pre-commit.ts"), "utf-8"));
+  const RETIRED_STEP = "rules-compile-check";
+
+  test("pre-commit wires `compile-check` exactly once and the retired step not at all", () => {
+    const instrumentedNames = [
+      ...PRE_COMMIT_SOURCE.matchAll(/this\.instrumented\(\s*"([^"]+)"/g),
+    ].map((m) => m[1]);
+    expect(instrumentedNames.filter((n) => n === "compile-check")).toHaveLength(1);
+    expect(instrumentedNames).not.toContain(RETIRED_STEP);
+    expect(PRE_COMMIT_SOURCE).not.toContain("runRulesCompileCheck");
+  });
+
+  test("the guard-name roster carries compile-check and retires the legacy step", () => {
+    expect(PRECOMMIT_STEP_NAMES).toContain("compile-check");
+    expect(PRECOMMIT_STEP_NAMES).not.toContain(RETIRED_STEP);
+    expect(RETIRED_GUARD_NAMES.has(RETIRED_STEP)).toBe(true);
   });
 });
