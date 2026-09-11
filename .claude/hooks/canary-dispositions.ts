@@ -203,27 +203,26 @@ export const CANARY_DISPOSITIONS: ReadonlyMap<string, CanaryDispositionRecord> =
     ),
   ],
 
+  [
+    "typecheck-on-stop",
+    infeasible(
+      "Ruled by mt#5080 rather than extracted. The module is top-level script code with no " +
+        "`import.meta.main` guard, so importing it runs `main()` against stdin; and its decision " +
+        "is the one-line predicate `failedRoots.length > 0` over results that only a state-file " +
+        "read plus a `tsgo --noEmit` subprocess per touched root can produce. A pure extraction " +
+        "of that predicate would pass while every failure mode this hook actually has — binary " +
+        "resolution, the state file, the subprocess — stayed unexercised, and a canary that drives " +
+        "the subprocess is outside the declaration convention (mt#5080 SC2: no subprocess spawn). " +
+        "Same class as `check-branch-fresh`: the real evaluation IS the side effect."
+    ),
+  ],
+
   // ---------------------------------------------------------------------------
   // canary-pending — owed, owned by mt#5080
   // ---------------------------------------------------------------------------
 
-  ["ask-permission-bridge", pending()],
-  [
-    "block-github-mcp-pr-writes",
-    pending(
-      "Exports zero functions today, so there is no injectable decision function to call. mt#5080 " +
-        "must either extract one or move this to `canary-infeasible` with that reason — it is " +
-        "explicitly not to be left silently pending."
-    ),
-  ],
-  ["block-nested-fork-dispatch", pending()],
-  ["block-out-of-band-merge", pending()],
-  ["block-subagent-bypass-merge", pending()],
-  ["block-subagent-merge-without-grant", pending()],
   ["bridge-memory-retirement", pending()],
-  ["check-prompt-watermark", pending()],
   ["deploy-verification-after-merge", pending()],
-  ["dispatch-intent-write-gate", pending()],
   ["drive-pr-to-convergence", pending()],
   ["guard-events-ingest-on-session-end", pending()],
   ["inject-success-criteria", pending()],
@@ -243,10 +242,6 @@ export const CANARY_DISPOSITIONS: ReadonlyMap<string, CanaryDispositionRecord> =
         "no extraction is needed."
     ),
   ],
-  ["require-checks-on-bypass-merge", pending()],
-  ["require-deploy-verification-before-merge", pending()],
-  ["require-growth-justification-before-merge", pending()],
-  ["require-review-before-merge", pending()],
   [
     "retrospective-completeness-detector",
     pending(
@@ -271,14 +266,6 @@ export const CANARY_DISPOSITIONS: ReadonlyMap<string, CanaryDispositionRecord> =
   ["transcript-ingest-on-session-end", pending()],
   ["two-strikes-record", pending()],
   ["typecheck-on-edit", pending()],
-  [
-    "typecheck-on-stop",
-    pending(
-      "Exports zero functions today — same disposition requirement as " +
-        "`block-github-mcp-pr-writes`: mt#5080 extracts a decision function or rules it infeasible " +
-        "with a reason."
-    ),
-  ],
   ["unowned-finding-scan", pending()],
   [
     "verify-subagent-model",

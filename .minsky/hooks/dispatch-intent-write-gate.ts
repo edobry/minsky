@@ -104,7 +104,11 @@
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
 import { getDispatchIntentStorePath, readDispatchIntentStore } from "./dispatch-intent-store";
-import { decideDispatchIntentGate } from "@minsky/domain/detectors/dispatch-intent-gate";
+import {
+  decideDispatchIntentGate,
+  type DispatchIntentDeclaration,
+  type DispatchIntentGateDecision,
+} from "@minsky/domain/detectors/dispatch-intent-gate";
 import { SESSION_DIR_RE } from "./check-guessed-session-path";
 import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 
@@ -196,6 +200,30 @@ export function resolveSessionIdFromInput(input: ToolHookInput): string | null {
 // from `tool_input.sessionId` or the cwd.
 // ---------------------------------------------------------------------------
 
+/**
+ * The whole decision given a parsed payload and the declarations already read
+ * from the store — payload parsing above composed with the domain decision.
+ * Pure: no store read, no clock, no env. The entry point below calls this, and
+ * so does the guard's canary (mt#5080), which is why it exists as one function
+ * rather than three inline branches: a canary that re-composed the branches
+ * itself would exercise its own copy, not the production path. Mirrors
+ * `block-nested-fork-dispatch.ts`'s `decideFromPayload`.
+ */
+export function decideFromPayload(
+  input: ToolHookInput,
+  declarations: DispatchIntentDeclaration[],
+  nowMs: number
+): DispatchIntentGateDecision {
+  if (!GATED_TOOL_NAMES.has(input.tool_name)) {
+    return { decision: "allow", reason: "tool is not gated by dispatch-intent-write-gate" };
+  }
+  if (!isSubagentContext(input)) {
+    // Main-thread calls are unaffected by this guard.
+    return { decision: "allow", reason: "not a subagent context" };
+  }
+  return decideDispatchIntentGate(resolveSessionIdFromInput(input), declarations, nowMs);
+}
+
 // ---------------------------------------------------------------------------
 // Hook entry point
 // ---------------------------------------------------------------------------
@@ -218,8 +246,6 @@ if (import.meta.main) {
     recordAndExit("allow");
   }
 
-  const sessionId = resolveSessionIdFromInput(input);
-
   const storeResult = readDispatchIntentStore(getDispatchIntentStorePath());
   if (storeResult.status === "error") {
     // Fail-open ONLY on genuine dispatch-intent-store read errors (corrupt
@@ -235,7 +261,10 @@ if (import.meta.main) {
     recordAndExit("allow", undefined, "crashed");
   }
 
-  const decision = decideDispatchIntentGate(sessionId, storeResult.declarations, Date.now());
+  // Re-runs the two allow short-circuits above on the same payload (both are
+  // cheap, pure predicates) so the entry point and the canary share ONE
+  // decision function rather than two compositions of the same branches.
+  const decision = decideFromPayload(input, storeResult.declarations, Date.now());
 
   if (decision.decision === "allow") {
     // mt#3920: downstream of `decideDispatchIntentGate` — the gate exercised its check

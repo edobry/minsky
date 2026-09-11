@@ -406,6 +406,39 @@ export function buildRepoDerivationFailureWarning(cwd: string): string {
 // Hook entry point
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// The decision, once the PR body is in hand
+// ---------------------------------------------------------------------------
+
+export type OutOfBandMergeDecision =
+  | { decision: "allow"; why: "no-trigger-phrases" }
+  | { decision: "allow"; why: "override"; matches: PhraseMatch[] }
+  | { decision: "deny"; matches: PhraseMatch[]; reason: string };
+
+/**
+ * Everything the gate decides AFTER the PR body has been fetched: scan for the
+ * trigger phrases, honour the operator override, and compose the denial. Pure
+ * — the env is a parameter and nothing here fetches or writes. The entry point
+ * below calls this once it has `body`; the guard's canary (mt#5080) calls it
+ * with a body that documents a coupled step and observes the deny. The fetch
+ * and repo-derivation paths above it are the fail-open plumbing this
+ * deliberately excludes.
+ */
+export function decideOutOfBandMerge(
+  prNumber: number | null,
+  body: string,
+  env: NodeJS.ProcessEnv = process.env
+): OutOfBandMergeDecision {
+  const matches = scanForTriggerPhrases(body);
+  if (matches.length === 0) {
+    return { decision: "allow", why: "no-trigger-phrases" };
+  }
+  if (isOverrideSet(env)) {
+    return { decision: "allow", why: "override", matches };
+  }
+  return { decision: "deny", matches, reason: buildDenialReason(prNumber, matches) };
+}
+
 if (import.meta.main) {
   const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
@@ -510,9 +543,16 @@ if (import.meta.main) {
     recordAndExit("allow");
   }
 
-  // Scan for triggers
-  const matches = scanForTriggerPhrases(body);
-  if (matches.length === 0) {
+  const decision = decideOutOfBandMerge(prNumber, body, process.env);
+
+  if (decision.decision === "allow") {
+    if (decision.why === "override") {
+      emitOverrideAuditLog(prNumber, decision.matches);
+      recordAndExit("allow", {
+        overrideEnvVar: OVERRIDE_ENV_VAR,
+        overrideClassification: classifyOverride(OVERRIDE_ENV_VAR),
+      });
+    }
     // No coupled-step language in PR body — allow.
     // mt#3920: the fetch succeeded and the scan ran — a clean bill of health is a verdict
     // on real data, so this is clean-run evidence (unlike the no-PR / not-a-merge exits
@@ -520,21 +560,12 @@ if (import.meta.main) {
     recordAndExit("allow", undefined, "decided");
   }
 
-  // Triggers found. Check for operator override.
-  if (isOverrideSet()) {
-    emitOverrideAuditLog(prNumber, matches);
-    recordAndExit("allow", {
-      overrideEnvVar: OVERRIDE_ENV_VAR,
-      overrideClassification: classifyOverride(OVERRIDE_ENV_VAR),
-    });
-  }
-
   // Block the merge with a structured message.
   writeOutput({
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
-      permissionDecisionReason: buildDenialReason(prNumber, matches),
+      permissionDecisionReason: decision.reason,
     },
   });
   recordAndExit("deny", undefined, "decided");
