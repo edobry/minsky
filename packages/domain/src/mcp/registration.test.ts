@@ -226,6 +226,9 @@ describe("ClaudeCodeRegistrar", () => {
     });
 
     test("config path is ~/.claude.json, platform-uniform (no OS branching)", () => {
+      // CLAUDE_CONFIG_DIR is deliberately UNSET here (the describe's beforeEach
+      // deletes it): this is the default-location case. With it set, the path
+      // follows the variable instead — the mt#5066 case above.
       const configPath = registrar.configPath("/irrelevant-for-user-scope");
       expect(configPath).toBe(path.join(os.homedir(), ".claude.json"));
     });

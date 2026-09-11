@@ -16,6 +16,7 @@ import {
   buildSandboxEnv,
   buildSandboxPath,
   CHANNELS,
+  claudeJsonPathUnder,
   cloneTarget,
   DEFAULT_OUT_DIR,
   describeCredentialBilling,
@@ -87,13 +88,16 @@ describe("mt#5066 — the .claude.json half of channel 5, and the durable transc
     expect(transcriptPathFor(outDir, 1)).not.toContain("mt5012-cold-");
   });
 });
+import { resolveClaudeJsonPath } from "../packages/domain/src/mcp/claude-code-paths";
 import { PGVECTOR_DOCKER_IMAGE } from "../packages/domain/src/persistence/pgvector-preflight";
 
 // mt#5016 / PR #3678 R1. The harness deliberately imports nothing from the
 // domain — it stands in for a machine that has no Minsky installed — so its
-// Postgres image is a duplicated literal. A comment saying "keep these in sync"
-// is not a mechanism; this is. The test file has no such constraint, so the
-// invariant lives here.
+// Postgres image is a duplicated literal, and (PR #3737 R1) so is its
+// `.claude.json` resolver. A comment saying "keep these in sync" is not a
+// mechanism; this is. The test file has no such constraint, so the invariant
+// lives here. (`maskConnectionString` is the one import the harness does carry,
+// PR #3680 R1 — a regex, which equality cannot pin; see its import comment.)
 //
 // This is load-bearing beyond tidiness: hand the cold agent an image without
 // pgvector and it cannot migrate, so it improvises an `apt-get` — which the
@@ -267,6 +271,30 @@ describe("describeCredentialBilling names who pays", () => {
 describe("the disposable Postgres image tracks what `minsky setup db` prints", () => {
   test("harness image equals PGVECTOR_DOCKER_IMAGE", () => {
     expect(DISPOSABLE_POSTGRES_IMAGE).toBe(PGVECTOR_DOCKER_IMAGE);
+  });
+});
+
+// PR #3737 R1 — the same mechanism, for the `.claude.json` resolver. The harness
+// keeps a local copy so it stays builtins-only; this pins it to the domain's
+// `resolveClaudeJsonPath`, which `ClaudeCodeRegistrar` and `minsky setup
+// local-http` use to WRITE the file the probe reads. If the two ever resolved
+// differently, the probe would read one file while Minsky wrote another — the
+// exact shape of defect 1.
+describe("the harness .claude.json resolver tracks the domain's resolveClaudeJsonPath", () => {
+  const cases: Array<[label: string, env: NodeJS.ProcessEnv]> = [
+    ["unset", {}],
+    ["set", { CLAUDE_CONFIG_DIR: "/sandbox/claude-config" }],
+    ["set to blank", { CLAUDE_CONFIG_DIR: "   " }],
+    ["set to empty string", { CLAUDE_CONFIG_DIR: "" }],
+  ];
+  for (const [label, env] of cases) {
+    test(`CLAUDE_CONFIG_DIR ${label}`, () => {
+      expect(claudeJsonPathUnder(env, "/home/u")).toBe(resolveClaudeJsonPath(env, "/home/u"));
+    });
+  }
+
+  test("both default `home` to the process home", () => {
+    expect(claudeJsonPathUnder({})).toBe(resolveClaudeJsonPath({}));
   });
 });
 

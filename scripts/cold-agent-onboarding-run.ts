@@ -48,10 +48,6 @@ import {
 } from "fs";
 import { homedir, tmpdir } from "os";
 import { basename, delimiter, dirname, join } from "path";
-// mt#5066: the `.claude.json` Claude Code reads follows `CLAUDE_CONFIG_DIR`, and
-// so must the probe that claims the channel is closed — and Minsky's own writers,
-// which this same task pointed at the same resolver.
-import { resolveClaudeJsonPath } from "@minsky/domain/mcp/claude-code-paths";
 // PR #3680 R1. A git remote can carry credentials in its userinfo
 // (`https://user:token@github.com/...`), and this harness both LOGS its
 // workspace origin and PERSISTS it in a record whose stated design constraint is
@@ -546,8 +542,30 @@ function customizationEntriesIn(dir: string): string[] {
 }
 
 /**
+ * The `.claude.json` Claude Code reads under `env`: `$CLAUDE_CONFIG_DIR/.claude.json`
+ * when that variable is set and non-blank, else `<home>/.claude.json` — measured on
+ * Claude Code 2.1.258 (mt#5066). The probe that claims channel 5 is closed must
+ * resolve the file the same way, or it reads the wrong file and passes.
+ *
+ * A local copy of `resolveClaudeJsonPath`
+ * (`packages/domain/src/mcp/claude-code-paths.ts`), for the reason
+ * `DISPOSABLE_POSTGRES_IMAGE` is a literal: this harness depends on nothing but
+ * Node/Bun builtins. **Equality with the domain resolver is enforced by a test**
+ * (`cold-agent-onboarding-run.test.ts`), which is free to import the domain —
+ * that is what makes the copy safe rather than merely commented (PR #3678 R1's
+ * pattern, applied here at PR #3737 R1).
+ */
+export function claudeJsonPathUnder(env: NodeJS.ProcessEnv, home: string = homedir()): string {
+  const configDir = env.CLAUDE_CONFIG_DIR;
+  const base = configDir && configDir.trim().length > 0 ? configDir : home;
+  return join(base, ".claude.json");
+}
+
+/**
  * User-scope MCP server NAMES in a `.claude.json` — `Object.keys(mcpServers)`,
- * never the entries themselves, which can carry tokens (mt#5066).
+ * never the entries themselves, which can carry tokens (mt#5066). Consumers read
+ * the result as a presence set (`length === 0` closes the channel; anything
+ * else opens it and is rendered), never as identities.
  *
  * Failure direction, as with `parseMcpServerNames`: a file that exists but
  * cannot be read or parsed is reported as `UNPARSED:<basename>` rather than
@@ -571,7 +589,7 @@ export function userScopeMcpServerNamesIn(file: string): string[] {
 export interface ObserveOptions {
   env: NodeJS.ProcessEnv;
   claudeConfigDir: string;
-  /** The `.claude.json` Claude Code reads under `env` — `resolveClaudeJsonPath(env)`. */
+  /** The `.claude.json` Claude Code reads under `env` — `claudeJsonPathUnder(env)`. */
   claudeJsonPath: string;
   minskyConfigPath: string;
   daemonTokenPath: string;
@@ -859,7 +877,10 @@ function portIsBusy(port: number): boolean {
  * for a machine that has no Minsky. **The equality is enforced by a test**
  * (`cold-agent-onboarding-run.test.ts`), which is free to import the domain;
  * that is what makes the duplication safe rather than merely commented
- * (PR #3678 R1).
+ * (PR #3678 R1). The one standing exception is `maskConnectionString`
+ * (PR #3680 R1, rationale at its import): a regex, whose copies have measurably
+ * drifted, where a literal or a three-line resolver can be pinned by equality.
+ * `claudeJsonPathUnder` follows this pattern, not that exception.
  */
 export const DISPOSABLE_POSTGRES_IMAGE = "pgvector/pgvector:pg17";
 
@@ -1117,7 +1138,7 @@ async function main(argv: string[]): Promise<number> {
     const sandboxedObs = await observe({
       env,
       claudeConfigDir: paths.claudeConfigDir,
-      claudeJsonPath: resolveClaudeJsonPath(env),
+      claudeJsonPath: claudeJsonPathUnder(env),
       minskyConfigPath: join(paths.xdgConfigHome, "minsky", "config.yaml"),
       daemonTokenPath: paths.daemonTokenPath,
       strictMcpConfig: true,
@@ -1144,7 +1165,7 @@ async function main(argv: string[]): Promise<number> {
       await observe({
         env: process.env,
         claudeConfigDir: join(process.env.HOME ?? "", ".claude"),
-        claudeJsonPath: resolveClaudeJsonPath(process.env),
+        claudeJsonPath: claudeJsonPathUnder(process.env),
         minskyConfigPath: join(operatorConfigHome, "minsky", "config.yaml"),
         daemonTokenPath: join(operatorConfigHome, "minsky", "local-mcp-token"),
         strictMcpConfig: false,
@@ -1196,7 +1217,7 @@ async function main(argv: string[]): Promise<number> {
       // resolved from the harness's own environment, so a run that writes a
       // user-scope registration into it is caught by name after dispatch.
       // Names only — the entries can carry tokens.
-      const operatorClaudeJson = resolveClaudeJsonPath(process.env);
+      const operatorClaudeJson = claudeJsonPathUnder(process.env);
       const operatorServersBefore = new Set(userScopeMcpServerNamesIn(operatorClaudeJson));
 
       const started = new Date(opts.nowMs).toISOString();
