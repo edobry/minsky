@@ -13,9 +13,14 @@ A **Repository** is a Git repository identified by an upstream URI. From Minsky'
 - **URI**: A reference to the repository location (HTTPS, SSH, local file path)
 - **Name**: A normalized identifier derived from the URI (org/repo or local/repo)
 
-### Session
+### Workspace
 
-A Session represents a workspace for implementing a specific task or feature. Each session is isolated and can be associated with a task ID.
+A **Workspace** is the per-task isolated Git clone plus branch that Minsky creates for
+implementing one task. Each workspace is isolated and can be associated with a task ID. This is
+the entity the `sessions` table, the `SessionRecord` type, the ~59 `session_*` tools, and
+`~/.local/state/minsky/sessions/` still name "session" — a stage-1 naming convention under
+ADR-022 (`docs/architecture/adr-022-session-vs-conversation-terminology.md`) that survives until
+stage 2 (mt#2527) executes the mechanical `session_*` → `workspace_*` rename.
 
 ### Key Properties
 
@@ -26,6 +31,9 @@ A Session represents a workspace for implementing a specific task or feature. Ea
 - **taskId**: Optional task ID associated with the session
 - **branch**: Git branch for the session
 - **prState**: Optional PR state tracking for performance optimization
+
+`SessionRecord` and the `minsky session` commands below keep their stage-1 names; they describe
+the **Workspace** entity defined above, not a different concept.
 
 ### Session Record Structure
 
@@ -75,44 +83,58 @@ The `prState` field provides intelligent caching for PR workflow operations:
 4. **Approval**: `minsky session pr approve` merges the PR and updates state
 5. **Cleanup**: Session state is maintained for audit and troubleshooting
 
-### Workspace
+### Conversation
 
-A **Workspace** is the filesystem location where a session's working copy exists. It is the physical manifestation of a session on disk.
+A **Conversation** is the harness chat: a Claude Code conversation UUID, its transcripts, and
+what `claude --resume` reconnects to. It is a distinct entity from a **Workspace** (see above) —
+a workspace can outlive many conversations, and is not defined by any single one of them.
 
-**Properties**:
+Bare **"session"** is not a Minsky vocabulary word for any sense — Workspace, Conversation, or
+the MCP transport connection. It survives only as quoted foreign vocabulary, at four boundaries:
+harness field names (`agent_session_id`, the stream-json `session_id` field); the frozen
+`minsky://session/<uuid>` deeplink URI type; historical migration files that named it at the
+time; and the frozen MCP transport artifact (`mcp-session-id` header handling, the
+`McpSessionId` branded type), pending its retirement at mt#4608. Authority: ADR-022
+(`docs/architecture/adr-022-session-vs-conversation-terminology.md`) and its
+`## Amendment (2026-09-04)`, which also retires the MCP-transport sense.
 
-- **Path**: Absolute filesystem path to the workspace directory
-- **Type**: Either a session workspace or main workspace
+A fourth sense, the **drive** — the cockpit's supervised subject-surface that spawns and
+reconnects a harness process (`DrivenSessionRecord`) and adopts a series of conversations over
+its life — is recorded under that working term in the same amendment. Its owned noun is an open
+principal decision at ask#12011; this document does not choose one.
 
 ## 2. Relationship Diagram
 
 ```
-+-----------------+     references     +------------------+
-| Repository      |<-------------------| Session          |
-+-----------------+                    +------------------+
-| - URI           |                    | - ID             |
-| - Name          |                    | - Branch         |
-+-----------------+                    | - Task ID (opt)  |
-       ^                               | - Created Date   |
-       |                               | - Repo Reference |
-       | cloned into                   +------------------+
-       |                                       |
-       |                                       | has exactly one
-       |                                       v
-       |                               +------------------+
-       +------------------------------>| Workspace        |
-           workspace points to         +------------------+
-                                       | - Path           |
-                                       | - Type           |
-                                       +------------------+
++-----------------+                       +----------------------------+
+| Repository      |<----------------------| Workspace                  |
++-----------------+      cloned into      | (code identifier:         |
+| - URI           |                       |  "session", see ADR-022)  |
+| - Name          |                       +----------------------------+
++-----------------+                       | - ID                      |
+                                           | - Branch                  |
+                                           | - Task ID (opt)           |
+                                           | - Created Date            |
+                                           | - Repo Reference          |
+                                           | - Path                    |
+                                           +----------------------------+
+                                                        ^
+                                                        | may be visited by
+                                                        | a series of
+                                                        |
+                                           +----------------------------+
+                                           | Conversation               |
+                                           +----------------------------+
 ```
 
 ## 3. Key Relationships
 
 1. Each **Session** is associated with exactly one upstream **Repository**.
-2. Each **Session** has exactly one **Workspace**.
+2. **Session** is the current code identifier for the same entity this document calls
+   **Workspace** (§1) — the two are not distinct objects in a containment relationship.
 3. A **Repository** can be referenced by multiple **Sessions**.
-4. A **Workspace** is always associated with a single **Session**.
+4. A **Workspace** may be visited by zero, one, or (across the drive's conversation-adoption
+   model) a series of **Conversations** over its lifetime.
 5. Tasks can be associated with zero or one **Session** at any given time.
 
 ## 4. URI Handling Specification
@@ -216,12 +238,19 @@ minsky session start --repo /path/does/not/exist --task 123
 
 ## 7. Migration from Previous Terminology
 
-| Previous Term      | New Term            | Notes                                              |
-| ------------------ | ------------------- | -------------------------------------------------- |
-| Main workspace     | Upstream repository | The original repository that sessions are based on |
-| Session repository | Session workspace   | The working copy of a session                      |
-| Repo URL           | Repository URI      | More general term that includes local paths        |
-| Repo path          | Workspace path      | The physical location of the workspace             |
+ADR-022 (`docs/architecture/adr-022-session-vs-conversation-terminology.md`), amended
+2026-09-04, resolved the historical overload of the word "session" into the senses below:
+
+| Old word (bare "session")    | Current sense                                                                    |
+| ---------------------------- | -------------------------------------------------------------------------------- |
+| session (per-task Git clone) | **Workspace** — code identifiers keep the "session" name until mt#2527 (stage 2) |
+| session (harness chat)       | **Conversation**                                                                 |
+| session (MCP transport)      | Retired — the frozen `mcp-session-id` artifact remains until mt#4608 retires it  |
+| _(no prior word)_            | **The drive** — fourth sense; working term, owned noun pending ask#12011         |
+
+Bare "session" is no longer a Minsky vocabulary word for any of these senses (see §1); it
+survives only as quoted foreign vocabulary at the boundaries the amendment enumerates. For the
+mechanical `session_*` → `workspace_*` identifier rename, see mt#2527.
 
 ## 8. Implementation Notes
 
