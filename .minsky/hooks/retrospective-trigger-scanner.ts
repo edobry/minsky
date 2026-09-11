@@ -597,7 +597,11 @@ export interface JudgedInputCapture {
  * (`<provider>: <scrubbed reason>` for `provider-unavailable`, the bootstrap
  * error for `bootstrap-failed`). Before this the detail never reached the
  * record, so a fault and the healthy no-key state were one line in the log.
- * Shared by every writer so a fourth site cannot drop the detail silently.
+ * Shared by every writer so a fourth site cannot drop the detail silently —
+ * and the detail is credential-scrubbed HERE, at the boundary the records are
+ * written through, so the invariant does not depend on every producer upstream
+ * having scrubbed (PR #3731 R1). The resolver scrubs its own `reason` too;
+ * scrubbing is idempotent, and this is the one place a bypass cannot skip.
  */
 export function nominationDegradedFields(
   reason: DegradedReason | undefined,
@@ -606,7 +610,7 @@ export function nominationDegradedFields(
   if (reason === undefined) return {};
   return {
     nomination_degraded: reason,
-    ...(detail !== undefined ? { nomination_degraded_detail: detail } : {}),
+    ...(detail !== undefined ? { nomination_degraded_detail: scrubText(detail).text } : {}),
   };
 }
 

@@ -47,6 +47,7 @@ export {
 } from "./embedding-nomination";
 export {
   resolveNominationDeps,
+  describeNominationDepsResolution,
   isEmbeddingProviderConfigured,
   type NominationDepsResolution,
 } from "./embedding-nomination-factory";

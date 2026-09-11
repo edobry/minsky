@@ -9,11 +9,12 @@ import { describe, expect, test } from "bun:test";
 import { nominationDegradedFields } from "./retrospective-trigger-scanner";
 
 const PROVIDER_UNCONFIGURED = "provider-unconfigured";
+const PROVIDER_UNAVAILABLE = "provider-unavailable";
 
 describe("nominationDegradedFields (mt#5051)", () => {
   test("an unavailable provider records its reason and the provider-plus-cause detail", () => {
-    expect(nominationDegradedFields("provider-unavailable", "openai: model not found")).toEqual({
-      nomination_degraded: "provider-unavailable",
+    expect(nominationDegradedFields(PROVIDER_UNAVAILABLE, "openai: model not found")).toEqual({
+      nomination_degraded: PROVIDER_UNAVAILABLE,
       nomination_degraded_detail: "openai: model not found",
     });
   });
@@ -33,5 +34,14 @@ describe("nominationDegradedFields (mt#5051)", () => {
 
   test("no degradation writes no fields, so a healthy record stays unchanged", () => {
     expect(nominationDegradedFields(undefined, undefined)).toEqual({});
+  });
+
+  test("the detail is scrubbed at the writer boundary, whatever the producer did upstream", () => {
+    const fields = nominationDegradedFields(
+      PROVIDER_UNAVAILABLE,
+      "openai: connect failed: postgresql://minsky:s3cretpw@db.example.com:5432/minsky"
+    );
+    expect(fields.nomination_degraded_detail).not.toContain("s3cretpw");
+    expect(fields.nomination_degraded_detail).toContain("openai: connect failed");
   });
 });

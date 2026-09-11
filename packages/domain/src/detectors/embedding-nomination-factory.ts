@@ -68,7 +68,7 @@ export type NominationDepsResolution =
   | { kind: "unavailable"; provider: string; reason: string };
 
 /** The provider name the embedding factory will construct for this config. */
-export function resolveEmbeddingProviderName(config: EmbeddingProviderConfigView): string {
+function resolveEmbeddingProviderName(config: EmbeddingProviderConfigView): string {
   return config.embeddings?.provider || config.ai?.defaultProvider || "openai";
 }
 
