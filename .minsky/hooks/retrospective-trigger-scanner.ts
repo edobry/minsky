@@ -76,6 +76,7 @@ import {
   type ConfirmDeps,
 } from "../../packages/domain/src/detectors/llm-confirm";
 import { resolveConfirmDeps } from "../../packages/domain/src/detectors/llm-confirm-factory";
+import { scrubText } from "../../packages/domain/src/transcripts/credential-scrubber";
 import { ensureHookDomainBootstrap } from "./domain-bootstrap";
 import { flagKey, readFlagged, turnKeyFor } from "./turn-end-scan-store";
 import { cappedEvidenceLines } from "./guard-feedback-format";
@@ -588,6 +589,27 @@ export interface JudgedInputCapture {
   nominationContexts: { family: string; context: string }[];
 }
 
+/**
+ * The calibration-record fields for a degraded Rung 2 (mt#5051).
+ *
+ * `nomination_degraded` stays a member of the `DegradedReason` union — a clean
+ * classification key — and `nomination_degraded_detail` carries the cause
+ * (`<provider>: <scrubbed reason>` for `provider-unavailable`, the bootstrap
+ * error for `bootstrap-failed`). Before this the detail never reached the
+ * record, so a fault and the healthy no-key state were one line in the log.
+ * Shared by every writer so a fourth site cannot drop the detail silently.
+ */
+export function nominationDegradedFields(
+  reason: DegradedReason | undefined,
+  detail: string | undefined
+): { nomination_degraded?: DegradedReason; nomination_degraded_detail?: string } {
+  if (reason === undefined) return {};
+  return {
+    nomination_degraded: reason,
+    ...(detail !== undefined ? { nomination_degraded_detail: detail } : {}),
+  };
+}
+
 export interface NominatedDetection {
   matches: TriggerMatch[];
   /** Set when the Rung-2 stage could not run; the caller still injects on Rung 1. */
@@ -687,15 +709,34 @@ export async function detectTriggerPhrasesWithNomination(
     // names the embedding-factory call as one of the three it must precede.
     const bootstrap = await ensureHookDomainBootstrap();
     if (!bootstrap.ok) {
+      // Until mt#5051 this was labelled `provider-unconfigured` — the same
+      // misattribution mt#5000 found in the stale-state scan, one hook over.
       return {
         matches: rung1,
-        degradedReason: "provider-unconfigured",
+        degradedReason: "bootstrap-failed",
+        degradedDetail: scrubText(bootstrap.error).text,
         nominatedFamilies: [],
         confirmedFamilies: [],
         capture,
       };
     }
-    resolved = await resolveNominationDeps();
+    // mt#5051: the resolver says which degraded state it is in, and the two are
+    // rendered as distinct labels (ADR-035 rule 3). `provider-unconfigured` is
+    // the healthy no-key state; `provider-unavailable` is a fault, with the
+    // provider plus the resolver's already-scrubbed cause in `degradedDetail`
+    // so the calibration record carries WHY, not only THAT.
+    const resolution = await resolveNominationDeps();
+    if (resolution.kind === "unavailable") {
+      return {
+        matches: rung1,
+        degradedReason: "provider-unavailable",
+        degradedDetail: `${resolution.provider}: ${resolution.reason}`,
+        nominatedFamilies: [],
+        confirmedFamilies: [],
+        capture,
+      };
+    }
+    resolved = resolution.kind === "resolved" ? resolution.deps : null;
   } else {
     resolved = deps;
   }
@@ -1211,6 +1252,7 @@ export async function run(
 
   const allMatches: TriggerMatch[] = [];
   let nominationDegradedReason: DegradedReason | undefined;
+  let nominationDegradedDetail: string | undefined;
   let nominatedFamilies: string[] = [];
   let nominationEnforcing = false;
   let confirmedFamilies: string[] = [];
@@ -1245,6 +1287,7 @@ export async function run(
         assistantScanned = true;
         const detected = await detectTriggerPhrasesWithNomination(runAssistantText);
         nominationDegradedReason = detected.degradedReason;
+        nominationDegradedDetail = detected.degradedDetail;
         nominatedFamilies = detected.nominatedFamilies;
         nominationEnforcing = detected.enforcing === true;
         confirmedFamilies = detected.confirmedFamilies;
@@ -1301,9 +1344,7 @@ export async function run(
     nominated_families: nominatedFamilies,
     confirmed_families: confirmedFamilies,
     ...(rung3Outcome !== undefined ? { rung3: rung3Outcome } : {}),
-    ...(nominationDegradedReason !== undefined
-      ? { nomination_degraded: nominationDegradedReason }
-      : {}),
+    ...nominationDegradedFields(nominationDegradedReason, nominationDegradedDetail),
     fired: allMatches.length > 0,
   });
 
@@ -1331,9 +1372,7 @@ export async function run(
           // degraded. Both are the stage's precision signal.
           confirmed_families: confirmedFamilies,
           ...(rung3Outcome !== undefined ? { rung3: rung3Outcome } : {}),
-          ...(nominationDegradedReason !== undefined
-            ? { nomination_degraded: nominationDegradedReason }
-            : {}),
+          ...nominationDegradedFields(nominationDegradedReason, nominationDegradedDetail),
           // mt#3821: what Rung 2 nominated on, and the identity of the whole
           // text Rung 3 judged. Until this landed the branch recorded neither,
           // which made ~87% of this log's records unclassifiable by anyone.
@@ -1393,9 +1432,7 @@ export async function run(
       // Rung-1 fire, unchanged from the pre-ladder baseline.
       confirmed_families: confirmedFamilies,
       ...(rung3Outcome !== undefined ? { rung3: rung3Outcome } : {}),
-      ...(nominationDegradedReason !== undefined
-        ? { nomination_degraded: nominationDegradedReason }
-        : {}),
+      ...nominationDegradedFields(nominationDegradedReason, nominationDegradedDetail),
       // mt#3821: identity of the text `transcript_excerpt` was cut from — the
       // surface that produced the FIRST match, which is not always the surface
       // Rung 2 scored (a user-correction fire judges the user message).

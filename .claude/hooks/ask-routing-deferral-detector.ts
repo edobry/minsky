@@ -362,28 +362,38 @@ export function createNominator(
   exemplarSet: ExemplarSet,
   threshold: number
 ): SettledDecisionNominator {
-  let deps: NominationDeps | null | undefined;
+  let deps: NominationDeps | undefined;
   let latchedFailure: string | undefined;
 
   return async (context: string): Promise<SettledNominationOutcome> => {
     if (latchedFailure !== undefined) return { kind: "degraded", reason: latchedFailure };
 
     if (deps === undefined) {
+      let resolution: Awaited<ReturnType<typeof resolveNominationDeps>>;
       try {
         const bootstrap = await ensureHookDomainBootstrap();
         if (!bootstrap.ok) {
           latchedFailure = "bootstrap-failed";
           return { kind: "degraded", reason: latchedFailure };
         }
-        deps = await resolveNominationDeps();
+        resolution = await resolveNominationDeps();
       } catch (err) {
         latchedFailure = `resolve-threw: ${err instanceof Error ? err.message : String(err)}`;
         return { kind: "degraded", reason: latchedFailure };
       }
-    }
-    if (deps === null) {
-      latchedFailure = "provider-unconfigured";
-      return { kind: "degraded", reason: latchedFailure };
+      // mt#5051: the resolver now says WHICH degraded state it is in. The two
+      // labels are distinct on purpose (ADR-035 rule 3) — `provider-unconfigured`
+      // is the healthy no-key state; `provider-unavailable` is a fault and
+      // carries the provider plus the resolver's already-scrubbed cause.
+      if (resolution.kind === "unconfigured") {
+        latchedFailure = "provider-unconfigured";
+        return { kind: "degraded", reason: latchedFailure };
+      }
+      if (resolution.kind === "unavailable") {
+        latchedFailure = `provider-unavailable: ${resolution.provider}: ${resolution.reason}`;
+        return { kind: "degraded", reason: latchedFailure };
+      }
+      deps = resolution.deps;
     }
 
     // PR #3395 R1. `nominate` ALREADY refuses a non-semantic provider before it

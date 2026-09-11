@@ -2298,28 +2298,37 @@ export function dedupeSymbolFreeClaims(
  * verdict — the silent skip ADR-024 forbids — instead of degrading visibly.
  */
 export function createIdentityClaimNominator(): IdentityClaimNominator {
-  let deps: NominationDeps | null | undefined;
+  let deps: NominationDeps | undefined;
   let latchedFailure: string | undefined;
 
   return async (prose: string): Promise<IdentityNominationOutcome> => {
     if (latchedFailure !== undefined) return { kind: "degraded", reason: latchedFailure };
 
     if (deps === undefined) {
+      let resolution: Awaited<ReturnType<typeof resolveNominationDeps>>;
       try {
         const bootstrap = await ensureHookDomainBootstrap();
         if (!bootstrap.ok) {
           latchedFailure = "bootstrap-failed";
           return { kind: "degraded", reason: latchedFailure };
         }
-        deps = await resolveNominationDeps();
+        resolution = await resolveNominationDeps();
       } catch (err) {
         latchedFailure = `resolve-threw: ${err instanceof Error ? err.message : String(err)}`;
         return { kind: "degraded", reason: latchedFailure };
       }
-    }
-    if (deps === null) {
-      latchedFailure = "provider-unconfigured";
-      return { kind: "degraded", reason: latchedFailure };
+      // mt#5051: `provider-unconfigured` is the healthy no-key state;
+      // `provider-unavailable` is a fault carrying the provider and the
+      // resolver's already-scrubbed cause. Distinct labels per ADR-035 rule 3.
+      if (resolution.kind === "unconfigured") {
+        latchedFailure = "provider-unconfigured";
+        return { kind: "degraded", reason: latchedFailure };
+      }
+      if (resolution.kind === "unavailable") {
+        latchedFailure = `provider-unavailable: ${resolution.provider}: ${resolution.reason}`;
+        return { kind: "degraded", reason: latchedFailure };
+      }
+      deps = resolution.deps;
     }
 
     // mt#3726: every ACTIVE family in one call, not just the identity set.

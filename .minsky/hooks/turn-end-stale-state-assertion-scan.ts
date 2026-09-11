@@ -607,22 +607,28 @@ function safeDegradedDetail(raw: string): string {
   return `${safeTruncate(text, DEGRADED_DETAIL_MAX_CHARS, "head")}… (truncated)`;
 }
 
-/** The resolved, non-null shape `resolveNominationDeps` hands back on success. */
-type ResolvedNominationDeps = NonNullable<Awaited<ReturnType<typeof resolveNominationDeps>>>;
+/** The deps `resolveNominationDeps` hands back on its `resolved` arm. */
+type ResolvedNominationDeps = Extract<
+  Awaited<ReturnType<typeof resolveNominationDeps>>,
+  { kind: "resolved" }
+>["deps"];
 
 /**
  * What the dependency stage produced — bootstrap and resolve as ONE outcome.
  *
- * Three cases, deliberately not two (mt#5000). `bootstrap-failed` and
- * `deps-unavailable` both used to arrive as `null` from the resolver and render
- * as one `nomination-deps-unavailable` record, which is the collapse ADR-035
+ * Four cases, deliberately not two (mt#5000, then mt#5051). `bootstrap-failed`
+ * and the resolver's failures all used to arrive as `null` and render as one
+ * `nomination-deps-unavailable` record, which is the collapse ADR-035
  * §Decision rule 3 forbids: *"'Configured but failing' MUST be distinguishable
- * from 'not configured.'"* Splitting them here is what lets the calibration
- * stream name the cause instead of the symptom.
+ * from 'not configured.'"* mt#5000 split the bootstrap failure out here;
+ * mt#5051 made the resolver itself say which of its two remaining states it is
+ * in, so `deps-unconfigured` (healthy: no key for the chosen provider) and
+ * `deps-unavailable` (a fault, with its cause) are now distinct records too.
  */
 type DepsStageOutcome =
   | { kind: "resolved"; deps: ResolvedNominationDeps }
-  | { kind: "deps-unavailable" }
+  | { kind: "deps-unconfigured"; provider: string }
+  | { kind: "deps-unavailable"; provider: string; reason: string }
   | { kind: "bootstrap-failed"; error: string };
 
 /**
@@ -643,8 +649,19 @@ export async function runDepsStage(
     const boot = await bootstrap();
     if (!boot.ok) return { kind: "bootstrap-failed", error: boot.error };
   }
-  const resolved = await resolve();
-  return resolved === null ? { kind: "deps-unavailable" } : { kind: "resolved", deps: resolved };
+  const resolution = await resolve();
+  switch (resolution.kind) {
+    case "resolved":
+      return { kind: "resolved", deps: resolution.deps };
+    case "unconfigured":
+      return { kind: "deps-unconfigured", provider: resolution.provider };
+    case "unavailable":
+      return {
+        kind: "deps-unavailable",
+        provider: resolution.provider,
+        reason: resolution.reason,
+      };
+  }
 }
 
 /** The `deps` bag {@link nominatePendingClaims} accepts, named so the selector can take it. */
@@ -697,8 +714,9 @@ export async function nominatePendingClaims(
   // polyfill nor the process-global configuration that `cli.ts` and the MCP
   // server install at boot. `resolveNominationDeps` reaches the embedding
   // factory, whose first statement is `await getConfiguration()` — so with no
-  // bootstrap it throws "Configuration not initialized", its own catch converts
-  // that to `null`, and this stage records `nomination-deps-unavailable` on
+  // bootstrap it throws "Configuration not initialized", its own catch reports
+  // that as `unavailable` (a bare `null` until mt#5051), and this stage records
+  // `nomination-deps-unavailable` on
   // every cold turn while every unit test passes (the `deps` parameter below is
   // injectable, so tests never traverse the resolver). That is the mt#3019
   // dead-path shape, and `domain-bootstrap`'s docblock already names the
@@ -765,8 +783,28 @@ export async function nominatePendingClaims(
       scores: [],
     };
   }
+  if (stage.kind === "deps-unconfigured") {
+    // The healthy local/dev state: the chosen provider simply has no key. A NEW
+    // label rather than a suffix on the old one, so the sweep can tell a turn
+    // that could not check because nothing was configured from one that could
+    // not check because something broke (mt#5051; ADR-035 rule 3).
+    return {
+      claims: [],
+      degradedReason: `nomination-deps-unconfigured: ${stage.provider}`,
+      scores: [],
+    };
+  }
   if (stage.kind === "deps-unavailable") {
-    return { claims: [], degradedReason: "nomination-deps-unavailable", scores: [] };
+    // A fault. Keeps the `nomination-deps-unavailable` prefix the sweep and
+    // `verify-stale-state-nomination-bootstrap.ts` already key on, and carries
+    // the provider plus the scrubbed cause in `describeProviderResolutionFailure`'s
+    // `<what>: <class>: <detail>` shape — the provider name plays `errorClass`'s
+    // role, discriminating at a glance even when the reason scrubs to nothing.
+    return {
+      claims: [],
+      degradedReason: `nomination-deps-unavailable: ${stage.provider}: ${safeDegradedDetail(stage.reason)}`,
+      scores: [],
+    };
   }
   const nominationDeps = stage.deps;
 

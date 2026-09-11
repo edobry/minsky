@@ -40,6 +40,17 @@ import {
 // only when the function is CALLED, so this pulls in no domain tree and no IO.
 import { ensureHookDomainBootstrap } from "./domain-bootstrap";
 
+/**
+ * mt#5051: the resolver's two non-resolved arms, as this hook's tests inject
+ * them. `UNCONFIGURED` stands in wherever a test only needs "no provider"; the
+ * arms are asserted apart in the mt#5000/mt#5051 block below.
+ */
+const UNCONFIGURED = { kind: "unconfigured", provider: "openai" } as const;
+const UNAVAILABLE = { kind: "unavailable", provider: "openai", reason: "boom" } as const;
+/** The labels the stage renders for each, pinned once so a drift shows in one place. */
+const UNCONFIGURED_LABEL = "nomination-deps-unconfigured: openai";
+const UNAVAILABLE_LABEL = "nomination-deps-unavailable: openai: boom";
+
 /** The literal shape of mem#669 R17's closing message — the originating case. */
 const R17_MESSAGE =
   "mt#3711 is merged and live. Nothing else outstanding.\n\n" +
@@ -500,7 +511,7 @@ describe("mt#4580 — cost discipline: no ref means no IO", () => {
     const out = await nominatePendingClaims("All done here, nothing outstanding.", {
       resolve: async () => {
         resolveCalls += 1;
-        return null;
+        return UNCONFIGURED;
       },
       run: async () => {
         throw new Error("nominate must not be reached without a ref");
@@ -511,21 +522,33 @@ describe("mt#4580 — cost discipline: no ref means no IO", () => {
     expect(out.degradedReason).toBeUndefined();
   });
 
-  test("an unavailable embedding provider degrades rather than firing", async () => {
+  test("an unconfigured embedding provider degrades rather than firing", async () => {
     const out = await nominatePendingClaims(TAIL_WITH_REF, {
-      resolve: async () => null,
+      resolve: async () => UNCONFIGURED,
       run: async () => {
         throw new Error("must not run without deps");
       },
     });
     expect(out.claims).toEqual([]);
-    expect(out.degradedReason).toBe("nomination-deps-unavailable");
+    expect(out.degradedReason).toBe(UNCONFIGURED_LABEL);
+  });
+
+  test("mt#5051: an UNAVAILABLE provider degrades under its own label, carrying the cause", async () => {
+    const out = await nominatePendingClaims(TAIL_WITH_REF, {
+      resolve: async () => UNAVAILABLE,
+      run: async () => {
+        throw new Error("must not run without deps");
+      },
+    });
+    expect(out.claims).toEqual([]);
+    expect(out.degradedReason).toBe(UNAVAILABLE_LABEL);
   });
 });
 
 describe("mt#5000 — the nomination path bootstraps the domain before resolving", () => {
   /** A resolver that succeeds, so a degraded outcome can only come from the bootstrap. */
-  const resolveOkDeps = async () => ({ embeddingService: {}, semantic: true }) as never;
+  const resolveOkDeps = async () =>
+    ({ kind: "resolved", deps: { embeddingService: {}, semantic: true } }) as never;
   const bootstrapOk = async () => ({ ok: true }) as const;
 
   // ── SC1: the production path bootstraps at all ─────────────────────────────
@@ -542,7 +565,7 @@ describe("mt#5000 — the nomination path bootstraps the domain before resolving
   test("an injected resolver with no bootstrap opts out, keeping unit tests hermetic", () => {
     expect(
       selectBootstrap({
-        resolve: async () => null,
+        resolve: async () => UNCONFIGURED,
         run: async () => {
           throw new Error(UNREACHABLE);
         },
@@ -554,7 +577,7 @@ describe("mt#5000 — the nomination path bootstraps the domain before resolving
     const injected = async () => ({ ok: true }) as const;
     expect(
       selectBootstrap({
-        resolve: async () => null,
+        resolve: async () => UNCONFIGURED,
         run: async () => {
           throw new Error(UNREACHABLE);
         },
@@ -592,7 +615,7 @@ describe("mt#5000 — the nomination path bootstraps the domain before resolving
       bootstrap: async () => ({ ok: false, error: "boom" }) as const,
     });
     const providerUnconfigured = await nominatePendingClaims(TAIL_WITH_REF, {
-      resolve: async () => null,
+      resolve: async () => UNCONFIGURED,
       run: async () => {
         throw new Error(UNREACHABLE);
       },
@@ -600,8 +623,31 @@ describe("mt#5000 — the nomination path bootstraps the domain before resolving
     });
 
     expect(bootstrapFailed.degradedReason).toBe("domain-bootstrap-failed: boom");
-    expect(providerUnconfigured.degradedReason).toBe("nomination-deps-unavailable");
+    expect(providerUnconfigured.degradedReason).toBe(UNCONFIGURED_LABEL);
     expect(bootstrapFailed.degradedReason).not.toBe(providerUnconfigured.degradedReason);
+  });
+
+  test("mt#5051: an unconfigured and an unavailable provider do NOT render the same either", async () => {
+    const unconfigured = await nominatePendingClaims(TAIL_WITH_REF, {
+      resolve: async () => UNCONFIGURED,
+      run: async () => {
+        throw new Error(UNREACHABLE);
+      },
+      bootstrap: bootstrapOk,
+    });
+    const unavailable = await nominatePendingClaims(TAIL_WITH_REF, {
+      resolve: async () => UNAVAILABLE,
+      run: async () => {
+        throw new Error(UNREACHABLE);
+      },
+      bootstrap: bootstrapOk,
+    });
+
+    // The collapse ADR-035 rule 3 forbids: both used to arrive as `null` and
+    // render as one `nomination-deps-unavailable` line.
+    expect(unconfigured.degradedReason).toBe(UNCONFIGURED_LABEL);
+    expect(unavailable.degradedReason).toBe(UNAVAILABLE_LABEL);
+    expect(unconfigured.degradedReason).not.toBe(unavailable.degradedReason);
   });
 
   // ── The stage function, covered exhaustively over its three outcomes ───────
@@ -611,7 +657,7 @@ describe("mt#5000 — the nomination path bootstraps the domain before resolving
     const outcome = await runDepsStage(
       async () => {
         resolveCalls += 1;
-        return null;
+        return UNCONFIGURED;
       },
       async () => ({ ok: false, error: "no config" }) as const
     );
@@ -621,9 +667,14 @@ describe("mt#5000 — the nomination path bootstraps the domain before resolving
     expect(outcome).toEqual({ kind: "bootstrap-failed", error: "no config" });
   });
 
-  test("runDepsStage: bootstrap ok + null resolver is deps-unavailable, not a bootstrap failure", async () => {
-    const outcome = await runDepsStage(async () => null, bootstrapOk);
-    expect(outcome).toEqual({ kind: "deps-unavailable" });
+  test("runDepsStage: bootstrap ok + an unconfigured resolver is deps-unconfigured, not a bootstrap failure", async () => {
+    const outcome = await runDepsStage(async () => UNCONFIGURED, bootstrapOk);
+    expect(outcome).toEqual({ kind: "deps-unconfigured", provider: "openai" });
+  });
+
+  test("runDepsStage: bootstrap ok + an unavailable resolver carries the provider and the cause", async () => {
+    const outcome = await runDepsStage(async () => UNAVAILABLE, bootstrapOk);
+    expect(outcome).toEqual({ kind: "deps-unavailable", provider: "openai", reason: "boom" });
   });
 
   test("runDepsStage: bootstrap ok + a real provider resolves", async () => {
@@ -705,7 +756,7 @@ describe("mt#5000 — the nomination path bootstraps the domain before resolving
     await nominatePendingClaims(TAIL_WITH_REF, {
       resolve: async () => {
         order.push("resolve");
-        return null;
+        return UNCONFIGURED;
       },
       run: async () => {
         throw new Error(UNREACHABLE);
@@ -819,7 +870,7 @@ describe("mt#4580 AT5 — elision holds on the Rung-2 path too", () => {
     const out = await nominatePendingClaims(fenced, {
       resolve: async () => {
         resolveCalls += 1;
-        return null;
+        return UNCONFIGURED;
       },
       run: async () => {
         throw new Error("nominate must not run on an elided ref");
@@ -836,7 +887,7 @@ describe("mt#4580 AT5 — elision holds on the Rung-2 path too", () => {
     await nominatePendingClaims("Start mt#4556 next.", {
       resolve: async () => {
         resolveCalls += 1;
-        return null;
+        return UNCONFIGURED;
       },
       run: async () => {
         throw new Error("unreachable — resolve returns null");
@@ -966,8 +1017,8 @@ describe("mt#5008 — segment-named refs bound the attribution", () => {
     (async () => ({
       nominations: [{ family: FAMILY_PAST_TENSE, segment, score: 0.5 }],
     })) as unknown as NonNullable<Parameters<typeof nominatePendingClaims>[1]>["run"];
-  // Any non-null value: `run` is injected, so the deps are never dereferenced.
-  const resolveOk = async () => ({}) as never;
+  // Any resolved value: `run` is injected, so the deps are never dereferenced.
+  const resolveOk = async () => ({ kind: "resolved", deps: {} }) as never;
 
   const idsFrom = (claims: readonly { entity: { id: string } }[]) =>
     claims.map((c) => c.entity.id).sort();

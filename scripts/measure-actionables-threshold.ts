@@ -42,7 +42,10 @@ import {
 } from "../.minsky/hooks/ask-routing-deferral-detector";
 import { splitUnitClauses } from "../.minsky/hooks/actionables-block";
 import { nominate } from "../packages/domain/src/detectors/embedding-nomination";
-import { resolveNominationDeps } from "../packages/domain/src/detectors/embedding-nomination-factory";
+import {
+  describeNominationDepsResolution,
+  resolveNominationDeps,
+} from "../packages/domain/src/detectors/embedding-nomination-factory";
 import { ensureHookDomainBootstrap } from "../.minsky/hooks/domain-bootstrap";
 
 /** Verbatim Tier-0 decisions from terminal actionables blocks, none citing an ask. */
@@ -139,9 +142,14 @@ async function main(): Promise<void> {
     console.log("SKIP: domain bootstrap failed — no embedding provider available here");
     return;
   }
-  const deps = await resolveNominationDeps();
-  if (deps === null || !deps.semantic) {
-    console.log("SKIP: no semantic embedding provider configured");
+  const resolution = await resolveNominationDeps();
+  if (resolution.kind !== "resolved") {
+    console.log(`SKIP: embedding provider ${describeNominationDepsResolution(resolution)}`);
+    return;
+  }
+  const deps = resolution.deps;
+  if (!deps.semantic) {
+    console.log("SKIP: the configured embedding provider is non-semantic");
     return;
   }
 

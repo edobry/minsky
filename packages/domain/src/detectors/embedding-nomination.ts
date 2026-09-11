@@ -56,7 +56,18 @@ export const MAX_CANDIDATE_SEGMENTS = 40;
 export const MAX_SEGMENT_CHARS = 500;
 
 export type DegradedReason =
+  /** No key for the chosen provider — the healthy local/dev state. */
   | "provider-unconfigured"
+  /**
+   * The provider is configured and could not be constructed, or configuration
+   * could not be read at all (mt#5051). A fault, distinct from
+   * `provider-unconfigured` per ADR-035 rule 3; the cause travels in the
+   * consumer's `degradedDetail`. Distinct from `provider-error` too: that one
+   * is a constructed provider FAILING a call, this one never got that far.
+   */
+  | "provider-unavailable"
+  /** The hook process could not initialize the domain layer before resolving. */
+  | "bootstrap-failed"
   | "provider-error"
   | "timeout"
   | "non-semantic-provider"
