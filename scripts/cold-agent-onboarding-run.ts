@@ -41,12 +41,13 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "fs";
 import { homedir, tmpdir } from "os";
-import { delimiter, dirname, join } from "path";
+import { basename, delimiter, dirname, join } from "path";
 // PR #3680 R1. A git remote can carry credentials in its userinfo
 // (`https://user:token@github.com/...`), and this harness both LOGS its
 // workspace origin and PERSISTS it in a record whose stated design constraint is
@@ -116,6 +117,14 @@ export interface IsolationObservations {
   daemonProbe: DaemonProbeResult;
   /** Customization entries found in the Claude config dir (CLAUDE.md, skills, ...). */
   claudeCustomizationEntries: string[];
+  /**
+   * User-scope MCP server NAMES in the `.claude.json` Claude Code will read under
+   * this env — never values (mt#5066). The customizations DIRECTORY above is not
+   * where `minsky setup` writes; this file is, and until mt#5066 channel 5 never
+   * looked at it. `UNPARSED:<file>` marks a file that exists and could not be
+   * read, so an unreadable file OPENS the channel instead of closing it.
+   */
+  userScopeMcpServerNames: string[];
   /** Names of Postgres connection env vars still set. */
   postgresEnvVarsPresent: string[];
 }
@@ -203,11 +212,19 @@ export function evaluateIsolation(obs: IsolationObservations): ChannelVerdict[] 
     {
       channel: "claudeCustomizations",
       label: CHANNELS.claudeCustomizations,
-      isolated: obs.claudeCustomizationEntries.length === 0,
-      detail:
+      // Two halves, both required (mt#5066): the customizations DIRECTORY and
+      // the user-scope `.claude.json`. The 2026-09-10 run read ISOLATED on a
+      // clean directory while the file `minsky setup` writes was never checked.
+      isolated:
+        obs.claudeCustomizationEntries.length === 0 && obs.userScopeMcpServerNames.length === 0,
+      detail: [
         obs.claudeCustomizationEntries.length === 0
           ? "config dir carries no customizations"
           : `present: ${obs.claudeCustomizationEntries.join(", ")}`,
+        obs.userScopeMcpServerNames.length === 0
+          ? ".claude.json carries no user-scope MCP servers"
+          : `.claude.json user-scope MCP servers: ${obs.userScopeMcpServerNames.join(", ")}`,
+      ].join("; "),
     },
     {
       channel: "database",
@@ -311,7 +328,6 @@ export interface SandboxPaths {
   xdgStateHome: string;
   minskyStateDir: string;
   daemonTokenPath: string;
-  transcriptPath: string;
   /** Holds symlinks to the prerequisites a new user already has (bun). */
   binDir: string;
   /** `BUN_INSTALL`, so `bun add -g` lands here and not in the operator's dir. */
@@ -329,7 +345,6 @@ export function sandboxPathsUnder(root: string): SandboxPaths {
     xdgStateHome: join(root, "xdg-state"),
     minskyStateDir: join(root, "minsky-state"),
     daemonTokenPath: join(root, "minsky-state", "local-mcp-token"),
-    transcriptPath: join(root, "transcript.txt"),
     binDir: join(root, "bin"),
     bunInstallDir: join(root, "bun-install"),
     npmPrefixDir: join(root, "npm-prefix"),
@@ -526,9 +541,56 @@ function customizationEntriesIn(dir: string): string[] {
   return CLAUDE_CUSTOMIZATION_ENTRIES.filter((e) => present.has(e));
 }
 
+/**
+ * The `.claude.json` Claude Code reads under `env`: `$CLAUDE_CONFIG_DIR/.claude.json`
+ * when that variable is set and non-blank, else `<home>/.claude.json` — measured on
+ * Claude Code 2.1.258 (mt#5066). The probe that claims channel 5 is closed must
+ * resolve the file the same way, or it reads the wrong file and passes.
+ *
+ * A local copy of `resolveClaudeJsonPath`
+ * (`packages/domain/src/mcp/claude-code-paths.ts`), for the reason
+ * `DISPOSABLE_POSTGRES_IMAGE` is a literal: this harness depends on nothing but
+ * Node/Bun builtins. **Equality with the domain resolver is enforced by a test**
+ * (`cold-agent-onboarding-run.test.ts`), which is free to import the domain —
+ * that is what makes the copy safe rather than merely commented (PR #3678 R1's
+ * pattern, applied here at PR #3737 R1).
+ */
+export function claudeJsonPathUnder(env: NodeJS.ProcessEnv, home: string = homedir()): string {
+  const configDir = env.CLAUDE_CONFIG_DIR;
+  const base = configDir && configDir.trim().length > 0 ? configDir : home;
+  return join(base, ".claude.json");
+}
+
+/**
+ * User-scope MCP server NAMES in a `.claude.json` — `Object.keys(mcpServers)`,
+ * never the entries themselves, which can carry tokens (mt#5066). Consumers read
+ * the result as a presence set (`length === 0` closes the channel; anything
+ * else opens it and is rendered), never as identities.
+ *
+ * Failure direction, as with `parseMcpServerNames`: a file that exists but
+ * cannot be read or parsed is reported as `UNPARSED:<basename>` rather than
+ * `[]`, because `[]` would close the channel on exactly the evidence that
+ * should open it. A file that does not exist is genuinely empty.
+ */
+export function userScopeMcpServerNamesIn(file: string): string[] {
+  if (!existsSync(file)) return [];
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+    if (parsed === null || typeof parsed !== "object") return [`UNPARSED:${basename(file)}`];
+    const servers = (parsed as { mcpServers?: unknown }).mcpServers;
+    if (servers === undefined || servers === null) return [];
+    if (typeof servers !== "object") return [`UNPARSED:${basename(file)}`];
+    return Object.keys(servers as Record<string, unknown>);
+  } catch {
+    return [`UNPARSED:${basename(file)}`];
+  }
+}
+
 export interface ObserveOptions {
   env: NodeJS.ProcessEnv;
   claudeConfigDir: string;
+  /** The `.claude.json` Claude Code reads under `env` — `claudeJsonPathUnder(env)`. */
+  claudeJsonPath: string;
   minskyConfigPath: string;
   daemonTokenPath: string;
   /** Whether to pass --strict-mcp-config, which is how the sandbox closes channel 1. */
@@ -544,6 +606,7 @@ export async function observe(opts: ObserveOptions): Promise<IsolationObservatio
     daemonTokenPresent: existsSync(opts.daemonTokenPath),
     daemonProbe: await probeDaemonUnauthenticated(),
     claudeCustomizationEntries: customizationEntriesIn(opts.claudeConfigDir),
+    userScopeMcpServerNames: userScopeMcpServerNamesIn(opts.claudeJsonPath),
     postgresEnvVarsPresent: POSTGRES_ENV_VARS.filter((n) => Boolean(opts.env[n])),
   };
 }
@@ -589,8 +652,25 @@ export interface RunRecord {
    * was invisible until someone read the detection code two days later.
    */
   workspaceOrigin: string | null;
+  /**
+   * The scrubbed transcript, beside this record under `--out-dir` (mt#5066).
+   *
+   * A record whose `transcriptPath` points OUTSIDE its own directory — into
+   * `/var/folders/…/T/mt5012-cold-<rand>/transcript.txt` — predates mt#5066, when the transcript
+   * was written into the sandbox's temp root; macOS reclaims that on reboot, so
+   * such a file may be gone. Read a missing one as expired evidence, not as a
+   * harness defect. The two such records on the authoring machine were
+   * backfilled by hand when this shipped.
+   */
   transcriptPath: string | null;
   transcriptRedactions: number;
+  /**
+   * User-scope MCP server names the run ADDED to the operator's own
+   * `.claude.json` — the write-side half of channel 5 (mt#5066). `[]` is the
+   * pass; `null` means no agent ran (assertion-only mode), so nothing was
+   * checked. Names only, by construction.
+   */
+  operatorClaudeJsonNewServerNames: string[] | null;
 }
 
 /**
@@ -797,7 +877,10 @@ function portIsBusy(port: number): boolean {
  * for a machine that has no Minsky. **The equality is enforced by a test**
  * (`cold-agent-onboarding-run.test.ts`), which is free to import the domain;
  * that is what makes the duplication safe rather than merely commented
- * (PR #3678 R1).
+ * (PR #3678 R1). The one standing exception is `maskConnectionString`
+ * (PR #3680 R1, rationale at its import): a regex, whose copies have measurably
+ * drifted, where a literal or a three-line resolver can be pinned by equality.
+ * `claudeJsonPathUnder` follows this pattern, not that exception.
  */
 export const DISPOSABLE_POSTGRES_IMAGE = "pgvector/pgvector:pg17";
 
@@ -977,6 +1060,16 @@ export interface RunOptions {
  */
 export const DEFAULT_OUT_DIR = join(homedir(), ".local", "state", "minsky", "cold-agent-runs");
 
+/**
+ * Where a run's transcript lives: beside its record, named by the same
+ * timestamp (`run-<ms>.json` ↔ `transcript-run-<ms>.txt`), so the pair can be
+ * matched by eye and neither expires without the other (mt#5066). This is the
+ * name the 2026-09-10 transcript was hand-copied to before the harness did it.
+ */
+export function transcriptPathFor(outDir: string, nowMs: number): string {
+  return join(outDir, `transcript-run-${nowMs}.txt`);
+}
+
 function flagValue(argv: string[], flag: string): string | null {
   const i = argv.indexOf(flag);
   if (i < 0) return null;
@@ -1015,6 +1108,7 @@ async function main(argv: string[]): Promise<number> {
   let pgContainer: string | null = null;
   let transcriptPath: string | null = null;
   let transcriptRedactions = 0;
+  let operatorClaudeJsonNewServerNames: string[] | null = null;
   let targetCarried: string[] = [];
   let credentialKind: HarnessCredentialKind | null = null;
   let workspaceOrigin: string | null = null;
@@ -1044,6 +1138,7 @@ async function main(argv: string[]): Promise<number> {
     const sandboxedObs = await observe({
       env,
       claudeConfigDir: paths.claudeConfigDir,
+      claudeJsonPath: claudeJsonPathUnder(env),
       minskyConfigPath: join(paths.xdgConfigHome, "minsky", "config.yaml"),
       daemonTokenPath: paths.daemonTokenPath,
       strictMcpConfig: true,
@@ -1070,6 +1165,7 @@ async function main(argv: string[]): Promise<number> {
       await observe({
         env: process.env,
         claudeConfigDir: join(process.env.HOME ?? "", ".claude"),
+        claudeJsonPath: claudeJsonPathUnder(process.env),
         minskyConfigPath: join(operatorConfigHome, "minsky", "config.yaml"),
         daemonTokenPath: join(operatorConfigHome, "minsky", "local-mcp-token"),
         strictMcpConfig: false,
@@ -1116,6 +1212,14 @@ async function main(argv: string[]): Promise<number> {
       }
       console.log(`Disposable empty Postgres ready in container ${pg.containerName}`);
 
+      // mt#5066: the write-side falsifier for channel 5. The probe above reads
+      // the SANDBOX's `.claude.json`; this snapshot is the OPERATOR's real one,
+      // resolved from the harness's own environment, so a run that writes a
+      // user-scope registration into it is caught by name after dispatch.
+      // Names only — the entries can carry tokens.
+      const operatorClaudeJson = claudeJsonPathUnder(process.env);
+      const operatorServersBefore = new Set(userScopeMcpServerNamesIn(operatorClaudeJson));
+
       const started = new Date(opts.nowMs).toISOString();
       const claudeArgs = [
         "-p",
@@ -1160,12 +1264,32 @@ async function main(argv: string[]): Promise<number> {
       const scrubbed = scrubText(raw);
       transcriptRedactions = scrubbed.redactions.length;
 
-      writeFileSync(paths.transcriptPath, scrubbed.text);
-      transcriptPath = paths.transcriptPath;
+      // mt#5066: the transcript lands BESIDE its run record, under `--out-dir`,
+      // not in the mkdtemp root — macOS reclaims `/var/folders/…/T/` on reboot
+      // and periodically, and the transcript is the evidence the record exists
+      // to point at (mt#5012: "treat its transcript as the gap list"). The scrub
+      // above stays ahead of this write; only the destination moved.
+      mkdirSync(opts.outDir, { recursive: true });
+      const durableTranscriptPath = transcriptPathFor(opts.outDir, opts.nowMs);
+      writeFileSync(durableTranscriptPath, scrubbed.text);
+      transcriptPath = durableTranscriptPath;
       console.log(
-        `\nRun started ${started}; transcript at ${paths.transcriptPath}` +
+        `\nRun started ${started}; transcript at ${durableTranscriptPath}` +
           ` (${transcriptRedactions} redaction(s))`
       );
+
+      // mt#5066: did the run write a user-scope registration into the operator's
+      // real file? Compare NAMES before and after; a new key is a sandbox escape.
+      const operatorServersAfter = userScopeMcpServerNamesIn(operatorClaudeJson);
+      operatorClaudeJsonNewServerNames = operatorServersAfter.filter(
+        (name) => !operatorServersBefore.has(name)
+      );
+      if (operatorClaudeJsonNewServerNames.length > 0) {
+        failures.push(
+          `channel 5 (write side): the run added user-scope MCP server(s) to the operator's ` +
+            `${operatorClaudeJson}: ${operatorClaudeJsonNewServerNames.join(", ")}`
+        );
+      }
       // Exit status is NOT the success signal: a "Not logged in" failure exits 0
       // (measured 2026-09-05). Assert on content.
       if (/Not logged in/i.test(scrubbed.text) || scrubbed.text.trim().length === 0) {
@@ -1199,6 +1323,7 @@ async function main(argv: string[]): Promise<number> {
       workspaceOrigin,
       transcriptPath,
       transcriptRedactions,
+      operatorClaudeJsonNewServerNames,
     };
     mkdirSync(opts.outDir, { recursive: true });
     const recordPath = join(opts.outDir, `run-${opts.nowMs}.json`);
@@ -1206,7 +1331,10 @@ async function main(argv: string[]): Promise<number> {
     console.log(`\nRun record: ${recordPath}`);
 
     // The sandbox root survives an --execute run on purpose — it holds the
-    // transcript the record points at.
+    // cloned workspace the agent worked in, which a post-run audit reads (the
+    // mt#5065 compile-overwrite finding came from one). The transcript no
+    // longer lives there (mt#5066), so nothing the RECORD points at depends on
+    // this root surviving.
     if (!opts.execute) rmSync(root, { recursive: true, force: true });
   }
 

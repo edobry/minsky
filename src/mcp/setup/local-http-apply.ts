@@ -116,8 +116,12 @@ export interface RevertedFile {
 }
 
 /** The config files this command is capable of having written. */
-export function revertCandidates(projectRoot: string, home: string): string[] {
-  return [projectConfigPath(projectRoot), claudeJsonPath(home)];
+export function revertCandidates(
+  projectRoot: string,
+  home: string,
+  env: NodeJS.ProcessEnv = process.env
+): string[] {
+  return [projectConfigPath(projectRoot), claudeJsonPath(home, env)];
 }
 
 /**

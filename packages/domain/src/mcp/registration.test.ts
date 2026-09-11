@@ -2,7 +2,7 @@
  * Tests for MCP client registration module.
  */
 
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import * as path from "path";
 import * as os from "os";
 
@@ -200,6 +200,24 @@ describe("ClaudeCodeRegistrar", () => {
   });
 
   describe("configPath for claude-code", () => {
+    // The path depends on CLAUDE_CONFIG_DIR (mt#5066), so each case sets it
+    // explicitly rather than inheriting whatever the developer's shell exports.
+    const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    beforeEach(() => {
+      delete process.env.CLAUDE_CONFIG_DIR;
+    });
+    afterEach(() => {
+      if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
+    });
+
+    test("mt#5066: with CLAUDE_CONFIG_DIR set, the path follows it — the file Claude Code actually reads", () => {
+      process.env.CLAUDE_CONFIG_DIR = "/sandbox/claude-config";
+      expect(registrar.configPath("/any-project")).toBe(
+        path.join("/sandbox/claude-config", ".claude.json")
+      );
+    });
+
     test("returns a user-scope path, ignoring the passed project root", () => {
       const configPath = registrar.configPath("/some-claude-code-project");
       // Should be under the user's home directory, not under the project root
@@ -208,6 +226,9 @@ describe("ClaudeCodeRegistrar", () => {
     });
 
     test("config path is ~/.claude.json, platform-uniform (no OS branching)", () => {
+      // CLAUDE_CONFIG_DIR is deliberately UNSET here (the describe's beforeEach
+      // deletes it): this is the default-location case. With it set, the path
+      // follows the variable instead — the mt#5066 case above.
       const configPath = registrar.configPath("/irrelevant-for-user-scope");
       expect(configPath).toBe(path.join(os.homedir(), ".claude.json"));
     });

@@ -147,7 +147,12 @@ describe("revertFromBackups", () => {
   });
 
   test("the candidate set is both files this command can write", () => {
-    expect(revertCandidates(PROJECT, HOME)).toEqual([PROJECT_MCP_JSON, `${HOME}/.claude.json`]);
+    expect(revertCandidates(PROJECT, HOME, {})).toEqual([PROJECT_MCP_JSON, `${HOME}/.claude.json`]);
+    // mt#5066: the user-scope candidate follows CLAUDE_CONFIG_DIR, the way Claude Code does.
+    expect(revertCandidates(PROJECT, HOME, { CLAUDE_CONFIG_DIR: "/sandbox/cfg" })).toEqual([
+      PROJECT_MCP_JSON,
+      "/sandbox/cfg/.claude.json",
+    ]);
   });
 });
 

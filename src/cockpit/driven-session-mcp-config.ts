@@ -6,7 +6,8 @@
  * A driven session is a genuine `claude` binary spawned with `cwd` set to a
  * Minsky WORKSPACE (a session clone), not to the operator's main checkout.
  * Claude Code resolves MCP servers per-project: local scope (`~/.claude.json`
- * under the project's path) and project scope (`.mcp.json` in the project
+ * — or `$CLAUDE_CONFIG_DIR/.claude.json`, mt#5066 — under the project's path)
+ * and project scope (`.mcp.json` in the project
  * root) both load "current project only"
  * (https://code.claude.com/docs/en/mcp). This repo declares its servers in a
  * gitignored, untracked `.mcp.json` at the main checkout, so a session clone
