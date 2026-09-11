@@ -230,9 +230,42 @@ describe("mt#5052 — negated depth requests do not suppress", () => {
     expect(detectDepthRequest(["I'm not asking you to walk me through everything"]).matched).toBe(
       false
     );
-    expect(detectDepthRequest(["don't just give me the full breakdown"]).matched).toBe(false);
+    expect(detectDepthRequest(["don't bother to give me the full breakdown"]).matched).toBe(false);
     expect(detectDepthRequest(["don’t walk me through everything"]).matched).toBe(false); // curly apostrophe
     expect(detectDepthRequest(["never go into detail on the failure"]).matched).toBe(false);
+  });
+
+  test("a negator that scopes a limiter (`not only`, `don't just`) is not a negation of the request", () => {
+    // PR #3727 R1 — "not only X" / "don't just X" ask for X AND MORE.
+    expect(detectDepthRequest(["not only walk me through everything, but also why"])).toEqual({
+      matched: true,
+      matchedPattern: "walk-me-through",
+    });
+    expect(detectDepthRequest(["not only go into detail on the failure"])).toEqual({
+      matched: true,
+      matchedPattern: "go-into-detail",
+    });
+    expect(detectDepthRequest(["don't just give me the full breakdown, explain the why"])).toEqual({
+      matched: true,
+      matchedPattern: "full-breakdown",
+    });
+    // The limiter exclusion is exact: a real verb between "don't" and the
+    // phrase is still a negation.
+    expect(detectDepthRequest(["don't bother to give me the full breakdown"]).matched).toBe(false);
+  });
+
+  test("a spaced ASCII hyphen or double hyphen is a clause boundary; an in-word hyphen is not", () => {
+    // PR #3727 R1 — the ASCII forms of the dash the em-dash test already covers.
+    expect(detectDepthRequest(["I'm not sure - help me understand the peez thing"])).toEqual({
+      matched: true,
+      matchedPattern: HELP_ME_UNDERSTAND,
+    });
+    expect(detectDepthRequest(["I'm not sure -- help me understand the peez thing"])).toEqual({
+      matched: true,
+      matchedPattern: HELP_ME_UNDERSTAND,
+    });
+    // In-word hyphen: the entry's own "deep-dive" spelling still negates cleanly.
+    expect(detectDepthRequest(["dont deep-dive into the sweep logic"]).matched).toBe(false);
   });
 
   test("every occurrence is judged, so a negated first mention does not hide a later request", () => {

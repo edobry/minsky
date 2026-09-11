@@ -1055,18 +1055,31 @@ export interface DepthRequestResult {
  * itself is held to.
  *
  * Bounded by construction: `{0,3}` tokens between the negator and the phrase.
- * `’` is the curly apostrophe macOS substitutes into "don’t".
+ * Three rather than a filler whitelist because the spec's own table needs it —
+ * "no need to explain it in full detail" has a verb phrase, not filler, between
+ * the negator and the entry. `’` is the curly apostrophe macOS substitutes
+ * into "don’t".
+ *
+ * **A negator followed by `only` / `just` / `merely` / `simply` is not a
+ * negation of the request** (PR #3727 R1): "not only walk me through
+ * everything …" and "don't just give me the full breakdown …" ask for the
+ * phrase AND MORE — the scope of "not" is the limiter, not the request. The
+ * negative lookahead excludes exactly that construction; nothing else about
+ * the window changes.
  */
 export const DEPTH_REQUEST_NEGATOR_RE =
-  /\b(?:don['’]?t|do not|no need to|never|not|rather than|instead of|without)(?:\s+\S+){0,3}\s*$/i;
+  /\b(?:don['’]?t|do not|no need to|never|not|rather than|instead of|without)(?!\s+(?:only|just|merely|simply)\b)(?:\s+\S+){0,3}\s*$/i;
 
 /**
  * Clause boundaries the negation guard does not look across. Punctuation that
- * ends a clause, and the contrastive "but" — "don't summarize, but walk me
- * through the failure" asks for depth in its second clause. "and" is NOT a
+ * ends a clause — including a SPACED ASCII hyphen or double hyphen used as a
+ * dash ("I'm not sure - help me understand", "… -- help me understand"; PR
+ * #3727 R1), but not the hyphen inside "deep-dive" or "re-run", which has no
+ * whitespace around it — and the contrastive "but": "don't summarize, but walk
+ * me through the failure" asks for depth in its second clause. "and" is NOT a
  * boundary: "don't skim and walk me through everything" negates both verbs.
  */
-const DEPTH_REQUEST_CLAUSE_BOUNDARY_RE = /[,;:.!?()—–\n]|\bbut\b/gi;
+const DEPTH_REQUEST_CLAUSE_BOUNDARY_RE = /[,;:.!?()—–\n]|\s-{1,3}(?=\s)|\bbut\b/gi;
 
 /**
  * True iff the depth-request phrase starting at `index` in `text` is negated —
@@ -1100,8 +1113,12 @@ export function detectDepthRequest(userTexts: string[]): DepthRequestResult {
       const re = new RegExp(p.re.source, p.re.flags.includes("g") ? p.re.flags : `${p.re.flags}g`);
       for (const m of text.matchAll(re)) {
         // An anchored entry (`tell-me-more`) matches the leading boundary too;
-        // the phrase itself starts where the first letter does.
-        const phraseIndex = m.index + m[0].search(/[a-z]/i);
+        // the phrase itself starts where the first letter does. Every entry
+        // today matches an ASCII-lettered phrase; the `-1` fallback keeps a
+        // future entry that does not from producing a negative index (PR
+        // #3727 R1).
+        const letterOffset = m[0].search(/[a-z]/i);
+        const phraseIndex = m.index + (letterOffset === -1 ? 0 : letterOffset);
         if (!isNegatedDepthRequest(text, phraseIndex)) {
           return { matched: true, matchedPattern: p.name };
         }
