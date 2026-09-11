@@ -558,10 +558,16 @@ export class MinskyStdioProxy {
     // owns what happens next — classify the exit and respawn — so this only
     // has to keep the proxy alive long enough for that to run.
     (child.stdin as Writable).on("error", (err: NodeJS.ErrnoException) => {
-      log.debug("[proxy] child.stdin error (child likely exited first)", {
-        code: err.code,
-        error: err.message,
-      });
+      if (err.code === "EPIPE") {
+        // Expected: the child exited before we finished writing. The `close`
+        // handler is about to run and will classify + respawn.
+        log.debug("[proxy] child.stdin EPIPE (child exited first)", { error: err.message });
+        return;
+      }
+      // Anything else on this stream is not a known-benign shape — keep the
+      // proxy alive (the alternative is an uncaught exception), but say so at
+      // a level that reaches the operator's diagnostics (PR #3721 R2).
+      log.warn("[proxy] Unexpected child.stdin error", { code: err.code, error: err.message });
     });
 
     // Wire the outbound path: child.stdout → outbound-transform → stdout
