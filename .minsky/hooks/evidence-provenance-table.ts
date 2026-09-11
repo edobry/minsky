@@ -1193,6 +1193,52 @@ export function extractSubjectTokens(record: string): string[] {
   return [...paths, ...spans].slice(0, MAX_SUBJECT_TOKENS);
 }
 
+/**
+ * Identifiers the record names WITHOUT backticks — `removing
+ * SESSION_START_TOOL_NAME from the set fails it` — as a DISCHARGE-ONLY key
+ * (mt#4306).
+ *
+ * {@link extractSubjectTokens} reads backticked spans and paths, which is the
+ * right recall bound for a key that also decides ADJUDICABILITY: a token that
+ * makes a record judgeable must be something the author marked as a subject.
+ * But an author who writes the subject bare and then backticks the incidental
+ * identifiers of the NEXT sentence hands that extractor the wrong tokens — the
+ * `e151405d` record (calibration 2026-09-11T01:41:02Z) named its subject in
+ * plain prose, the failing run's own `sed` command and output both carried it
+ * verbatim, and the join still missed because the tokens it held were
+ * `collectMcpHiddenParamKeys | sessionStartCommandParams | …` from the "Also:"
+ * sentence. mt#5078 read that as tokens BLEEDING; the cause is the bare
+ * identifier.
+ *
+ * So these are matched the same way {@link callNamesSubject} matches, and only
+ * on the discharge side: a bare identifier that names no run leaves the verdict
+ * exactly where it was. Measured over the frozen population after the count and
+ * abbreviated-line joins: 14 of the remaining 128 undischarged claims recover;
+ * 13 of the 14 are the control's own run on reading, the 14th a genuine control
+ * credited to an adjacent red run; none of the four known true positives moves.
+ * SCREAMING_CASE alone recovered 5 — camelCase is what carries the rest, and its
+ * false-match risk is bounded by the run having to name the same identifier.
+ */
+export function extractBareIdentifiers(record: string): string[] {
+  // Not the backticked spans — those are the subject extractor's, and a token
+  // in both would let a bare mention change adjudicability through the back.
+  const prose = record.replace(BACKTICK_RE, " ");
+  const out: string[] = [];
+  for (const re of [SCREAMING_CASE_SRC, CAMEL_CASE_SRC]) {
+    for (const m of prose.matchAll(new RegExp(re, "g"))) {
+      const token = m[0] ?? "";
+      if (token.length >= MIN_SUBJECT_TOKEN_LENGTH && !out.includes(token)) out.push(token);
+      if (out.length >= MAX_SUBJECT_TOKENS) return out;
+    }
+  }
+  return out;
+}
+
+/** `SESSION_START_TOOL_NAME`, `MINSKY_STATE_DIR` — at least one underscore. */
+const SCREAMING_CASE_SRC = String.raw`\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b`;
+/** `relateSessionActor`, `parseMcpServerNames` — a lowercase head and at least one hump. */
+const CAMEL_CASE_SRC = String.raw`\b[a-z][a-z0-9]*(?:[A-Z][a-z0-9]+)+\b`;
+
 /** True when the call's command or its output names one of `tokens`. */
 export function callNamesSubject(call: ToolCallWithResult, tokens: readonly string[]): boolean {
   const command = typeof call.input["command"] === "string" ? call.input["command"] : "";
@@ -1352,7 +1398,144 @@ export function callContainsQuotedFailure(
   quoted: readonly string[]
 ): boolean {
   const haystack = normalizeForComparison(call.resultText);
-  return quoted.some((line) => haystack.includes(normalizeForComparison(line)));
+  return quoted.some((line) => {
+    const needle = normalizeForComparison(line);
+    return haystack.includes(needle) || abbreviatedLineAppears(needle, haystack);
+  });
+}
+
+/** The marks an author abbreviates a long runner line with. */
+const ELLIPSIS_RE = /…|\.\.\./;
+
+/**
+ * Below this a segment of an abbreviated line is too short to be a join key on
+ * its own — `(fail)` alone is eleven characters and appears in every red run.
+ */
+const MIN_ABBREVIATED_SEGMENT_LENGTH = 12;
+
+/**
+ * An ABBREVIATED paste — `(fail) A > B … the path i…` — matches when every
+ * segment the author kept appears in the output, in order (mt#4306).
+ *
+ * Measured before shipping: the exact join above missed a real control whose
+ * author had cut the middle of a 160-character `(fail)` line with `…` (calibration
+ * record 2026-09-11T00:07:40Z, conversation `ab17be6f`), and the same shape
+ * recovered 5 of 154 undischarged claims on the frozen population with none of
+ * the four known true positives touched. Only a line that CARRIES an ellipsis
+ * takes this path; an exact line is still matched exactly, so nothing about the
+ * precise join is loosened. The in-order requirement is what keeps a two-segment
+ * paste from matching two unrelated lines.
+ */
+function abbreviatedLineAppears(line: string, haystack: string): boolean {
+  if (!ELLIPSIS_RE.test(line)) return false;
+  const segments = line
+    .split(ELLIPSIS_RE)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= MIN_ABBREVIATED_SEGMENT_LENGTH);
+  if (segments.length === 0) return false;
+  let from = 0;
+  for (const segment of segments) {
+    const at = haystack.indexOf(segment, from);
+    if (at < 0) return false;
+    from = at + segment.length;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// The count-pair join (mt#4306)
+// ---------------------------------------------------------------------------
+
+/**
+ * A run's summary counts, as a record states them or as the runner prints them.
+ * Each field is null when that side did not state it.
+ */
+export interface RunCounts {
+  pass: number | null;
+  fail: number | null;
+  ran: number | null;
+}
+
+/**
+ * The count pairs a record claims for its control's red run — `17 pass / 7
+ * fail`, `0 pass, 5 fail`, `7 failed, 17 passed`, `5 of 10 failed`.
+ *
+ * MEASURED, not anticipated (mt#5078, 2026-09-11): three of eight labelled
+ * join-misses in the newest window were records whose author wrote the
+ * runner's two summary lines as ONE phrase, with a slash or a comma between
+ * them, where the output has a newline — so neither the subject join nor the
+ * quoted-line join could see a paste that was, in substance, there.
+ *
+ * A pair, never a lone count. `1 fail` on its own matches most red runs; two
+ * numbers that both agree with one run's summary is the join key. The
+ * degenerate `0 pass, 1 fail` pair — "one test, it failed" — is dropped for the
+ * same reason: measured over the frozen population it matched an unrelated
+ * single-test failure 240 lines earlier in four of four cases (conversation
+ * `6c8ba4e5`), the only false discharges the first cut produced. With it
+ * excluded, 21 of 154 undischarged claims recover and none of the four known
+ * true positives do.
+ */
+export function extractCountClaims(record: string): RunCounts[] {
+  const out: RunCounts[] = [];
+  const push = (counts: RunCounts): void => {
+    if (counts.pass === 0 && counts.fail === 1) return;
+    if (counts.ran === 1 && counts.fail === 1) return;
+    if (
+      !out.some((c) => c.pass === counts.pass && c.fail === counts.fail && c.ran === counts.ran)
+    ) {
+      out.push(counts);
+    }
+  };
+  // Built per call rather than held as `g`-flagged module constants — the
+  // shared-`lastIndex` hazard PR #3139 R1 removed from this module's other
+  // recognizers (and mt#4357 tracks for the two that remain).
+  for (const m of record.matchAll(new RegExp(COUNT_PASS_THEN_FAIL_SRC, "gi"))) {
+    push({ pass: Number(m[1]), fail: Number(m[2]), ran: null });
+  }
+  for (const m of record.matchAll(new RegExp(COUNT_FAIL_THEN_PASS_SRC, "gi"))) {
+    push({ pass: Number(m[2]), fail: Number(m[1]), ran: null });
+  }
+  for (const m of record.matchAll(new RegExp(COUNT_N_OF_M_FAILED_SRC, "gi"))) {
+    push({ pass: null, fail: Number(m[1]), ran: Number(m[2]) });
+  }
+  return out;
+}
+
+/** `17 pass / 7 fail`, `0 pass, 5 fail`, `17 passed 7 failed`. */
+const COUNT_PASS_THEN_FAIL_SRC = String.raw`(\d+)\s*pass(?:ed|ing)?\b[^\n\d]{0,12}(\d+)\s*fail(?:ed|ing|ures?)?\b`;
+/** `7 fail / 17 pass`. */
+const COUNT_FAIL_THEN_PASS_SRC = String.raw`(\d+)\s*fail(?:ed|ing|ures?)?\b[^\n\d]{0,12}(\d+)\s*pass(?:ed|ing)?\b`;
+/** `5 of 10 failed`, `5 of 10 tests failed`. */
+const COUNT_N_OF_M_FAILED_SRC = String.raw`(\d+)\s+of\s+(\d+)\s+(?:tests?\s+)?fail(?:ed|ing)?\b`;
+
+/** The runner's own summary lines in a result: ` 17 pass`, ` 7 fail`, `Ran 24 tests`. */
+export function runCounts(output: string): RunCounts {
+  const text = normalizeForComparison(output);
+  const pass = /(\d+)\s+pass\b/.exec(text);
+  const fail = /(\d+)\s+fail\b/.exec(text);
+  const ran = /\bRan\s+(\d+)\s+tests?\b/.exec(text);
+  return {
+    pass: pass ? Number(pass[1]) : null,
+    fail: fail ? Number(fail[1]) : null,
+    ran: ran ? Number(ran[1]) : null,
+  };
+}
+
+/**
+ * True when the call's output carries BOTH numbers of one of the record's
+ * count pairs. A discharge SIGNAL only: a pair that matches no run says nothing
+ * about the record, exactly as the widened quoted shapes above.
+ */
+export function callMatchesCountClaim(
+  call: ToolCallWithResult,
+  claims: readonly RunCounts[]
+): boolean {
+  if (claims.length === 0) return false;
+  const counts = runCounts(call.resultText);
+  return claims.some((claim) => {
+    if (claim.ran !== null) return counts.fail === claim.fail && counts.ran === claim.ran;
+    return counts.pass === claim.pass && counts.fail === claim.fail;
+  });
 }
 
 // ---------------------------------------------------------------------------
