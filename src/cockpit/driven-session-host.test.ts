@@ -203,7 +203,16 @@ describe("startDrivenSession — spawns with the documented flags", () => {
     expect(configIndex).toBeGreaterThanOrEqual(0);
 
     const parsed = JSON.parse(call.args[configIndex + 1] as string);
-    expect(Object.keys(parsed.mcpServers)).toEqual(["minsky"]);
+    // Assert the host's contract, not the exact server set: since mt#4239 the
+    // payload also INHERITS entries from the daemon checkout's real .mcp.json,
+    // so the full key list is a function of the machine running the tests (CI
+    // has none; an operator machine has `github`). Inheritance is covered with
+    // an injected reader in driven-session-mcp-config.test.ts; what the host
+    // owes is that `minsky` is provisioned and written LAST, so nothing
+    // inherited can shadow it (mt#5101).
+    const serverNames = Object.keys(parsed.mcpServers);
+    expect(serverNames).toContain("minsky");
+    expect(serverNames.at(-1)).toBe("minsky");
     // The server's --repo is the workspace the agent actually works in, so its
     // repo-scoped tools don't resolve against the operator's main checkout.
     expect(parsed.mcpServers.minsky.args).toContain(SCRATCH_CWD);
@@ -898,7 +907,11 @@ describe("resumeDrivenSession — replaces the dead record for the SAME localId"
     expect(resumeArgs).toContain(STRICT_MCP_CONFIG_FLAG);
 
     const parsed = JSON.parse(resumeArgs[configIndex + 1] as string);
-    expect(Object.keys(parsed.mcpServers)).toEqual(["minsky"]);
+    // Same contract as the start-path test: `minsky` present and written last,
+    // never the exact set — that varies with the machine's .mcp.json (mt#4239).
+    const serverNames = Object.keys(parsed.mcpServers);
+    expect(serverNames).toContain("minsky");
+    expect(serverNames.at(-1)).toBe("minsky");
     expect(parsed.mcpServers.minsky.args).toContain(SCRATCH_CWD);
   });
 
