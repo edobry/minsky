@@ -53,8 +53,17 @@
  * PreToolUse hook that imported the registry would owe `ensureHookDomainBootstrap()` on EVERY
  * `Bash` call, per `custom/require-hook-domain-bootstrap`.
  *
- * A leaf with NO `commandId` is a command with no MCP equivalent (`minsky compile`,
- * `minsky events emit`). Absence is the answer, not a lookup failure — those never fire.
+ * A leaf with NO `commandId` is a command with no MCP equivalent (`minsky mcp inspect`,
+ * `minsky cockpit install`). Absence is the answer, not a lookup failure — those never fire.
+ *
+ * `minsky compile` is NOT in that set, and the fire on it is correct (mt#4394). It was this
+ * detector's single largest fire — 103 of 170 matched, 61%, in its first calibration review —
+ * because `mcp__minsky__compile` existed but compiled only the MCP server's cwd, so a session
+ * editing `.minsky/**` had no MCP path and shelled out on every regeneration. Since mt#4394 the
+ * tool takes `task` / `sessionId` / `workspace` on the validate commands' contract and reports
+ * `compiledWorkspace`, so a CLI `compile` inside a session is a genuine substitution again.
+ * (Until that landed, this line named `minsky compile` and `minsky events emit` as examples of
+ * the no-equivalent set; both carry a `commandId` and neither belonged here.)
  *
  * Override: MINSKY_ALLOW_CLI_SUBSTITUTION=1.
  */

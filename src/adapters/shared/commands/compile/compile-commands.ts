@@ -14,14 +14,50 @@ import {
   type CommandExecutionContext,
 } from "../../command-registry";
 import { log } from "@minsky/shared/logger";
-import { runMinskyCompile } from "@minsky/domain/compile/compile";
+import { runMinskyCompile as realRunMinskyCompile } from "@minsky/domain/compile/compile";
+import type { MinskyCompileServiceResult } from "@minsky/domain/compile/compile-service";
 import {
   hasSizeBudgetFields,
   reportMonolithicSizeBudget,
 } from "@minsky/domain/compile/size-budget-report";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { resolveMemoryLoadingMode, buildSizeBudgetOverride } from "./cli-options";
+import { buildSessionDirResolver, resolveValidateWorkspace } from "../validate";
+
+// Session routing (mt#4394), on the same contract as `validate_typecheck` /
+// `validate_lint`: `workspace` wins, else `task` / `sessionId` resolve to that
+// session's workdir, else cwd — so an existing caller that passes none of them
+// sees no change. `workspace` deliberately has NO default value, for the reason
+// `validate.ts` states at its own `workspaceParam`: a cwd default would populate
+// the field on every call and the session leg would never run (mt#2336).
+//
+// Until this landed `compile` was the one validate-class tool with no routing,
+// so a session editing `.minsky/rules/**`, `.minsky/skills/**` or
+// `.minsky/hooks/**` had to shell out to `bun run src/cli.ts compile` — the
+// shape the `cli-mcp-substitution` detector exists to discourage, and 61% of
+// that detector's fires in its first-ever calibration review.
+const compileRoutingParams = {
+  workspace: {
+    schema: z.string(),
+    description:
+      "Workspace directory to compile. When omitted (and no task/sessionId), defaults to the " +
+      "current working directory — the MAIN workspace when invoked over MCP.",
+    required: false,
+  },
+  task: {
+    schema: z.string(),
+    description: "Task ID whose session workspace should be compiled (e.g. 'mt#123')",
+    required: false,
+  },
+  sessionId: {
+    schema: z.string(),
+    description: "Session ID whose workspace should be compiled",
+    required: false,
+  },
+} satisfies CommandParameterMap;
 
 const compileCommandParams = {
+  ...compileRoutingParams,
   target: {
     schema: z.string().optional(),
     description:
@@ -72,18 +108,53 @@ const compileCommandParams = {
   },
 } satisfies CommandParameterMap;
 
-export function registerCompileCommands(targetRegistry: {
-  registerCommand: <T extends CommandParameterMap>(cmd: CommandDefinition<T>) => void;
-}): void {
+/**
+ * The command's collaborators, injectable so the routing can be tested through
+ * the REAL `runMinskyCompile` over a fake filesystem (ADR-026: real defaults
+ * here, the test hands in what it needs, no spy on a module import).
+ */
+export interface CompileCommandDeps {
+  runMinskyCompile: typeof realRunMinskyCompile;
+  /** The fallback directory when no routing field is given. */
+  cwd: () => string;
+}
+
+/** The result the command returns: the domain result plus where it compiled. */
+export type CompileCommandResult = MinskyCompileServiceResult & {
+  /**
+   * The directory actually compiled (mt#4394). Named after the siblings'
+   * `validatedWorkspace` — the verb is what the command did — so a caller can
+   * confirm the tree that was regenerated rather than infer it.
+   */
+  compiledWorkspace: string;
+};
+
+export function registerCompileCommands(
+  targetRegistry: {
+    registerCommand: <T extends CommandParameterMap>(cmd: CommandDefinition<T>) => void;
+  },
+  container?: AppContainerInterface,
+  deps: CompileCommandDeps = { runMinskyCompile: realRunMinskyCompile, cwd: () => process.cwd() }
+): void {
+  const resolveSessionDir = buildSessionDirResolver(container);
   targetRegistry.registerCommand({
     id: "compile",
     category: CommandCategory.COMPILE,
     name: "compile",
     description: "Compile TypeScript definition modules into harness-specific output files.",
     parameters: compileCommandParams,
-    execute: async (params, _ctx?: CommandExecutionContext) => {
+    execute: async (params, _ctx?: CommandExecutionContext): Promise<CompileCommandResult> => {
       log.debug("Executing compile command", { params });
       try {
+        // Resolved BEFORE anything else so a routing failure (an unknown task,
+        // no container) surfaces as such rather than as a compile of main —
+        // `buildSessionDirResolver` throws instead of falling back for exactly
+        // that reason.
+        const compiledWorkspace = await resolveValidateWorkspace(
+          { workspace: params.workspace, task: params.task, sessionId: params.sessionId },
+          resolveSessionDir,
+          deps.cwd()
+        );
         // mt#2992 review R1 (non-blocking 1): both compile entry points share
         // this config-read + override-construction logic via cli-options.ts
         // so they can't drift. params.warnChars/params.failChars are already
@@ -95,7 +166,7 @@ export function registerCompileCommands(targetRegistry: {
         const memoryLoadingMode = await resolveMemoryLoadingMode();
         const sizeBudget = buildSizeBudgetOverride(params.warnChars, params.failChars);
 
-        const result = await runMinskyCompile({
+        const compiled = await deps.runMinskyCompile({
           target: params.target,
           output: params.output,
           dryRun: params.dryRun,
@@ -103,7 +174,9 @@ export function registerCompileCommands(targetRegistry: {
           sizeBudget,
           memoryLoadingMode,
           overwrite: params.overwrite,
+          workspacePath: compiledWorkspace,
         });
+        const result: CompileCommandResult = { ...compiled, compiledWorkspace };
 
         // mt#2803: bare invocation compiled multiple targets — render one
         // line per target so a partial regen is visible, and aggregate
