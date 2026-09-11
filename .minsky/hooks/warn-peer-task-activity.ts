@@ -152,6 +152,9 @@ export function relateSessionActor(
   const rowConversationId = conversationIdFromAgentId(actor);
   if (rowConversationId === null) return "not-compared";
   if (callerConversationId === null) return "not-compared";
+  // Both sides are uuids. The writer's was lowercased when the id was minted
+  // (`toConversationAgentId`); the hook input's `session_id` arrives as the
+  // harness emits it, so fold case here rather than trust that they agree.
   return rowConversationId.toLowerCase() === callerConversationId.trim().toLowerCase()
     ? "this-conversation"
     : "another-conversation";

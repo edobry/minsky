@@ -229,7 +229,9 @@ async function emitSessionStartedEvent(
       payload,
       relatedTaskId: payload.taskId,
       relatedSessionId: payload.sessionId,
-      ...(actor ? { actor } : {}),
+      // Present only when resolved: a null is left OFF the row (the emitter then
+      // persists `actor: null`), never coerced into a placeholder string.
+      ...(actor !== null ? { actor } : {}),
     });
   } catch (err: unknown) {
     log.warn("session.started: event emission failed (best-effort, swallowed)", {

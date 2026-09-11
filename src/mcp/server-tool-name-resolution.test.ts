@@ -20,6 +20,10 @@
 
 import { describe, expect, test } from "bun:test";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
+import {
+  collectMcpHiddenParamKeys,
+  convertParametersToZodSchema,
+} from "../adapters/mcp/shared-command-integration";
 
 function buildToolDef(name: string): {
   name: string;
@@ -139,6 +143,73 @@ describe("CallTool name-keyed gates match the RESOLVED name, not the wire name (
     server.addTool(buildToolDef("plain_name"));
     expect(tools.get("plain_name")?.name).toBe("plain_name");
 
+    await server.close();
+  });
+
+  test("mt#5086 — `session.start` is REGISTERED under its dotted id, so an alias caller still hits the callerActorId injection", async () => {
+    // PR #3718 R1 asked for the registration to be cited rather than asserted. The
+    // chain: `registerToolsCommandsWithMcp` calls `addCommand({ name: command.id })`
+    // (`src/adapters/mcp/shared-command-integration.ts`), `normalizeMethodName` strips
+    // only characters outside `[a-zA-Z0-9._-]` — a dot survives — and `addTool` maps
+    // both spellings to the object whose `.name` is that registered id. This test
+    // walks that chain for `session.start` itself, through the real command factory,
+    // and then proves the injection fires on the ALIAS spelling.
+    const { MinskyMCPServer } = await import("./server");
+    const { CommandMapper } = await import("./command-mapper");
+    const { createSessionStartCommand } = await import(
+      "../adapters/shared/commands/session/basic-commands"
+    );
+
+    const command = createSessionStartCommand(
+      async () => ({}) as never,
+      () => undefined
+    );
+    expect(command.id).toBe("session.start");
+
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+    const received: Record<string, unknown>[] = [];
+    // The real params map (so `callerActorId` is a DECLARED key and passes
+    // `enforceDeclaredParams`), with a recording handler in place of the real one —
+    // the question is what reaches the handler, not what session.start does with it.
+    new CommandMapper(server).addCommand({
+      name: command.id,
+      description: command.description,
+      parameters: convertParametersToZodSchema(command.parameters),
+      mcpHiddenParamKeys: collectMcpHiddenParamKeys(command.parameters),
+      handler: async (args) => {
+        received.push(args);
+        return { ok: true };
+      },
+    });
+
+    const tools = (server as unknown as { tools: Map<string, { name: string }> }).tools;
+    expect(tools.get("session_start")?.name).toBe("session.start");
+    expect(tools.get("session.start")?.name).toBe("session.start");
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connectTransport(serverTransport);
+    const client = new Client({ name: "test-client", version: "1.0.0" });
+    await client.connect(clientTransport);
+
+    await client.callTool({
+      name: "session_start",
+      arguments: { task: "mt#5086", callerActorId: "spoofed-by-caller" },
+    });
+
+    expect(received).toHaveLength(1);
+    const injected = received[0]?.["callerActorId"];
+    // Injected (a resolved id, never the caller's value) on the UNDERSCORED wire name —
+    // the miss R1 was worried about would leave this either absent or "spoofed-by-caller".
+    expect(typeof injected).toBe("string");
+    expect(injected).not.toBe("spoofed-by-caller");
+    expect((injected as string).length).toBeGreaterThan(0);
+
+    await client.close();
     await server.close();
   });
 
