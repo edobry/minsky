@@ -23,7 +23,7 @@ Per ADR-015 (mt#2251), skill authoring is **hybrid** and **location-canonical**.
 ## Canonical workflow
 
 1. Edit the canonical source under `.minsky/skills/<name>/` (the `.ts` or the markdown).
-2. Run `bun src/cli.ts compile --target claude-skills` to regenerate `.claude/skills/<name>/SKILL.md`.
+2. Run `bun src/cli.ts compile --target claude-skills` to regenerate `.claude/skills/<name>/SKILL.md` — or, from a session, `mcp__minsky__compile({ task: "mt#<id>", target: "claude-skills" })`, which compiles that session's tree and reports it as `compiledWorkspace` (mt#4394).
 3. Commit BOTH the source and the regenerated output together. The pre-commit staleness check (`runCompileCheck` in `src/hooks/pre-commit.ts`) blocks commits where the output is stale relative to its source.
 
 ## Anti-patterns

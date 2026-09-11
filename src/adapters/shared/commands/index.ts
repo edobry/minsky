@@ -150,8 +150,10 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register authorship commands
   registerAuthorshipCommands(container);
 
-  // Register compile commands
-  registerCompileCommands(sharedCommandRegistry);
+  // Register compile commands — the container gives `task` / `sessionId` their
+  // session-workspace resolution, the same routing the validate commands carry
+  // (mt#4394; mt#2336 for the contract).
+  registerCompileCommands(sharedCommandRegistry, container);
 
   // Register workspace commands (workspace.info — always available, no setup required)
   registerWorkspaceCommands();
