@@ -425,7 +425,7 @@ To re-run the gate after fixes: \`/plan-task mt#XXXX\`
 
 **Example (m) failure.** For a task whose spec cites the \`project_supabase\` memory to justify
 a "dedicated direct Postgres connection bypassing Supavisor's transaction pooler" without
-producing the four-step citation-and-mapping protocol:
+producing the five-step citation-and-mapping protocol:
 
 \`\`\`
 ## Gap Report for mt#1852 (PLANNING — not yet READY)
@@ -439,9 +439,10 @@ producing the four-step citation-and-mapping protocol:
   salient phrase "no LISTEN/NOTIFY." Verdict: claim NOT supported.
 
 ### Required actions before READY
-1. Produce the four-step protocol: verbatim-quote \`project_supabase\`, map the substrate choice
-   to the quote, enumerate the quote's scope conditions and state whether each holds, then state
-   the verdict.
+1. Produce the five-step protocol: verbatim-quote \`project_supabase\`, map the substrate choice
+   to the quote, enumerate the quote's scope conditions and state whether each holds, name the
+   question the memory was written to answer and whether it covers the claim's, then state the
+   verdict.
 2. Re-frame the substrate decision to match the source (session-pool mode on the same pooler),
    or cite a different source that actually supports the direct-connection bypass.
 
