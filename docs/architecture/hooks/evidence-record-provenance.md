@@ -49,11 +49,11 @@ duplicate-check records, and nothing asked whether the run happened.
 Which tool calls discharge which claim lives in `.minsky/hooks/evidence-provenance-table.ts`,
 shared with the mt#4004 sibling (which consumes its search half).
 
-| Record                | Claims                               | Discharged by                                                                        |
-| --------------------- | ------------------------------------ | ------------------------------------------------------------------------------------ |
-| `Duplicate check:`    | a search ran                         | a `tasks_search` / `tasks_similar` / `refs_status` call (mt#4004, unchanged)         |
-| `Execution evidence:` | one claim PER CHECK the block pastes | a run of THAT kind — test, typecheck, lint or format (mt#4236)                       |
-| `Negative control:`   | a run observed FAILING               | a FAILING run that either quotes back into the record, or names the record's subject |
+| Record                | Claims                               | Discharged by                                                                                                                                                                                                                   |
+| --------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Duplicate check:`    | a search ran                         | a `tasks_search` / `tasks_similar` / `refs_status` call (mt#4004, unchanged)                                                                                                                                                    |
+| `Execution evidence:` | one claim PER CHECK the block pastes | a run of THAT kind — test, typecheck, lint or format (mt#4236)                                                                                                                                                                  |
+| `Negative control:`   | a run observed FAILING               | a FAILING run that either quotes back into the record, or names the record's subject — plus three discharge-only signals (mt#4306): its summary counts as the record states them, an abbreviated quoted line, a bare identifier |
 
 ### Why the negative-control rule is the odd one
 
@@ -75,6 +75,46 @@ Two joins, either of which discharges:
 
 A record offering neither is recorded `unadjudicable` — never `clean`. A record that quotes but
 whose quote matches nothing is `undischarged`, not unadjudicable: the quote is a checkable claim.
+
+#### Three more discharge SIGNALS, none of which condemns (mt#4306)
+
+The two joins above decide both halves — whether a record is judgeable, and whether it is
+discharged. mt#4067 measured what happens when a widening reaches the first half: 22 records
+dragged from `unadjudicable` into `undischarged`, fires 108 → 129. So everything added since is
+matched on the discharge side only; a key that names no run leaves the verdict exactly where it
+was. The three, each measured on a frozen population (198 transcripts modified in the 14 days to
+2026-09-11, replayed at their recorded line counts) against the four known true positives — the
+mt#4024 commit `98e2ac5fd` and the three mt#5078 labelled — none of which any of them touches:
+
+- **Count-pair join.** The record states the red run's summary counts as ONE phrase — `17 pass /
+7 fail`, `0 pass, 5 fail`, `5 of 10 failed` — where the runner prints two lines, so neither join
+  above can see a paste that was in substance there (3 of mt#5078's 8 labelled join-misses). Both
+  numbers must agree with one run's own summary; a lone `1 fail` is not a key. The degenerate
+  `0 pass, 1 fail` pair is excluded, and the exclusion is measured rather than guessed: it matched
+  an unrelated single-test failure 240 lines earlier in four of four cases, the only false
+  discharges the first cut produced. 154 → 133 undischarged; two samples of five read in full,
+  9 of 10 the control's own run (the tenth is the excluded pair).
+- **Abbreviated quoted line.** A pasted `(fail)` line an author cut with `…` matches when its
+  ≥12-character segments appear in order in a failing run's output. Only a line carrying an
+  ellipsis takes this path — an exact line is still matched exactly. 5 more.
+- **Bare-identifier join.** The subject extractor reads backticked spans and paths, which is the
+  right bound for a key that decides adjudicability. An author who writes the subject bare —
+  `removing SESSION_START_TOOL_NAME from the set fails it` — and then backticks the incidental
+  identifiers of the next sentence hands it the wrong tokens; the `e151405d` record's `sed`
+  command and output both carried the subject verbatim and the join still missed. SCREAMING_CASE
+  and camelCase identifiers outside backticks are now matched the same way, discharge side only.
+  14 more (13 of 14 the control's own run on reading; the 14th a genuine script-shaped control
+  credited to an adjacent red run — mt#4309's class).
+
+Net on the frozen population: negative-control **154 → 114 undischarged**, 53 → 33 unadjudicable,
+396 → 456 discharged; every execution-evidence count unchanged.
+
+**Two candidates measured and rejected in the same pass, so they are not re-proposed.** Scoping
+the subject tokens to the control's own sentence (the "tokens bleed into the next sentence"
+reading) recovered 0 — the cause was the bare identifier, above. The revert-edit CONTENT join —
+a write-tool input naming the subject, followed by any failing run — recovered 83 and discharged
+3 of the 4 true positives, `98e2ac5fd` included: an unrelated red run after an ordinary edit is
+common, so the ordering carries no information. That is mt#4044's rejection, now with numbers.
 
 ### Granularity, and the ordering the free version did NOT buy (mt#4236)
 
