@@ -74,6 +74,14 @@ type ConversationOverviewResponse = {
     relatedPrNumbers: string[];
     lastActivityAt: string | null;
     writerDivergence: { checked: boolean; divergentTips: string[] };
+    /**
+     * When the generated title was last attempted (mt#4961, SC5) — ISO
+     * string, or null when never attempted. Lets the conversation header show
+     * "titled <relative time>" so a title that has clearly gone stale (the
+     * originating incident: titled at 2 turns, still showing that title 163
+     * turns later) is DATEABLE rather than silently trusted.
+     */
+    titleAttemptedAt: string | null;
   };
   workspace: Awaited<
     ReturnType<typeof import("../workspace-overview").buildWorkspaceOverview>
@@ -108,6 +116,7 @@ function overviewVersionToken(row: {
   endedAt: Date | string | null;
   lastIngestedJsonlTimestamp: Date | string | null;
   divergenceCheckedAt: Date | string | null;
+  titleAttemptedAt: Date | string | null;
 }): string {
   const stamp = (value: Date | string | null): string =>
     value instanceof Date ? value.toISOString() : (value ?? "-");
@@ -115,6 +124,11 @@ function overviewVersionToken(row: {
     stamp(row.lastIngestedJsonlTimestamp),
     stamp(row.endedAt),
     stamp(row.divergenceCheckedAt),
+    // mt#4961 — a refresh re-stamps `title_attempted_at` without necessarily
+    // advancing `lastIngestedJsonlTimestamp` in the SAME instant (the title
+    // sweep runs on its own 10-minute cadence), so the token needs its own
+    // component to invalidate a cached overview the moment a title changes.
+    stamp(row.titleAttemptedAt),
   ].join("|");
 }
 
@@ -412,6 +426,9 @@ export function mountConversationRoutes(
               // mt#3321 generated title — tier 2 of the label precedence, read
               // off the row already being selected here (no extra query).
               title: agentTranscriptsTable.title,
+              // mt#4961, SC5 — when the title was last attempted, so the
+              // header can say "titled <relative time>".
+              titleAttemptedAt: agentTranscriptsTable.titleAttemptedAt,
               // mt#3656 writer-divergence verdict — same free ride off this row.
               divergentTipLeaves: agentTranscriptsTable.divergentTipLeaves,
               divergenceCheckedAt: agentTranscriptsTable.divergenceCheckedAt,
@@ -693,6 +710,10 @@ export function mountConversationRoutes(
             checked: transcript.divergenceCheckedAt instanceof Date,
             divergentTips: transcript.divergentTipLeaves ?? [],
           },
+          titleAttemptedAt:
+            transcript.titleAttemptedAt instanceof Date
+              ? transcript.titleAttemptedAt.toISOString()
+              : null,
         },
         workspace,
       };

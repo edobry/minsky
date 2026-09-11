@@ -15,6 +15,7 @@
  *   bun scripts/smoke-conversation-titles.ts --limit 3        # candidate bound (default 1)
  *   bun scripts/smoke-conversation-titles.ts --session <uuid> # target one conversation
  *   bun scripts/smoke-conversation-titles.ts --execute --force # re-title already-titled rows
+ *   bun scripts/smoke-conversation-titles.ts --refresh-only   # dry-run: preview refresh candidates only (mt#4961)
  *
  * Exit 0 = pass (or a clean SKIP when the environment can't run it);
  * non-zero = failure. Emits a JSON result block on stdout.
@@ -32,6 +33,15 @@ const EXECUTE = args.includes("--execute");
 const FORCE = args.includes("--force");
 const LIMIT = readNumberFlag("--limit") ?? 1;
 const SESSION = readStringFlag("--session");
+/**
+ * Preview only the REFRESH half of the candidate set (mt#4961) — rows that
+ * already carry a title and qualify via titleCandidateConditions()'s second
+ * branch. A CLIENT-SIDE filter on the already-selected rows' `title` column,
+ * not a restated WHERE: the query itself is still exactly
+ * `and(...titleCandidateConditions())` (or the `--session` override), so
+ * there is nothing here that could drift from the pipeline's own filter.
+ */
+const REFRESH_ONLY = args.includes("--refresh-only");
 
 function readStringFlag(name: string): string | null {
   const i = args.indexOf(name);
@@ -134,8 +144,11 @@ async function main(): Promise<void> {
   // This preview drifted from the pipeline twice in one task while it carried
   // its own copy, and an acceptance instrument that previews a different query
   // than the one it exists to check is worse than no instrument.
-  const rows = await db
-    .select({ agentSessionId: agentTranscriptsTable.agentSessionId })
+  const allRows = await db
+    .select({
+      agentSessionId: agentTranscriptsTable.agentSessionId,
+      title: agentTranscriptsTable.title,
+    })
     .from(agentTranscriptsTable)
     .where(
       SESSION
@@ -148,8 +161,20 @@ async function main(): Promise<void> {
     .orderBy(desc(agentTranscriptsTable.startedAt))
     .limit(LIMIT);
 
+  // mt#4961 — `--refresh-only` narrows the already-fetched rows to the
+  // REFRESH half of the candidate set (title IS NOT NULL). CLIENT-SIDE on
+  // purpose: the WHERE above is still exactly
+  // `and(...titleCandidateConditions())`, so there is no second filter
+  // definition to drift from the pipeline's.
+  const rows = REFRESH_ONLY ? allRows.filter((r) => r.title !== null) : allRows;
+
   if (rows.length === 0) {
-    emit("skip", { mode: "dry-run", reason: "SKIP: no candidate transcripts found" });
+    emit("skip", {
+      mode: "dry-run",
+      reason: REFRESH_ONLY
+        ? "SKIP: no refresh candidates found"
+        : "SKIP: no candidate transcripts found",
+    });
   }
 
   const generator = new TitleGenerator(cognition);

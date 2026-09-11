@@ -65,7 +65,9 @@ function createTestQueryClient(): QueryClient {
  * presence value and an activity sub-line, which is what AT2/AT3 need in order
  * to assert the two land in different places.
  */
-function mockFetches(opts: { presence?: Record<string, unknown> } = {}) {
+function mockFetches(
+  opts: { presence?: Record<string, unknown>; titleAttemptedAt?: string | null } = {}
+) {
   globalThis.fetch = mock((url: string) => {
     const pathname = typeof url === "string" ? new URL(url, "http://localhost").pathname : "";
 
@@ -93,6 +95,7 @@ function mockFetches(opts: { presence?: Record<string, unknown> } = {}) {
               relatedTaskIds: [],
               relatedPrNumbers: [],
               lastActivityAt: null,
+              titleAttemptedAt: opts.titleAttemptedAt ?? null,
             },
             workspace: null,
           }),
@@ -227,5 +230,25 @@ describe("mt#3344 — pinned run-detail chrome", () => {
     // `describeActivity` returns null off LIVE/STALLED, and the tail renders
     // nothing rather than repeating the presence value the header already has.
     expect(queryByTestId("conversation-presence-activity")).toBeNull();
+  });
+});
+
+describe("mt#4961 — titled-at readout in the conversation header", () => {
+  test("renders 'titled <relative time>' beside the header when titleAttemptedAt is present", async () => {
+    const attemptedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // ~1h ago
+    mockFetches({ titleAttemptedAt: attemptedAt });
+    const { getByTestId } = renderConversationPage();
+
+    const sub = await waitFor(() => getByTestId("conversation-title-attempted-at"));
+    expect(sub.textContent).toContain("titled");
+    expect(sub.textContent).toContain("ago");
+  });
+
+  test("renders no titled-at line when titleAttemptedAt is null", async () => {
+    mockFetches({ titleAttemptedAt: null });
+    const { queryByTestId, getByRole } = renderConversationPage();
+
+    await waitFor(() => getByRole("heading", { level: 1 }));
+    expect(queryByTestId("conversation-title-attempted-at")).toBeNull();
   });
 });
