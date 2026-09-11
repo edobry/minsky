@@ -244,6 +244,13 @@ only minsky-mcp, and minsky-ops served one image from 2026-07-31 to 2026-08-10
 — SUCCESS on Railway and 200 on `/health` throughout, visible only to the
 digest comparison in the post-deploy health monitor.
 
+The per-service redeploy call itself is retried on the SAME Railway token
+scope before falling through to the alternate scope: `scripts/ci/railway-redeploy.sh`
+(mt#4959) retries a link-succeeded-but-redeploy-failed exit up to
+`RAILWAY_REDEPLOY_ATTEMPTS` (default 3) times, `RAILWAY_REDEPLOY_RETRY_DELAY`
+seconds apart (default 10s), and prints a one-line split-state summary if any
+service is still not redeployed once retries are exhausted.
+
 Re-verify the wiring without a deploy:
 
 ```bash
