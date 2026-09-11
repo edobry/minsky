@@ -48,7 +48,7 @@
 // @see mem#966 — the incident and the general rule
 
 import { readFileSync } from "node:fs";
-import { readInput } from "./types";
+import { findRepoRoot, readInput } from "./types";
 import type { ToolHookInput } from "./types";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { findToolCallsWithResults } from "./transcript";
@@ -60,6 +60,7 @@ import {
   callContainsQuotedFailure,
   callNamesSubject,
   claimedCheckKinds,
+  defaultSessionsDir,
   extractQuotedFailures,
   extractStrictQuotedFailures,
   extractSubjectTokens,
@@ -69,7 +70,12 @@ import {
   orderingAgainstWrites,
   CHECK_KINDS,
 } from "./evidence-provenance-table";
-import type { CheckKind, FileWrite, OrderingVerdict } from "./evidence-provenance-table";
+import type {
+  CheckKind,
+  FileWrite,
+  OrderingVerdict,
+  WorkspaceScope,
+} from "./evidence-provenance-table";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_EVIDENCE_PROVENANCE";
 
@@ -165,12 +171,34 @@ export interface ClaimVerdict {
   ordering: OrderingVerdict;
 }
 
+/**
+ * The workspace a hook invocation is judging, from the cwd the harness gave it
+ * (mt#5087). `findRepoRoot` walks up so a cwd that is a SUBDIRECTORY of the
+ * repo — routine, per `types.ts` §Repo-root resolution — still names the root;
+ * no cwd leaves the repo leg unset and the session-workspace leg standing.
+ * Shared with `scripts/replay-evidence-provenance.ts`, which reads the cwd off
+ * the transcript line instead, so a replay bounds writes the way the live guard
+ * did.
+ */
+export function workspaceScopeFor(cwd: string | undefined): WorkspaceScope {
+  return {
+    repoRoot: cwd && cwd.trim() !== "" ? findRepoRoot(cwd) : null,
+    sessionsDir: defaultSessionsDir(),
+  };
+}
+
 /** Every evidence record in `text`, judged against the session's calls. */
-export function judgeClaims(text: string, calls: readonly ToolCallWithResult[]): ClaimVerdict[] {
+export function judgeClaims(
+  text: string,
+  calls: readonly ToolCallWithResult[],
+  scope: WorkspaceScope
+): ClaimVerdict[] {
   const verdicts: ClaimVerdict[] = [];
   // The write side of the ordering join (mt#4236), computed once: a record is
   // stale when a file the discharging run READS was written after that run.
-  const writes: FileWrite[] = fileWrites(calls);
+  // Bounded to the workspace (mt#5087): a scratchpad write is not a file any
+  // run of the repo reads.
+  const writes: FileWrite[] = fileWrites(calls, scope);
 
   for (const record of extractNegativeControlRecords(text)) {
     const full = `${record.label}\n${record.body}`;
@@ -345,7 +373,7 @@ export function run(input: ToolHookInput, ctx: DispatchContext): GuardOutcome | 
     };
   }
 
-  const verdicts = judgeClaims(text, findToolCallsWithResults(lines));
+  const verdicts = judgeClaims(text, findToolCallsWithResults(lines), workspaceScopeFor(input.cwd));
   const judged = {
     ...base,
     // Every field on ClaimVerdict is rendered here, deliberately. The calibration

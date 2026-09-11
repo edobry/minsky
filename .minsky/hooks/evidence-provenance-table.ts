@@ -30,6 +30,8 @@
 // @see .minsky/hooks/duplicate-check-search-provenance.ts — the tasks_create guard
 // @see mem#966 — the incident and the general rule
 
+import { homedir } from "node:os";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { ToolCallWithResult, TranscriptLine } from "./transcript";
 import { findToolUseInputsMatching } from "./transcript";
 import { nonFlagOperands, suppliesPattern } from "./command-shape";
@@ -940,15 +942,111 @@ export interface FileWrite {
   path: string;
 }
 
-/** Every file write in the transcript given, in order. */
-export function fileWrites(calls: readonly ToolCallWithResult[]): FileWrite[] {
+/**
+ * Where the tree being shipped lives, so a write to it can be told from a
+ * write somewhere else (mt#5087).
+ *
+ * The ordering join asks whether a file THE RUN READS was written after the
+ * run. Before this, the write side was bounded by extension only, so a
+ * scratchpad script — `<scratchpad>/sc3b.ts`, written by the same conversation
+ * to probe a calibration log — invalidated a test run of the repo it never
+ * touched. The originating record (calibration log, 2026-09-10T08:00:13.534Z,
+ * conversation `a0ad857d`) had five writes after its last test run, all of them
+ * to the scratchpad, and reported `stale-evidence` on evidence that was current.
+ *
+ * A SET of roots rather than one path, because at the seam the tool input names
+ * a `task`, not a directory, and resolving task → session dir would need a DB
+ * read inside a hook. Measured over every transcript modified in the 14 days to
+ * 2026-09-11 (198 transcripts, 6,182 writes): 6,000 relative; 82 absolute into
+ * a session workspace; 87 absolute into a scratchpad, 1 into `/tmp`, 9 into
+ * `~/.claude/jobs` or `~/Desktop`; 3 absolute into the main repo. Of the 19
+ * commit/PR seams preceded by absolute session-workspace writes, none saw writes
+ * into more than one session workspace — so accepting ANY session workspace
+ * rather than THIS one costs nothing measured, and needs no lookup.
+ */
+export interface WorkspaceScope {
+  /**
+   * The repo root the harness shell is standing in — `findRepoRoot(input.cwd)`
+   * — or null when the hook was given no cwd. Covers a subagent whose cwd IS
+   * the session workspace, and the main-repo case.
+   */
+  repoRoot: string | null;
+  /** The directory every Minsky session workspace lives under. */
+  sessionsDir: string;
+}
+
+/**
+ * `<state-dir>/sessions`, mirroring the `getStateDir()` precedent the grant
+ * stores share: `MINSKY_STATE_DIR`, else `XDG_STATE_HOME`/minsky, else
+ * `~/.local/state/minsky`. An env read, not an fs probe — this module stays
+ * value-only.
+ */
+export function defaultSessionsDir(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env["MINSKY_STATE_DIR"];
+  const stateDir =
+    override && override !== ""
+      ? override
+      : join(env["XDG_STATE_HOME"] || join(env["HOME"] || homedir(), ".local/state"), "minsky");
+  return join(stateDir, "sessions");
+}
+
+/** True when `child` is `root` itself or lies beneath it. Both absolute. */
+function isUnder(child: string, root: string): boolean {
+  const rel = relative(root, child);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+/**
+ * Whether a write lands in a tree a run could have observed.
+ *
+ * - A RELATIVE path is inside, always. Only a session tool emits one, and it
+ *   resolves against the session workspace; the harness's `Write`/`Edit` require
+ *   an absolute path. (A `~`-prefixed path is not absolute and falls here too —
+ *   measured zero in the population above.)
+ * - An absolute path is inside when it lies under `repoRoot`, or under ANY
+ *   `<sessionsDir>/<id>/`. Relative to `sessionsDir` that is at least two
+ *   segments, `<id>/<file>` — so a file at the workspace ROOT
+ *   (`<sessionsDir>/<id>/file.ts`) is inside, and only a file sitting directly
+ *   in the sessions directory (`<sessionsDir>/file.ts`, one segment, in no
+ *   workspace) is not. PR #3729 R1 read the count as excluding the root case;
+ *   the `file at the workspace root` test pins it.
+ * - Anything else — a scratchpad, `/tmp`, a jobs directory — is outside. With no
+ *   `repoRoot` known, an absolute path outside every session workspace is
+ *   outside too: the header's direction of error, since counting it could only
+ *   manufacture a fire.
+ */
+export function isWorkspaceWrite(path: string, scope: WorkspaceScope): boolean {
+  if (!isAbsolute(path)) return true;
+  const target = resolve(path);
+  if (scope.repoRoot !== null && isUnder(target, resolve(scope.repoRoot))) return true;
+  const fromSessions = relative(resolve(scope.sessionsDir), target);
+  if (fromSessions === "" || fromSessions.startsWith("..") || isAbsolute(fromSessions)) {
+    return false;
+  }
+  return fromSessions.split(sep).length >= 2;
+}
+
+/**
+ * Every file write in the transcript given that lands inside the workspace, in
+ * order. A write outside it ({@link isWorkspaceWrite}) is dropped here rather
+ * than at the comparison, so no consumer of the write set can count one by
+ * forgetting to filter.
+ */
+export function fileWrites(
+  calls: readonly ToolCallWithResult[],
+  scope: WorkspaceScope
+): FileWrite[] {
   const out: FileWrite[] = [];
   for (const call of calls) {
     const fields = WRITE_TOOL_PATH_FIELDS[normalizeToolName(call.toolName)];
     if (!fields) continue;
     for (const field of fields) {
       const value = call.input[field];
-      if (typeof value === "string" && value.trim() !== "") {
+      if (
+        typeof value === "string" &&
+        value.trim() !== "" &&
+        isWorkspaceWrite(value.trim(), scope)
+      ) {
         out.push({ index: call.index, path: value.trim() });
       }
     }
