@@ -69,6 +69,46 @@
 // rate in hand.
 //
 // ---------------------------------------------------------------------------
+// THE TABLE ABOVE WAS SUPERSEDED BEFORE THIS FILE MERGED (mt#5082)
+// ---------------------------------------------------------------------------
+//
+// The figures above are measured and reproducible, and they price the trigger
+// WRONGLY, twice. mt#5042's `## CORRECTION 2026-09-09` — written 22 minutes
+// before PR #3702 was opened, and not read by the session that built this —
+// records both errors:
+//
+//   1. WRONG POSITIVE CLASS. "Catches N of 135" counts boundaries that preceded
+//      an AUTO-compaction (24 of 593 sessions, 4%). But `/handoff` already runs
+//      this mechanism by hand: 347 sessions invoke it, 117 of them at >=800K.
+//      The class a boundary trigger should be priced against is WALL-HIT —
+//      auto-compacted OR handed off at >=800K — which is 130 of 796 sessions
+//      (16.3%), and 21.7% of merge-doing sessions.
+//   2. WRONG GRAIN. "Fires at 32.1% of boundaries" is per EVENT; a conversation
+//      is cut ONCE, at its first over-threshold boundary. Per session:
+//
+//        threshold  sessions cut  wall-hits caught  precision  coverage
+//        600K            371             122          32.9%     94.6%
+//        650K            320             120          37.5%     93.0%
+//        800K            142              97          68.3%     75.2%
+//        900K             48              35          72.9%     27.1%
+//
+//      Verified in-repo against the same corpus, and an independent pass agreed
+//      to within a point (142 cut, 71% precision at 800K).
+//
+// So 650_000 predates the corrected analysis and is NOT the threshold that
+// analysis supports; 800K falls out of the session-grain numbers rather than
+// being a preference. The constant stays at 650_000 in this file because moving
+// it, and whether the hook stays log-only or directs a `/handoff`, is the
+// operator's posture call, routed as ask#11976 — a reader should take the
+// number as "what shipped", not "what the data says". Two vendor-doc facts from
+// the same correction bear on that call: `autoCompactWindow` (Claude Code
+// `settings.json`, default ~967K on 1M-window models) already moves auto-
+// compaction earlier with no build, addressing the re-upload cost but not the
+// mid-narrative landing; and no hook can END an interactive conversation
+// (`Stop` exit 2 continues it), so the most this module could ever do is inject
+// a directive to run `/handoff`.
+//
+// ---------------------------------------------------------------------------
 // WHY LOG-ONLY, AND WHY `ADR-024` IS NOT THE AUTHORITY FOR IT
 // ---------------------------------------------------------------------------
 //
