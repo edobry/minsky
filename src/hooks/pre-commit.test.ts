@@ -14,7 +14,7 @@
  * on the specific branch where the step itself consulted its var and took
  * the skip path — mirroring how each real step (`runNulByteCheck`,
  * `runMigrationJournalCheck`, `runImmutableMigrationCheck`,
- * `runDeployDomainCheck`, `runRulesCompileCheck`'s size-budget branch) now
+ * `runDeployDomainCheck`, `runCompileCheck`'s size-budget branch) now
  * sets it.
  *
  * @see src/hooks/pre-commit.ts — `runInstrumentedStep`, `HookResult.overridden`

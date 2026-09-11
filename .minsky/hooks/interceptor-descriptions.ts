@@ -1431,22 +1431,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
-    "rules-compile-check",
-    {
-      description:
-        "Blocks a commit where a `.minsky/rules/*.mdc` source changed but its generated outputs did not — the exact gap that ships a rule edit no agent ever reads.",
-      failureClasses: ["broken-main"],
-      provenance: [PRECOMMIT, "src/hooks/rules-compile-check.test.ts"],
-      stratum: "precommit",
-    },
-  ],
-  [
     "compile-check",
     {
       description:
-        "Blocks a commit where any compile target's generated output is out of sync with its source.",
+        "Blocks a commit where any compile target's generated output is out of sync with its source — including a `.minsky/rules/*.mdc` edit whose CLAUDE.md / AGENTS.md / .claude/rules outputs did not follow, the gap the retired `rules-compile-check` step guarded until mt#3058 moved those targets here (mt#2993 deleted its no-op remainder).",
       failureClasses: ["broken-main"],
-      provenance: [PRECOMMIT, "src/hooks/compile-check-targets.test.ts"],
+      provenance: [
+        PRECOMMIT,
+        "src/hooks/compile-check-targets.test.ts",
+        "src/hooks/compile-check.test.ts",
+      ],
       stratum: "precommit",
     },
   ],

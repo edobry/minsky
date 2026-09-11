@@ -98,7 +98,6 @@ export const PRECOMMIT_STEP_NAMES: readonly string[] = [
   "migration-journal-check",
   "node-shim-check",
   "nul-byte-check",
-  "rules-compile-check",
   "secret-scanning",
   "sql-capability-message-check",
   "type-check",

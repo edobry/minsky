@@ -1,7 +1,12 @@
 /**
  * Unit tests for `classifyCompileCheckError` — the discriminating logic that
- * distinguishes genuine `rules compile --check` staleness from unrelated
+ * distinguishes genuine `compile --check` staleness from unrelated
  * compile-command failures (e.g., "Developer setup incomplete").
+ *
+ * Was `rules-compile-check.test.ts` until mt#2993, exercising the same
+ * classifier through its legacy `[rules compile --check]` marker prefix; the
+ * cases are unchanged, only the prefix moved with the classifier's single
+ * remaining caller (`runCompileCheck`).
  *
  * These tests cover the two acceptance-test scenarios from mt#1940:
  *   1. Setup-missing: non-zero exit WITHOUT the stale marker → surfaces the
@@ -21,17 +26,17 @@ const NOT_STALENESS_MARKER = "not a staleness issue";
 
 /** Build the exact STALE marker line the CLI emits for a target (see classifyCompileCheckError). */
 function staleMarker(target: string): string {
-  return `[rules compile --check] Target "${target}" is STALE`;
+  return `[compile --check] Target "${target}" is STALE`;
 }
 
 /** Build the exact EXCEEDS SIZE BUDGET marker line the CLI emits for a target (mt#2802). */
 function budgetExceededMarker(target: string): string {
-  return `[rules compile --check] Target "${target}" EXCEEDS SIZE BUDGET`;
+  return `[compile --check] Target "${target}" EXCEEDS SIZE BUDGET`;
 }
 
 /** Build the exact per-rule-ceiling marker line the CLI emits for a target (mt#2874). */
 function perRuleCeilingExceededMarker(target: string): string {
-  return `[rules compile --check] Target "${target}" HAS RULE(S) EXCEEDING PER-RULE CEILING`;
+  return `[compile --check] Target "${target}" HAS RULE(S) EXCEEDING PER-RULE CEILING`;
 }
 
 /** Human-readable phrase classifyCompileCheckError emits for the aggregate budget-exceeded class. */
@@ -58,7 +63,7 @@ function makeExecError(opts: {
 describe("classifyCompileCheckError — mt#1940 acceptance tests", () => {
   describe("Acceptance test 1: setup-incomplete error (not staleness)", () => {
     test("reports the actual error, not a staleness message", () => {
-      // Simulates: `bun run src/cli.ts rules compile --check --target agents.md`
+      // Simulates: `bun run src/cli.ts compile --check --target agents.md`
       // exiting non-zero because setup is incomplete.
       // The CLI emits "Validation error: Developer setup incomplete. Run `minsky setup` first."
       // to stderr, and NO stale marker to stdout.
@@ -118,16 +123,16 @@ describe("classifyCompileCheckError — mt#1940 acceptance tests", () => {
     test("reports staleness and suggests regenerate command", () => {
       // Simulates: the CLI emits the staleness marker to stdout, then exits non-zero.
       // compile-migrate-commands.ts emits:
-      //   log.cli('[rules compile --check] Target "agents.md" is STALE')
+      //   log.cli('[compile --check] Target "agents.md" is STALE')
       //   log.cli('  Stale file: /path/AGENTS.md')
-      //   log.cli('  Run "minsky rules compile --target agents.md" to regenerate.')
+      //   log.cli('  Run "minsky compile --target agents.md" to regenerate.')
       const error = makeExecError({
         stdout: [
           staleMarker("agents.md"),
           "  Stale file: /workspace/AGENTS.md",
-          '  Run "minsky rules compile --target agents.md" to regenerate.',
+          '  Run "minsky compile --target agents.md" to regenerate.',
         ].join("\n"),
-        stderr: '❌ rules compile --check: target "agents.md" is stale (/workspace/AGENTS.md)',
+        stderr: '❌ compile --check: target "agents.md" is stale (/workspace/AGENTS.md)',
       });
 
       const result = classifyCompileCheckError(error, "agents.md");
@@ -221,10 +226,10 @@ describe("classifyCompileCheckError — mt#1940 acceptance tests", () => {
 
   describe("BLOCKING #2 — line-anchored stale detection for correct target only", () => {
     test("stale-looking note for previous run does NOT classify as stale", () => {
-      // Near-miss: contains 'STALE' and '[rules compile --check]' but
+      // Near-miss: contains 'STALE' and '[compile --check]' but
       // it is a diagnostic note, not the exact per-target stale marker.
       const error = makeExecError({
-        stdout: "[rules compile --check] note: previous run detected STALE files",
+        stdout: "[compile --check] note: previous run detected STALE files",
         stderr: "",
       });
 
@@ -249,7 +254,7 @@ describe("classifyCompileCheckError — mt#1940 acceptance tests", () => {
 
       // Must NOT classify as staleness for agents.md
       expect(allOutput).toContain(NOT_STALENESS_MARKER);
-      expect(allOutput).not.toContain('Run "bun run minsky rules compile --target agents.md"');
+      expect(allOutput).not.toContain('Run "bun run minsky compile --target agents.md"');
     });
 
     test("stale marker for the CORRECT target DOES classify as stale", () => {
@@ -270,7 +275,7 @@ describe("classifyCompileCheckError — mt#1940 acceptance tests", () => {
       // Actual stderr has a validation error; stdout happens to look stale-ish
       // but is NOT the exact per-target marker.
       const error = makeExecError({
-        stdout: "[rules compile --check] note: previous run detected STALE files",
+        stdout: "[compile --check] note: previous run detected STALE files",
         stderr: "Validation error: some other problem",
       });
 
@@ -314,7 +319,7 @@ describe("classifyCompileCheckError — mt#2802 size-budget-exceeded classificat
   test("EXCEEDS SIZE BUDGET marker for the correct target classifies as budget-exceeded", () => {
     const error = makeExecError({
       stdout: [
-        '[rules compile] Target "claude.md" output size: 145000 chars',
+        '[compile] Target "claude.md" output size: 145000 chars',
         budgetExceededMarker("claude.md"),
         "  Size: 145000 chars (fail threshold: 140000 chars)",
         "  Top contributing rules:",
@@ -386,7 +391,7 @@ describe("classifyCompileCheckError — mt#2874 per-rule-ceiling-exceeded classi
   test("HAS RULE(S) EXCEEDING PER-RULE CEILING marker classifies as budget-exceeded", () => {
     const error = makeExecError({
       stdout: [
-        '[rules compile] Target "claude.md" output size: 110000 chars',
+        '[compile] Target "claude.md" output size: 110000 chars',
         perRuleCeilingExceededMarker("claude.md"),
         '  Rule "hook-files": 15868 chars',
       ].join("\n"),

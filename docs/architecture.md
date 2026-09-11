@@ -327,7 +327,7 @@ files carrying the generation banner are ever removed — hand-authored files in
 `.claude/agents/` is: the emitter single-quotes each glob so a `\[`-escaped literal bracket
 (design decision 4 — Claude Code's matcher requires `[` escaped or it silently fails to match)
 survives YAML round-trip untouched, and Prettier would rewrite that to double quotes. The
-compile-check guard (`src/hooks/pre-commit.ts` `runRulesCompileCheck`) owns staleness instead.
+compile-check guard (`src/hooks/pre-commit.ts` `runCompileCheck`) owns staleness instead.
 
 ---
 

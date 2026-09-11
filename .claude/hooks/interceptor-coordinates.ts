@@ -998,7 +998,6 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ["node-shim-check", structuralGate],
   ["conflict-marker-check", structuralGate],
   ["nul-byte-check", structuralGate],
-  ["rules-compile-check", structuralGate],
   [
     "secret-scanning",
     {

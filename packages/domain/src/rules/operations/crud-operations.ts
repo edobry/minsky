@@ -275,7 +275,7 @@ async function compileSingleTarget(
  * targets already have generated output on disk (mt#2803,
  * {@link probeLegacyCompileTargets}) and compiles every one of them so a
  * partial regen is never silently reported as success — mirroring
- * `runRulesCompileCheck`'s target-detection logic. When no target has
+ * the pre-commit compile check's target-detection logic. When no target has
  * existing output (fresh repo), falls back to the single "agents.md"
  * default so `minsky init` flows keep working.
  *

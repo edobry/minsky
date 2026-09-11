@@ -1062,9 +1062,13 @@
     },
     {
       "guardName": "compile-check",
-      "description": "Blocks a commit where any compile target's generated output is out of sync with its source.",
+      "description": "Blocks a commit where any compile target's generated output is out of sync with its source — including a `.minsky/rules/*.mdc` edit whose CLAUDE.md / AGENTS.md / .claude/rules outputs did not follow, the gap the retired `rules-compile-check` step guarded until mt#3058 moved those targets here (mt#2993 deleted its no-op remainder).",
       "failureClasses": ["broken-main"],
-      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/compile-check-targets.test.ts"],
+      "provenance": [
+        "src/hooks/pre-commit.ts",
+        "src/hooks/compile-check-targets.test.ts",
+        "src/hooks/compile-check.test.ts"
+      ],
       "stratum": "precommit",
       "subject": "trajectory",
       "provenanceStatus": "implementation",
@@ -3879,38 +3883,6 @@
       "familyState": "classified",
       "deliberatelyUnauthored": false,
       "sourceFile": "retrospective-trigger-scanner"
-    },
-    {
-      "guardName": "rules-compile-check",
-      "description": "Blocks a commit where a `.minsky/rules/*.mdc` source changed but its generated outputs did not — the exact gap that ships a rule edit no agent ever reads.",
-      "failureClasses": ["broken-main"],
-      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/rules-compile-check.test.ts"],
-      "stratum": "precommit",
-      "subject": "trajectory",
-      "provenanceStatus": "implementation",
-      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
-      "canaryDisposition": {
-        "disposition": "canary-infeasible",
-        "reason": "Pre-commit steps are stages of the single `src/hooks/pre-commit.ts` pipeline, invoked by git on every commit rather than as independently-addressable entrypoints, so there is no per-step surface for a synthetic input to enter. More decisively, the ambiguity a canary resolves does not arise for this stratum: all 27 members carry fire-log evidence (measured 2026-09-10), and the governing RFC scopes the canary to a guard with ZERO fires over a rolling window. A canary here would answer a question the fire-log already answers continuously.",
-        "source": "stratum"
-      },
-      "registered": false,
-      "undescribed": false,
-      "point": "pre-commit",
-      "pointSource": "stratum",
-      "trajectory": null,
-      "interventions": [
-        {
-          "type": "deny"
-        }
-      ],
-      "mechanism": "structural",
-      "role": "judge",
-      "coordinateGaps": [],
-      "families": ["guard"],
-      "familyState": "classified",
-      "deliberatelyUnauthored": false,
-      "sourceFile": null
     },
     {
       "guardName": "second-guard",
