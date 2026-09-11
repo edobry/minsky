@@ -52,6 +52,18 @@ describe("collectMcpHiddenParamKeys", () => {
     expect(collectMcpHiddenParamKeys(plain as never)).toEqual([]);
   });
 
+  test("mt#5086 — `session.start`'s REAL params map flags callerActorId, and only it, as mcpHidden", async () => {
+    // The registration test above uses a fixture; this one reads the actual
+    // `sessionStartCommandParams`, so a later edit that drops the flag (or hides
+    // something else by accident) fails here rather than in a live `tools/list`.
+    const { sessionStartCommandParams } = await import(
+      "../adapters/shared/commands/session/session-parameters"
+    );
+    expect(collectMcpHiddenParamKeys(sessionStartCommandParams as never)).toEqual([
+      "callerActorId",
+    ]);
+  });
+
   test("does NOT treat cliHidden as mcpHidden", () => {
     // The two flags are independent: `cliHidden` has governed the CLI surface
     // since long before this task, and inferring one from the other would hide

@@ -249,6 +249,16 @@ const WORK_PACKAGE_RELEASE_TOOL_NAME = "tasks.release";
 const TASKS_CREATE_TOOL_NAME = "tasks.create";
 
 /**
+ * `session.start` stamps the caller as `actor` on the `session.started` event it
+ * emits (mt#5086), so `warn-peer-task-activity` can tell a reader which PROCESS
+ * created a session instead of leaving it to be inferred from timing — the
+ * inference that misattributed a peer conversation's session to a subagent
+ * (mt#5055 retraction). Same delivery need as the claim tools: only the resolved
+ * MCP identity can supply it on this path.
+ */
+const SESSION_START_TOOL_NAME = "session.start";
+
+/**
  * Tools the server injects the resolved caller `agentId` into as
  * `callerActorId` (mt#3121, extended mt#4408).
  *
@@ -257,7 +267,7 @@ const TASKS_CREATE_TOOL_NAME = "tasks.create";
  * merely CONTAINS one of these cannot receive the param. Built once at module
  * load rather than per request.
  *
- * Why a set rather than a second `if`: the injection is now seven tools wide and
+ * Why a set rather than a second `if`: the injection is now eight tools wide and
  * the matching rule (exact match on the resolved name, server overwrites any
  * caller-supplied value) is the part that must not drift between them. One
  * membership test cannot disagree with itself.
@@ -292,6 +302,7 @@ const CALLER_ACTOR_ID_TOOL_NAMES: ReadonlySet<string> = new Set([
   WORK_PACKAGE_CLAIM_TOOL_NAME,
   WORK_PACKAGE_RELEASE_TOOL_NAME,
   TASKS_CREATE_TOOL_NAME,
+  SESSION_START_TOOL_NAME,
 ]);
 
 const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([

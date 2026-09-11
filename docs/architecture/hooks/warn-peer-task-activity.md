@@ -113,6 +113,30 @@ the advisory text says which is which rather than implying uniform attribution. 
 any session workspace (the mt#4439 case) matches nothing and suppresses nothing, which is the safe
 direction: it still warns.
 
+**A `session.started` row now names its writer, and the advisory says whose it is (mt#5086).**
+`session.start` stamps the caller's resolved agentId (ADR-006) as the event's `actor` — the
+server injects it as `callerActorId` over MCP (`CALLER_ACTOR_ID_TOOL_NAMES`, the same primitive
+`tasks.claims.release` uses), and the CLI path falls back to the harness environment or writes
+null. `relateSessionActor` compares a conversation-scoped actor (`…:conv:<uuid>`) against the
+hook input's own `session_id` (the harness conversation uuid) and renders one of:
+
+- `started by <actor> (this conversation)`
+- `started by <actor> (ANOTHER conversation — not yours, not your subagent's)` — with a paragraph
+  stating why the subagent reading is ruled out: a subagent's MCP calls carry its PARENT's id
+  (`resolveLiveConversationAgentId` takes only the harness pid and the spawn-time env), so a
+  different id is a different harness process.
+- `started by <actor> (comparison to your own id not made — see below)` — a `proc:`-scoped or
+  otherwise non-`conv` id, which the hook has no basis to compare. The id is printed; the reader
+  compares it to the `claimedBy` on their own `tasks_claim` result, and is pointed at
+  `<session-dir>/subagents/agent-<id>.jsonl` for what a subagent actually did.
+- `no writer id on this row` — a row written before mt#5086, or from a CLI with no identity.
+
+The originating incident (2026-09-10, mt#5055 retraction): a conversation dispatched a subagent at
+00:11Z, this advisory fired on a `session.started` at 00:14Z, and the reader attributed the session
+to the subagent. A different, principal-launched conversation had started it. With the writer id on
+the row that reads as `ANOTHER conversation`, and the inference from timing is not needed. The
+cwd-based self-suppression above still runs first and is unchanged.
+
 **It does not deny.** Denying is the _prevention_ side of the substrate RFC's Open question 4
 (Notion `367937f0`, Draft): _"Should the substrate detect contention (surface it to operators) or
 prevent it (block a second agent from claiming a task already claimed)? … This is a design
