@@ -8347,6 +8347,10 @@
           "flags": ["--fail-chars"],
           "description": "Override the target's default FAIL size-budget threshold (chars, --check mode hard-fails on it). mt#2992 — only claude.md and agents.md enforce a size budget; other targets ignore this.",
           "takesValue": true
+        },
+        {
+          "flags": ["--overwrite"],
+          "description": "Replace output files that exist without a generation banner — i.e. files that are yours, not Minsky's. Without it such a file is left alone and named in the output (mt#5065)."
         }
       ],
       "commandId": "compile"

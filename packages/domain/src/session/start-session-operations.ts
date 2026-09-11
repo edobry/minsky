@@ -10,7 +10,11 @@ import { taskIdSchema as TaskIdSchema } from "../schemas/common";
 import type { SessionStartParameters } from "../schemas";
 import { log } from "@minsky/shared/logger";
 import { safeShellQuote } from "@minsky/shared/exec";
-import { installDependencies, installNestedDependencies } from "../utils/package-manager";
+import {
+  installDependencies as defaultInstallDependencies,
+  installNestedDependencies,
+  detectPackageManager,
+} from "../utils/package-manager";
 import { type GitServiceInterface } from "../git";
 import { normalizeRepoName } from "../repo-utils";
 import { TASK_STATUS, type TaskServiceInterface } from "../tasks";
@@ -35,6 +39,33 @@ import type { SessionActorResult } from "./session-actor";
 export type SessionStartParametersWithIntent = SessionStartParameters & {
   launchIntent?: SessionLaunchIntent;
 };
+
+/**
+ * What happened to the dependency-install step of `session start` (mt#5065).
+ *
+ * Until this existed the outcome reached only stderr: a failed `bun install`
+ * logged `Warning: Dependency installation failed…` and the command returned
+ * `success: true` with nothing else, so an agent reading the tool result — the
+ * one party watching — could not tell "deps installed" from "deps failed".
+ * Measured on the mt#4705 cold-agent run against a shell project: the install
+ * failed on `Bun could not find a package.json`, the session reported success,
+ * and the agent's own final report never mentioned it.
+ *
+ * - `installed` — the manager ran to completion.
+ * - `skipped` — nothing was attempted, and `reason` says why: the caller passed
+ *   `skipInstall`, or the workspace has no `package.json` (a shell or Go
+ *   project is not an edge case; it is the normal shape of a non-JS repo).
+ * - `failed` — the manager ran and did not complete; `error` is what it said.
+ *   The session is still returned: its workspace is usable, and the caller now
+ *   knows to install by hand.
+ */
+export type SessionDependencyOutcome =
+  | { status: "installed"; packageManager: "bun" | "npm" | "yarn" | "pnpm" | "unknown" }
+  | { status: "skipped"; reason: "skipInstall" | "no-manifest" }
+  | { status: "failed"; error: string };
+
+/** A started session plus the install outcome the start produced. */
+export type SessionStartResult = Session & { dependencies: SessionDependencyOutcome };
 
 export interface StartSessionDependencies {
   sessionDB: SessionProviderInterface;
@@ -81,6 +112,13 @@ export interface StartSessionDependencies {
     exists: (path: string) => boolean | Promise<boolean>;
     rm: (path: string, options: { recursive: boolean; force: boolean }) => Promise<void>;
   };
+  /**
+   * mt#5065: injectable install step, defaulting to the real one — the same
+   * seam `session-update-operations.ts` already has. Lets a test observe how a
+   * FAILED install is folded into the returned payload without spawning a
+   * package manager, which is otherwise the only way to reach that branch.
+   */
+  installDependencies?: typeof defaultInstallDependencies;
 }
 
 /**
@@ -718,7 +756,7 @@ async function executeMutations(
   ctx: ValidatedSessionContext,
   params: SessionStartParametersWithIntent,
   deps: StartSessionDependencies
-): Promise<Session> {
+): Promise<SessionStartResult> {
   const fsAdapter = deps.fs || {
     exists: (p: string) => existsSync(p),
     rm: async (p: string, o: { recursive: boolean; force: boolean }) => {
@@ -951,34 +989,61 @@ async function executeMutations(
     throw gitError;
   }
 
-  // Install dependencies if not skipped
+  // Install dependencies if not skipped. mt#5065: whatever happens here is
+  // carried on the returned payload as `dependencies` — the log lines below
+  // are for a human at a terminal, and they were the ONLY record of a failed
+  // install until an agent reading the tool result missed one entirely.
+  let dependencies: SessionDependencyOutcome = { status: "skipped", reason: "skipInstall" };
   if (!skipInstall) {
-    // installDependencies captures (rather than streams) the package
-    // manager's output in non-quiet mode (mt#2209), so print a concise
-    // progress line here — otherwise this slow step would be silent.
-    if (!quiet) {
-      log.cli("Installing dependencies...");
-    }
-    try {
-      const { success, error } = await installDependencies(sessionDir, {
-        packageManager: packageManager,
-        quiet: quiet,
-      });
-
-      if (success && !quiet) {
-        // Completion marker — paired with the "Installing dependencies..."
-        // line above so a successful (now-silent) install isn't ambiguous.
-        log.cli("Installed dependencies.");
-      } else if (!success && !quiet) {
-        log.cli(`Warning: Dependency installation failed. You may need to run install manually.
-Error: ${error}`);
-      }
-    } catch (installError) {
+    // A workspace with no manifest has nothing to install. Running the manager
+    // anyway produced `Bun could not find a package.json` on every shell/Go
+    // project and reported it as a failure, when "nothing to do" is the honest
+    // outcome (`detectPackageManager` already returns undefined for this case).
+    const hasManifest = await Promise.resolve(fsAdapter.exists(join(sessionDir, "package.json")));
+    if (!hasManifest) {
+      dependencies = { status: "skipped", reason: "no-manifest" };
       if (!quiet) {
-        log.cli(
-          `Warning: Dependency installation failed. You may need to run install manually.
+        log.cli("No package.json in the workspace — skipping dependency install.");
+      }
+    } else {
+      // installDependencies captures (rather than streams) the package
+      // manager's output in non-quiet mode (mt#2209), so print a concise
+      // progress line here — otherwise this slow step would be silent.
+      if (!quiet) {
+        log.cli("Installing dependencies...");
+      }
+      const install = deps.installDependencies ?? defaultInstallDependencies;
+      try {
+        const { success, error } = await install(sessionDir, {
+          packageManager: packageManager,
+          quiet: quiet,
+        });
+
+        if (success) {
+          dependencies = {
+            status: "installed",
+            packageManager: packageManager ?? detectPackageManager(sessionDir) ?? "unknown",
+          };
+          if (!quiet) {
+            // Completion marker — paired with the "Installing dependencies..."
+            // line above so a successful (now-silent) install isn't ambiguous.
+            log.cli("Installed dependencies.");
+          }
+        } else {
+          dependencies = { status: "failed", error: error ?? "install failed" };
+          if (!quiet) {
+            log.cli(`Warning: Dependency installation failed. You may need to run install manually.
+Error: ${error}`);
+          }
+        }
+      } catch (installError) {
+        dependencies = { status: "failed", error: getErrorMessage(installError) };
+        if (!quiet) {
+          log.cli(
+            `Warning: Dependency installation failed. You may need to run install manually.
 Error: ${getErrorMessage(installError)}`
-        );
+          );
+        }
       }
     }
 
@@ -1078,6 +1143,7 @@ Error: ${getErrorMessage(nestedError)}`
     repoUrl,
     repoName: normalizedRepoName,
     taskId,
+    dependencies,
   };
 }
 
@@ -1093,7 +1159,7 @@ Error: ${getErrorMessage(nestedError)}`
 export async function startSessionImpl(
   params: SessionStartParametersWithIntent,
   deps: StartSessionDependencies
-): Promise<Session> {
+): Promise<SessionStartResult> {
   try {
     log.debug("Starting session with params", {
       sessionId: params.sessionId,

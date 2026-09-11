@@ -11,6 +11,10 @@ import { join, resolve } from "path";
 import { makeClaudeAgentsTarget, buildAgentMd } from "./claude-agents";
 import type { MinskyCompileFsDeps } from "../types";
 import type { AgentDefinition } from "../../definitions/types";
+import {
+  COMPILE_GENERATED_BANNER,
+  GENERATION_BANNER_PATTERNS,
+} from "../../rules/compile/banner-constants";
 
 // ─── Fake fs ─────────────────────────────────────────────────────────────────
 
@@ -116,6 +120,28 @@ describe("buildAgentMd", () => {
     const md = buildAgentMd(sampleAgent);
     expect(md).toContain("name: my-agent");
     expect(md).toContain("description: A sample agent for testing.");
+  });
+
+  // mt#5065: agents were the one per-file output with no banner, which left them
+  // outside the hand-edit guard AND read as foreign to the compile-time
+  // ownership guard. Same placement as claude-skills (mt#2252): line 2, inside
+  // the frontmatter, so both 5-line scans see it.
+  it("emits the generation banner as a YAML comment on line 2 (mt#5065)", () => {
+    const lines = buildAgentMd(sampleAgent).split("\n");
+    expect(lines[0]).toBe("---");
+    expect(lines[1]).toBe(COMPILE_GENERATED_BANNER);
+  });
+
+  it("banner lands within the first 5 lines so both banner scans detect it", () => {
+    const firstFive = buildAgentMd(sampleAgent).split("\n").slice(0, 5).join("\n");
+    expect(GENERATION_BANNER_PATTERNS.some(({ re }) => re.test(firstFive))).toBe(true);
+  });
+
+  it("banner does not break YAML frontmatter parsing (name/description still parse)", async () => {
+    const matter = (await import("gray-matter")).default;
+    const parsed = matter(buildAgentMd(sampleAgent));
+    expect(parsed.data["name"]).toBe("my-agent");
+    expect(parsed.data["description"]).toBe("A sample agent for testing.");
   });
 
   it("includes model when set", () => {

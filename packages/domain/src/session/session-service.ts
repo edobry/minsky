@@ -52,7 +52,10 @@ import type {
 // mt#3212: the `SessionUpdateParameters` type import is gone with the cast it
 // existed for — `updateSessionImpl`'s own parameter type does that checking now.
 import type { SessionPRParameters } from "../schemas";
-import type { SessionStartParametersWithIntent } from "./start-session-operations";
+import type {
+  SessionStartParametersWithIntent,
+  SessionStartResult,
+} from "./start-session-operations";
 import type { SessionLaunchIntent } from "./session-startability";
 
 /**
@@ -196,7 +199,7 @@ export class SessionService {
       /** mt#2986: domain-only launch intent — not part of the MCP-facing schema. */
       launchIntent?: SessionLaunchIntent;
     }
-  ): Promise<Session> {
+  ): Promise<SessionStartResult> {
     const sessionStartParams = buildSessionStartParams(params);
 
     return startSessionImpl(sessionStartParams, {

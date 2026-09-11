@@ -68,6 +68,13 @@ export interface RunMinskyCompileOptions {
    * Only `claude.md` reads this — every other target ignores it.
    */
   memoryLoadingMode?: MemoryLoadingMode;
+  /**
+   * Replace per-file outputs that exist without a generation banner (mt#5065).
+   * Default off: such a file is the user's and is refused with a reason under
+   * `skippedForeignOutputs`. On, it is written and listed under
+   * `foreignOverwritten`. The `init` / `setup` precedent for the flag name.
+   */
+  overwrite?: boolean;
 }
 
 /**
@@ -375,6 +382,7 @@ async function compileSingleMinskyTarget(
       check: options.check,
       sizeBudget: options.sizeBudget,
       memoryLoadingMode: options.memoryLoadingMode,
+      overwrite: options.overwrite,
     },
     options.fsDeps
   );
@@ -468,6 +476,7 @@ export async function runMinskyCompile(
   const definitionsIncluded: string[] = [];
   const definitionsSkipped: string[] = [];
   const skippedForeignOutputs: { path: string; reason: string }[] = [...gateSkippedForeign];
+  const foreignOverwritten: string[] = [];
   let overallStale = false;
 
   for (const targetId of targetIds) {
@@ -485,6 +494,8 @@ export async function runMinskyCompile(
     // mt#4986 SC2: concatenated like the other per-target arrays, so a caller
     // reading only the top-level result still learns a file was left alone.
     skippedForeignOutputs.push(...(single.skippedForeignOutputs ?? []));
+    // mt#5065: same treatment for the replacements `--overwrite` performed.
+    foreignOverwritten.push(...(single.foreignOverwritten ?? []));
   }
 
   return withSelectionReasons({
@@ -493,6 +504,7 @@ export async function runMinskyCompile(
     definitionsIncluded,
     definitionsSkipped,
     skippedForeignOutputs: skippedForeignOutputs.length > 0 ? skippedForeignOutputs : undefined,
+    foreignOverwritten: foreignOverwritten.length > 0 ? foreignOverwritten : undefined,
     check: options.check,
     stale: options.check ? overallStale : undefined,
     targets,

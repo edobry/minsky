@@ -68,6 +68,12 @@ export function createCompileCommand(): Command {
       "Override the target's default FAIL size-budget threshold (chars, --check mode hard-fails " +
         "on it). mt#2992 — only claude.md and agents.md enforce a size budget; other targets ignore this."
     )
+    .option(
+      "--overwrite",
+      "Replace output files that exist without a generation banner — i.e. files that are yours, " +
+        "not Minsky's. Without it such a file is left alone and named in the output (mt#5065).",
+      false
+    )
     .action(async (opts) => {
       try {
         // mt#2992 review R1 (BLOCKING) — validate BEFORE any other work so a
@@ -88,6 +94,7 @@ export function createCompileCommand(): Command {
           check: opts.check as boolean,
           sizeBudget,
           memoryLoadingMode,
+          overwrite: opts.overwrite as boolean,
         });
 
         // mt#2803: bare invocation compiled multiple targets — render one
@@ -101,6 +108,13 @@ export function createCompileCommand(): Command {
         // this is top-level rather than per-target.
         for (const skipped of result.skippedForeignOutputs ?? []) {
           log.cli(`[compile] ${skipped.reason}`);
+        }
+        // mt#5065 — see the sibling renderer for why a requested replacement
+        // is still named.
+        for (const replaced of result.foreignOverwritten ?? []) {
+          log.cli(
+            `[compile] Overwrote ${replaced} — it carried no generation banner (--overwrite).`
+          );
         }
 
         // mt#573 SC5. TOP-LEVEL `skipReasons`, which until now nothing rendered:

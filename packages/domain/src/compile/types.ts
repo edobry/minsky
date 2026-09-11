@@ -77,6 +77,17 @@ export interface MinskyCompileResult {
    */
   skippedForeignOutputs?: { path: string; reason: string }[];
   /**
+   * Per-file outputs that existed WITHOUT a generation banner and were written
+   * anyway because the run carried `--overwrite` (mt#5065).
+   *
+   * The complement of `skippedForeignOutputs`: that field records a refusal,
+   * this one records a replacement the operator explicitly asked for. Kept
+   * separate from `filesWritten` (where these paths ALSO appear) so a caller
+   * can tell "regenerated our own file" from "replaced someone else's on
+   * request" — the distinction that was invisible before the guard existed.
+   */
+  foreignOverwritten?: string[];
+  /**
    * Dry-run content.
    * - Single-file targets: the full file content.
    * - Multi-file targets: a concatenated summary (for display only).
