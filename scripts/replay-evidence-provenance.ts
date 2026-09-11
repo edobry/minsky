@@ -43,8 +43,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { parseTranscript, findToolCallsWithResults } from "../.minsky/hooks/transcript";
 import type { TranscriptLine } from "../.minsky/hooks/transcript";
-import { judgeClaims, resolveArtifactText } from "../.minsky/hooks/evidence-record-provenance";
+import {
+  judgeClaims,
+  resolveArtifactText,
+  workspaceScopeFor,
+} from "../.minsky/hooks/evidence-record-provenance";
 import type { ClaimVerdict } from "../.minsky/hooks/evidence-record-provenance";
+import type { WorkspaceScope } from "../.minsky/hooks/evidence-provenance-table";
 
 /** The tools whose input carries an evidence record — the guard's own matcher. */
 const REPLAYABLE = new Set([
@@ -102,28 +107,37 @@ function parseArgs(argv: string[]): Options {
  * transcript would say: the control's failing run is at a LATER index than the
  * commit that claimed it.
  */
-function replayableCalls(
-  lines: TranscriptLine[]
-): Array<{ index: number; lineIndex: number; toolName: string; text: string | null; sha: string }> {
+interface ReplayableCall {
+  index: number;
+  lineIndex: number;
+  toolName: string;
+  text: string | null;
+  sha: string;
+  /**
+   * The workspace the live guard would have bounded writes to (mt#5087), from
+   * the `cwd` Claude Code stamps on the call's own transcript line — the same
+   * value the hook receives as `input.cwd`. A line without one (a synthetic
+   * fixture) leaves the repo leg unset, exactly as the hook would.
+   */
+  scope: WorkspaceScope;
+}
+
+function replayableCalls(lines: TranscriptLine[]): ReplayableCall[] {
   const calls = findToolCallsWithResults(lines);
-  const out: Array<{
-    index: number;
-    lineIndex: number;
-    toolName: string;
-    text: string | null;
-    sha: string;
-  }> = [];
+  const out: ReplayableCall[] = [];
   for (const c of calls) {
     if (!REPLAYABLE.has(c.toolName)) continue;
     // The sha the call actually produced, read off its own result rather than
     // guessed from the message — a commit message is not unique across amends.
     const sha = /"(?:commitHash|shortHash)":\s*"([0-9a-f]+)"/.exec(c.resultText)?.[1] ?? "";
+    const cwd = (lines[c.index] as { cwd?: unknown } | undefined)?.cwd;
     out.push({
       index: out.length,
       lineIndex: c.index,
       toolName: c.toolName,
       text: resolveArtifactText(c.input),
       sha,
+      scope: workspaceScopeFor(typeof cwd === "string" ? cwd : undefined),
     });
   }
   return out;
@@ -187,7 +201,7 @@ if (opts.all) {
   for (const c of candidates) {
     if (c.text === null) continue;
     const priorCalls = findToolCallsWithResults(lines.slice(0, c.lineIndex));
-    const verdicts = judgeClaims(c.text, priorCalls);
+    const verdicts = judgeClaims(c.text, priorCalls, c.scope);
     if (verdicts.length === 0) {
       tally.noRecord++;
       continue;
@@ -240,7 +254,7 @@ if (target.text === null) {
 // The guard's view: only what had already happened.
 const cutoff = opts.asOfLine ?? target.lineIndex;
 const priorCalls = findToolCallsWithResults(lines.slice(0, cutoff));
-const verdicts = judgeClaims(target.text, priorCalls);
+const verdicts = judgeClaims(target.text, priorCalls, target.scope);
 // Mirrors `run()`'s own outcome rule, including the mt#4236 stale class — a
 // replay that reported SILENT where the live guard records `matched` would be a
 // probe measuring a different thing than the mechanism it stands in for.
@@ -254,6 +268,10 @@ process.stdout.write(
     `prior calls: ${priorCalls.length} (of ${findToolCallsWithResults(lines).length} in the session)` +
     `${opts.asOfLine === undefined ? "" : ` — counterfactual, as of line ${cutoff}`}\n` +
     `subject    : ${(target.text.split("\n")[0] ?? "").slice(0, 72)}\n` +
+    // Which writes could count (mt#5087): a `fresh` verdict is only readable
+    // beside the roots the writes were bounded to.
+    `workspace  : repoRoot=${target.scope.repoRoot ?? "(none — no cwd on the line)"} ` +
+    `sessionsDir=${target.scope.sessionsDir}\n` +
     `verdicts   :\n${describeVerdicts(verdicts)}` +
     `RESULT     : ${fires ? "FIRES" : "SILENT"}\n`
 );

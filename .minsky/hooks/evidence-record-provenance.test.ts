@@ -24,13 +24,27 @@ import type { ToolHookInput } from "./types";
 import type { TranscriptLine } from "./transcript";
 import { GUARD_REGISTRY } from "./registry";
 import {
+  defaultSessionsDir,
   extractSubjectTokens,
+  fileWrites,
   isCheckRunningCall,
   isTestRunningCall,
+  isWorkspaceWrite,
   failingTestRuns,
 } from "./evidence-provenance-table";
+import type { WorkspaceScope } from "./evidence-provenance-table";
 import { judgeClaims, resolveArtifactText, run } from "./evidence-record-provenance";
 import { findToolCallsWithResults } from "./transcript";
+
+/**
+ * The workspace every judgement below is bounded to (mt#5087). A literal rather
+ * than `workspaceScopeFor(...)`, which probes the real filesystem for a `.git`
+ * anchor; these tests are value-only.
+ */
+const SCOPE: WorkspaceScope = {
+  repoRoot: "/work/minsky",
+  sessionsDir: "/state/minsky/sessions",
+};
 
 // ---------------------------------------------------------------------------
 // Fixtures — the real record and the real runs, per the header
@@ -203,7 +217,7 @@ describe("judgeClaims", () => {
       ...testRun(TEST_CMD, GREEN_RUN),
       ...testRun(TEST_CMD, GREEN_RUN),
     ]);
-    expect(judgeClaims(INCIDENT_MESSAGE, calls)[0]?.verdict).toBe("undischarged");
+    expect(judgeClaims(INCIDENT_MESSAGE, calls, SCOPE)[0]?.verdict).toBe("undischarged");
   });
 
   test("a failing run about something ELSE does not discharge it either", () => {
@@ -212,7 +226,7 @@ describe("judgeClaims", () => {
       ...testRun(TEST_CMD, GREEN_RUN),
       ...testRun(`${TEST_CMD} PublishConversationDialog.test.tsx`, UNRELATED_FAILURE),
     ]);
-    expect(judgeClaims(INCIDENT_MESSAGE, calls)[0]?.verdict).toBe("undischarged");
+    expect(judgeClaims(INCIDENT_MESSAGE, calls, SCOPE)[0]?.verdict).toBe("undischarged");
   });
 
   test("a failing run naming the record's subject DOES discharge it", () => {
@@ -222,7 +236,7 @@ describe("judgeClaims", () => {
         SUBJECT_FAILURE
       ),
     ]);
-    expect(judgeClaims(INCIDENT_MESSAGE, calls)[0]?.verdict).toBe("discharged");
+    expect(judgeClaims(INCIDENT_MESSAGE, calls, SCOPE)[0]?.verdict).toBe("discharged");
   });
 
   test("a record that PASTES its failing run is discharged by the paste", () => {
@@ -241,7 +255,7 @@ describe("judgeClaims", () => {
     const runOutput =
       "bun test v1.3.14\n(fail) TabCloseBridge — the ⌘W seam (mt#4059) > closes the ACTIVE tab [2.7ms]\n 3 pass\n 2 fail";
     const calls = findToolCallsWithResults(testRun(TEST_CMD, runOutput));
-    expect(judgeClaims(record, calls)[0]?.verdict).toBe("discharged");
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).toBe("discharged");
     // The duration differs between the paste and the re-run, which is why the
     // trailing `[N ms]` is stripped before comparing.
     expect(runOutput).not.toContain("[3.1ms]");
@@ -266,7 +280,7 @@ describe("judgeClaims", () => {
     ].join("\n");
     const runOutput = "bun test v1.3.14\n 2 fail\nRan 5456 tests across 153 files. [21.61s]";
     const calls = findToolCallsWithResults(testRun(TEST_CMD, runOutput));
-    expect(judgeClaims(record, calls)[0]?.verdict).toBe("discharged");
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).toBe("discharged");
   });
 
   test("a hand-rolled harness result line discharges on a verbatim match", () => {
@@ -280,7 +294,7 @@ describe("judgeClaims", () => {
     const runOutput =
       "bun test harness\n 1 fail\nPASS  expected=true  new=true  old=false z.coerce.number().optional()";
     const calls = findToolCallsWithResults(testRun(TEST_CMD, runOutput));
-    expect(judgeClaims(record, calls)[0]?.verdict).toBe("discharged");
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).toBe("discharged");
   });
 
   // REGRESSION PIN for the defect the first cut of this tune introduced.
@@ -301,7 +315,7 @@ describe("judgeClaims", () => {
     const calls = findToolCallsWithResults(
       testRun(TEST_CMD, "(fail) Unrelated > other [1ms]\n 1 fail")
     );
-    const v = judgeClaims(record, calls)[0];
+    const v = judgeClaims(record, calls, SCOPE)[0];
     expect(v?.kind).toBe(NEGATIVE_CONTROL);
     expect(v?.verdict).toBe("unadjudicable");
     expect(v?.verdict).not.toBe("undischarged");
@@ -318,7 +332,7 @@ describe("judgeClaims", () => {
     const calls = findToolCallsWithResults(testRun(TEST_CMD, "(fail) Real > case [1ms]\n 1 fail"));
     // It carries no `(fail)` line, so absence is not condemnable -> unadjudicable,
     // but crucially it is NOT discharged: the paste bought nothing.
-    expect(judgeClaims(record, calls)[0]?.verdict).not.toBe("discharged");
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).not.toBe("discharged");
   });
 
   // PR #3143 R1 — the reviewer's brittleness concern, pinned rather than argued.
@@ -339,7 +353,7 @@ describe("judgeClaims", () => {
     const coloured =
       "\u001b[31m(fail)\u001b[0m TabCloseBridge > closes the ACTIVE tab when one is focused\n 1 fail";
     const calls = findToolCallsWithResults(testRun(TEST_CMD, coloured));
-    expect(judgeClaims(record, calls)[0]?.verdict).toBe("discharged");
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).toBe("discharged");
   });
 
   test("differing internal whitespace still does NOT match — collapsing is declined", () => {
@@ -358,7 +372,7 @@ describe("judgeClaims", () => {
         "(fail) TabCloseBridge > closes the ACTIVE tab when one is focused\n 1 fail"
       )
     );
-    expect(judgeClaims(record, calls)[0]?.verdict).not.toBe("discharged");
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).not.toBe("discharged");
   });
 
   test("a matching line beyond the 20th is still found — the cap is not a recall bound", () => {
@@ -371,7 +385,7 @@ describe("judgeClaims", () => {
     const theMatch = "(fail) RealSuite > the only case that actually appears in the run output";
     const record = ["Negative control:", "", "```", ...filler, theMatch, "```"].join("\n");
     const calls = findToolCallsWithResults(testRun(TEST_CMD, `${theMatch}\n 1 fail`));
-    expect(judgeClaims(record, calls)[0]?.verdict).toBe("discharged");
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).toBe("discharged");
   });
 
   test("a FABRICATED paste matches nothing and still fires", () => {
@@ -386,11 +400,11 @@ describe("judgeClaims", () => {
       "```",
     ].join("\n");
     const calls = findToolCallsWithResults(testRun(TEST_CMD, "(fail) Unrelated > other [1ms]"));
-    expect(judgeClaims(record, calls)[0]?.verdict).toBe("undischarged");
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).toBe("undischarged");
   });
 
   test("a record naming no subject is unadjudicable, never clean", () => {
-    const verdicts = judgeClaims("Negative control: reverted it and saw red.", []);
+    const verdicts = judgeClaims("Negative control: reverted it and saw red.", [], SCOPE);
     expect(verdicts[0]?.verdict).toBe("unadjudicable");
   });
 
@@ -398,17 +412,17 @@ describe("judgeClaims", () => {
     const fenced = ["Some prose.", "", "```", "Negative control: reverted, saw red.", "```"].join(
       "\n"
     );
-    expect(judgeClaims(fenced, [])).toHaveLength(0);
+    expect(judgeClaims(fenced, [], SCOPE)).toHaveLength(0);
   });
 
   test("an execution-evidence block needs only that SOME test ran", () => {
     const body = "## Execution evidence\n\n```\n 5 pass 0 fail\n```\n";
-    expect(judgeClaims(body, [])[0]).toMatchObject({
+    expect(judgeClaims(body, [], SCOPE)[0]).toMatchObject({
       kind: "execution-evidence",
       verdict: "undischarged",
     });
     const ran = findToolCallsWithResults(testRun(TEST_CMD, GREEN_RUN));
-    expect(judgeClaims(body, ran)[0]?.verdict).toBe("discharged");
+    expect(judgeClaims(body, ran, SCOPE)[0]?.verdict).toBe("discharged");
   });
 });
 
@@ -493,7 +507,7 @@ const MIXED_EVIDENCE_BLOCK =
 describe("per-claim granularity (mt#4236)", () => {
   test("one block asserting a typecheck AND a test yields one claim for EACH", () => {
     const calls = findToolCallsWithResults([...typecheckRun(), ...testRun(TEST_CMD, GREEN_RUN)]);
-    const verdicts = judgeClaims(MIXED_EVIDENCE_BLOCK, calls);
+    const verdicts = judgeClaims(MIXED_EVIDENCE_BLOCK, calls, SCOPE);
     expect(verdicts.map((v) => v.check).sort()).toEqual(["test", "typecheck"]);
     expect(verdicts.every((v) => v.verdict === "discharged")).toBe(true);
   });
@@ -502,12 +516,16 @@ describe("per-claim granularity (mt#4236)", () => {
     // The session ran tests and nothing else. Before this change the block was
     // discharged outright; the typecheck claim must now stand undischarged.
     const calls = findToolCallsWithResults(testRun(TEST_CMD, GREEN_RUN));
-    const typecheck = judgeClaims(MIXED_EVIDENCE_BLOCK, calls).find((v) => v.check === "typecheck");
+    const typecheck = judgeClaims(MIXED_EVIDENCE_BLOCK, calls, SCOPE).find(
+      (v) => v.check === "typecheck"
+    );
     expect(typecheck).toMatchObject({ verdict: "undischarged", detail: "no-run-of-kind" });
   });
 
   test("`no-run-at-all` is a DIFFERENT class from `no-run-of-kind`", () => {
-    const typecheck = judgeClaims(MIXED_EVIDENCE_BLOCK, []).find((v) => v.check === "typecheck");
+    const typecheck = judgeClaims(MIXED_EVIDENCE_BLOCK, [], SCOPE).find(
+      (v) => v.check === "typecheck"
+    );
     expect(typecheck?.detail).toBe("no-run-at-all");
   });
 
@@ -516,16 +534,19 @@ describe("per-claim granularity (mt#4236)", () => {
     // any test run, exactly as before — this change must not move the recall
     // axis mt#4067 owns.
     const body = "## Execution evidence\n\nthe checks were run and were fine\n";
-    expect(judgeClaims(body, [])[0]).toMatchObject({ check: "test", verdict: "undischarged" });
+    expect(judgeClaims(body, [], SCOPE)[0]).toMatchObject({
+      check: "test",
+      verdict: "undischarged",
+    });
     const ran = findToolCallsWithResults(testRun(TEST_CMD, GREEN_RUN));
-    expect(judgeClaims(body, ran)[0]?.verdict).toBe("discharged");
+    expect(judgeClaims(body, ran, SCOPE)[0]?.verdict).toBe("discharged");
   });
 
   test("prose naming a check is NOT a claim — only a pasted invocation or result is", () => {
     // The conservative direction: recognizing a kind creates an obligation to
     // find a run of it, so an English mention must not manufacture one.
     const body = "## Execution evidence\n\ntypecheck and lint are clean.\n 5 pass\n";
-    expect(judgeClaims(body, []).map((v) => v.check)).toEqual(["test"]);
+    expect(judgeClaims(body, [], SCOPE).map((v) => v.check)).toEqual(["test"]);
   });
 
   // PR #3165 R1. The assertion above passed on a phrasing that happened to dodge
@@ -538,7 +559,7 @@ describe("per-claim granularity (mt#4236)", () => {
     ["prettier was run", "format"],
   ])("prose %p does not assert a %s claim", (sentence, kind) => {
     const body = `## Execution evidence\n\n${sentence}\n 5 pass\n`;
-    expect(judgeClaims(body, []).map((v) => v.check)).not.toContain(kind);
+    expect(judgeClaims(body, [], SCOPE).map((v) => v.check)).not.toContain(kind);
   });
 
   test("prose naming a test runner does not ADD a test claim beside another kind", () => {
@@ -549,7 +570,7 @@ describe("per-claim granularity (mt#4236)", () => {
     // the narrowing was for.
     const withRunnerProse =
       '## Execution evidence\n\n```\n$ validate_typecheck(task: "mt#1")\n```\n\nwe use jest here.\n';
-    expect(judgeClaims(withRunnerProse, []).map((v) => v.check)).toEqual(["typecheck"]);
+    expect(judgeClaims(withRunnerProse, [], SCOPE).map((v) => v.check)).toEqual(["typecheck"]);
   });
 
   test("a lint-only block does not assert a TYPECHECK claim via `errorCount`", () => {
@@ -559,7 +580,7 @@ describe("per-claim granularity (mt#4236)", () => {
     const body =
       '## Execution evidence\n\n```\n$ validate_lint(task: "mt#4236")\n' +
       " errorCount: 0  warningCount: 0  fileCount: 3820\n```\n";
-    const kinds = judgeClaims(body, []).map((v) => v.check);
+    const kinds = judgeClaims(body, [], SCOPE).map((v) => v.check);
     expect(kinds).toContain("lint");
     expect(kinds).not.toContain("typecheck");
   });
@@ -574,7 +595,7 @@ describe("per-claim granularity (mt#4236)", () => {
       ["foo.ts(12,3): error TS2353: bad", "typecheck"],
     ] as const) {
       const body = `## Execution evidence\n\n\`\`\`\n${line}\n\`\`\`\n`;
-      expect(judgeClaims(body, []).map((v) => v.check)).toContain(kind);
+      expect(judgeClaims(body, [], SCOPE).map((v) => v.check)).toContain(kind);
     }
   });
 
@@ -593,7 +614,7 @@ describe("per-claim granularity (mt#4236)", () => {
       expect(first).toBeDefined();
       expect(first && isCheckRunningCall(first, kind)).toBe(true);
       expect(
-        judgeClaims(`## Execution evidence\n\n${command}\n`, []).map((v) => v.check)
+        judgeClaims(`## Execution evidence\n\n${command}\n`, [], SCOPE).map((v) => v.check)
       ).toContain(kind);
     }
   });
@@ -606,7 +627,7 @@ describe("ordering against later writes (mt#4236)", () => {
       ...testRun(TEST_CMD, GREEN_RUN),
       ...write("src/thing.ts"),
     ]);
-    const verdicts = judgeClaims(MIXED_EVIDENCE_BLOCK, calls);
+    const verdicts = judgeClaims(MIXED_EVIDENCE_BLOCK, calls, SCOPE);
     const typecheck = verdicts.find((v) => v.check === "typecheck");
     expect(typecheck).toMatchObject({ verdict: "discharged", ordering: "stale-evidence" });
   });
@@ -617,7 +638,9 @@ describe("ordering against later writes (mt#4236)", () => {
       ...typecheckRun(),
       ...testRun(TEST_CMD, GREEN_RUN),
     ]);
-    const typecheck = judgeClaims(MIXED_EVIDENCE_BLOCK, calls).find((v) => v.check === "typecheck");
+    const typecheck = judgeClaims(MIXED_EVIDENCE_BLOCK, calls, SCOPE).find(
+      (v) => v.check === "typecheck"
+    );
     expect(typecheck?.ordering).toBe("fresh");
   });
 
@@ -627,7 +650,9 @@ describe("ordering against later writes (mt#4236)", () => {
       ...testRun(TEST_CMD, GREEN_RUN),
       ...write("docs/notes.md"),
     ]);
-    const typecheck = judgeClaims(MIXED_EVIDENCE_BLOCK, calls).find((v) => v.check === "typecheck");
+    const typecheck = judgeClaims(MIXED_EVIDENCE_BLOCK, calls, SCOPE).find(
+      (v) => v.check === "typecheck"
+    );
     expect(typecheck?.ordering).toBe("fresh");
   });
 
@@ -641,7 +666,7 @@ describe("ordering against later writes (mt#4236)", () => {
       ...testRun("bun run format:check", "All matched files use Prettier code style!"),
       ...write("src/thing.ts"),
     ]);
-    const format = judgeClaims(body, calls).find((v) => v.check === "format");
+    const format = judgeClaims(body, calls, SCOPE).find((v) => v.check === "format");
     expect(format).toMatchObject({ verdict: "discharged", ordering: "not-comparable" });
   });
 
@@ -704,7 +729,8 @@ describe("ordering against later writes (mt#4236)", () => {
       ...moveOut("src/thing.ts", "notes/thing.txt"),
     ]);
     expect(
-      judgeClaims(MIXED_EVIDENCE_BLOCK, outOfScope).find((v) => v.check === "typecheck")?.ordering
+      judgeClaims(MIXED_EVIDENCE_BLOCK, outOfScope, SCOPE).find((v) => v.check === "typecheck")
+        ?.ordering
     ).toBe("fresh");
 
     // A `.ts` -> `.ts` move still reports stale, through the destination.
@@ -714,7 +740,8 @@ describe("ordering against later writes (mt#4236)", () => {
       ...moveOut("src/a.ts", "src/b.ts"),
     ]);
     expect(
-      judgeClaims(MIXED_EVIDENCE_BLOCK, withinScope).find((v) => v.check === "typecheck")?.ordering
+      judgeClaims(MIXED_EVIDENCE_BLOCK, withinScope, SCOPE).find((v) => v.check === "typecheck")
+        ?.ordering
     ).toBe("stale-evidence");
   });
 
@@ -726,8 +753,117 @@ describe("ordering against later writes (mt#4236)", () => {
       ...testRun(TEST_CMD, SUBJECT_FAILURE),
       ...write("src/cockpit/web/pages/SharedConversationPage.tsx"),
     ]);
-    const control = judgeClaims(INCIDENT_MESSAGE, calls).find((v) => v.kind === NEGATIVE_CONTROL);
+    const control = judgeClaims(INCIDENT_MESSAGE, calls, SCOPE).find(
+      (v) => v.kind === NEGATIVE_CONTROL
+    );
     expect(control).toMatchObject({ verdict: "discharged", ordering: "not-comparable" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The write side is bounded to the workspace (mt#5087)
+// ---------------------------------------------------------------------------
+
+/** A harness `Write` — absolute path, as the harness requires. */
+function harnessWrite(filePath: string): TranscriptLine[] {
+  const id = `tu_${++nextId}`;
+  return [
+    {
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [{ type: "tool_use", id, name: "Write", input: { file_path: filePath } }],
+      },
+    },
+    {
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: id, content: [{ type: "text", text: "ok" }] },
+        ],
+      },
+    },
+  ] as unknown as TranscriptLine[];
+}
+
+describe("writes outside the workspace do not invalidate a run (mt#5087)", () => {
+  /** The originating shape: a scratchpad `.ts`, edited after the last test run. */
+  const SCRATCHPAD_TS = "/private/tmp/claude-501/-Users-x-minsky/a0ad857d/scratchpad/sc3b.ts";
+  /** An absolute path into a session workspace under `SCOPE.sessionsDir`. */
+  const SESSION_WS_TS = `${SCOPE.sessionsDir}/f86e9710-53ae/src/x.ts`;
+
+  test("isWorkspaceWrite — the three cases the spec names, plus the sessions leg", () => {
+    // Absolute, outside: a scratchpad, /tmp, a jobs dir, the sessions dir itself.
+    expect(isWorkspaceWrite(SCRATCHPAD_TS, SCOPE)).toBe(false);
+    expect(isWorkspaceWrite("/tmp/probe.ts", SCOPE)).toBe(false);
+    expect(isWorkspaceWrite("/home/x/.claude/jobs/e3e4d110/tmp/x.ts", SCOPE)).toBe(false);
+    expect(isWorkspaceWrite("/state/minsky/sessions/README.ts", SCOPE)).toBe(false);
+    // Relative: a session tool's path, workspace-relative by construction.
+    expect(isWorkspaceWrite("src/x.ts", SCOPE)).toBe(true);
+    // Absolute, inside: under the repo root, or under any session workspace.
+    expect(isWorkspaceWrite("/work/minsky/src/x.ts", SCOPE)).toBe(true);
+    expect(isWorkspaceWrite(SESSION_WS_TS, SCOPE)).toBe(true);
+    // A sibling of the repo root is not under it — no prefix-string match.
+    expect(isWorkspaceWrite("/work/minsky-other/src/x.ts", SCOPE)).toBe(false);
+  });
+
+  test("with no repo root known, only the session-workspace leg stands", () => {
+    const noCwd: WorkspaceScope = { repoRoot: null, sessionsDir: SCOPE.sessionsDir };
+    expect(isWorkspaceWrite("src/x.ts", noCwd)).toBe(true);
+    expect(isWorkspaceWrite(SESSION_WS_TS, noCwd)).toBe(true);
+    // The safe direction: an absolute path nothing can place is NOT counted.
+    expect(isWorkspaceWrite("/work/minsky/src/x.ts", noCwd)).toBe(false);
+  });
+
+  test("fileWrites drops an outside write and keeps an inside one, in order", () => {
+    const calls = findToolCallsWithResults([
+      ...harnessWrite(SCRATCHPAD_TS),
+      ...write("src/inside.ts"),
+      ...harnessWrite("/work/minsky/src/also-inside.ts"),
+    ]);
+    expect(fileWrites(calls, SCOPE).map((w) => w.path)).toEqual([
+      "src/inside.ts",
+      "/work/minsky/src/also-inside.ts",
+    ]);
+  });
+
+  test("the originating record: scratchpad edits after the run leave the test claim FRESH", () => {
+    // Replayed live against a0ad857d's transcript this is `stale-evidence` before
+    // the change and `fresh` after (AT1); this is the same shape as a fixture.
+    const calls = findToolCallsWithResults([
+      ...testRun(TEST_CMD, GREEN_RUN),
+      ...harnessWrite(SCRATCHPAD_TS),
+      ...harnessWrite(SCRATCHPAD_TS),
+      ...harnessWrite("/private/tmp/claude-501/-Users-x-minsky/a0ad857d/scratchpad/axis.ts"),
+    ]);
+    const test_ = judgeClaims(MIXED_EVIDENCE_BLOCK, calls, SCOPE).find((v) => v.check === "test");
+    expect(test_).toMatchObject({ verdict: "discharged", ordering: "fresh" });
+  });
+
+  test("AT2 — a session_search_replace on src/x.ts after the run is still stale", () => {
+    const calls = findToolCallsWithResults([...testRun(TEST_CMD, GREEN_RUN), ...write("src/x.ts")]);
+    const test_ = judgeClaims(MIXED_EVIDENCE_BLOCK, calls, SCOPE).find((v) => v.check === "test");
+    expect(test_?.ordering).toBe("stale-evidence");
+  });
+
+  test("an absolute write INTO a session workspace after the run is still stale", () => {
+    const calls = findToolCallsWithResults([
+      ...testRun(TEST_CMD, GREEN_RUN),
+      ...harnessWrite(SESSION_WS_TS),
+    ]);
+    const test_ = judgeClaims(MIXED_EVIDENCE_BLOCK, calls, SCOPE).find((v) => v.check === "test");
+    expect(test_?.ordering).toBe("stale-evidence");
+  });
+
+  test("defaultSessionsDir follows the state-dir precedent, override first", () => {
+    expect(defaultSessionsDir({ MINSKY_STATE_DIR: "/custom/state" })).toBe(
+      "/custom/state/sessions"
+    );
+    expect(defaultSessionsDir({ XDG_STATE_HOME: "/xdg/state", HOME: "/home/x" })).toBe(
+      "/xdg/state/minsky/sessions"
+    );
+    expect(defaultSessionsDir({ HOME: "/home/x" })).toBe("/home/x/.local/state/minsky/sessions");
   });
 });
 
@@ -754,7 +890,7 @@ describe("resolveArtifactText", () => {
       expect(text).toContain("a title");
       expect(text).toContain("Negative control");
       // And it reaches the judgement, not just the string.
-      expect(judgeClaims(text ?? "", [])[0]?.kind).toBe(NEGATIVE_CONTROL);
+      expect(judgeClaims(text ?? "", [], SCOPE)[0]?.kind).toBe(NEGATIVE_CONTROL);
     } finally {
       // eslint-disable-next-line custom/no-real-fs-in-tests -- cleanup for the real file written above.
       rmSync(path, { force: true });
