@@ -101,6 +101,16 @@ asking about recall rather than precision.
   the safe direction. An entry MISSING from it is the one way this guard could turn a flag's value
   into an apparent path, which is why `--include`/`--exclude-dir` and their siblings are pinned by
   tests.
+- **A statement boundary is `;`, `&&`, `||`, a pipe, AND a newline (mt#5076).** Until then the
+  guard split with `splitTopLevel`, which honours the first four only, so a multi-line command's
+  second line was read as the tail of the first line's `grep`: `grep -c 'x' "$F"\necho '=== compact
+==='` fired as _"2 path(s) that do not exist: `echo`; `=== compact ===`"_. That one shape was 83 of
+  the log's first 181 fires (46%) — `echo` alone 103 times, plus `if`/`for`/`done`/`ls` from
+  multi-line loops — and it also HID a real bad path on a second line (the segment's binary was
+  `echo`, not a search binary). The split is now `splitStatements` (`command-shape.ts`), the
+  newline-aware sibling `block-concurrent-bulk-mutation` had built privately for the same defect
+  (mt#4088); `splitTopLevel` is unchanged for its other callers. Quote-aware, so `grep 'a\nb' src`
+  stays one stage.
 
 ## Why calibration-first, and why not ADR-024
 

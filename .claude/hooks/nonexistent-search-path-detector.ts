@@ -59,7 +59,7 @@ import {
   nonFlagOperands,
   splitOutsideQuotes,
   splitPipeline,
-  splitTopLevel,
+  splitStatements,
   suppliesPattern,
 } from "./command-shape";
 
@@ -446,7 +446,10 @@ export function scanCommand(
   options: ScanOptions
 ): NonexistentSearchPathScanResult {
   const fs = options.fs ?? DEFAULT_SEARCH_PATH_FS;
-  const segments = splitTopLevel(command);
+  // Line-aware (mt#5076): a multi-line command's second line is its own statement, not a tail of
+  // positionals for the first line's `grep`. `splitStatements` is `splitTopLevel` plus the newline,
+  // through the same quote-aware walker, so `grep 'a\nb'` is still one stage.
+  const segments = splitStatements(command);
 
   // A `cd` anywhere re-bases every relative path that follows it, and we do not track where to.
   const hasCd = segments.some((segment) => tokenize(splitPipeline(segment)[0] ?? "")[0] === "cd");
