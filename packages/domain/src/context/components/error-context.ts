@@ -5,11 +5,10 @@ import {
   type ComponentInputs,
 } from "./types";
 import * as ts from "typescript";
-import * as fs from "fs/promises";
 import * as path from "path";
 import { glob } from "glob";
 
-interface ErrorInfo {
+export interface ErrorInfo {
   file: string;
   line: number;
   column: number;
@@ -20,7 +19,7 @@ interface ErrorInfo {
   category?: string;
 }
 
-interface ErrorContextInputs {
+export interface ErrorContextInputs {
   workspacePath: string;
   typeScriptErrors: ErrorInfo[];
   runtimeErrors: ErrorInfo[];
@@ -57,8 +56,6 @@ export const ErrorContextComponent: ContextComponent = {
         // Limit to first 20 files for performance
         try {
           const fullPath = path.join(workspacePath, filePath);
-          const content = String(await fs.readFile(fullPath, "utf-8"));
-          const sourceFile = ts.createSourceFile(fullPath, content, ts.ScriptTarget.Latest, true);
 
           // Create a TypeScript program to get diagnostics
           const program = ts.createProgram([fullPath], {
@@ -66,10 +63,20 @@ export const ErrorContextComponent: ContextComponent = {
             checkJs: false,
             noEmit: true,
             skipLibCheck: true,
-            moduleResolution: ts.ModuleResolutionKind.NodeJs,
+            moduleResolution: ts.ModuleResolutionKind.Node10,
             target: ts.ScriptTarget.ES2020,
             module: ts.ModuleKind.ESNext,
           });
+
+          // mt#5084: the SourceFile handed to getPreEmitDiagnostics MUST be the program's own.
+          // A separately-parsed `ts.createSourceFile` result was never bound by this program's
+          // checker, so the semantic pass threw on `symbol.flags` for every file. The argument
+          // is kept (not omitted) because it SCOPES the semantic diagnostics to this file —
+          // unscoped, an imported file's errors would be pushed under this `filePath`.
+          const sourceFile = program.getSourceFile(fullPath);
+          if (!sourceFile) {
+            throw new Error(`program did not load ${fullPath}`);
+          }
 
           const diagnostics = ts.getPreEmitDiagnostics(program, sourceFile);
 
