@@ -15,7 +15,8 @@
  * `scripts/verify-conversation-orientation.ts`, which drives a real browser over
  * CDP. Everything below is state, not geometry, and belongs here.
  */
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, afterEach, beforeEach } from "bun:test";
+import { resetScrollportGeometry } from "../lib/scrollport-test-state";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ConversationView } from "./ConversationView";
@@ -99,6 +100,7 @@ async function clickAndSettle(label: string, settled: () => boolean): Promise<vo
 }
 
 describe("ConversationView tail-first windowing (mt#2433)", () => {
+  beforeEach(resetScrollportGeometry);
   afterEach(cleanup);
 
   test("small transcript renders fully, and says so", () => {
@@ -196,6 +198,7 @@ describe("ConversationView tail-first windowing (mt#2433)", () => {
 });
 
 describe("ConversationView window stability while scrolled up (mt#3736)", () => {
+  beforeEach(resetScrollportGeometry);
   afterEach(cleanup);
 
   /**
@@ -323,6 +326,7 @@ describe("ConversationView window stability while scrolled up (mt#3736)", () => 
 });
 
 describe("ConversationView thread position readout (mt#3688)", () => {
+  beforeEach(resetScrollportGeometry);
   afterEach(cleanup);
 
   test("the denominator is the WHOLE transcript, not the rendered window", () => {

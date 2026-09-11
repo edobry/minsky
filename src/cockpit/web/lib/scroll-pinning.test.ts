@@ -4,7 +4,8 @@
  * These are the two facts the live-tail effect branches on, so they are tested
  * directly rather than only through a rendered thread.
  */
-import { describe, test, expect } from "bun:test";
+import { beforeEach, describe, test, expect } from "bun:test";
+import { resetScrollportGeometry } from "./scrollport-test-state";
 import {
   findScrollParent,
   formatThreadPosition,
@@ -15,6 +16,11 @@ import {
   scrollFraction,
   threadPositionFromScroll,
 } from "./scroll-pinning";
+
+// This file stamps geometry onto `document.scrollingElement` too, so it owes the
+// same reset as its two siblings — establish the scrollport rather than inherit
+// one, and do not leave ours for whoever runs next (mt#3575).
+beforeEach(resetScrollportGeometry);
 
 /** A minimal stand-in for the scroll geometry the helper reads. */
 function scrollport(scrollTop: number, scrollHeight: number, clientHeight: number): Element {

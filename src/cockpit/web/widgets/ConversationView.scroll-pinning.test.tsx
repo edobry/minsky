@@ -10,6 +10,7 @@
  * scroll) and silently pass regardless of the fix.
  */
 import { describe, test, expect, afterEach, beforeEach, mock } from "bun:test";
+import { resetScrollportGeometry } from "../lib/scrollport-test-state";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import { ConversationView } from "./ConversationView";
@@ -84,7 +85,8 @@ beforeEach(() => {
   });
 });
 
-afterEach(cleanup);
+beforeEach(resetScrollportGeometry);
+  afterEach(cleanup);
 
 describe("ConversationView live tail — scroll pinning (mt#3376)", () => {
   test("scrolled up: a new live turn does NOT move the scroll position", () => {
