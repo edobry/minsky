@@ -480,4 +480,12 @@ jobs:
           # untestable. scripts/ci/railway-redeploy.test.ts exercises it with
           # a fake `railway` on RAILWAY_BIN.
           export DEPLOY_TOKEN DEPLOY_TOKEN_SOURCE PROJECT_ID ENVIRONMENT_ID
+          # CI R1: `set -euo pipefail` is already active for this whole step
+          # (the very first line of this `run:` block), but a future edit that
+          # reorders or shortens this step could drop that top-level `-e`
+          # without anyone noticing this pipe still depends on it. Re-asserting
+          # `pipefail` right here means the step reds on the SCRIPT's exit
+          # code even if that happens — a later stage in the pipe (there is
+          # none today) could otherwise mask it.
+          set -o pipefail
           printf '%s\n' "${REDEPLOY_SERVICES}" | ./scripts/ci/railway-redeploy.sh

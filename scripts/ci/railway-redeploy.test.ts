@@ -184,7 +184,7 @@ describe("railway-redeploy.sh (mt#4959)", () => {
     expect(callsMatching(result.calls, "redeploy", "RAILWAY_TOKEN")).toHaveLength(0);
     expect(callsMatching(result.calls, "link", "RAILWAY_TOKEN")).toHaveLength(0);
     expect(result.stdout).toContain(
-      "Attempt 1/3 for minsky-mcp (account/workspace scope): redeploy call failed after a successful link — retrying in 0s."
+      "Scope 1/2 try 1/3 for minsky-mcp (account/workspace scope): redeploy call failed after a successful link — retrying in 0s."
     );
     expect(result.stdout).toContain(
       "Railway redeploy triggered successfully for minsky-mcp via the CLI (RAILWAY_MCP_TOKEN, account/workspace scope)."
@@ -247,6 +247,17 @@ describe("railway-redeploy.sh (mt#4959)", () => {
     expect(callsMatching(result.calls, "link")).toHaveLength(0);
     expect(callsMatching(result.calls, "redeploy")).toHaveLength(0);
     expect(result.stdout).not.toContain("retrying in");
+    // CI R1: pins the explicit mktemp-result guard so the exit-1 outcome
+    // depends on this message, not on a shell's `cd ""` behaviour (Ubuntu's
+    // bash treats `cd ""` as a silent no-op success; macOS's does not — the
+    // guard makes the two platforms agree). The exact mktemp diagnostic text
+    // differs between GNU and BSD mktemp, so only the fixed prefix is
+    // asserted, once per scope attempt (account/workspace, then project).
+    const guardOccurrences =
+      result.stdout.split(
+        "redeploy helper: could not create the per-attempt working directory under /definitely/does/not/exist/mt4959; exiting 1:"
+      ).length - 1;
+    expect(guardOccurrences).toBe(2);
     expect(result.stdout).toContain(
       "the redeploy helper exited 1, which is neither the link-failed (2) nor the redeploy-failed (3) signal — cause not determined from this attempt."
     );

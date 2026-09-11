@@ -100,11 +100,41 @@ RAILWAY_REDEPLOY_ATTEMPT_DIR="${RAILWAY_REDEPLOY_ATTEMPT_DIR:-}"
 redeploy_with() {
   local service_id="$1"
   local attempt_dir
+  local mktemp_rc
+  local base_desc
+
+  # CI R1 (mt#4959): on Ubuntu's bash, `cd ""` (an EMPTY string, which is what
+  # `attempt_dir` holds when mktemp fails) is a silent no-op success — it
+  # stays in the CURRENT directory rather than erroring. macOS's bash errors
+  # on `cd ""`, which is why this shipped passing locally and failed on CI's
+  # runner: `mktemp` failing left the subshell running `link`/`redeploy` from
+  # whatever directory happened to be current, and the run "succeeded" for the
+  # wrong reason. The guard below makes the outcome depend on mktemp's actual
+  # result, never on a shell's `cd ""` behavior. `2>&1` (not `2>/dev/null`) so
+  # the reason mktemp failed is visible in the message and the CI log, not
+  # discarded.
   if [ -n "${RAILWAY_REDEPLOY_ATTEMPT_DIR}" ]; then
-    attempt_dir="$(mktemp -d "${RAILWAY_REDEPLOY_ATTEMPT_DIR}/attempt.XXXXXX" 2>/dev/null)"
+    attempt_dir="$(mktemp -d "${RAILWAY_REDEPLOY_ATTEMPT_DIR}/attempt.XXXXXX" 2>&1)"
   else
-    attempt_dir="$(mktemp -d 2>/dev/null)"
+    attempt_dir="$(mktemp -d 2>&1)"
   fi
+  mktemp_rc=$?
+
+  if [ "${mktemp_rc}" -ne 0 ] || [ -z "${attempt_dir}" ] || [ ! -d "${attempt_dir}" ]; then
+    base_desc="the system default location"
+    if [ -n "${RAILWAY_REDEPLOY_ATTEMPT_DIR}" ]; then
+      base_desc="${RAILWAY_REDEPLOY_ATTEMPT_DIR}"
+    fi
+    echo "redeploy helper: could not create the per-attempt working directory under ${base_desc}; exiting 1: ${attempt_dir}"
+    # `return`, not `exit` — this runs in the function's own scope, BEFORE the
+    # attempt subshell below, so an `exit` here would terminate the whole
+    # script instead of just this attempt. Exit code 1 falls outside {2, 3},
+    # so the caller buckets it "unclassified" and does not retry it (the same
+    # contract the `cd || exit 1` line inside the subshell already uses for
+    # the same class of failure).
+    return 1
+  fi
+
   (
     cd "${attempt_dir}" || exit 1
     if [ "${3:-}" = "link" ]; then
@@ -122,10 +152,19 @@ redeploy_with() {
 # total, ONLY when it exits 3 (mt#4959 SC1). Exit 2 and any other code return
 # on the first attempt with no retry — see the header for why.
 #
+# CI R1: the retry TRY (k/N below) is a different counter from the SCOPE
+# attempt the caller announces ("Attempt 1/2 for <svc>" — account/workspace,
+# then project). Printing both as "Attempt" made them read as one number.
+# "Scope <i>/2 try <k>/<N>" keeps the caller's own "Attempt 1/2" line — the
+# one the buckets and docs.deploy-minsky-railway.md wording refer to —
+# untouched, and gives the retry line its own distinct label.
+#
 # $1 = service id, $2 = token env var, $3 = "link" or "", $4 = svc label (for
-# the retry message), $5 = scope label (for the retry message)
+# the retry message), $5 = scope label (for the retry message), $6 = scope
+# index (1 = account/workspace, 2 = project — for the retry message only)
 redeploy_with_retry() {
   local service_id="$1" env_var="$2" link_mode="${3:-}" svc="$4" scope_label="$5"
+  local scope_index="$6"
   local attempt=1
   local rc
 
@@ -141,7 +180,7 @@ redeploy_with_retry() {
     if [ "${attempt}" -ge "${RAILWAY_REDEPLOY_ATTEMPTS}" ]; then
       return "${rc}"
     fi
-    echo "Attempt ${attempt}/${RAILWAY_REDEPLOY_ATTEMPTS} for ${svc} (${scope_label}): redeploy call failed after a successful link — retrying in ${RAILWAY_REDEPLOY_RETRY_DELAY}s."
+    echo "Scope ${scope_index}/2 try ${attempt}/${RAILWAY_REDEPLOY_ATTEMPTS} for ${svc} (${scope_label}): redeploy call failed after a successful link — retrying in ${RAILWAY_REDEPLOY_RETRY_DELAY}s."
     sleep "${RAILWAY_REDEPLOY_RETRY_DELAY}"
     attempt=$((attempt + 1))
   done
@@ -194,7 +233,7 @@ unclassified_services=""     # helper failed somewhere else entirely
 while read -r svc service_id; do
   [ -n "${svc}" ] || continue
   echo "Attempt 1/2 for ${svc} (${service_id}): treating the ${DEPLOY_TOKEN_SOURCE} token as ACCOUNT/WORKSPACE scope (RAILWAY_API_TOKEN + railway link)."
-  redeploy_with_retry "${service_id}" RAILWAY_API_TOKEN link "${svc}" "account/workspace scope"
+  redeploy_with_retry "${service_id}" RAILWAY_API_TOKEN link "${svc}" "account/workspace scope" 1
   attempt1_rc=$?
   if [ "${attempt1_rc}" -eq 0 ]; then
     echo "Railway redeploy triggered successfully for ${svc} via the CLI (${DEPLOY_TOKEN_SOURCE}, account/workspace scope)."
@@ -221,7 +260,7 @@ while read -r svc service_id; do
       ;;
   esac
   echo "Attempt 1 failed for ${svc} — retrying the ${DEPLOY_TOKEN_SOURCE} token as PROJECT scope (RAILWAY_TOKEN)."
-  redeploy_with_retry "${service_id}" RAILWAY_TOKEN "" "${svc}" "project scope"
+  redeploy_with_retry "${service_id}" RAILWAY_TOKEN "" "${svc}" "project scope" 2
   if [ $? -eq 0 ]; then
     echo "Railway redeploy triggered successfully for ${svc} via the CLI (${DEPLOY_TOKEN_SOURCE}, project scope)."
     redeployed_services="${redeployed_services} ${svc}"
