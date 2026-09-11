@@ -31,7 +31,11 @@ import {
   nominate,
   DEFAULT_SIMILARITY_THRESHOLD,
 } from "../packages/domain/src/detectors/embedding-nomination";
-import { resolveNominationDeps } from "../packages/domain/src/detectors/embedding-nomination-factory";
+import {
+  describeNominationDepsResolution,
+  resolveNominationDeps,
+} from "../packages/domain/src/detectors/embedding-nomination-factory";
+import { ensureHookDomainBootstrap } from "../.minsky/hooks/domain-bootstrap";
 import {
   SYMBOL_FREE_EXEMPLAR_SETS,
   INVOCATION_PATH_POSITIVE_FAMILY,
@@ -74,9 +78,29 @@ const FIXTURES: ReadonlyArray<{ family: string; sentence: string; origin: string
 const NEGATIVE_CONTROL = "The `transcripts spawns-extract --all` command runs this.";
 
 async function main(): Promise<void> {
-  const deps = await resolveNominationDeps();
-  if (deps === null || !deps.semantic) {
-    console.log("SKIP: no semantic embedding provider configured — this check needs live Rung 2.");
+  // A script is its own entry point and inherits no process-global configuration.
+  // Until mt#5051 this call was missing, the resolver's `null` read as "no
+  // provider configured", and the check SKIPped on every machine since it
+  // shipped — the discriminator's first live run is what surfaced it.
+  const bootstrap = await ensureHookDomainBootstrap();
+  if (!bootstrap.ok) {
+    console.log(
+      `SKIP: domain bootstrap failed (${bootstrap.error}) — this check needs live Rung 2.`
+    );
+    process.exit(0);
+  }
+  const resolution = await resolveNominationDeps();
+  if (resolution.kind !== "resolved") {
+    console.log(
+      `SKIP: embedding provider ${describeNominationDepsResolution(resolution)} — this check needs live Rung 2.`
+    );
+    process.exit(0);
+  }
+  const deps = resolution.deps;
+  if (!deps.semantic) {
+    console.log(
+      "SKIP: the configured embedding provider is non-semantic — this check needs live Rung 2."
+    );
     process.exit(0);
   }
 

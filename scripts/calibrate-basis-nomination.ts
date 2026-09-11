@@ -202,18 +202,24 @@ async function main(): Promise<void> {
   );
   await initializeConfiguration(new CustomConfigFactory(), { workingDirectory: process.cwd() });
 
-  const { resolveNominationDeps } = await import(
+  const { resolveNominationDeps, describeNominationDepsResolution } = await import(
     "@minsky/domain/detectors/embedding-nomination-factory"
   );
-  const deps = await resolveNominationDeps();
-  if (deps === null || !deps.semantic) {
+  const resolution = await resolveNominationDeps();
+  if (resolution.kind !== "resolved") {
     process.stdout.write(
-      "SKIP: no semantic embedding provider available — calibration needs live embeddings.\n"
+      `SKIP: embedding provider ${describeNominationDepsResolution(resolution)} — calibration needs live embeddings.\n`
+    );
+    process.exit(2);
+  }
+  const deps = resolution.deps;
+  if (!deps.semantic) {
+    process.stdout.write(
+      "SKIP: the configured embedding provider is non-semantic — calibration needs live embeddings.\n"
     );
     process.exit(2);
   }
 
-  // Bind after the null check so the closure below needs no non-null assertion.
   const embeddings = deps.embeddingService;
 
   // One batched embed of the exemplar set, reused for every window.

@@ -45,7 +45,12 @@ export {
   MAX_CANDIDATE_SEGMENTS,
   MAX_SEGMENT_CHARS,
 } from "./embedding-nomination";
-export { resolveNominationDeps } from "./embedding-nomination-factory";
+export {
+  resolveNominationDeps,
+  describeNominationDepsResolution,
+  isEmbeddingProviderConfigured,
+  type NominationDepsResolution,
+} from "./embedding-nomination-factory";
 
 export type {
   SearchObservation,

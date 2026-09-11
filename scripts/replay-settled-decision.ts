@@ -33,7 +33,10 @@ import {
 // `reflect-metadata` import, which is what keeps this script from reproducing
 // the tsyringe-polyfill crash recorded in this file's header.
 import { nominate } from "../packages/domain/src/detectors/embedding-nomination";
-import { resolveNominationDeps } from "../packages/domain/src/detectors/embedding-nomination-factory";
+import {
+  describeNominationDepsResolution,
+  resolveNominationDeps,
+} from "../packages/domain/src/detectors/embedding-nomination-factory";
 import { ensureHookDomainBootstrap } from "../.minsky/hooks/domain-bootstrap";
 
 interface Case {
@@ -205,13 +208,14 @@ async function measureRung2(): Promise<never> {
     );
     process.exit(0);
   }
-  const deps = await resolveNominationDeps();
-  if (deps === null) {
+  const resolution = await resolveNominationDeps();
+  if (resolution.kind !== "resolved") {
     process.stdout.write(
-      "SKIP: no embedding provider configured (set an OpenAI/Gemini key) — nothing to measure.\n"
+      `SKIP: embedding provider ${describeNominationDepsResolution(resolution)} — nothing to measure.\n`
     );
     process.exit(0);
   }
+  const deps = resolution.deps;
   if (!deps.semantic) {
     process.stdout.write(
       "SKIP: the configured provider is the non-semantic `local` hash stub; its vectors carry no meaning.\n"

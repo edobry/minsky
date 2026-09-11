@@ -1383,7 +1383,13 @@ export const COULD_NOT_CHECK_SUPPRESSION_PREFIXES: readonly string[] = [
   // The Rung-2 dependency stage, all of its exits.
   // `turn-end-stale-state-assertion-scan.ts` :596 / :593 / :585, and the
   // `nomination-degraded` prefix its `run()` forwards from `nominate`.
+  // mt#5051 split the resolver's `null` into two labels: `-unavailable` (a fault,
+  // now suffixed `: <provider>: <cause>`, :805) and `-unconfigured` (the healthy
+  // no-key state, :793). Both are could-not-check — neither turn reached a
+  // provider — which is exactly why they must be told apart HERE and not
+  // pooled into one string.
   "nomination-deps-unavailable",
+  "nomination-deps-unconfigured",
   "nomination-deps-timeout",
   "nomination-deps-threw",
   "nomination-degraded",

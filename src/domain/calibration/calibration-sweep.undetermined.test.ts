@@ -180,6 +180,18 @@ const OBSERVED_CORPUS: ReadonlyArray<{
 }> = [
   // ── could-not-check: the detector never completed its check ───────────────
   { detector: LOG.staleState, reason: "nomination-deps-unavailable", undetermined: true },
+  {
+    detector: LOG.staleState,
+    reason: "nomination-deps-unavailable: unknown: Configuration not initialized.",
+    undetermined: true,
+    note: "mt#5051: the same exit, now carrying provider + cause after the prefix",
+  },
+  {
+    detector: LOG.staleState,
+    reason: "nomination-deps-unconfigured: openai",
+    undetermined: true,
+    note: "introduced by mt#5051 — the healthy no-key state, split from -unavailable",
+  },
   { detector: LOG.staleState, reason: "nomination-degraded: timeout", undetermined: true },
   {
     detector: LOG.staleState,

@@ -40,7 +40,10 @@ import {
   nominate,
   type NominationDeps,
 } from "../packages/domain/src/detectors/embedding-nomination";
-import { resolveNominationDeps } from "../packages/domain/src/detectors/embedding-nomination-factory";
+import {
+  describeNominationDepsResolution,
+  resolveNominationDeps,
+} from "../packages/domain/src/detectors/embedding-nomination-factory";
 import { confirmNominations } from "../packages/domain/src/detectors/llm-confirm";
 import { resolveConfirmDeps } from "../packages/domain/src/detectors/llm-confirm-factory";
 
@@ -205,9 +208,18 @@ async function main(): Promise<void> {
     console.log(`Loaded ${probes.length} recovered turn(s) from ${path} as UNLABELED probes.`);
   }
 
-  const nominationDeps: NominationDeps | null = await resolveNominationDeps();
-  if (nominationDeps === null || !nominationDeps.semantic) {
-    console.log("SKIP: no semantic embedding provider configured — pilot needs live rung 2.");
+  const nominationResolution = await resolveNominationDeps();
+  if (nominationResolution.kind !== "resolved") {
+    console.log(
+      `SKIP: embedding provider ${describeNominationDepsResolution(nominationResolution)} — pilot needs live rung 2.`
+    );
+    process.exit(0);
+  }
+  const nominationDeps: NominationDeps = nominationResolution.deps;
+  if (!nominationDeps.semantic) {
+    console.log(
+      "SKIP: the configured embedding provider is non-semantic — pilot needs live rung 2."
+    );
     process.exit(0);
   }
   const confirmDeps = await resolveConfirmDeps();

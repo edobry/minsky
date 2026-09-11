@@ -1291,7 +1291,7 @@ export function isRung2NominationEnabled(): boolean {
 }
 
 export function createSkillNominator(cwd: string): SkillNominator {
-  let deps: NominationDeps | null | undefined;
+  let deps: NominationDeps | undefined;
   let latchedFailure: string | undefined;
 
   return async (candidateTexts, loadedSkills) => {
@@ -1301,7 +1301,8 @@ export function createSkillNominator(cwd: string): SkillNominator {
       // A hook is its own entry point: it inherits neither the reflect polyfill
       // nor the process-global configuration the CLI and MCP server set up at
       // boot, and `resolveNominationDeps` reaches the embedding factory which
-      // needs both. Without this the resolver throws, returns null, and Rung 2
+      // needs both. Without this the resolver reports `unavailable` (a bare
+      // null until mt#5051), and Rung 2
       // degrades on EVERY turn in production while every test passes — the
       // mt#3019 dead-path shape mt#3408 hit on this exact call.
       //
@@ -1311,21 +1312,30 @@ export function createSkillNominator(cwd: string): SkillNominator {
       // degraded marker, nothing. That is precisely the silent-skip ADR-024
       // forbids, and it is what this guard converts back into a visible
       // degradation. Caught by the real-`run()` tests, which have no provider.
+      let resolution: Awaited<ReturnType<typeof resolveNominationDeps>>;
       try {
         const bootstrap = await ensureHookDomainBootstrap();
         if (!bootstrap.ok) {
           latchedFailure = "bootstrap-failed";
           return { kind: "degraded", reason: latchedFailure };
         }
-        deps = await resolveNominationDeps();
+        resolution = await resolveNominationDeps();
       } catch (err) {
         latchedFailure = `resolve-threw: ${err instanceof Error ? err.message : String(err)}`;
         return { kind: "degraded", reason: latchedFailure };
       }
-    }
-    if (deps === null) {
-      latchedFailure = "provider-unconfigured";
-      return { kind: "degraded", reason: latchedFailure };
+      // mt#5051: `provider-unconfigured` is the healthy no-key state;
+      // `provider-unavailable` is a fault carrying the provider and the
+      // resolver's already-scrubbed cause. Distinct labels per ADR-035 rule 3.
+      if (resolution.kind === "unconfigured") {
+        latchedFailure = "provider-unconfigured";
+        return { kind: "degraded", reason: latchedFailure };
+      }
+      if (resolution.kind === "unavailable") {
+        latchedFailure = `provider-unavailable: ${resolution.provider}: ${resolution.reason}`;
+        return { kind: "degraded", reason: latchedFailure };
+      }
+      deps = resolution.deps;
     }
 
     const exemplarSets: ExemplarSet[] = [];

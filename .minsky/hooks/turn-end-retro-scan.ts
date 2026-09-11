@@ -41,6 +41,7 @@ import { elideQuotedAndCodeContexts } from "./elision";
 import {
   detectTriggerPhrasesWithNomination,
   hasRetrospectiveSkillInvocation,
+  nominationDegradedFields,
   OVERRIDE_ENV_VAR,
   rungProvenance,
 } from "./retrospective-trigger-scanner";
@@ -198,9 +199,7 @@ export async function run(
           // nominations — the confirm stage's precision signal.
           confirmed_families: detected.confirmedFamilies,
           ...(detected.rung3 !== undefined ? { rung3: detected.rung3 } : {}),
-          ...(detected.degradedReason !== undefined
-            ? { nomination_degraded: detected.degradedReason }
-            : {}),
+          ...nominationDegradedFields(detected.degradedReason, detected.degradedDetail),
         },
       };
     }

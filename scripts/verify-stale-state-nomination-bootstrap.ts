@@ -49,7 +49,13 @@ import { join } from "path";
 
 import { run } from "../.minsky/hooks/turn-end-stale-state-assertion-scan";
 
-/** The defect's signature. Present => the stage never reached its dependencies. */
+/**
+ * The defect's signature. Present => the stage never reached its dependencies.
+ *
+ * A PREFIX since mt#5051: the stage now appends `: <provider>: <scrubbed cause>`,
+ * and for this defect the provider reads `unknown` because configuration could
+ * not be read at all — the cause names it directly.
+ */
 const DEFECT_REASON = "nomination-deps-unavailable";
 
 /**
@@ -90,10 +96,11 @@ async function main(): Promise<never> {
       ?.suppressionReasons;
     const reasons: string[] = Array.isArray(rawReasons) ? rawReasons.map(String) : [];
 
-    if (reasons.includes(DEFECT_REASON)) {
+    const depsUnavailable = reasons.find((r) => r.startsWith(DEFECT_REASON));
+    if (depsUnavailable !== undefined) {
       console.error(
         `[verify-stale-state-nomination-bootstrap] FAIL — the nomination stage ` +
-          `degraded on "${DEFECT_REASON}", so it never reached its dependencies. ` +
+          `degraded on "${depsUnavailable}", so it never reached its dependencies. ` +
           `This is mt#5000's defect: check that nominatePendingClaims still calls ` +
           `ensureHookDomainBootstrap() before resolveNominationDeps().`
       );
