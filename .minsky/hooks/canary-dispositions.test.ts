@@ -20,6 +20,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CANARY_DISPOSITIONS, FIRE_LOG_INSTRUMENTATION } from "./canary-dispositions";
+import { STANDALONE_GUARD_CANARIES } from "../../scripts/lib/standalone-guard-canaries";
 
 const HOOKS_DIR = import.meta.dir;
 
@@ -49,8 +50,16 @@ describe("fire-log instrumentation ruling (mt#5081)", () => {
   test("every ruled entity is one mt#5079 also ruled on the canary axis", () => {
     // The two axes describe the same population; an entity on one and not the
     // other is a stale key, not a new finding. All 29 are standalone, so each
-    // has a per-entity canary ruling rather than a stratum-level one.
-    const orphans = entries.map(([name]) => name).filter((name) => !CANARY_DISPOSITIONS.has(name));
+    // has a per-entity canary ruling rather than a stratum-level one — OR, since
+    // mt#5080 declared canaries for three of them, a DECLARED canary, whose
+    // `canary-declared` value is derived from `STANDALONE_GUARD_CANARIES` and
+    // never authored here (this module's own docblock). A row kept for a
+    // declared guard would be the stale second source that rule exists to
+    // prevent, so the check accepts either surface, not only the authored one.
+    const declared = new Set(STANDALONE_GUARD_CANARIES.map((c) => c.guardName));
+    const orphans = entries
+      .map(([name]) => name)
+      .filter((name) => !CANARY_DISPOSITIONS.has(name) && !declared.has(name));
     expect(orphans).toEqual([]);
   });
 

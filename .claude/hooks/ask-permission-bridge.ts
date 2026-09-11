@@ -115,15 +115,62 @@ function emitAuditEvent(grant: AskGrant, command: string): void {
  * `allow` from the fire-log's point of view — the guard did not deny — which
  * matches how `warn-peer-task-activity` records its pass-through (mt#5081).
  */
-async function main(input: ToolHookInput): Promise<FireLogDecision> {
+/**
+ * The bridge's decision over a parsed payload, the grants already read from the
+ * store, and an injected verifier — steps (1), (2), (4), (5) and (6) of the
+ * flow, with the two side-effecting steps around them (the store read before,
+ * the one-shot consume + audit event after) left to the caller. Pure modulo
+ * the injected `verify`, the same shape `require-checks-on-bypass-merge.ts`'s
+ * `dispatchBypassCheck` uses for its lookups, and exported for the same
+ * reason: the entry point below calls this, and so does the guard's canary
+ * (mt#5080), which hands it a grant whose ask "fails" verification and
+ * observes the deny.
+ *
+ * `pass-through` means "no opinion — defer to the normal permission flow";
+ * `grant` means the caller may consume the grant and emit the allow.
+ */
+export type AskPermissionDecision =
+  | {
+      decision: "pass-through";
+      why: "subagent" | "no-command" | "no-grant" | "unverifiable";
+      detail?: string;
+      grant?: AskGrant;
+    }
+  | { decision: "deny"; grant: AskGrant; verification: AskVerificationResult; reason: string }
+  | { decision: "grant"; grant: AskGrant; command: string };
+
+export function decideAskPermission(
+  input: ToolHookInput,
+  grants: AskGrant[],
+  verify: (askId: string) => AskVerificationResult,
+  nowMs: number
+): AskPermissionDecision {
   // (1) Main-agent mechanism only — subagent calls keep the normal flow.
-  if (input.agent_id) return "allow";
+  if (input.agent_id) return { decision: "pass-through", why: "subagent" };
 
   // (2) Tool / command extraction.
   const command = extractCommand(input.tool_name, input.tool_input ?? {});
-  if (!command) return "allow";
+  if (!command) return { decision: "pass-through", why: "no-command" };
 
-  // (3) Store read — conservative: unreadable store means no allow.
+  // (4) Grant match.
+  const grant = findValidAskGrant(grants, { tool: input.tool_name, command }, nowMs);
+  if (!grant) return { decision: "pass-through", why: "no-grant" };
+
+  // (5)/(6) Server-side re-verification of the referenced Ask.
+  const verification = verify(grant.askId);
+  if (verification.verdict === "unavailable") {
+    return { decision: "pass-through", why: "unverifiable", detail: verification.detail, grant };
+  }
+  if (verification.verdict === "not-approved") {
+    return { decision: "deny", grant, verification, reason: buildDenyReason(grant, verification) };
+  }
+
+  return { decision: "grant", grant, command };
+}
+
+async function main(input: ToolHookInput): Promise<FireLogDecision> {
+  // (3) Store read — conservative: unreadable store means no allow. Sits
+  // before the decision because the decision consumes what it reads.
   const storePath = getAskGrantStorePath();
   const read = readAskGrantStore(storePath);
   if (read.status === "error") {
@@ -134,30 +181,31 @@ async function main(input: ToolHookInput): Promise<FireLogDecision> {
     return "allow";
   }
 
-  // (4) Grant match.
-  const grant = findValidAskGrant(read.grants, { tool: input.tool_name, command }, Date.now());
-  if (!grant) return "allow";
+  const decided = decideAskPermission(input, read.grants, verifyApprovedAsk, Date.now());
 
-  // (5)/(6) Server-side re-verification of the referenced Ask.
-  const verification = verifyApprovedAsk(grant.askId);
-  if (verification.verdict === "unavailable") {
-    process.stderr.write(
-      `[ask-permission-bridge] WARNING: could not verify ask ${grant.askId} server-side ` +
-        `(${verification.detail}); deferring to normal permission flow — never allowing on ` +
-        `unverifiable state.\n`
-    );
+  if (decided.decision === "pass-through") {
+    if (decided.why === "unverifiable") {
+      process.stderr.write(
+        `[ask-permission-bridge] WARNING: could not verify ask ${decided.grant?.askId} server-side ` +
+          `(${decided.detail}); deferring to normal permission flow — never allowing on ` +
+          `unverifiable state.\n`
+      );
+    }
     return "allow";
   }
-  if (verification.verdict === "not-approved") {
+
+  if (decided.decision === "deny") {
     writeOutput({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         permissionDecision: "deny",
-        permissionDecisionReason: buildDenyReason(grant, verification),
+        permissionDecisionReason: decided.reason,
       },
     });
     return "deny";
   }
+
+  const { grant, command } = decided;
 
   // (7) One-shot consumption BEFORE emitting the allow.
   const consumed = consumeAskGrant(storePath, grant);

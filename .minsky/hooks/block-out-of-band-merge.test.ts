@@ -7,6 +7,7 @@ import {
   buildRepoDerivationFailureWarning,
   isOverrideSet,
   emitOverrideAuditLog,
+  decideOutOfBandMerge,
   type PhraseMatch,
 } from "./block-out-of-band-merge";
 
@@ -839,5 +840,34 @@ to set the new environment variable.`;
     const matches = scanForTriggerPhrases(body);
     const phrases = new Set(matches.map((m) => m.phrase));
     expect(phrases.has(PHRASE_ROOT_DIRECTORY)).toBe(true);
+  });
+});
+
+// mt#5080 — the post-fetch decision, extracted so the entry point and the
+// canary share one function. The env is a parameter.
+describe("decideOutOfBandMerge", () => {
+  const COUPLED_BODY =
+    "Railway config change required post-merge config flip: set rootDirectory after merge.";
+
+  it("DENIES a body with trigger phrases when the override is unset", () => {
+    const d = decideOutOfBandMerge(42, COUPLED_BODY, {});
+    expect(d.decision).toBe("deny");
+    if (d.decision === "deny") {
+      expect(d.matches.length).toBeGreaterThan(0);
+      expect(d.reason).toContain("PR #42");
+    }
+  });
+
+  it("allows the same body under the override, carrying the matches for the audit log", () => {
+    const d = decideOutOfBandMerge(42, COUPLED_BODY, { MINSKY_ACK_OOB_MERGE: "1" });
+    expect(d.decision).toBe("allow");
+    if (d.decision === "allow") expect(d.why).toBe("override");
+  });
+
+  it("allows a body with no trigger phrases", () => {
+    expect(decideOutOfBandMerge(42, "## Summary\n\nA docs fix.", {})).toEqual({
+      decision: "allow",
+      why: "no-trigger-phrases",
+    });
   });
 });

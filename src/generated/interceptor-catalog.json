@@ -97,11 +97,10 @@
       "stratum": "standalone",
       "subject": "trajectory",
       "provenanceStatus": "implementation",
-      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "coverageGaps": ["tuningOwnership", "attentionCost"],
       "canaryDisposition": {
-        "disposition": "canary-pending",
-        "owner": "mt#5080",
-        "source": "entity"
+        "disposition": "canary-declared",
+        "source": "derived"
       },
       "registered": false,
       "undescribed": false,
@@ -340,12 +339,10 @@
       "stratum": "standalone",
       "subject": "trajectory",
       "provenanceStatus": "implementation",
-      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "coverageGaps": ["tuningOwnership", "attentionCost"],
       "canaryDisposition": {
-        "disposition": "canary-pending",
-        "reason": "Exports zero functions today, so there is no injectable decision function to call. mt#5080 must either extract one or move this to `canary-infeasible` with that reason — it is explicitly not to be left silently pending.",
-        "owner": "mt#5080",
-        "source": "entity"
+        "disposition": "canary-declared",
+        "source": "derived"
       },
       "registered": false,
       "undescribed": false,
@@ -373,11 +370,10 @@
       "stratum": "standalone",
       "subject": "trajectory",
       "provenanceStatus": "implementation",
-      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "coverageGaps": ["tuningOwnership", "attentionCost"],
       "canaryDisposition": {
-        "disposition": "canary-pending",
-        "owner": "mt#5080",
-        "source": "entity"
+        "disposition": "canary-declared",
+        "source": "derived"
       },
       "registered": false,
       "undescribed": false,
@@ -405,11 +401,10 @@
       "stratum": "standalone",
       "subject": "trajectory",
       "provenanceStatus": "implementation",
-      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "coverageGaps": ["tuningOwnership", "attentionCost"],
       "canaryDisposition": {
-        "disposition": "canary-pending",
-        "owner": "mt#5080",
-        "source": "entity"
+        "disposition": "canary-declared",
+        "source": "derived"
       },
       "registered": false,
       "undescribed": false,
@@ -471,11 +466,10 @@
       "stratum": "standalone",
       "subject": "trajectory",
       "provenanceStatus": "implementation",
-      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "coverageGaps": ["tuningOwnership", "attentionCost"],
       "canaryDisposition": {
-        "disposition": "canary-pending",
-        "owner": "mt#5080",
-        "source": "entity"
+        "disposition": "canary-declared",
+        "source": "derived"
       },
       "registered": false,
       "undescribed": false,
@@ -506,11 +500,10 @@
       "stratum": "standalone",
       "subject": "trajectory",
       "provenanceStatus": "implementation",
-      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "coverageGaps": ["tuningOwnership", "attentionCost"],
       "canaryDisposition": {
-        "disposition": "canary-pending",
-        "owner": "mt#5080",
-        "source": "entity"
+        "disposition": "canary-declared",
+        "source": "derived"
       },
       "registered": false,
       "undescribed": false,
@@ -835,11 +828,10 @@
       "stratum": "standalone",
       "subject": "trajectory",
       "provenanceStatus": "implementation",
-      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "coverageGaps": ["tuningOwnership", "attentionCost"],
       "canaryDisposition": {
-        "disposition": "canary-pending",
-        "owner": "mt#5080",
-        "source": "entity"
+        "disposition": "canary-declared",
+        "source": "derived"
       },
       "registered": false,
       "undescribed": false,
@@ -1434,11 +1426,10 @@
       "stratum": "standalone",
       "subject": "trajectory",
       "provenanceStatus": "implementation",
-      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "coverageGaps": ["tuningOwnership", "attentionCost"],
       "canaryDisposition": {
-        "disposition": "canary-pending",
-        "owner": "mt#5080",
-        "source": "entity"
+        "disposition": "canary-declared",
+        "source": "derived"
       },
       "registered": false,
       "undescribed": false,
@@ -3573,11 +3564,10 @@
       "stratum": "standalone",
       "subject": "trajectory",
       "provenanceStatus": "implementation",
-      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "coverageGaps": ["tuningOwnership", "attentionCost"],
       "canaryDisposition": {
-        "disposition": "canary-pending",
-        "owner": "mt#5080",
-        "source": "entity"
+        "disposition": "canary-declared",
+        "source": "derived"
       },
       "registered": false,
       "undescribed": false,
@@ -3608,11 +3598,10 @@
       "stratum": "standalone",
       "subject": "trajectory",
       "provenanceStatus": "implementation",
-      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "coverageGaps": ["tuningOwnership", "attentionCost"],
       "canaryDisposition": {
-        "disposition": "canary-pending",
-        "owner": "mt#5080",
-        "source": "entity"
+        "disposition": "canary-declared",
+        "source": "derived"
       },
       "registered": false,
       "undescribed": false,
@@ -3715,11 +3704,10 @@
       "stratum": "standalone",
       "subject": "trajectory",
       "provenanceStatus": "implementation",
-      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "coverageGaps": ["tuningOwnership", "attentionCost"],
       "canaryDisposition": {
-        "disposition": "canary-pending",
-        "owner": "mt#5080",
-        "source": "entity"
+        "disposition": "canary-declared",
+        "source": "derived"
       },
       "registered": false,
       "undescribed": false,
@@ -3750,11 +3738,10 @@
       "stratum": "standalone",
       "subject": "trajectory",
       "provenanceStatus": "implementation",
-      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "coverageGaps": ["tuningOwnership", "attentionCost"],
       "canaryDisposition": {
-        "disposition": "canary-pending",
-        "owner": "mt#5080",
-        "source": "entity"
+        "disposition": "canary-declared",
+        "source": "derived"
       },
       "registered": false,
       "undescribed": false,
@@ -4877,9 +4864,8 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "canaryDisposition": {
-        "disposition": "canary-pending",
-        "reason": "Exports zero functions today — same disposition requirement as `block-github-mcp-pr-writes`: mt#5080 extracts a decision function or rules it infeasible with a reason.",
-        "owner": "mt#5080",
+        "disposition": "canary-infeasible",
+        "reason": "Ruled by mt#5080 rather than extracted. The module is top-level script code with no `import.meta.main` guard, so importing it runs `main()` against stdin; and its decision is the one-line predicate `failedRoots.length > 0` over results that only a state-file read plus a `tsgo --noEmit` subprocess per touched root can produce. A pure extraction of that predicate would pass while every failure mode this hook actually has — binary resolution, the state file, the subprocess — stayed unexercised, and a canary that drives the subprocess is outside the declaration convention (mt#5080 SC2: no subprocess spawn). Same class as `check-branch-fresh`: the real evaluation IS the side effect.",
         "source": "entity"
       },
       "registered": false,

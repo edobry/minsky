@@ -441,4 +441,296 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
       return fires.length === 1 && substringTrap.length === 0;
     },
   },
+
+  // -------------------------------------------------------------------------
+  // mt#5080 — the deny-capable standalone guards that export an injectable
+  // decision function (mt#4606 SC3). Every `check` below hands the guard's OWN
+  // exported decision the input that must deny, and returns whether it did.
+  // Each input mirrors a deny case the guard's own `.test.ts` already pins,
+  // so a canary that starts failing names a regression that test would also
+  // catch — the canary's job is to be RUN on a schedule against the shipped
+  // tree (mt#4648), where the test suite is not.
+  // -------------------------------------------------------------------------
+  {
+    guardName: "check-prompt-watermark",
+    effects: [enforcementEffect()],
+    expects: "deny",
+    check: async () => {
+      const { shouldDeny } = await import("../../.minsky/hooks/check-prompt-watermark");
+      // Session work (a session-directory path) with no watermark, dispatched
+      // to a write-capable subagent type.
+      return shouldDeny(
+        "Implement the fix in /Users/x/.local/state/minsky/sessions/abc/ and commit.",
+        "implementer"
+      );
+    },
+  },
+  {
+    guardName: "block-subagent-merge-without-grant",
+    effects: [enforcementEffect()],
+    expects: "deny",
+    check: async () => {
+      const { decideMergeGrant } = await import(
+        "../../.minsky/hooks/block-subagent-merge-without-grant"
+      );
+      // A subagent (agent_id set) merging with an EMPTY grant store — the
+      // default-deny D5 case.
+      return decideMergeGrant("mt#0000", "agent-canary", [], Date.now()).decision === "deny";
+    },
+  },
+  {
+    guardName: "block-nested-fork-dispatch",
+    effects: [enforcementEffect()],
+    expects: "deny",
+    check: async () => {
+      const { decideFromPayload, GATED_SUBAGENT_TYPE } = await import(
+        "../../.minsky/hooks/block-nested-fork-dispatch"
+      );
+      // A subagent dispatching a fork with no live read-only declaration and
+      // the override unset — the mem#665 reproduction the guard was built for.
+      const decision = decideFromPayload(
+        {
+          session_id: "canary",
+          cwd: "/Users/x/.local/state/minsky/sessions/00000000-0000-4000-8000-000000000000",
+          hook_event_name: "PreToolUse",
+          tool_name: "Agent",
+          tool_input: { subagent_type: GATED_SUBAGENT_TYPE, prompt: "look something up" },
+          agent_id: "agent-canary",
+        } as never,
+        [],
+        Date.now(),
+        {}
+      );
+      return decision.decision === "deny";
+    },
+  },
+  {
+    guardName: "dispatch-intent-write-gate",
+    effects: [enforcementEffect()],
+    expects: "deny",
+    check: async () => {
+      const { decideFromPayload } = await import("../../.minsky/hooks/dispatch-intent-write-gate");
+      const sessionId = "00000000-0000-4000-8000-000000000000";
+      const nowMs = Date.now();
+      // A subagent's session write under a LIVE read-only declaration for that
+      // session — the exact write the declaration exists to contain.
+      const decision = decideFromPayload(
+        {
+          session_id: "canary",
+          cwd: `/Users/x/.local/state/minsky/sessions/${sessionId}`,
+          hook_event_name: "PreToolUse",
+          tool_name: "mcp__minsky__session_commit",
+          tool_input: { sessionId },
+          agent_id: "agent-canary",
+        } as never,
+        [
+          {
+            sessionId,
+            intent: "read-only",
+            issuedAt: new Date(nowMs).toISOString(),
+            ttlMs: 30 * 60 * 1000,
+            reason: "bounded lookup",
+          },
+        ],
+        nowMs + 1000
+      );
+      return decision.decision === "deny";
+    },
+  },
+  {
+    guardName: "block-subagent-bypass-merge",
+    effects: [enforcementEffect()],
+    expects: "deny",
+    check: async () => {
+      const { decideBypassMerge } = await import("../../.minsky/hooks/block-subagent-bypass-merge");
+      // A subagent running the `gh api PUT .../merge` bypass — always denied,
+      // no override exists for that audience.
+      const decision = decideBypassMerge(
+        {
+          session_id: "canary",
+          cwd: "/some/repo",
+          hook_event_name: "PreToolUse",
+          tool_name: "Bash",
+          tool_input: {
+            command: "gh api -X PUT /repos/edobry/minsky/pulls/1234/merge -f merge_method=merge",
+          },
+          agent_id: "agent-canary",
+        } as never,
+        {}
+      );
+      return decision.decision === "deny";
+    },
+  },
+  {
+    guardName: "block-out-of-band-merge",
+    effects: [enforcementEffect()],
+    expects: "deny",
+    check: async () => {
+      const { decideOutOfBandMerge } = await import("../../.minsky/hooks/block-out-of-band-merge");
+      // A PR body documenting a coupled out-of-band step — a standalone
+      // trigger phrase plus a pair-required one with its partner in the same
+      // paragraph — with the override unset.
+      const decision = decideOutOfBandMerge(
+        1234,
+        "## Summary\n\nShips the service move.\n\n## Deploy\n\n" +
+          "Railway config change required post-merge config flip: set rootDirectory " +
+          "to services/reviewer after merge.",
+        {}
+      );
+      return decision.decision === "deny";
+    },
+  },
+  {
+    guardName: "ask-permission-bridge",
+    effects: [enforcementEffect()],
+    expects: "deny",
+    check: async () => {
+      const { decideAskPermission } = await import("../../.minsky/hooks/ask-permission-bridge");
+      const nowMs = Date.now();
+      // A main-agent command matching a live grant whose referenced ask FAILS
+      // server-side verification — a fabricated or stale grant, denied.
+      const decision = decideAskPermission(
+        {
+          session_id: "canary",
+          cwd: "/some/repo",
+          hook_event_name: "PreToolUse",
+          tool_name: "Bash",
+          tool_input: { command: "railway redeploy --service minsky-mcp" },
+        } as never,
+        [
+          {
+            askId: "00000000-0000-4000-8000-000000000000",
+            tool: "Bash",
+            commandPattern: "^railway redeploy --service minsky-mcp$",
+            issuedAt: new Date(nowMs).toISOString(),
+            ttlMs: 10 * 60 * 1000,
+          } as never,
+        ],
+        () => ({ verdict: "not-approved", detail: "ask is not in an approved state (canary)" }),
+        nowMs
+      );
+      return decision.decision === "deny";
+    },
+  },
+  {
+    guardName: "require-checks-on-bypass-merge",
+    effects: [enforcementEffect()],
+    expects: "deny",
+    check: async () => {
+      const { dispatchBypassCheck } = await import(
+        "../../.minsky/hooks/require-checks-on-bypass-merge"
+      );
+      // A bypass merge whose one required check has a `failure` conclusion —
+      // every lookup injected, nothing fetched.
+      const ok = (stdout: string) => ({ exitCode: 0, stdout, stderr: "" });
+      const result = dispatchBypassCheck({
+        toolName: "Bash",
+        command: "gh api -X PUT /repos/edobry/minsky/pulls/1234/merge -f merge_method=merge",
+        agentId: undefined,
+        overrideEnvValue: undefined,
+        prInfoLookup: () => ({
+          ok: true,
+          info: { headSha: "abcdef0123456789abcdef0123456789abcdef01", baseRefName: "main" },
+        }),
+        branchProtectionFetch: () =>
+          ok(
+            JSON.stringify({
+              required_status_checks: { contexts: ["build"] },
+              enforce_admins: { enabled: false },
+            })
+          ),
+        checkRunsFetch: () =>
+          ok(
+            JSON.stringify({
+              total_count: 1,
+              check_runs: [{ name: "build", status: "completed", conclusion: "failure" }],
+            })
+          ),
+      });
+      return result.kind === "deny";
+    },
+  },
+  {
+    guardName: "require-deploy-verification-before-merge",
+    effects: [enforcementEffect()],
+    expects: "deny",
+    check: async () => {
+      const { checkDeployVerification } = await import(
+        "../../.minsky/hooks/require-deploy-verification-before-merge"
+      );
+      // A deploy-surface PR with no `[no-deploy-impact]` tag and no
+      // `Deploy verification:` section.
+      const result = checkDeployVerification(
+        [{ filename: "infra/index.ts", status: "modified" }] as never,
+        "feat: deploy change",
+        "## Summary\nno section"
+      );
+      return result.blocked === true;
+    },
+  },
+  {
+    guardName: "require-growth-justification-before-merge",
+    effects: [enforcementEffect()],
+    expects: "deny",
+    check: async () => {
+      const { checkGrowthJustification } = await import(
+        "../../.minsky/hooks/require-growth-justification-before-merge"
+      );
+      // A `.minsky/rules/**` change growing CLAUDE.md by 3,000 bytes — above the
+      // 2,000-byte threshold — with no justification marker in the body.
+      const result = checkGrowthJustification(
+        [{ filename: ".minsky/rules/hook-files.mdc", status: "modified", previous_filename: null }],
+        "no marker here",
+        103_000,
+        100_000
+      );
+      return result.blocked === true;
+    },
+  },
+  {
+    guardName: "require-review-before-merge",
+    effects: [enforcementEffect()],
+    expects: "deny",
+    check: async () => {
+      const { validateReviewContent, PROVENANCE_MARKER_START, PROVENANCE_MARKER_END } =
+        await import("../../.minsky/hooks/require-review-before-merge");
+      const headSha = "abc1234567890";
+      // The reviewer bot's latest structured review at HEAD concluded
+      // REQUEST_CHANGES with a blocking finding, and no override resolver.
+      const provenance = {
+        specVerification: [{ criterion: "SC1", status: "Met", evidence: "x" }],
+        docImpact: { kind: "no-update-needed", evidence: "none" },
+        findings: { blocking: 1, nonBlocking: 0 },
+        conclusion: { event: "REQUEST_CHANGES", summary: "one blocking finding" },
+        adoptionSweep: null,
+      };
+      const result = validateReviewContent(
+        [
+          {
+            body: `## Review\n${PROVENANCE_MARKER_START}${JSON.stringify(provenance)}${PROVENANCE_MARKER_END}`,
+            commit_id: headSha,
+            submitted_at: "2026-09-11T00:00:00Z",
+            user_login: "minsky-reviewer[bot]",
+          },
+        ],
+        "1234",
+        headSha
+      );
+      return result.deny === true;
+    },
+  },
+  {
+    guardName: "block-github-mcp-pr-writes",
+    effects: [enforcementEffect()],
+    expects: "deny",
+    // The hook file exports nothing; its whole decision is this ADR-026 tier-2
+    // leaf in the domain (no env, no fs, no clock), which the entry point calls
+    // with `input.tool_name`. Calling it here IS calling the guard's decision.
+    check: async () => {
+      const { checkToolDenial } = await import(
+        "../../packages/domain/src/detectors/github-mcp-pr-write-denial"
+      );
+      return checkToolDenial("mcp__github__merge_pull_request") !== null;
+    },
+  },
 ];

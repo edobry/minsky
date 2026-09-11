@@ -18,6 +18,7 @@ import {
   resolveSessionIdFromInput,
   GATED_TOOL_NAMES,
   cloneSessionDirRegex,
+  decideFromPayload,
 } from "./dispatch-intent-write-gate";
 import { decideDispatchIntentGate } from "@minsky/domain/detectors/dispatch-intent-gate";
 import { SESSION_DIR_RE } from "./check-guessed-session-path";
@@ -250,5 +251,42 @@ describe("acceptance walk — the mt#2865 incident fork's session_pr_edit", () =
     const shortlyAfterDirective = NOW + 5 * 60 * 1000; // 5 minutes later
     const decision = decideDispatchIntentGate(sessionId, declarations, shortlyAfterDirective);
     expect(decision.decision).toBe("deny");
+  });
+});
+
+// mt#5080 — the payload-level decision, mirroring block-nested-fork-dispatch's
+// `decideFromPayload`, so the entry point and the canary share one function.
+describe("decideFromPayload", () => {
+  it("DENIES a subagent's gated write under a live read-only declaration", () => {
+    const d = decideFromPayload(
+      makeInput({ agent_id: "agent-fork", tool_input: { sessionId: SESSION_ID } }),
+      [makeDeclaration()],
+      NOW + 1000
+    );
+    expect(d.decision).toBe("deny");
+  });
+
+  it("allows an ungated tool, a main-thread call, and a subagent write with no live declaration", () => {
+    expect(
+      decideFromPayload(
+        makeInput({ tool_name: "Read", agent_id: "agent-fork" }),
+        [makeDeclaration()],
+        NOW
+      ).decision
+    ).toBe("allow");
+    expect(
+      decideFromPayload(
+        makeInput({ tool_input: { sessionId: SESSION_ID } }),
+        [makeDeclaration()],
+        NOW
+      ).decision
+    ).toBe("allow");
+    expect(
+      decideFromPayload(
+        makeInput({ agent_id: "agent-fork", tool_input: { sessionId: SESSION_ID } }),
+        [],
+        NOW
+      ).decision
+    ).toBe("allow");
   });
 });

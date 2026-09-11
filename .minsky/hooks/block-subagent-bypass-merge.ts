@@ -213,8 +213,8 @@ export function findGhApiPutMergeSegment(command: string): string | null {
 
 export const BYPASS_MERGE_OVERRIDE_ENV = "MINSKY_FORCE_BYPASS";
 
-function isOverrideActive(): boolean {
-  const val = process.env[BYPASS_MERGE_OVERRIDE_ENV]?.toLowerCase();
+function isOverrideActive(env: NodeJS.ProcessEnv = process.env): boolean {
+  const val = env[BYPASS_MERGE_OVERRIDE_ENV]?.toLowerCase();
   return val === "1" || val === "true" || val === "yes";
 }
 
@@ -240,6 +240,52 @@ const MAIN_AGENT_DENIAL_MESSAGE =
   "The override is audit-logged.";
 
 // ---------------------------------------------------------------------------
+// The decision
+// ---------------------------------------------------------------------------
+
+export type BypassMergeDecision =
+  | { decision: "allow"; why: "not-a-command-tool" | "no-bypass-segment" }
+  | { decision: "allow"; why: "override"; matchingSegment: string }
+  | { decision: "deny"; audience: "subagent" | "main-agent"; reason: string };
+
+/**
+ * The whole decision over a parsed payload: which tools carry a command, whether
+ * that command contains a `gh api PUT .../merge` segment, who is calling, and
+ * whether the main-agent override is set. Pure — the env is a parameter, and
+ * nothing here writes. The entry point below calls this and only adds the
+ * output/fire-log plumbing; the guard's canary (mt#5080) calls it directly, so
+ * both exercise one composition rather than two.
+ */
+export function decideBypassMerge(
+  input: ToolHookInput,
+  env: NodeJS.ProcessEnv = process.env
+): BypassMergeDecision {
+  // Only act on Bash and session_exec — the two surfaces that accept a `command` string
+  if (input.tool_name !== "Bash" && input.tool_name !== "mcp__minsky__session_exec") {
+    return { decision: "allow", why: "not-a-command-tool" };
+  }
+
+  const command = (input.tool_input.command as string | undefined) ?? "";
+  const matchingSegment = findGhApiPutMergeSegment(command);
+  if (matchingSegment === null) {
+    return { decision: "allow", why: "no-bypass-segment" };
+  }
+
+  // Subagents are always blocked — no override available
+  if (isSubagentContext(input)) {
+    return { decision: "deny", audience: "subagent", reason: SUBAGENT_DENIAL_MESSAGE };
+  }
+
+  // Main agent: check for override env var
+  if (isOverrideActive(env)) {
+    return { decision: "allow", why: "override", matchingSegment };
+  }
+
+  // Main agent without override: block
+  return { decision: "deny", audience: "main-agent", reason: MAIN_AGENT_DENIAL_MESSAGE };
+}
+
+// ---------------------------------------------------------------------------
 // Hook entry point
 // ---------------------------------------------------------------------------
 
@@ -250,51 +296,34 @@ if (import.meta.main) {
   // once per invocation regardless of which exit fires below.
   const recordAndExit: RecordAndExit = makeRecordAndExit(GUARD_NAME, startMs, input);
 
-  // Only act on Bash and session_exec — the two surfaces that accept a `command` string
-  if (input.tool_name !== "Bash" && input.tool_name !== "mcp__minsky__session_exec") {
-    recordAndExit("allow");
+  const decision = decideBypassMerge(input, process.env);
+
+  // `recordAndExit` is typed `never` — it writes the fire-log row and exits the
+  // process — so each branch below is terminal; the if/else makes that legible
+  // without knowing the type (PR #3739 R1).
+  if (decision.decision === "allow") {
+    if (decision.why === "override") {
+      console.error(
+        `[block-bypass-merge] MINSKY_FORCE_BYPASS override active — allowing bypass-merge. ` +
+          `command=${decision.matchingSegment} timestamp=${new Date().toISOString()}`
+      );
+      recordAndExit("allow", {
+        overrideEnvVar: BYPASS_MERGE_OVERRIDE_ENV,
+        overrideClassification: classifyOverride(BYPASS_MERGE_OVERRIDE_ENV),
+      });
+    } else {
+      recordAndExit("allow");
+    }
   }
 
-  const command = (input.tool_input.command as string | undefined) ?? "";
-
-  const matchingSegment = findGhApiPutMergeSegment(command);
-  if (matchingSegment === null) {
-    recordAndExit("allow");
-  }
-
-  // Subagents are always blocked — no override available
-  if (isSubagentContext(input)) {
-    writeOutput({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision: "deny",
-        permissionDecisionReason: SUBAGENT_DENIAL_MESSAGE,
-      },
-    });
-    // mt#3920: downstream of the command scan — a matched bypass-merge segment in a
-    // subagent context is the gate's verdict, so this is clean-run evidence.
-    recordAndExit("deny", undefined, "decided");
-  }
-
-  // Main agent: check for override env var
-  if (isOverrideActive()) {
-    console.error(
-      `[block-bypass-merge] MINSKY_FORCE_BYPASS override active — allowing bypass-merge. ` +
-        `command=${matchingSegment} timestamp=${new Date().toISOString()}`
-    );
-    recordAndExit("allow", {
-      overrideEnvVar: BYPASS_MERGE_OVERRIDE_ENV,
-      overrideClassification: classifyOverride(BYPASS_MERGE_OVERRIDE_ENV),
-    });
-  }
-
-  // Main agent without override: block
   writeOutput({
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
-      permissionDecisionReason: MAIN_AGENT_DENIAL_MESSAGE,
+      permissionDecisionReason: decision.reason,
     },
   });
+  // mt#3920: downstream of the command scan — a matched bypass-merge segment is
+  // the gate's verdict, so this is clean-run evidence.
   recordAndExit("deny", undefined, "decided");
 }

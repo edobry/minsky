@@ -4,6 +4,7 @@ import {
   isGhApiPutMerge,
   findGhApiPutMergeSegment,
   BYPASS_MERGE_OVERRIDE_ENV,
+  decideBypassMerge,
 } from "./block-subagent-bypass-merge";
 import type { ToolHookInput } from "./types";
 
@@ -228,5 +229,43 @@ describe("env-var URL substitution detection", () => {
 describe("BYPASS_MERGE_OVERRIDE_ENV", () => {
   it("exports the correct env var name", () => {
     expect(BYPASS_MERGE_OVERRIDE_ENV).toBe("MINSKY_FORCE_BYPASS");
+  });
+});
+
+// mt#5080 — the composed decision, extracted so the entry point and the canary
+// share one function. The env is a parameter.
+describe("decideBypassMerge", () => {
+  const BYPASS = "gh api -X PUT /repos/edobry/minsky/pulls/1234/merge -f merge_method=merge";
+
+  it("DENIES a subagent's bypass merge regardless of the override", () => {
+    const d = decideBypassMerge(
+      makeInput({ tool_input: { command: BYPASS }, agent_id: "agent-sub" }),
+      { [BYPASS_MERGE_OVERRIDE_ENV]: "1" }
+    );
+    expect(d.decision).toBe("deny");
+    if (d.decision === "deny") expect(d.audience).toBe("subagent");
+  });
+
+  it("DENIES a main-agent bypass merge without the override, and allows it with", () => {
+    const denied = decideBypassMerge(makeInput({ tool_input: { command: BYPASS } }), {});
+    expect(denied.decision).toBe("deny");
+    if (denied.decision === "deny") expect(denied.audience).toBe("main-agent");
+    const allowed = decideBypassMerge(makeInput({ tool_input: { command: BYPASS } }), {
+      [BYPASS_MERGE_OVERRIDE_ENV]: "1",
+    });
+    expect(allowed).toEqual({ decision: "allow", why: "override", matchingSegment: BYPASS });
+  });
+
+  it("allows a non-command tool and a command with no bypass segment", () => {
+    expect(decideBypassMerge(makeInput({ tool_name: "Edit", tool_input: {} }), {})).toEqual({
+      decision: "allow",
+      why: "not-a-command-tool",
+    });
+    expect(
+      decideBypassMerge(makeInput({ tool_input: { command: "gh pr view 1234" } }), {})
+    ).toEqual({
+      decision: "allow",
+      why: "no-bypass-segment",
+    });
   });
 });
