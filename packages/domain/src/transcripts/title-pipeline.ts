@@ -266,6 +266,26 @@ export const TITLE_REFRESH_GROWTH_FACTOR = 5;
  * (defensive; should not occur in practice) from a divide-by-zero-shaped
  * comparison against `0 * anything`.
  *
+ * **Ingest-since-titling pre-filter (PR #3724 R1).** Before either count
+ * subquery, the branch checks
+ * `last_ingested_jsonl_timestamp > title_attempted_at`. A conversation with no
+ * ingest since its title was stamped cannot have grown — new turns arrive only
+ * through ingest, and a refresh re-stamps `title_attempted_at` on every
+ * attempt (success or `no-subject`), so a just-refreshed row fails this check
+ * until new ingest lands, independent of the growth-factor arithmetic. It is a
+ * cheap column comparison placed where Postgres evaluates `AND` operands
+ * left-to-right with short-circuiting, so a row failing it never reaches
+ * either correlated subquery.
+ *
+ * Measured against prod (`EXPLAIN (ANALYZE, BUFFERS)`, 2026-09, ~1,900 titled
+ * rows): without the guard, a `LIMIT 25` pass took 4,928 ms (474 rows scanned
+ * to find 25, each titled row paying ~20 ms cold for the `turns_now` subplan
+ * and ~2.6 ms for `turns_at_titling`); a full pass (no LIMIT) evaluated both
+ * subplans for every titled row. With the guard, a full pass took 231 ms,
+ * evaluated the subplans for only 446 rows, and found 281 candidates —
+ * matching the corpus estimate of ~280 (see {@link TITLE_REFRESH_GROWTH_FACTOR}'s
+ * docblock). `TITLE_REFRESH_GROWTH_FACTOR` itself is unchanged by this guard.
+ *
  * Both EXISTS/subquery forms are written as raw SQL rather than drizzle's
  * query-builder helpers because {@link TitlePipeline.candidateConditionCount}
  * exercises this function with a fake `db` — building either subquery through
@@ -288,6 +308,7 @@ export function titleCandidateConditions(): SQLWrapper[] {
       (
         ${agentTranscriptsTable.title} IS NOT NULL
         AND ${agentTranscriptsTable.titleAttemptedAt} IS NOT NULL
+        AND ${agentTranscriptsTable.lastIngestedJsonlTimestamp} > ${agentTranscriptsTable.titleAttemptedAt}
         AND (SELECT count(*) FROM ${agentTranscriptTurnsTable} turns_now
               WHERE turns_now.agent_session_id = ${agentTranscriptsTable.agentSessionId})
             >= ${TITLE_REFRESH_GROWTH_FACTOR} * GREATEST(

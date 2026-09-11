@@ -710,5 +710,29 @@ describe("TitlePipeline", () => {
       expect(rendered).toContain("GREATEST(");
       expect(rendered).toContain("turns_at_titling.started_at <=");
     });
+
+    // PR #3724 R1 — the cheap ingest-since-titling guard, and (the point of
+    // adding it) that it sits BEFORE the two correlated count subqueries so
+    // Postgres's left-to-right AND short-circuiting skips them for a row that
+    // cannot have grown. Measured on prod: 4,928 ms -> 231 ms for a full pass,
+    // subplans evaluated for 446 rows instead of every titled row (~1,900).
+    test("the ingest-since-titling guard precedes the count subqueries", () => {
+      const [condition] = titleCandidateConditions();
+      const rendered = new PgDialect().sqlToQuery(condition as never).sql;
+
+      // Anchor on branch 2 specifically — `title_attempted_at" IS NOT NULL`
+      // is unique to it (branch 1 only ever compares it `IS NULL`).
+      const branch2Start = rendered.indexOf('"title_attempted_at" IS NOT NULL');
+      expect(branch2Start).toBeGreaterThan(-1);
+      const branch2 = rendered.slice(branch2Start);
+
+      const guardIndex = branch2.indexOf(
+        '"last_ingested_jsonl_timestamp" > "agent_transcripts"."title_attempted_at"'
+      );
+      const countIndex = branch2.indexOf("turns_now");
+      expect(guardIndex).toBeGreaterThan(-1);
+      expect(countIndex).toBeGreaterThan(-1);
+      expect(guardIndex).toBeLessThan(countIndex);
+    });
   });
 });

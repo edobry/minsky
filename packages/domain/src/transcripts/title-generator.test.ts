@@ -149,6 +149,21 @@ describe("TitleGenerator.generateTitle", () => {
     expect(provider.lastTask).toBeNull();
   });
 
+  test("caps the turns actually sent to the model at 16 (4 + 12) even when the caller bypasses selection (PR #3724 R1)", async () => {
+    // generateTitle no longer re-applies MAX_TURNS (a refresh's wider head+tail
+    // window depends on that), but it must still bound a caller that hands it
+    // a raw, unselected array directly — the exact shape this test uses.
+    const provider = makeProvider(completed("Some title"));
+    const turns = Array.from({ length: 30 }, (_, i) => turn(`substantive prompt number ${i}`));
+    await new TitleGenerator(provider).generateTitle(SESSION, turns);
+
+    const prompt = provider.lastTask?.userPrompt ?? "";
+    const operatorLines = prompt.split("\n").filter((line) => line.startsWith("Operator:"));
+    expect(operatorLines).toHaveLength(16);
+    expect(prompt).toContain("substantive prompt number 0");
+    expect(prompt).not.toContain("substantive prompt number 16");
+  });
+
   test("returns null when the model reports no identifiable subject", async () => {
     const provider = makeProvider(completed("Untitled"));
     expect(await new TitleGenerator(provider).generateTitle(SESSION, [turn("k")])).toBeNull();

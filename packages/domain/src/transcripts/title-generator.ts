@@ -222,6 +222,18 @@ export function selectTitleTurns<T extends TitleTurn>(turns: T[]): T[] {
 export const TITLE_REFRESH_HEAD_TURNS = 4;
 
 /**
+ * Hard cap on the turns actually sent to the model, applied inside
+ * {@link TitleGenerator.generateTitle} itself (PR #3724 R1). Equal to the
+ * largest window any selection function produces —
+ * {@link TITLE_REFRESH_HEAD_TURNS} + {@link MAX_TURNS} (a refresh's head +
+ * tail) — so a well-behaved caller (one that pre-selected via
+ * {@link selectTitleTurns} or {@link selectRefreshTitleTurns}) is never
+ * truncated, while a caller that bypasses selection entirely and hands
+ * `generateTitle` a raw, unbounded turn array cannot blow the prompt budget.
+ */
+const MAX_PROMPT_TURNS = TITLE_REFRESH_HEAD_TURNS + MAX_TURNS;
+
+/**
  * The window shown to the model when REFRESHING a title (mt#4961): the
  * conversation's opening ({@link TITLE_REFRESH_HEAD_TURNS} substantive turns —
  * so a conversation that never left its original subject is not made to look
@@ -346,9 +358,13 @@ export class TitleGenerator {
    * selectRefreshTitleTurns} for a refresh. This method itself only strips any
    * turn that carries no visible content (a defensive filter for a caller that
    * passes raw, unselected turns directly, which several tests here do); it
-   * does NOT re-apply {@link MAX_TURNS} — that cap belongs to the SELECTION the
-   * caller already made, and re-imposing it here would truncate a refresh's
-   * wider (head + tail) window back down to the size of a first-time one.
+   * does NOT re-apply {@link MAX_TURNS} alone — that cap belongs to the
+   * SELECTION the caller already made, and re-imposing IT here would truncate
+   * a refresh's wider (head + tail) window back down to the size of a
+   * first-time one. It DOES enforce {@link MAX_PROMPT_TURNS} (PR #3724 R1) —
+   * the largest window ANY selection function produces — as a hard backstop:
+   * a caller that bypasses selection entirely and hands this an unbounded
+   * array still cannot blow the prompt budget.
    *
    * Returns null when there is nothing to title (no turn carries visible
    * content) or the model reports no identifiable subject. THROWS on provider
@@ -358,7 +374,7 @@ export class TitleGenerator {
    * (mem#682).
    */
   async generateTitle(agentSessionId: string, turns: TitleTurn[]): Promise<string | null> {
-    const selected = turns.filter(hasVisibleContent);
+    const selected = turns.filter(hasVisibleContent).slice(0, MAX_PROMPT_TURNS);
     if (selected.length === 0) return null;
 
     // mt#4961, SC3 — the succession-claim check reads the FIRST turn handed
