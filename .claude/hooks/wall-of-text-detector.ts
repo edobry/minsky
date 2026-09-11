@@ -1029,11 +1029,100 @@ export interface DepthRequestResult {
   matchedPattern?: string;
 }
 
-/** Scan recent user-prompt texts for an explicit depth request. */
+/**
+ * Negators that turn a depth-request phrase into a request for LESS when they
+ * sit immediately before it (mt#5052): "dont walk me through everything",
+ * "please do not go into more detail", "no need to explain it in full detail".
+ *
+ * ONE guard at the {@link detectDepthRequest} seam rather than eight edited
+ * regexes, for the drift reason mt#4070 tracks — and rather than anchoring each
+ * entry to an imperative position the way `tell-me-more` is, because the corpus
+ * says anchoring would break the gate: 9 of the 13 live `help-me-understand`
+ * suppressions in the 2026-08-30 → 09-11 window are mid-sentence ("…and also,
+ * help me understand…", "proceed, but first help me understand…"), and the
+ * anchored form misses 4 of 6 live prompt shapes. That is the over-firing
+ * direction the v1 narrowness note above calls the operator-friction incident.
+ *
+ * The window is deliberately TIGHT — the negator must end within three tokens
+ * of the phrase, inside the same clause — so a negation elsewhere in the
+ * sentence does not defeat a genuine request: "I'm not sure I follow — help me
+ * understand …" still matches (the dash is a clause boundary; "not" governs
+ * "sure", not the request). A wider window would re-open the suppression
+ * defect from the other side, and at 0 corpus occurrences of the negated form
+ * (measured at planning) neither error direction has evidence behind it, so
+ * the guard stays narrow and grows only on a calibration record that names the
+ * negator it missed — the same evidence-before-expansion discipline the list
+ * itself is held to.
+ *
+ * Bounded by construction: `{0,3}` tokens between the negator and the phrase.
+ * Three rather than a filler whitelist because the spec's own table needs it —
+ * "no need to explain it in full detail" has a verb phrase, not filler, between
+ * the negator and the entry. `’` is the curly apostrophe macOS substitutes
+ * into "don’t".
+ *
+ * **A negator followed by `only` / `just` / `merely` / `simply` is not a
+ * negation of the request** (PR #3727 R1): "not only walk me through
+ * everything …" and "don't just give me the full breakdown …" ask for the
+ * phrase AND MORE — the scope of "not" is the limiter, not the request. The
+ * negative lookahead excludes exactly that construction; nothing else about
+ * the window changes.
+ */
+export const DEPTH_REQUEST_NEGATOR_RE =
+  /\b(?:don['’]?t|do not|no need to|never|not|rather than|instead of|without)(?!\s+(?:only|just|merely|simply)\b)(?:\s+\S+){0,3}\s*$/i;
+
+/**
+ * Clause boundaries the negation guard does not look across. Punctuation that
+ * ends a clause — including a SPACED ASCII hyphen or double hyphen used as a
+ * dash ("I'm not sure - help me understand", "… -- help me understand"; PR
+ * #3727 R1), but not the hyphen inside "deep-dive" or "re-run", which has no
+ * whitespace around it — and the contrastive "but": "don't summarize, but walk
+ * me through the failure" asks for depth in its second clause. "and" is NOT a
+ * boundary: "don't skim and walk me through everything" negates both verbs.
+ */
+const DEPTH_REQUEST_CLAUSE_BOUNDARY_RE = /[,;:.!?()—–\n]|\s-{1,3}(?=\s)|\bbut\b/gi;
+
+/**
+ * True iff the depth-request phrase starting at `index` in `text` is negated —
+ * a {@link DEPTH_REQUEST_NEGATOR_RE} negator ends within three tokens before it
+ * in the same clause. Exported so the guard is testable on its own.
+ */
+export function isNegatedDepthRequest(text: string, index: number): boolean {
+  // `index` is where a matched phrase's first ASCII letter sits (the caller
+  // finds it with `/[a-z]/i`), so the cut can never fall inside a surrogate
+  // pair — the code unit at `index` is a BMP letter by construction.
+  // eslint-disable-next-line custom/no-unsafe-string-truncation
+  const before = text.slice(0, index);
+  let clauseStart = 0;
+  for (const m of before.matchAll(DEPTH_REQUEST_CLAUSE_BOUNDARY_RE)) {
+    clauseStart = m.index + m[0].length;
+  }
+  return DEPTH_REQUEST_NEGATOR_RE.test(before.slice(clauseStart));
+}
+
+/**
+ * Scan recent user-prompt texts for an explicit depth request.
+ *
+ * Every occurrence of every entry is checked, not just the first (mt#5052): a
+ * prompt that negates the phrase once and then asks for it — "don't walk me
+ * through everything, but walk me through the whole process of X" — is a
+ * request for depth, and only the un-negated occurrence should count.
+ */
 export function detectDepthRequest(userTexts: string[]): DepthRequestResult {
   for (const text of userTexts) {
     for (const p of DEPTH_REQUEST_PATTERNS) {
-      if (p.re.test(text)) return { matched: true, matchedPattern: p.name };
+      const re = new RegExp(p.re.source, p.re.flags.includes("g") ? p.re.flags : `${p.re.flags}g`);
+      for (const m of text.matchAll(re)) {
+        // An anchored entry (`tell-me-more`) matches the leading boundary too;
+        // the phrase itself starts where the first letter does. Every entry
+        // today matches an ASCII-lettered phrase; the `-1` fallback keeps a
+        // future entry that does not from producing a negative index (PR
+        // #3727 R1).
+        const letterOffset = m[0].search(/[a-z]/i);
+        const phraseIndex = m.index + (letterOffset === -1 ? 0 : letterOffset);
+        if (!isNegatedDepthRequest(text, phraseIndex)) {
+          return { matched: true, matchedPattern: p.name };
+        }
+      }
     }
   }
   return { matched: false };
