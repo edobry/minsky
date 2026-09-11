@@ -626,7 +626,9 @@ export function buildSessionDirResolver(
           ? `sessionId='${q.sessionId}'`
           : "task/sessionId";
       throw new Error(
-        `Cannot resolve session workspace for ${provided}: this validate command was registered ` +
+        // "this command", not "this validate command": `compile` shares this
+        // resolver since mt#4394 (PR #3736 R1).
+        `Cannot resolve session workspace for ${provided}: this command was registered ` +
           `without a DI container providing 'sessionDeps' (e.g. a CLI/bootstrap context that did not ` +
           `call container.initialize()). Pass an explicit 'workspace' directory instead, or invoke ` +
           `from a context where the container is initialized.`
