@@ -135,6 +135,34 @@ typecheck **6/17** (35%), lint **4/18** (22%). Re-swept after the R1 narrowing b
 are not attributable to the change: typecheck **9/23** (39%), lint **4/24** (17%), test **0/45**,
 format **0/1**, negative-control **0/41**.
 
+#### Which writes count: only those inside the workspace (mt#5087)
+
+The write side was bounded by EXTENSION alone, and mt#5078's classification of the newest 15
+`stale-evidence` records found the one shape that slips through: a conversation wrote a probe
+script to its scratchpad (`<scratchpad>/sc3b.ts`, four edits, then `axis.ts`) after its last test
+run, and the run of the REPO was reported stale — 9 of 10 sampled claims were true, this was the
+tenth. A run cannot have observed a file outside the tree it ran in, so `fileWrites` now takes a
+`WorkspaceScope` and drops any write that lands outside it:
+
+- a **relative** path is inside — only a session tool emits one, and it resolves against the
+  session workspace; the harness's `Write`/`Edit` require an absolute path;
+- an **absolute** path is inside under the repo root walked up from the hook's `cwd`
+  (`findRepoRoot`, so a subdirectory cwd still names the root), or under ANY
+  `<state-dir>/sessions/<id>/`;
+- anything else — a scratchpad, `/tmp`, `~/.claude/jobs` — is outside and does not count. With no
+  `cwd` at all, an absolute path outside every session workspace is outside too: the header's
+  direction of error, since counting it could only manufacture a fire.
+
+"Any session workspace" rather than "this one" because the seam's tool input names a `task`, not a
+directory, and the lookup would be a DB read inside a hook. Measured over every transcript modified
+in the 14 days to 2026-09-11 (198 transcripts, 6,182 writes): 6,000 relative, 82 absolute into a
+session workspace, 87 into a scratchpad, 13 elsewhere outside, 3 into the main repo — and of the 19
+seams preceded by absolute session-workspace writes, none saw writes into more than one workspace,
+so the wider leg costs nothing measured. Replayed after the change: the originating record's test
+claim is `fresh`; the 9 true records in the sample keep their exact stale set.
+`scripts/replay-evidence-provenance.ts` reads the `cwd` off the call's own transcript line so a
+replay is bounded the way the live guard was, and prints the roots it used.
+
 #### What counts as CLAIMING a kind (PR #3165 R1)
 
 The first cut recognized claims by bare tool nouns — `tsc`, `eslint`, `prettier` — plus a bare
