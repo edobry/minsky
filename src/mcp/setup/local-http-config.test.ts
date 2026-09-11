@@ -167,6 +167,27 @@ describe("discoverMinskyEntries", () => {
     expect(found.some((e) => e.serverName === "minsky-hosted")).toBe(false);
   });
 
+  test("mt#5066: with CLAUDE_CONFIG_DIR set, user-scope discovery reads the relocated .claude.json", () => {
+    const relocated = "/sandbox/claude-config/.claude.json";
+    const deps = fakeFs({
+      [relocated]: JSON.stringify({
+        mcpServers: { "minsky-relocated": { command: "minsky", args: SHIM_ARGS } },
+      }),
+      // The HOME-root file still exists and must NOT be what gets read.
+      [CLAUDE_JSON]: JSON.stringify({
+        mcpServers: { "minsky-home": { command: "minsky", args: SHIM_ARGS } },
+      }),
+    });
+    const found = discoverMinskyEntries({
+      projectRoot: PROJECT,
+      home: HOME,
+      env: { CLAUDE_CONFIG_DIR: "/sandbox/claude-config" },
+      deps,
+    });
+    expect(found.map((e) => e.serverName)).toEqual(["minsky-relocated"]);
+    expect(found[0]?.file).toBe(relocated);
+  });
+
   test("a malformed config yields no entries rather than aborting the scan", () => {
     const deps = fakeFs({
       [PROJECT_MCP_JSON]: "{ this is not json",

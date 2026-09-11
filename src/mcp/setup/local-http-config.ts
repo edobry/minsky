@@ -16,6 +16,9 @@
  *   project → `.mcp.json` in the project root               (current project only)
  *   user    → `~/.claude.json`, top level                   (all projects)
  *
+ * (`~/.claude.json` reads `$CLAUDE_CONFIG_DIR/.claude.json` when that variable
+ * is set — mt#5066, `resolveClaudeJsonPath`.)
+ *
  * So "rewrite the config" has no single answer. Writing to one fixed scope is
  * how a migration silently covers one project and leaves the rest on the
  * proxy. This module scans all three and reports everything it finds.
@@ -29,6 +32,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { resolveClaudeJsonPath } from "@minsky/domain/mcp/claude-code-paths";
 
 /** The three scopes Claude Code resolves MCP servers from, in precedence order. */
 export type McpScope = "local" | "project" | "user";
@@ -198,6 +202,8 @@ export function classifyEntry(input: {
 export interface DiscoveryOptions {
   projectRoot: string;
   home?: string;
+  /** Read for `CLAUDE_CONFIG_DIR` (mt#5066); defaults to the process environment. */
+  env?: NodeJS.ProcessEnv;
   deps?: ConfigFsDeps;
 }
 
@@ -205,8 +211,13 @@ export function projectConfigPath(projectRoot: string): string {
   return path.join(projectRoot, ".mcp.json");
 }
 
-export function claudeJsonPath(home: string): string {
-  return path.join(home, ".claude.json");
+/**
+ * The `.claude.json` Claude Code will actually read — under `CLAUDE_CONFIG_DIR`
+ * when that is set, else at the HOME root (mt#5066). `home` is the fallback
+ * base, kept as the first parameter for the existing callers.
+ */
+export function claudeJsonPath(home: string, env: NodeJS.ProcessEnv = process.env): string {
+  return resolveClaudeJsonPath(env, home);
 }
 
 function parseJsonFile(file: string, deps: ConfigFsDeps): Record<string, unknown> | null {
@@ -250,7 +261,7 @@ export function discoverMinskyEntries(options: DiscoveryOptions): DiscoveredEntr
     if (hit) found.push(hit);
   }
 
-  const claudeFile = claudeJsonPath(home);
+  const claudeFile = claudeJsonPath(home, options.env ?? process.env);
   const claudeJson = parseJsonFile(claudeFile, deps);
 
   for (const [serverName, entry] of Object.entries(serversOf(claudeJson))) {

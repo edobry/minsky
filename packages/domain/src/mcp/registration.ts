@@ -4,6 +4,7 @@ import { DEFAULT_DEV_PORT } from "@minsky/shared/constants";
 import type { FsLike } from "../interfaces/fs-like";
 import { createRealFs } from "../interfaces/real-fs";
 import { createFileIfNotExists } from "../init/file-system";
+import { resolveClaudeJsonPath } from "./claude-code-paths";
 
 /**
  * Abstraction for an MCP client that can be registered with Minsky.
@@ -155,7 +156,10 @@ const DEFAULT_LOCAL_DAEMON_MCP_URL = "http://127.0.0.1:48765/mcp";
  *
  * User scope is a single, platform-uniform path — unlike Claude Desktop's
  * OS-specific config directory — so `configPath` does not branch on
- * `process.platform`.
+ * `process.platform`. It DOES branch on `CLAUDE_CONFIG_DIR` (mt#5066): Claude
+ * Code relocates `.claude.json` into that directory when the variable is set,
+ * and a registration written to the HOME-root file is one it never reads — see
+ * `resolveClaudeJsonPath`.
  *
  * `mergeConfig = true` because `~/.claude.json` is Claude Code's own live
  * state file (settings, per-project history, OAuth credentials) — the
@@ -169,7 +173,7 @@ export class ClaudeCodeRegistrar extends McpServersJsonRegistrar {
   override readonly mergeConfig = true;
 
   configPath(_projectRoot: string): string {
-    return path.join(homedir(), ".claude.json");
+    return resolveClaudeJsonPath();
   }
 
   /**

@@ -22,7 +22,8 @@ export type AgentHarness = "claude-code" | "cursor" | "standalone";
  * user-installed app). Callers must opt in explicitly.
  *
  * `claude-code` (mt#4676) is registered at USER scope (`~/.claude.json`'s
- * top-level `mcpServers` key), not per-project — see `ClaudeCodeRegistrar`
+ * top-level `mcpServers` key — or `$CLAUDE_CONFIG_DIR/.claude.json` when that
+ * variable is set, mt#5066), not per-project — see `ClaudeCodeRegistrar`
  * in `../mcp/registration.ts` for why.
  */
 export type ManagedClient =

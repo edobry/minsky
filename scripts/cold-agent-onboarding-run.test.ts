@@ -36,8 +36,57 @@ import {
   sandboxEnvVarNames,
   sandboxPathsUnder,
   stripPathEntry,
+  transcriptPathFor,
+  userScopeMcpServerNamesIn,
   type IsolationObservations,
 } from "./cold-agent-onboarding-run";
+
+describe("mt#5066 — the .claude.json half of channel 5, and the durable transcript", () => {
+  const madeDirs: string[] = [];
+  afterAll(() => {
+    for (const dir of madeDirs) rmSync(dir, { recursive: true, force: true });
+  });
+  function tempDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), "mt5066-"));
+    madeDirs.push(dir);
+    return dir;
+  }
+
+  test("userScopeMcpServerNamesIn reads NAMES only, and an absent file is genuinely empty", () => {
+    const dir = tempDir();
+    const file = join(dir, ".claude.json");
+    expect(userScopeMcpServerNamesIn(file)).toEqual([]);
+    writeFileSync(
+      file,
+      JSON.stringify({
+        mcpServers: { "minsky-server": { command: "minsky", env: { TOKEN: "s3cret" } } },
+        firstStartTime: "2026-09-11T00:00:00Z",
+      })
+    );
+    const names = userScopeMcpServerNamesIn(file);
+    expect(names).toEqual(["minsky-server"]);
+    expect(JSON.stringify(names)).not.toContain("s3cret");
+  });
+
+  test("a file with no mcpServers key is empty; an unparseable one opens the channel", () => {
+    const dir = tempDir();
+    const clean = join(dir, ".claude.json");
+    writeFileSync(clean, JSON.stringify({ firstStartTime: "2026-09-11T00:00:00Z" }));
+    expect(userScopeMcpServerNamesIn(clean)).toEqual([]);
+    const broken = join(dir, "broken.json");
+    writeFileSync(broken, "{ not json");
+    expect(userScopeMcpServerNamesIn(broken)).toEqual(["UNPARSED:broken.json"]);
+  });
+
+  test("the transcript lands beside its record under --out-dir, keyed by the run timestamp", () => {
+    const outDir = "/state/cold-agent-runs";
+    expect(transcriptPathFor(outDir, 1789019061415)).toBe(
+      join(outDir, "transcript-run-1789019061415.txt")
+    );
+    // Not inside the sandbox root any more (defect 2).
+    expect(transcriptPathFor(outDir, 1)).not.toContain("mt5012-cold-");
+  });
+});
 import { PGVECTOR_DOCKER_IMAGE } from "../packages/domain/src/persistence/pgvector-preflight";
 
 // mt#5016 / PR #3678 R1. The harness deliberately imports nothing from the
@@ -230,6 +279,7 @@ const SANDBOXED: IsolationObservations = {
   daemonTokenPresent: false,
   daemonProbe: { kind: "status", code: 401 },
   claudeCustomizationEntries: [],
+  userScopeMcpServerNames: [],
   postgresEnvVarsPresent: [],
 };
 
@@ -252,11 +302,15 @@ const OPERATOR_MACHINE: IsolationObservations = {
   daemonTokenPresent: true,
   daemonProbe: { kind: "status", code: 401 },
   claudeCustomizationEntries: ["CLAUDE.md", "skills", "plugins", "commands"],
+  // mt#5066: measured 2026-09-11 — the operator's real `~/.claude.json` carries a
+  // user-scope `minsky-server` entry (name only; values are never read).
+  userScopeMcpServerNames: ["minsky-server"],
   postgresEnvVarsPresent: [],
 };
 
 /** The operator's install location, shared by the PATH-stripping tests. */
 const OPERATOR_BIN_DIR = "/home/u/.bun/bin";
+const CUSTOMIZATIONS_CHANNEL = "claudeCustomizations";
 const OPERATOR_MINSKY_BIN = `${OPERATOR_BIN_DIR}/minsky`;
 
 function verdictFor(obs: IsolationObservations, channel: string) {
@@ -279,7 +333,7 @@ describe("evaluateIsolation", () => {
   });
 
   test("names the leaking artifacts rather than only reporting a boolean", () => {
-    expect(verdictFor(OPERATOR_MACHINE, "claudeCustomizations").detail).toContain("skills");
+    expect(verdictFor(OPERATOR_MACHINE, CUSTOMIZATIONS_CHANNEL).detail).toContain("skills");
     expect(verdictFor(OPERATOR_MACHINE, "minskyBinary").detail).toContain(".bun/bin/minsky");
     expect(verdictFor(OPERATOR_MACHINE, "mcp").detail).toContain("minsky");
   });
@@ -287,6 +341,28 @@ describe("evaluateIsolation", () => {
   test("matches an MCP server name case-insensitively and as a substring", () => {
     const obs = { ...SANDBOXED, mcpServerNames: ["Minsky-local", "github"] };
     expect(verdictFor(obs, "mcp").isolated).toBe(false);
+  });
+
+  test("mt#5066: channel 5 is OPEN on a user-scope MCP registration even when the customizations dir is clean", () => {
+    // The 2026-09-10 run's exact shape: `claude-config/` carried nothing, and the
+    // channel read ISOLATED while `.claude.json` — the file `minsky setup` writes —
+    // was never looked at. The probe must fail on the file alone.
+    const obs: IsolationObservations = {
+      ...SANDBOXED,
+      claudeCustomizationEntries: [],
+      userScopeMcpServerNames: ["minsky-server"],
+    };
+    const verdict = verdictFor(obs, CUSTOMIZATIONS_CHANNEL);
+    expect(verdict.isolated).toBe(false);
+    expect(verdict.detail).toContain("minsky-server");
+  });
+
+  test("mt#5066: an unreadable .claude.json opens the channel rather than closing it", () => {
+    const obs: IsolationObservations = {
+      ...SANDBOXED,
+      userScopeMcpServerNames: ["UNPARSED:.claude.json"],
+    };
+    expect(verdictFor(obs, CUSTOMIZATIONS_CHANNEL).isolated).toBe(false);
   });
 
   test("ignores unrelated MCP servers, which a new user may legitimately have", () => {
