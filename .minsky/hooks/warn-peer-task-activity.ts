@@ -315,9 +315,7 @@ export function decidePeerActivity(
       "A session above names an actor this hook could not compare to your own id",
       "(it is not conversation-scoped). Compare it yourself against the `claimedBy`",
       "your own `tasks_claim` / `tasks_claims_list` result shows — do not attribute",
-      "it from timing. A subagent you dispatched shares YOUR actor id; if you need",
-      "to know what a subagent did, its transcript is at",
-      "`<session-dir>/subagents/agent-<id>.jsonl`, not in this ledger."
+      "it from timing. A subagent you dispatched shares YOUR actor id."
     );
   }
 
@@ -328,7 +326,10 @@ export function decidePeerActivity(
     "process's cwd), and one carrying a writer id is labelled above — but a",
     "`task.status_changed` row carries no actor at all, so those are reported and",
     "NOT attributed. Actor attribution is the axis mt#4440 repaired for claims and",
-    "mt#5086 extended to `session.started`; this guard stays useful without it."
+    "mt#5086 extended to `session.started`; this guard stays useful without it.",
+    "If you are about to conclude that a subagent you dispatched did any of this,",
+    "the falsifier is its transcript at `<session-dir>/subagents/agent-<id>.jsonl`",
+    "— read that, not the timing."
   );
 
   return { fired: true, message: lines.join("\n"), outcome: "decided" };

@@ -292,6 +292,17 @@ describe("mt#5086 — a session.started row names its writer, and the advisory s
     expect(result.message).not.toContain("(this conversation)");
   });
 
+  test("SC3 — every fire names the subagent transcript as the falsifier, even a plain status-change fire", () => {
+    const result = decidePeerActivity(
+      "mt#5042",
+      [row(STATUS_CHANGED, 2, { previousStatus: "READY", newStatus: "IN-PROGRESS" })],
+      NOW
+    );
+    expect(result.fired).toBe(true);
+    expect(result.message).toContain("subagents/agent-<id>.jsonl");
+    expect(result.message).toContain("not the timing");
+  });
+
   test("no caller conversation id → conversation-scoped rows are not compared either", () => {
     // The consumer in turn-end-stale-state-assertion-scan passes none; a row it
     // renders must not be labelled against an id nobody supplied.
