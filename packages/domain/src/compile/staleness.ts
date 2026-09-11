@@ -21,6 +21,14 @@ export interface CheckStalenessOptions {
    * compiled and hand-authored SKILL.md files). Default: false.
    */
   skipOrphanDetection?: boolean;
+  /**
+   * Expected output paths to leave out of the comparison entirely (mt#5065):
+   * files that exist without a generation banner are the user's, `compile`
+   * will not write them, and calling them stale would fail a project's
+   * `--check` forever over a file the pipeline has already declined to touch.
+   * They are reported separately by the caller, not silently dropped.
+   */
+  ignorePaths?: ReadonlySet<string>;
 }
 
 /**
@@ -47,7 +55,9 @@ export async function checkStaleness(
   fsDeps: MinskyCompileFsDeps,
   checkOptions: CheckStalenessOptions = {}
 ): Promise<StalenessResult> {
-  const expectedFiles = await target.listOutputFiles(options, workspacePath, fsDeps);
+  const listed = await target.listOutputFiles(options, workspacePath, fsDeps);
+  const ignore = checkOptions.ignorePaths;
+  const expectedFiles = ignore ? listed.filter((f) => !ignore.has(f)) : listed;
 
   // Check every expected file for staleness
   for (const filePath of expectedFiles) {
@@ -69,7 +79,9 @@ export async function checkStaleness(
   // Skipped for targets whose output directory is shared with hand-authored content.
   if (!checkOptions.skipOrphanDetection) {
     const outputDir = options.outputPath ?? target.defaultOutputPath(workspacePath);
-    const expectedBasenames = new Set(expectedFiles.map((f) => basename(f)));
+    // Orphan detection still tolerates an ignored path: it IS in the output
+    // directory, and it is not an orphan — just not ours.
+    const expectedBasenames = new Set(listed.map((f) => basename(f)));
 
     try {
       const entries = await fsDeps.readdir(outputDir);

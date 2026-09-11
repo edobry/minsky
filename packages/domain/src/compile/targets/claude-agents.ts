@@ -12,6 +12,7 @@ import matter from "gray-matter";
 import { agentDefinitionSchema } from "../../definitions/schemas";
 import type { AgentDefinition } from "../../definitions/types";
 import { createSkipRecorder } from "./skip-recorder";
+import { COMPILE_GENERATED_BANNER } from "../../rules/compile/banner-constants";
 import type {
   MinskyCompileTarget,
   MinskyCompileResult,
@@ -90,7 +91,15 @@ export function buildAgentMd(agent: AgentDefinition): string {
   // content starts with "\n". Hand-authored .md files always have this blank
   // line, so we normalise here for stable output.
   const body = agent.prompt.startsWith("\n") ? agent.prompt : `\n${agent.prompt}`;
-  return matter.stringify(body, frontmatterData);
+  const compiled = matter.stringify(body, frontmatterData);
+  // mt#5065: the generation banner on LINE 2, inside the frontmatter as a YAML
+  // comment — the same placement `claude-skills` uses. Agents were the one
+  // per-file output with no banner at all, which left `.claude/agents/*.md`
+  // outside `check-generated-file-edit.ts`'s hand-edit guard AND made every
+  // regenerated agent read as a foreign file to the compile-time ownership
+  // guard (`foreign-file-guard.ts`). Within the first 5 lines is what both
+  // predicates scan; after a multi-line `description` it would be invisible.
+  return compiled.replace(/^---\n/, `---\n${COMPILE_GENERATED_BANNER}\n`);
 }
 
 /**

@@ -62,6 +62,14 @@ const compileCommandParams = {
       "on it). mt#2992 — only claude.md and agents.md enforce a size budget; other targets ignore this.",
     required: false,
   },
+  overwrite: {
+    schema: z.boolean(),
+    description:
+      "Replace output files that exist without a generation banner — i.e. files that are yours, " +
+      "not Minsky's. Without it such a file is left alone and named in the output (mt#5065).",
+    required: false,
+    defaultValue: false,
+  },
 } satisfies CommandParameterMap;
 
 export function registerCompileCommands(targetRegistry: {
@@ -94,6 +102,7 @@ export function registerCompileCommands(targetRegistry: {
           check: params.check,
           sizeBudget,
           memoryLoadingMode,
+          overwrite: params.overwrite,
         });
 
         // mt#2803: bare invocation compiled multiple targets — render one
@@ -113,6 +122,13 @@ export function registerCompileCommands(targetRegistry: {
         // the result and be printed here or the operator sees nothing.
         for (const skipped of result.skippedForeignOutputs ?? []) {
           log.cli(`[compile] ${skipped.reason}`);
+        }
+        // mt#5065: a replacement the operator asked for with --overwrite is
+        // still a destruction of someone's file, so it is named, not silent.
+        for (const replaced of result.foreignOverwritten ?? []) {
+          log.cli(
+            `[compile] Overwrote ${replaced} — it carried no generation banner (--overwrite).`
+          );
         }
 
         // mt#573 SC5, the run-level selection report. Top-level for the same

@@ -14,6 +14,11 @@ import type {
   MinskyCompileFsDeps,
 } from "./types";
 import { checkStaleness } from "./staleness";
+import {
+  guardForeignWrites,
+  foreignFileSkipReason,
+  classifyOutputOwnership,
+} from "./foreign-file-guard";
 import { claudeSkillsTarget } from "./targets/claude-skills";
 import { claudeAgentsTarget } from "./targets/claude-agents";
 import { cursorRulesTsTarget } from "./targets/cursor-rules-ts";
@@ -26,6 +31,14 @@ import { unknownCompileTargetMessage } from "../rules/compile/target-error-hint"
 export interface MinskyCompileOptions extends MinskyTargetOptions {
   workspacePath: string;
   check?: boolean;
+  /**
+   * Replace per-file outputs that exist without a generation banner (mt#5065).
+   * Without it such a file is refused and reported under
+   * `skippedForeignOutputs`; with it, written and reported under
+   * `foreignOverwritten`. Never reaches a target — the guard in `compile()`
+   * consumes it.
+   */
+  overwrite?: boolean;
 }
 
 export interface MinskyCompileServiceResult extends MinskyCompileResult {
@@ -80,13 +93,37 @@ export class MinskyCompileService {
     }
 
     const fs = fsDeps ?? (realFs as MinskyCompileFsDeps);
-    const { workspacePath, check, ...targetOptions } = options;
+    const { workspacePath, check, overwrite, ...targetOptions } = options;
 
     if (check) {
       return this.runCheckMode(target, targetOptions, workspacePath, fs);
     }
 
-    return target.compile(targetOptions, workspacePath, fs);
+    if (targetOptions.dryRun) {
+      return target.compile(targetOptions, workspacePath, fs);
+    }
+
+    // mt#5065: every per-file write goes through the ownership guard. The
+    // target sees an ordinary fs; a path that exists without a generation
+    // banner is refused here (or replaced on `--overwrite`) and the target's
+    // own `filesWritten` — which it pushes AFTER calling writeFile, without
+    // knowing the write was declined — is corrected below so a refused path
+    // is never reported as written. The monolithic targets are unaffected:
+    // their foreign outputs are gated out before this runs, and a banner-
+    // carrying `CLAUDE.md` passes the same predicate they already apply.
+    const guarded = guardForeignWrites(fs, { overwrite });
+    const result = await target.compile(targetOptions, workspacePath, guarded.fs);
+    if (guarded.skipped.length === 0 && guarded.overwritten.length === 0) {
+      return result;
+    }
+    const refused = new Set(guarded.skipped.map((s) => s.path));
+    const skippedForeignOutputs = [...(result.skippedForeignOutputs ?? []), ...guarded.skipped];
+    return {
+      ...result,
+      filesWritten: result.filesWritten.filter((p) => !refused.has(p)),
+      ...(skippedForeignOutputs.length > 0 ? { skippedForeignOutputs } : {}),
+      ...(guarded.overwritten.length > 0 ? { foreignOverwritten: guarded.overwritten } : {}),
+    };
   }
 
   private async runCheckMode(
@@ -98,21 +135,48 @@ export class MinskyCompileService {
     // Dry-run to get expected file paths and content
     const dryResult = await target.compile({ ...targetOptions, dryRun: true }, workspacePath, fs);
 
+    // mt#5065: a per-file output that exists without a banner is the user's,
+    // and `compile` will not write it — so `--check` must not call it stale
+    // either, or a project carrying one collision fails its pre-commit check
+    // forever. Such paths are dropped from the comparison and reported the
+    // same way the write path reports them.
+    // The classification needs the would-be content, so it runs over the
+    // expected-content map rather than the bare path list: a pre-banner copy of
+    // our own output stays IN the comparison (and reads as stale, correctly —
+    // regenerating it adds the banner), while a genuinely foreign file leaves it.
+    const expectedContents = buildExpectedContents(dryResult);
+    const foreignSkips: { path: string; reason: string }[] = [];
+    for (const [path, content] of expectedContents) {
+      const ownership = await classifyOutputOwnership(path, content, fs);
+      if (ownership === "foreign" || ownership === "unreadable") {
+        foreignSkips.push({ path, reason: foreignFileSkipReason(path, ownership) });
+      }
+    }
+    const foreignPaths = new Set(foreignSkips.map((s) => s.path));
+
     // Delegate staleness check to the shared helper. Orphan detection is skipped
     // when the target declares its output directory is shared with hand-authored
     // content (e.g. claude-skills' .claude/skills/).
-    const expectedContents = buildExpectedContents(dryResult);
     const { stale, staleFile } = await checkStaleness(
       target,
       targetOptions,
       workspacePath,
       expectedContents,
       fs,
-      { skipOrphanDetection: target.sharedOutputDirectory === true }
+      {
+        skipOrphanDetection: target.sharedOutputDirectory === true,
+        ignorePaths: foreignPaths.size > 0 ? foreignPaths : undefined,
+      }
     );
 
     return {
       ...dryResult,
+      filesWritten: dryResult.filesWritten.filter((p) => !foreignPaths.has(p)),
+      ...(foreignSkips.length > 0
+        ? {
+            skippedForeignOutputs: [...(dryResult.skippedForeignOutputs ?? []), ...foreignSkips],
+          }
+        : {}),
       check: true,
       stale,
       staleFile,

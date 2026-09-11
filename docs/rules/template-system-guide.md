@@ -171,6 +171,55 @@ hook groups, and `.minsky/config.yaml` merges every key `init` does not own. The
 monolithic files were the exception by inheritance rather than by choice: in Minsky's
 own repository `CLAUDE.md` genuinely is wholly generated.
 
+## …and never silently overwrites a per-file output it did not write (mt#5065)
+
+The paragraph above was measured on files with names Minsky was not going to write.
+A file with the **same name** as a generated output — your own
+`.cursor/rules/dont-ignore-errors.mdc`, a `.claude/agents/reviewer.md` you wrote, or a
+scaffold copy you edited months ago — was a different case: every per-file target
+ended in a bare write, so the file was replaced, the run exited 0, and the path
+appeared under "files written" exactly like a routine regeneration. A cold-agent run
+against a real project lost three tracked rule files that way (mt#4705).
+
+**The same banner decides, at every per-file write.** Before any of the per-file
+targets — `.claude/skills/`, `.claude/agents/`, `.claude/hooks/`, `.claude/rules/`,
+`.cursor/rules/` — writes a path that already exists, the pipeline reads it. A file
+carrying the generation banner is Minsky's and is regenerated. A file without it is
+yours and is **left alone**: the run names it, gives the reason, and the path is NOT
+reported as written.
+
+```
+$ minsky compile
+[compile] /path/.cursor/rules/dont-ignore-errors.mdc exists and carries no generation
+  banner — it is not Minsky's output, so compile left it alone. Move it aside, or
+  re-run with --overwrite to replace it.
+```
+
+**`--overwrite` is the explicit way through**, and it is loud: each replaced file is
+named on its own line (`Overwrote … — it carried no generation banner`) and listed
+separately from ordinary regenerations. It applies to per-file outputs only; a
+`CLAUDE.md` or `AGENTS.md` that is yours stays out of reach, as the section above
+says. A file that cannot be read is refused even with the flag — Minsky does not
+overwrite what it cannot verify it owns.
+
+**`compile --check` does not call your file stale.** Like the monolithic case, a
+per-file output Minsky declined to write is left out of the staleness comparison
+(and still named), so a project carrying one collision does not fail its pre-commit
+check forever.
+
+**Agent files now carry the banner too.** `.claude/agents/*.md` was the one per-file
+output emitted without one, which left it outside the hand-edit guard and would have
+made every existing agent file read as yours. The pipeline recognises an agent file
+it generated before the banner existed — the content is identical to what it would
+write, banner line aside — and regenerates it without a prompt; only a file whose
+content actually differs is treated as yours.
+
+**What this does not decide.** Whether a banner-less file is an _untouched_ copy of
+Minsky's historical scaffold. The rules-plane RFC assigns that to its Phase 1
+provenance manifest (mt#4871): an untouched copy will be replaced automatically, a
+divergent one reported and left alone. Until then every banner-less collision is
+treated as yours — the safe direction — and `--overwrite` is the manual path.
+
 ## Selection: which of the shipped rules a project actually gets
 
 Shipped in mt#573 (RFC Phase 2). Selection is **corpus membership** — a rule is
