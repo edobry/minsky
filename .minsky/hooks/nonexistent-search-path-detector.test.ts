@@ -112,6 +112,49 @@ describe("AT1 — the originating incident's exact command", () => {
 });
 
 // ---------------------------------------------------------------------------
+// mt#5076 — a later LINE is its own statement, never a tail of grep positionals
+// ---------------------------------------------------------------------------
+
+describe("mt#5076 — a token on a later line is never a path argument to an earlier line's grep", () => {
+  // The live 2026-09-09 command, verbatim in shape: a variable, then two `echo …; grep …` lines.
+  // The second line's `echo` and its literal arrived as `grep` positionals and fired as
+  // "2 path(s) that do not exist: `echo`; `=== compact ===`" — 20 of the log's 174 fires are this.
+  const LIVE =
+    "F=/repo/src/cockpit/auth.ts\n" +
+    "echo '=== autoCompactWindow ==='; grep -c 'autoCompactWindow' \"$F\"\n" +
+    "echo '=== compact ==='; grep -oiE 'compact' \"$F\" | sort | uniq -c";
+
+  test("AT1 — the live multi-line command produces silence", () => {
+    const result = scan(LIVE);
+    expect(result.matched).toBe(false);
+  });
+
+  test("AT2 — a real nonexistent path still fires, naming that path", () => {
+    const result = scan("grep -rn 'x' src/nonexistent");
+    expect(result.matched).toBe(true);
+    expect(result.missing.map((m) => m.raw)).toEqual(["src/nonexistent"]);
+  });
+
+  test("AT2′ — and still fires when the bad path is on the SECOND line", () => {
+    // The split must not swallow the later line: it is judged as its own statement.
+    const result = scan("echo hi\ngrep -rn 'x' src/nonexistent");
+    expect(result.matched).toBe(true);
+    expect(result.missing.map((m) => m.raw)).toEqual(["src/nonexistent"]);
+  });
+
+  test("AT3 — `echo hi && grep -rn 'x' src` fires on nothing (already true; pinned)", () => {
+    expect(scan("echo hi && grep -rn 'x' src").matched).toBe(false);
+    expect(scan("echo hi; grep -rn 'x' src").matched).toBe(false);
+  });
+
+  test("a newline INSIDE quotes does not split — the pattern stays one token", () => {
+    // `String.split("\n")` would cut the quoted pattern in half and read `b' src` as a new
+    // statement; the quote-aware walker keeps it one stage, whose only path (`src`) exists.
+    expect(scan("grep -rn 'a\nb' src").matched).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AT2 — mem#500's originating shape
 // ---------------------------------------------------------------------------
 

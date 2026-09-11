@@ -86,6 +86,32 @@ export function splitTopLevel(command: string): string[] {
 }
 
 /**
+ * `splitTopLevel` plus the NEWLINE as a separator (mt#5076).
+ *
+ * A multi-line command — `cmd-a "$F"\necho '…'; cmd-b` — reaches `splitTopLevel` as ONE segment
+ * for its first line and a half: nothing splits at the newline, so the second line's COMMAND and
+ * its literals become positional arguments of the first line's command. `nonexistent-search-path`
+ * read `echo` and `=== compact ===` as `grep` paths that way (20 of 174 fires), and
+ * `block-concurrent-bulk-mutation` hit the same gap first (mt#4088) and fixed it privately as
+ * `splitSegments`. Second instance, so the separator set lives here now.
+ *
+ * Same quote-aware walker, so a newline INSIDE quotes does not split — the naive
+ * `String.split("\n")` cut quoted strings in half and re-parsed the halves as commands (PR #3023
+ * R1) — and a backslash-continued line stays one segment because the walker absorbs the escape
+ * pair.
+ *
+ * `splitTopLevel` itself is deliberately unchanged: six guards share it, two of them deny-tier,
+ * and a caller that wants line-awareness opts in here.
+ */
+export function splitStatements(command: string): string[] {
+  return splitOutsideQuotes(command, (ch, next) => {
+    if (ch === "\n" || ch === ";") return 1;
+    if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) return 2;
+    return 0;
+  });
+}
+
+/**
  * Split on unquoted pipe (`|`), NOT on the `||` operator — that one is a command separator and is
  * already handled by `splitTopLevel` upstream.
  *

@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { isCompoundCommand, isReshapedRetry, leadingTokenOf, splitTopLevel } from "./command-shape";
+import {
+  isCompoundCommand,
+  isReshapedRetry,
+  leadingTokenOf,
+  splitStatements,
+  splitTopLevel,
+} from "./command-shape";
 
 // The 2026-08-08 Railway incident verbatim (mt#3533 §FOURTH INSTANCE): both
 // denied attempts wrapped `curl` in a compound command, and the identical
@@ -54,6 +60,38 @@ describe("isCompoundCommand", () => {
   test("is false when the separator is quoted", () => {
     expect(isCompoundCommand("echo 'a; b'")).toBe(false);
     expect(splitTopLevel("echo 'a; b'")).toEqual(["echo 'a; b'"]);
+  });
+});
+
+describe("splitStatements (mt#5076)", () => {
+  test("splits on a newline where splitTopLevel does not", () => {
+    const cmd =
+      "F=/tmp/x\necho '=== a ==='; grep -c 'a' \"$F\"\necho '=== b ==='; grep -o 'b' \"$F\" | sort";
+    expect(splitTopLevel(cmd)).toHaveLength(3);
+    expect(splitStatements(cmd)).toEqual([
+      "F=/tmp/x",
+      "echo '=== a ==='",
+      "grep -c 'a' \"$F\"",
+      "echo '=== b ==='",
+      "grep -o 'b' \"$F\" | sort",
+    ]);
+  });
+
+  test("keeps `;`, `&&` and `||` as separators — a superset of splitTopLevel", () => {
+    expect(splitStatements("a; b && c || d")).toEqual(["a", "b", "c", "d"]);
+  });
+
+  test("does not split on a newline inside quotes", () => {
+    expect(splitStatements("echo 'a\nb'")).toEqual(["echo 'a\nb'"]);
+    expect(splitStatements('echo "a\nb"; ls')).toEqual(['echo "a\nb"', "ls"]);
+  });
+
+  test("a backslash-continued line stays one statement", () => {
+    expect(splitStatements("grep -rn x \\\n  src")).toEqual(["grep -rn x \\\n  src"]);
+  });
+
+  test("drops empty statements from blank lines", () => {
+    expect(splitStatements("a\n\n\nb\n")).toEqual(["a", "b"]);
   });
 });
 
