@@ -6,18 +6,26 @@
 #
 # See docs/deploy-minsky-railway.md for deployment specifics (env vars, auth).
 
-# Base-image digest pin (mt#1726). The mutable `oven/bun:1.3-slim` tag is
+# Base-image digest pin (mt#1726). The mutable `oven/bun:1.4-slim` tag is
 # pinned to a content-addressed digest so the build is reproducible and so
 # image-tag drift cannot silently alter the runtime bun version. The pin
 # itself is the safety measure — without it, a `docker pull` weeks from now
 # could surface a different bun version against the same lockfile.
 #
 # To rotate the digest (only when intentionally adopting a newer bun): run
-# `docker pull oven/bun:1.3-slim`, copy the `Digest:` line it prints,
-# replace the `@sha256:...` suffix below, verify locally that
-# `bun install --frozen-lockfile --production --ignore-scripts` still
-# succeeds against the committed lockfile, commit, let Railway rebuild.
-FROM oven/bun:1.3-slim@sha256:d56a2534ffd262e92c12fd3249d3924d296d97086da773f821d7d0477435ea04 AS base
+# `docker buildx imagetools inspect oven/bun:1.4-slim` (or `docker pull` and
+# copy its `Digest:` line), replace the `@sha256:...` suffix below, verify
+# locally that `bun install --frozen-lockfile --production --ignore-scripts`
+# still succeeds against the committed lockfile, commit, let Railway rebuild.
+# The same digest must go into `services/cockpit/Dockerfile` (both stages)
+# and `services/reviewer/Dockerfile` — mt#3835 aligned all four.
+#
+# Current pin: bun 1.4.2 (mt#3835, 2026-09-10). Moved from 1.3.14 because
+# oven-sh/bun#34861 (streaming tarball extraction losing its format selection
+# on a tiny first HTTP chunk, the cause of mt#3623's install flake) shipped in
+# 1.4.0, retiring the install retry loop and the disable-streaming-extraction
+# env-flag hedge at every install site.
+FROM oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61 AS base
 
 WORKDIR /app
 
@@ -77,14 +85,7 @@ COPY services/site/package.json ./services/site/package.json
 #
 # Mirrors `services/reviewer/Dockerfile:24` which uses the same flag set
 # and ships to production without issue.
-# Bun 1.3.x streaming tarball extraction intermittently fails `bun install`
-# (~30% of full installs) -- mt#3623, upstream oven-sh/bun#34821 (fix PR #34827
-# unmerged). The retry is the load-bearing mitigation: the failure is an
-# intermittent truncated download, so a fresh attempt succeeds. The env var is a
-# secondary hedge that disables the implicated streaming path; it is set inline
-# rather than via ENV so it does not persist into the runtime image. Remove both
-# when a bun release carries the upstream fix.
-RUN for i in 1 2 3; do if BUN_FEATURE_FLAG_DISABLE_STREAMING_INSTALL=1 bun install --frozen-lockfile --production --ignore-scripts; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
+RUN bun install --frozen-lockfile --production --ignore-scripts
 
 # Source layer — selective COPY (mt#1726). Replaces the prior blanket
 # `COPY . .` which pulled in tests, docs, scripts, eslint configuration,

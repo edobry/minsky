@@ -8,7 +8,9 @@
 # builds the SPA; the second stage installs production deps only and copies
 # the pre-built SPA assets.
 
-FROM oven/bun:1.3-slim AS builder
+# Digest-pinned per the root Dockerfile's mt#1726 convention; rotate all four
+# `FROM oven/bun` lines together (root, this file's two stages, reviewer).
+FROM oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61 AS builder
 
 WORKDIR /app
 
@@ -33,15 +35,7 @@ COPY services/site/package.json ./services/site/package.json
 # === END GENERATED: workspace package.json COPY ===
 
 # Full install (with devDependencies) — Vite is a devDep needed for the SPA build.
-# Bun 1.3.x streaming tarball extraction intermittently fails `bun install`
-# (~30% of full installs) -- mt#3623, upstream oven-sh/bun#34821 (fix PR #34827
-# unmerged). This is the exact line that failed the mt#3561 CI runs and the
-# 2026-08-05 Deploy Reviewer run. The retry is the load-bearing mitigation: the
-# failure is an intermittent truncated download, so a fresh attempt succeeds.
-# The env var is a secondary hedge that disables the implicated streaming path;
-# it is set inline rather than via ENV so it does not persist into the image.
-# Remove both when a bun release carries the upstream fix.
-RUN for i in 1 2 3; do if BUN_FEATURE_FLAG_DISABLE_STREAMING_INSTALL=1 bun install --frozen-lockfile --ignore-scripts; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
+RUN bun install --frozen-lockfile --ignore-scripts
 
 COPY vite.config.ts ./
 COPY tailwind.config.ts ./
@@ -69,7 +63,7 @@ RUN bunx vite build --config vite.config.ts
 
 # ---------------------------------------------------------------------------
 
-FROM oven/bun:1.3-slim AS runtime
+FROM oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61 AS runtime
 
 WORKDIR /app
 
@@ -91,14 +85,7 @@ COPY services/reviewer/package.json ./services/reviewer/package.json
 COPY services/site/package.json ./services/site/package.json
 # === END GENERATED: workspace package.json COPY ===
 
-# Bun 1.3.x streaming tarball extraction intermittently fails `bun install`
-# (~30% of full installs) -- mt#3623, upstream oven-sh/bun#34821 (fix PR #34827
-# unmerged). The retry is the load-bearing mitigation: the failure is an
-# intermittent truncated download, so a fresh attempt succeeds. The env var is a
-# secondary hedge that disables the implicated streaming path; it is set inline
-# rather than via ENV so it does not persist into the runtime image. Remove both
-# when a bun release carries the upstream fix.
-RUN for i in 1 2 3; do if BUN_FEATURE_FLAG_DISABLE_STREAMING_INSTALL=1 bun install --frozen-lockfile --production --ignore-scripts; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
+RUN bun install --frozen-lockfile --production --ignore-scripts
 
 COPY tsconfig.json ./
 COPY packages/shared/tsconfig.json ./packages/shared/tsconfig.json
