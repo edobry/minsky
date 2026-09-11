@@ -298,6 +298,9 @@ if (import.meta.main) {
 
   const decision = decideBypassMerge(input, process.env);
 
+  // `recordAndExit` is typed `never` — it writes the fire-log row and exits the
+  // process — so each branch below is terminal; the if/else makes that legible
+  // without knowing the type (PR #3739 R1).
   if (decision.decision === "allow") {
     if (decision.why === "override") {
       console.error(
@@ -308,8 +311,9 @@ if (import.meta.main) {
         overrideEnvVar: BYPASS_MERGE_OVERRIDE_ENV,
         overrideClassification: classifyOverride(BYPASS_MERGE_OVERRIDE_ENV),
       });
+    } else {
+      recordAndExit("allow");
     }
-    recordAndExit("allow");
   }
 
   writeOutput({

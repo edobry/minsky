@@ -542,6 +542,9 @@ if (import.meta.main) {
 
   const decision = decideOutOfBandMerge(prNumber, body, process.env);
 
+  // `recordAndExit` is typed `never` — it writes the fire-log row and exits the
+  // process — so each branch below is terminal; the if/else makes that legible
+  // without knowing the type (PR #3739 R1).
   if (decision.decision === "allow") {
     if (decision.why === "override") {
       emitOverrideAuditLog(prNumber, decision.matches);
@@ -549,12 +552,13 @@ if (import.meta.main) {
         overrideEnvVar: OVERRIDE_ENV_VAR,
         overrideClassification: classifyOverride(OVERRIDE_ENV_VAR),
       });
+    } else {
+      // No coupled-step language in PR body — allow.
+      // mt#3920: the fetch succeeded and the scan ran — a clean bill of health is a
+      // verdict on real data, so this is clean-run evidence (unlike the no-PR /
+      // not-a-merge exits above, where the scan never ran).
+      recordAndExit("allow", undefined, "decided");
     }
-    // No coupled-step language in PR body — allow.
-    // mt#3920: the fetch succeeded and the scan ran — a clean bill of health is a verdict
-    // on real data, so this is clean-run evidence (unlike the no-PR / not-a-merge exits
-    // above, where the scan never ran).
-    recordAndExit("allow", undefined, "decided");
   }
 
   // Block the merge with a structured message.
