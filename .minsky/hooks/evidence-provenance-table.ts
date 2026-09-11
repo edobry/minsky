@@ -1004,8 +1004,12 @@ function isUnder(child: string, root: string): boolean {
  *   an absolute path. (A `~`-prefixed path is not absolute and falls here too —
  *   measured zero in the population above.)
  * - An absolute path is inside when it lies under `repoRoot`, or under ANY
- *   `<sessionsDir>/<id>/` — the `<id>` segment is required, so a write to the
- *   sessions directory itself does not count.
+ *   `<sessionsDir>/<id>/`. Relative to `sessionsDir` that is at least two
+ *   segments, `<id>/<file>` — so a file at the workspace ROOT
+ *   (`<sessionsDir>/<id>/file.ts`) is inside, and only a file sitting directly
+ *   in the sessions directory (`<sessionsDir>/file.ts`, one segment, in no
+ *   workspace) is not. PR #3729 R1 read the count as excluding the root case;
+ *   the `file at the workspace root` test pins it.
  * - Anything else — a scratchpad, `/tmp`, a jobs directory — is outside. With no
  *   `repoRoot` known, an absolute path outside every session workspace is
  *   outside too: the header's direction of error, since counting it could only

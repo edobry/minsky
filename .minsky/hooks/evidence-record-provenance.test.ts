@@ -808,6 +808,15 @@ describe("writes outside the workspace do not invalidate a run (mt#5087)", () =>
     expect(isWorkspaceWrite("/work/minsky-other/src/x.ts", SCOPE)).toBe(false);
   });
 
+  test("a file at the workspace ROOT is inside; a file in the sessions dir itself is not", () => {
+    // PR #3729 R1 read the two-segment floor as excluding `<id>/file.ts`. It
+    // does not: relative to `sessionsDir` that path IS two segments. What the
+    // floor excludes is the one-segment `<sessionsDir>/file.ts` — a file in no
+    // workspace at all.
+    expect(isWorkspaceWrite(`${SCOPE.sessionsDir}/f86e9710-53ae/file.ts`, SCOPE)).toBe(true);
+    expect(isWorkspaceWrite(`${SCOPE.sessionsDir}/file.ts`, SCOPE)).toBe(false);
+  });
+
   test("with no repo root known, only the session-workspace leg stands", () => {
     const noCwd: WorkspaceScope = { repoRoot: null, sessionsDir: SCOPE.sessionsDir };
     expect(isWorkspaceWrite("src/x.ts", noCwd)).toBe(true);

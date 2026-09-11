@@ -130,6 +130,11 @@ function replayableCalls(lines: TranscriptLine[]): ReplayableCall[] {
     // The sha the call actually produced, read off its own result rather than
     // guessed from the message — a commit message is not unique across amends.
     const sha = /"(?:commitHash|shortHash)":\s*"([0-9a-f]+)"/.exec(c.resultText)?.[1] ?? "";
+    // Claude Code stamps `cwd` on every real transcript line, but it is not in
+    // the `TranscriptLine` type and a synthetic fixture may omit it. A missing
+    // or non-string value leaves `repoRoot` null — the session-workspace leg
+    // still bounds writes, and only an absolute write into the MAIN repo would
+    // then go uncounted, which is the hook's own behaviour with no `input.cwd`.
     const cwd = (lines[c.index] as { cwd?: unknown } | undefined)?.cwd;
     out.push({
       index: out.length,
