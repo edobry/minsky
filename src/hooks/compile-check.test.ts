@@ -15,6 +15,10 @@
  *      shows the staleness message and the regenerate command.
  */
 import { describe, test, expect } from "bun:test";
+// eslint-disable-next-line custom/no-real-fs-in-tests -- the mt#2993 pin below reads pre-commit.ts as DATA (its step roster is not importable); read-only, no fixtures written
+import { readFileSync } from "fs";
+import { join } from "path";
+import { PRECOMMIT_STEP_NAMES, RETIRED_GUARD_NAMES } from "../../.minsky/hooks/known-guard-names";
 import {
   classifyCompileCheckError,
   extractPerRuleViolationIds,
@@ -137,9 +141,13 @@ describe("classifyCompileCheckError — mt#1940 acceptance tests", () => {
 
       const result = classifyCompileCheckError(error, "agents.md");
 
-      // Must suggest regenerating
+      // Must suggest regenerating — with the same command shape the compile CLI's
+      // own hint uses (`minsky compile --target <t>`), not the repo-only
+      // `bun run minsky` spelling (PR #3738 R1).
       const allOutput = result.logLines.join("\n");
       expect(allOutput).toContain("regenerate");
+      expect(allOutput).toContain('Run "minsky compile --target agents.md"');
+      expect(allOutput).not.toContain("bun run minsky");
       expect(allOutput).toContain("is stale");
 
       // Must NOT claim this is a "compile failed" error
@@ -585,5 +593,33 @@ describe("per-rule ceiling is priced to the author (mt#3676)", () => {
       );
       expect(perRule.errorKind).toBe(aggregate.errorKind);
     });
+  });
+});
+
+// PR #3738 R1 — the in-repo form of the evidence the PR body took from a local
+// fire-log: exactly ONE compile-staleness step is wired into the pre-commit
+// pipeline, and the retired one is recorded as retired rather than merely
+// absent. The step roster is not data (each step is an inline
+// `this.instrumented("<name>", …)` call), so the count is pinned against the
+// source text; the roster half is pinned against the census module the
+// fire-log audit reads.
+describe("one compile-staleness step (mt#2993)", () => {
+  // eslint-disable-next-line custom/no-real-fs-in-tests -- reads the committed source as data; a mock fs would make the pin assert nothing
+  const PRE_COMMIT_SOURCE = String(readFileSync(join(import.meta.dir, "pre-commit.ts"), "utf-8"));
+  const RETIRED_STEP = "rules-compile-check";
+
+  test("pre-commit wires `compile-check` exactly once and the retired step not at all", () => {
+    const instrumentedNames = [
+      ...PRE_COMMIT_SOURCE.matchAll(/this\.instrumented\(\s*"([^"]+)"/g),
+    ].map((m) => m[1]);
+    expect(instrumentedNames.filter((n) => n === "compile-check")).toHaveLength(1);
+    expect(instrumentedNames).not.toContain(RETIRED_STEP);
+    expect(PRE_COMMIT_SOURCE).not.toContain("runRulesCompileCheck");
+  });
+
+  test("the guard-name roster carries compile-check and retires the legacy step", () => {
+    expect(PRECOMMIT_STEP_NAMES).toContain("compile-check");
+    expect(PRECOMMIT_STEP_NAMES).not.toContain(RETIRED_STEP);
+    expect(RETIRED_GUARD_NAMES.has(RETIRED_STEP)).toBe(true);
   });
 });

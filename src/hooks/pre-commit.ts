@@ -2911,7 +2911,11 @@ export function classifyCompileCheckError(
     return {
       logLines: [
         `❌ Compile output for target "${target}" is stale.`,
-        `💡 Run "bun run minsky ${cmd} --target ${target}" to regenerate.`,
+        // Same shape as the compile CLI's own hint (compile-commands.ts) and the
+        // setup hint below: the `minsky` executable, not `bun run minsky` — which
+        // works only inside this repo, through package.json's `minsky` script
+        // (PR #3738 R1).
+        `💡 Run "minsky ${cmd} --target ${target}" to regenerate.`,
       ],
       message: `Compile output for target "${target}" is stale`,
       errorKind: "stale",

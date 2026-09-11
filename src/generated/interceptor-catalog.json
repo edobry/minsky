@@ -3885,6 +3885,39 @@
       "sourceFile": "retrospective-trigger-scanner"
     },
     {
+      "guardName": "rules-compile-check",
+      "description": "Retired pre-commit step (Step 9) that ran the legacy `rules compile --check` over CLAUDE.md / AGENTS.md / .claude/rules; those targets moved to `compile-check` at the mt#3058 cutover, which left this a no-op, and mt#2993 deleted the remainder.",
+      "failureClasses": ["broken-main"],
+      "provenance": [".minsky/hooks/known-guard-names.ts"],
+      "stratum": "retired",
+      "subject": "trajectory",
+      "note": "Last seen 2026-09-11. Every record after the 2026-07-23 cutover is the no-op shell's unconditional success. No source module exists — the oracle's declaration is the only honest pointer; the fire log is append-only history, so its records persist under this name permanently.",
+      "provenanceStatus": "declaration-only",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-infeasible",
+        "reason": "Retired entities kept in the catalog so historical fire-log and canary rows still resolve to a name. There is no live mechanism to exercise. `policy-coverage` was retired by mt#4197 and its `guard_canary_runs` rows predate that; `unit-tests` and `migration-guard-and-duplicate-content-check` were superseded by successor steps.",
+        "source": "stratum"
+      },
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "authored",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
+    },
+    {
       "guardName": "second-guard",
       "description": "Not an interceptor. A synthetic name from a two-guard ordering scenario in a hand-rolled live-verification harness that wrote into the REAL fire log; it corresponds to no enforcement point in this repo.",
       "failureClasses": ["blind-enforcement"],

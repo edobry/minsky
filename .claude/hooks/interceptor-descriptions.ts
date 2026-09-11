@@ -1488,6 +1488,18 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       note: "Last seen 2026-07-29. No source module exists — the step was split into its two successors, so the oracle's declaration is the only honest pointer.",
     },
   ],
+  [
+    "rules-compile-check",
+    {
+      description:
+        "Retired pre-commit step (Step 9) that ran the legacy `rules compile --check` over CLAUDE.md / AGENTS.md / .claude/rules; those targets moved to `compile-check` at the mt#3058 cutover, which left this a no-op, and mt#2993 deleted the remainder.",
+      failureClasses: ["broken-main"],
+      provenance: [KNOWN_NAMES],
+      provenanceStatus: "declaration-only",
+      stratum: "retired",
+      note: "Last seen 2026-09-11. Every record after the 2026-07-23 cutover is the no-op shell's unconditional success. No source module exists — the oracle's declaration is the only honest pointer; the fire log is append-only history, so its records persist under this name permanently.",
+    },
+  ],
 
   // -------------------------------------------------------------------------
   // Fixture stratum (5) — NOT interceptors; records from a contained incident
