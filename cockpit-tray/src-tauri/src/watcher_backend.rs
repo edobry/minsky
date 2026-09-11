@@ -141,7 +141,7 @@ const RESTART_DEBOUNCE: Duration = Duration::from_secs(2);
 /// PRESENCE gate — "is this a checkout with cockpit backend source?" (see
 /// `cockpit_backend_root`) — and no longer the watched root: the daemon's
 /// import closure is far wider than this directory (mt#5060), so the roots
-/// come from {@link daemon_source_tree} instead.
+/// come from [`daemon_source_tree`] instead.
 pub(crate) fn cockpit_backend_src(repo_root: &Path) -> PathBuf {
     repo_root.join("src/cockpit")
 }
@@ -152,7 +152,7 @@ pub(crate) fn cockpit_backend_src(repo_root: &Path) -> PathBuf {
 /// Watching the entry point's own tree is a superset of the closure by
 /// construction: a relative import from an entry under `src/` resolves within
 /// `src/`, or — via the `@minsky/*` workspace packages — within `packages/*/src`,
-/// which {@link cockpit_backend_roots} discovers separately. Measured on
+/// which [`cockpit_backend_roots`] discovers separately. Measured on
 /// 2026-09-11 with a `Bun.build` recording plugin over `src/cli.ts`: the static
 /// closure is 1,194 in-repo files, 465 of them under `src/`, and only 143 of
 /// those under `src/cockpit`. The other 322 (`src/adapters` 216, `src/commands`
@@ -170,8 +170,8 @@ pub(crate) fn cockpit_backend_src(repo_root: &Path) -> PathBuf {
 /// already accepted for `packages/`, measured at zero occurrences over the
 /// 24h sample that reproduced the defect.
 ///
-/// The narrowing is done by {@link BACKEND_WALK_EXCLUDES} and the file-class
-/// check in {@link is_backend_module_file}, both applied to root-RELATIVE
+/// The narrowing is done by [`BACKEND_WALK_EXCLUDES`] and the file-class
+/// check in [`is_backend_module_file`], both applied to root-RELATIVE
 /// paths — so `src/cockpit/web/**` is still excluded here (the `web` component)
 /// and stays `watcher_web`'s territory.
 pub(crate) fn daemon_source_tree(repo_root: &Path) -> PathBuf {
@@ -187,11 +187,11 @@ pub(crate) fn daemon_source_tree(repo_root: &Path) -> PathBuf {
 /// invisible to all three at once: no auto-restart, no adoption-staleness
 /// detection, and an `(src @ …)` uptime hint that read as current while the
 /// daemon served stale code. mt#4230 widened the `packages/**` half; mt#5060
-/// widened the `src/**` half (see {@link daemon_source_tree}).
+/// widened the `src/**` half (see [`daemon_source_tree`]).
 ///
 /// Scoped to each package's `src/` rather than the package root so the walk
 /// skips `node_modules`, `dist`, and fixture trees without relying on
-/// {@link BACKEND_WALK_EXCLUDES} to enumerate them.
+/// [`BACKEND_WALK_EXCLUDES`] to enumerate them.
 ///
 /// Incident: 2026-08-17. mt#4212's fix was `packages/domain`-only; the daemon
 /// kept serving the pre-merge commit for ~70 minutes while the bug recurred
@@ -201,7 +201,7 @@ const WORKSPACE_PACKAGES_DIR: &str = "packages";
 
 /// Every source root whose change should restart the daemon.
 ///
-/// Always includes {@link daemon_source_tree} (`src/`, the entry point's tree —
+/// Always includes [`daemon_source_tree`] (`src/`, the entry point's tree —
 /// mt#5060), then DISCOVERS `packages/*/src` rather than naming packages
 /// (mt#4230, PR #3083 R2). The first cut hardcoded `packages/domain/src` +
 /// `packages/shared/src` — currently an exhaustive list (`packages/` holds
@@ -308,13 +308,19 @@ fn is_backend_module_file(name: &str) -> bool {
     // convention is live elsewhere in the ecosystem and a first `.spec.ts` under
     // `packages/*/src` would otherwise restart the daemon on every edit, with
     // nothing to make the cause visible.
-    const TEST_EXTS: [&str; 6] = [
+    // `.test.json` / `.spec.json` join the list with the `.json` module class
+    // (PR #3717 R1): none exist under the watched roots today, but a JSON
+    // fixture named by the test-suffix convention outside an excluded directory
+    // would otherwise restart the daemon on every edit.
+    const TEST_EXTS: [&str; 8] = [
         ".test.ts",
         ".test.mts",
         ".test.cts",
+        ".test.json",
         ".spec.ts",
         ".spec.mts",
         ".spec.cts",
+        ".spec.json",
     ];
     EXTS.iter().any(|e| name.ends_with(e)) && !TEST_EXTS.iter().any(|e| name.ends_with(e))
 }
@@ -707,6 +713,14 @@ mod tests {
         )));
         assert!(!is_relevant_backend_change(Path::new(
             "cockpit/web/package.json"
+        )));
+        // A JSON file named by the test-suffix convention is a test artifact,
+        // not a module (PR #3717 R1).
+        assert!(!is_relevant_backend_change(Path::new(
+            "adapters/fixture.test.json"
+        )));
+        assert!(!is_relevant_backend_change(Path::new(
+            "adapters/fixture.spec.json"
         )));
         // .mts/.cts modules trigger; their test variants don't (reviewer R1 NB1).
         assert!(is_relevant_backend_change(Path::new("server.mts")));
