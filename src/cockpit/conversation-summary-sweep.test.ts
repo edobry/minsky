@@ -7,7 +7,7 @@
  * throughout. These tests assert the caller exists and is bounded.
  */
 import { describe, test, expect } from "bun:test";
-import { startConversationSummarySweeper } from "./sweepers";
+import { startConversationSummarySweeper, startConversationTitleSweeper } from "./sweepers";
 import {
   SummaryPipeline,
   DEFAULT_SUMMARY_BATCH_SIZE,
@@ -127,5 +127,44 @@ describe("conversation-summary sweeper (mt#3441)", () => {
     // Also guards the duplicate-active-registration invariant: a sweeper that
     // never stopped would make the next registration of this name throw.
     expect(calls).toBe(afterStop);
+  });
+});
+
+// ── mt#4961: the title sweeper's `refreshed` count ──────────────────────────
+//
+// SC5: TitlePipelineRunResult gains `refreshed` (the growth-crossing refresh,
+// distinct from `titled`); this is the sweeper-level wiring check that a real
+// TitlePipeline result carrying that field flows through a tick without
+// throwing. The domain-level counting logic is covered in
+// packages/domain/src/transcripts/title-pipeline.test.ts.
+describe("conversation-title sweeper carries `refreshed` through a tick (mt#4961)", () => {
+  test("a tick accepts and completes on a result that includes `refreshed`", async () => {
+    let calls = 0;
+    const intervalMs = 5;
+    const stop = startConversationTitleSweeper({
+      intervalMs,
+      deps: {
+        runTitling: async () => {
+          calls++;
+          return {
+            candidates: 1,
+            titled: 0,
+            refreshed: 1,
+            skipped: 0,
+            skippedNoTurns: 0,
+            skippedNoContent: 0,
+            skippedNoSubject: 0,
+            errored: 0,
+          };
+        },
+      },
+    });
+
+    try {
+      await waitForTick(intervalMs);
+      expect(calls).toBeGreaterThan(0);
+    } finally {
+      stop();
+    }
   });
 });

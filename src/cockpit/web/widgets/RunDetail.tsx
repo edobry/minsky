@@ -177,6 +177,12 @@ export interface ConversationOverviewPayload {
      * re-ingested (e.g. ingested once, at completion — `endedAt` covers that case).
      */
     lastActivityAt: string | null;
+    /**
+     * When the generated title was last attempted (mt#4961, SC5) — ISO
+     * string, or null when never attempted. Rendered in the conversation
+     * header as "titled <relative time>" so a stale-looking title is dateable.
+     */
+    titleAttemptedAt: string | null;
   };
   workspace: WorkspaceOverviewFields | null;
 }

@@ -36,6 +36,9 @@ function conversationMeta(
     relatedTaskIds: [],
     relatedPrNumbers: [],
     lastActivityAt: null,
+    // mt#4961 — required on the shared payload type; irrelevant to this
+    // panel's own rendering (it never reads title fields).
+    titleAttemptedAt: null,
     ...overrides,
   };
 }

@@ -21,8 +21,13 @@
  */
 
 import { describe, test, expect } from "bun:test";
+import { PgDialect } from "drizzle-orm/pg-core";
 
-import { TitlePipeline } from "./title-pipeline";
+import {
+  TitlePipeline,
+  TITLE_REFRESH_GROWTH_FACTOR,
+  titleCandidateConditions,
+} from "./title-pipeline";
 import type { TitleTurn } from "./title-generator";
 import type { CognitionProvider, CognitionTask, CognitionResult } from "../cognition/types";
 
@@ -34,6 +39,14 @@ interface SeedRow {
   titleAttemptedAt?: Date | null;
   titleSkipReason?: "no-turns" | "no-content" | "no-subject" | null;
   lastIngestedJsonlTimestamp?: Date | null;
+  /**
+   * Modeled counts for the REFRESH growth predicate (mt#4961) — a direct
+   * stand-in for the real query's two `agent_transcript_turns` COUNT
+   * subqueries, rather than deriving them from per-turn timestamps this fake
+   * doesn't otherwise track. Only consulted when `title !== null`.
+   */
+  turnCountAtTitling?: number;
+  turnCountNow?: number;
 }
 
 /** One text-bearing turn — enough for the generator to build a prompt. */
@@ -81,7 +94,16 @@ function makeDb(seed: SeedRow[], opts: { force?: boolean; failSelect?: boolean }
 
   const isCandidate = (r: SeedRow): boolean => {
     if (opts.force) return true;
-    if (r.title !== null) return false;
+    if (r.title !== null) {
+      // Refresh branch (mt#4961): titled, attempted, and grown at least
+      // TITLE_REFRESH_GROWTH_FACTORx since. Mirrors the real query's
+      // `>= FACTOR * GREATEST(atTitling, 1)` comparison directly against the
+      // modeled counts rather than re-deriving them from turn timestamps.
+      if (!r.titleAttemptedAt) return false;
+      const atTitling = r.turnCountAtTitling ?? 0;
+      const now = r.turnCountNow ?? r.turns.length;
+      return now >= TITLE_REFRESH_GROWTH_FACTOR * Math.max(atTitling, 1);
+    }
     if (!r.titleAttemptedAt) return true;
     // Re-ask when content arrived after the attempt...
     if (r.lastIngestedJsonlTimestamp && r.lastIngestedJsonlTimestamp > r.titleAttemptedAt) {
@@ -97,8 +119,17 @@ function makeDb(seed: SeedRow[], opts: { force?: boolean; failSelect?: boolean }
       if (opts.failSelect) return Promise.reject(new Error("db down"));
       lastLimit = n;
       const cands = [...store.values()].filter(isCandidate).slice(0, n);
-      turnLookupQueue = cands.map((r) => r.agentSessionId);
-      return Promise.resolve(cands.map((r) => ({ agentSessionId: r.agentSessionId })));
+      // A refresh row's `titleRow` issues TWO turn queries (head then tail,
+      // sequentially — see `loadTurns`/`loadTailTurns`); a fresh row issues
+      // one. `run()` processes candidates one at a time, so pushing the same
+      // id twice for a refresh row keeps this FIFO queue correlated to the
+      // right row for both queries.
+      turnLookupQueue = cands.flatMap((r) =>
+        r.title !== null ? [r.agentSessionId, r.agentSessionId] : [r.agentSessionId]
+      );
+      return Promise.resolve(
+        cands.map((r) => ({ agentSessionId: r.agentSessionId, title: r.title }))
+      );
     };
     const tail = { orderBy: (_o: unknown) => ({ limit: runQuery }) };
     // `.where()` is OPTIONAL on this chain: under force the pipeline builds no
@@ -208,7 +239,11 @@ describe("TitlePipeline", () => {
     expect(applied).toEqual([]);
   });
 
-  test("force re-titles rows that already have a title", async () => {
+  test("force re-titles rows that already have a title, counted as `refreshed` (mt#4961)", async () => {
+    // A force re-title of an existing title is the SAME operation SC1's
+    // growth-crossing refresh performs (replace an existing title) — `run()`
+    // classifies by whether the row HAD a title going in, not by why it was
+    // selected, so this counts the same way a growth-crossing refresh would.
     const { db, applied } = makeDb(
       [{ agentSessionId: "s1", turns: [turn("hello")], title: "Stale title" }],
       { force: true }
@@ -219,7 +254,8 @@ describe("TitlePipeline", () => {
       { force: true }
     ).run();
 
-    expect(result.titled).toBe(1);
+    expect(result.refreshed).toBe(1);
+    expect(result.titled).toBe(0);
     expect(applied[0]?.title).toBe("Fresh title");
   });
 
@@ -346,14 +382,18 @@ describe("TitlePipeline", () => {
   // WHERE entirely, so no test actually exercised that. These assert the query
   // SHAPE against the real condition builder instead.
   describe("candidate query shape (real drizzle conditions)", () => {
-    test("normal mode filters on both untitled AND not-already-asked", () => {
+    test("normal mode is ONE condition — an OR of the untitled and refresh branches (mt#4961)", () => {
+      // Was 2 (two ANDed clauses) before mt#4961 made a titled-and-grown row
+      // ALSO a candidate: that is structurally an OR against the untitled
+      // branch, not a third ANDed clause, so titleCandidateConditions() now
+      // returns a single element wrapping the whole OR expression.
       const { db } = makeDb([]);
       expect(
         makePipeline(
           db,
           makeProvider(() => "x")
         ).candidateConditionCount()
-      ).toBe(2);
+      ).toBe(1);
     });
 
     test("force mode drops every filter — and the WHERE is omitted, not undefined", () => {
@@ -511,11 +551,188 @@ describe("TitlePipeline", () => {
     expect(result).toEqual({
       candidates: 0,
       titled: 0,
+      refreshed: 0,
       skipped: 0,
       skippedNoTurns: 0,
       skippedNoContent: 0,
       skippedNoSubject: 0,
       errored: 0,
+    });
+  });
+
+  // ── mt#4961: refresh on growth ─────────────────────────────────────────────
+  //
+  // AT1/AT2 (spec's amended numbering): a titled row re-enters the candidate
+  // set once it has grown at least TITLE_REFRESH_GROWTH_FACTORx since its last
+  // attempt; a refresh's `no-subject` answer keeps the prior title; a subject
+  // replaces it and the write touches exactly the three columns.
+  describe("refresh on growth (mt#4961)", () => {
+    test("AT1: titled at 21 turns with 105 now is a candidate (exactly the factor)", async () => {
+      const { db } = makeDb([
+        {
+          agentSessionId: "grew",
+          turns: [turn("x")],
+          title: "Old title",
+          titleAttemptedAt: new Date("2026-08-01T00:00:00Z"),
+          turnCountAtTitling: 21,
+          turnCountNow: 105,
+        },
+      ]);
+      const result = await makePipeline(
+        db,
+        makeProvider(() => "unused")
+      ).run();
+
+      expect(result.candidates).toBe(1);
+    });
+
+    test("AT1: titled at 21 turns with 104 now is NOT a candidate (one short)", async () => {
+      const { db } = makeDb([
+        {
+          agentSessionId: "not-yet",
+          turns: [turn("x")],
+          title: "Old title",
+          titleAttemptedAt: new Date("2026-08-01T00:00:00Z"),
+          turnCountAtTitling: 21,
+          turnCountNow: 104,
+        },
+      ]);
+      const result = await makePipeline(
+        db,
+        makeProvider(() => "unused")
+      ).run();
+
+      expect(result.candidates).toBe(0);
+    });
+
+    test("AT1: a row that was never attempted is not refresh-eligible even if titled", async () => {
+      // Should not occur in practice (a title is only ever written alongside
+      // an attempt stamp) — guards the predicate against a malformed row.
+      const { db } = makeDb([
+        { agentSessionId: "titled-no-stamp", turns: [turn("x")], title: "Old title" },
+      ]);
+      const result = await makePipeline(
+        db,
+        makeProvider(() => "unused")
+      ).run();
+
+      expect(result.candidates).toBe(0);
+    });
+
+    test("a growth-crossing refresh REPLACES the title and counts as `refreshed`, not `titled`", async () => {
+      const { db, applied } = makeDb([
+        {
+          agentSessionId: "grew",
+          turns: [turn("new subject text")],
+          title: "Old title",
+          titleAttemptedAt: new Date("2026-08-01T00:00:00Z"),
+          turnCountAtTitling: 21,
+          turnCountNow: 105,
+        },
+      ]);
+      const result = await makePipeline(
+        db,
+        makeProvider(() => "New subject")
+      ).run();
+
+      expect(result.refreshed).toBe(1);
+      expect(result.titled).toBe(0);
+      expect(applied[0]?.title).toBe("New subject");
+    });
+
+    test("AT2: a refresh whose model finds no subject keeps the prior title and stamps the attempt", async () => {
+      const { db, applied } = makeDb([
+        {
+          agentSessionId: "grew",
+          turns: [turn("k")],
+          title: "Old title",
+          titleAttemptedAt: new Date("2026-08-01T00:00:00Z"),
+          turnCountAtTitling: 21,
+          turnCountNow: 105,
+        },
+      ]);
+      const result = await makePipeline(
+        db,
+        makeProvider(() => "Untitled")
+      ).run();
+
+      expect(result.refreshed).toBe(0);
+      expect(result.skipped).toBe(1);
+      expect(result.skippedNoSubject).toBe(1);
+      // The write is the ATTEMPT record — `title` is untouched, so the prior
+      // title (not modeled in `applied`, which only records the update SET)
+      // survives; `recordSkip` never includes `title` in its SET clause.
+      expect(applied[0]?.title).toBeUndefined();
+      expect(applied[0]?.titleSkipReason).toBe("no-subject");
+      expect(applied[0]?.titleAttemptedAt).toBeInstanceOf(Date);
+    });
+
+    test("SC2: the update set for a successful refresh is exactly title/titleAttemptedAt/titleSkipReason", async () => {
+      const { db, applied } = makeDb([
+        {
+          agentSessionId: "grew",
+          turns: [turn("new subject text")],
+          title: "Old title",
+          titleAttemptedAt: new Date("2026-08-01T00:00:00Z"),
+          turnCountAtTitling: 21,
+          turnCountNow: 105,
+        },
+      ]);
+      await makePipeline(
+        db,
+        makeProvider(() => "New subject")
+      ).run();
+
+      expect(Object.keys(applied[0] ?? {}).sort()).toEqual([
+        "title",
+        "titleAttemptedAt",
+        "titleSkipReason",
+      ]);
+    });
+
+    test("TITLE_REFRESH_GROWTH_FACTOR is 5, per the corpus grounding in its docblock", () => {
+      expect(TITLE_REFRESH_GROWTH_FACTOR).toBe(5);
+    });
+
+    // AT1's real target, per mt#4961's execution-evidence requirement: unlike
+    // the fake-DB tests above (which model the predicate's BEHAVIOR in JS and
+    // do not read the real WHERE), this renders the ACTUAL SQL
+    // titleCandidateConditions() builds and asserts on its text — so a
+    // regression that removes or breaks the refresh branch fails HERE, not
+    // just in the fake.
+    test("the rendered SQL carries the refresh branch's growth comparison", () => {
+      const [condition] = titleCandidateConditions();
+      const rendered = new PgDialect().sqlToQuery(condition as never).sql;
+
+      expect(rendered).toContain('"agent_transcripts"."title" IS NOT NULL');
+      expect(rendered).toContain('"agent_transcripts"."title_attempted_at" IS NOT NULL');
+      expect(rendered).toContain("count(*)");
+      expect(rendered).toContain("GREATEST(");
+      expect(rendered).toContain("turns_at_titling.started_at <=");
+    });
+
+    // PR #3724 R1 — the cheap ingest-since-titling guard, and (the point of
+    // adding it) that it sits BEFORE the two correlated count subqueries so
+    // Postgres's left-to-right AND short-circuiting skips them for a row that
+    // cannot have grown. Measured on prod: 4,928 ms -> 231 ms for a full pass,
+    // subplans evaluated for 446 rows instead of every titled row (~1,900).
+    test("the ingest-since-titling guard precedes the count subqueries", () => {
+      const [condition] = titleCandidateConditions();
+      const rendered = new PgDialect().sqlToQuery(condition as never).sql;
+
+      // Anchor on branch 2 specifically — `title_attempted_at" IS NOT NULL`
+      // is unique to it (branch 1 only ever compares it `IS NULL`).
+      const branch2Start = rendered.indexOf('"title_attempted_at" IS NOT NULL');
+      expect(branch2Start).toBeGreaterThan(-1);
+      const branch2 = rendered.slice(branch2Start);
+
+      const guardIndex = branch2.indexOf(
+        '"last_ingested_jsonl_timestamp" > "agent_transcripts"."title_attempted_at"'
+      );
+      const countIndex = branch2.indexOf("turns_now");
+      expect(guardIndex).toBeGreaterThan(-1);
+      expect(countIndex).toBeGreaterThan(-1);
+      expect(guardIndex).toBeLessThan(countIndex);
     });
   });
 });

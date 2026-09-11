@@ -81,6 +81,7 @@ import {
   type ConversationOverviewPayload,
 } from "../widgets/RunDetail";
 import { cn } from "../lib/utils";
+import { relativeTime } from "../lib/format";
 import {
   ConversationPresenceChip,
   ConversationActivityLine,
@@ -255,6 +256,13 @@ export function ConversationPage() {
   // raw id, repeating it verbatim underneath adds nothing and reads as a bug.
   const showIdSubline = label !== resolved;
 
+  // mt#4961, SC5 — when the generated title was last attempted, so a
+  // stale-looking title (this task's originating incident: titled at 2 turns,
+  // still showing that title 163 turns later) is dateable from the header
+  // rather than silently trusted. Absent whenever the overview hasn't loaded
+  // yet or the conversation has never been titled.
+  const titleAttemptedAt = overviewQuery.data?.conversationMeta.titleAttemptedAt ?? null;
+
   return (
     <div className={wrapperClass}>
       <PublishConversationDialog
@@ -275,6 +283,15 @@ export function ConversationPage() {
               <h1 className="truncate text-lg font-semibold" title={label}>
                 {label}
               </h1>
+              {titleAttemptedAt && (
+                <span
+                  className="text-xs text-muted-foreground"
+                  data-testid="conversation-title-attempted-at"
+                  title={titleAttemptedAt}
+                >
+                  titled {relativeTime(titleAttemptedAt)}
+                </span>
+              )}
               {showIdSubline && (
                 <span className="font-mono text-xs text-muted-foreground" title={resolved}>
                   {resolved}

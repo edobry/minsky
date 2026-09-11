@@ -2515,6 +2515,8 @@ export interface ConversationTitleSweepDeps {
   runTitling: () => Promise<{
     candidates: number;
     titled: number;
+    /** Rows that already had a title and had it REPLACED this run (mt#4961) — a growth-crossing refresh. */
+    refreshed?: number;
     skipped: number;
     /** mt#4179 — why the skips happened; `skipped` alone cannot say. */
     skippedNoTurns?: number;
@@ -2609,6 +2611,11 @@ export function startConversationTitleSweeper(options?: ConversationTitleSweepOp
           log.info("cockpit: conversation title sweep complete", {
             candidates: result.candidates,
             titled: result.titled,
+            // mt#4961 — regenerated titles (the growth-crossing refresh), as
+            // distinct from `titled` (a first titling). Optional because the
+            // real TitlePipeline always sets it, but an injected test double
+            // (or an older deps shape) may not.
+            refreshed: result.refreshed ?? 0,
             skipped: result.skipped,
             // mt#4179 — a full batch of skips is the head-of-line signature, and
             // `skipped` alone reads identically to a healthy quiet tick. The
