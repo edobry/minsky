@@ -98,10 +98,9 @@ time; and the frozen MCP transport artifact (`mcp-session-id` header handling, t
 (`docs/architecture/adr-022-session-vs-conversation-terminology.md`) and its
 `## Amendment (2026-09-04)`, which also retires the MCP-transport sense.
 
-A fourth sense, the **drive** — the cockpit's supervised subject-surface that spawns and
-reconnects a harness process (`DrivenSessionRecord`) and adopts a series of conversations over
-its life — is recorded under that working term in the same amendment. Its owned noun is an open
-principal decision at ask#12011; this document does not choose one.
+A fourth sense, **Drive** — the cockpit record that spawns and reconnects a harness process
+across a series of adopted conversations (ADR-022 amendment; noun decided by ask#11428 "Own
+noun", 2026-09-04, and ask#12011 "drive", 2026-09-11) — is recorded in the same amendment.
 
 ## 2. Relationship Diagram
 
@@ -241,12 +240,12 @@ minsky session start --repo /path/does/not/exist --task 123
 ADR-022 (`docs/architecture/adr-022-session-vs-conversation-terminology.md`), amended
 2026-09-04, resolved the historical overload of the word "session" into the senses below:
 
-| Old word (bare "session")    | Current sense                                                                    |
-| ---------------------------- | -------------------------------------------------------------------------------- |
-| session (per-task Git clone) | **Workspace** — code identifiers keep the "session" name until mt#2527 (stage 2) |
-| session (harness chat)       | **Conversation**                                                                 |
-| session (MCP transport)      | Retired — the frozen `mcp-session-id` artifact remains until mt#4608 retires it  |
-| _(no prior word)_            | **The drive** — fourth sense; working term, owned noun pending ask#12011         |
+| Old word (bare "session")    | Current sense                                                                                                  |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| session (per-task Git clone) | **Workspace** — code identifiers keep the "session" name until mt#2527 (stage 2)                               |
+| session (harness chat)       | **Conversation**                                                                                               |
+| session (MCP transport)      | Retired — the frozen `mcp-session-id` artifact remains until mt#4608 retires it                                |
+| _(no prior word)_            | **Drive** — fourth sense; noun decided by ask#11428 "Own noun" (2026-09-04) and ask#12011 "drive" (2026-09-11) |
 
 Bare "session" is no longer a Minsky vocabulary word for any of these senses (see §1); it
 survives only as quoted foreign vocabulary at the boundaries the amendment enumerates. For the
