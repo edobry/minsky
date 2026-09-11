@@ -1512,34 +1512,66 @@ const COUNT_FAIL_THEN_PASS_SRC = String.raw`(\d+)\s*fail(?:ed|ing|ures?)?\b[^\n\
 /** `5 of 10 failed`, `5 of 10 tests failed`. */
 const COUNT_N_OF_M_FAILED_SRC = String.raw`(\d+)\s+of\s+(\d+)\s+(?:tests?\s+)?fail(?:ed|ing)?\b`;
 
-/** The runner's own summary lines in a result: ` 17 pass`, ` 7 fail`, `Ran 24 tests`. */
-export function runCounts(output: string): RunCounts {
+/**
+ * The runner's summary BLOCKS in a result — ` 17 pass`, then ` 7 fail` on a
+ * following line (a ` 1 skip` / ` 2 todo` line may sit between), then `Ran 24
+ * tests` — one {@link RunCounts} per block, in order.
+ *
+ * Per block, not first-`pass`-anywhere plus first-`fail`-anywhere (PR #3733
+ * R1): an output that prints several summaries — a `for` loop over three test
+ * files, a runner with retries — would otherwise hand back a `pass` from one
+ * block beside a `fail` from another, and a record's pair could match a
+ * summary no single run printed. Each block is its own candidate; the loop
+ * case is then three real pairs rather than one invented one.
+ */
+export function runCountBlocks(output: string): RunCounts[] {
   const text = normalizeForComparison(output);
-  const pass = /(\d+)\s+pass\b/.exec(text);
-  const fail = /(\d+)\s+fail\b/.exec(text);
-  const ran = /\bRan\s+(\d+)\s+tests?\b/.exec(text);
-  return {
-    pass: pass ? Number(pass[1]) : null,
-    fail: fail ? Number(fail[1]) : null,
-    ran: ran ? Number(ran[1]) : null,
-  };
+  const blocks: RunCounts[] = [];
+  for (const m of text.matchAll(new RegExp(SUMMARY_BLOCK_SRC, "g"))) {
+    blocks.push({
+      pass: Number(m[1]),
+      fail: Number(m[2]),
+      ran: m[3] === undefined ? null : Number(m[3]),
+    });
+  }
+  return blocks;
 }
 
 /**
- * True when the call's output carries BOTH numbers of one of the record's
- * count pairs. A discharge SIGNAL only: a pair that matches no run says nothing
- * about the record, exactly as the widened quoted shapes above.
+ * A line break as a tool result carries it: a real newline, or the two
+ * characters `\n` — a `session_exec` result is a JSON envelope whose `stdout`
+ * field is still escaped in the transcript text, and that is most of them.
+ */
+const RESULT_LINE_BREAK_SRC = String.raw`\s*(?:\n|\\n)\s*`;
+
+/**
+ * ` N pass` … ` M fail` on following lines, optionally followed by `Ran K
+ * tests`. Only skip/todo count lines may sit between pass and fail, and only
+ * the `expect() calls` line between fail and `Ran`.
+ */
+const SUMMARY_BLOCK_SRC =
+  String.raw`(\d+)\s+pass\b` +
+  String.raw`(?:${RESULT_LINE_BREAK_SRC}\d+\s+(?:skip|todo)\b)*` +
+  String.raw`${RESULT_LINE_BREAK_SRC}(\d+)\s+fail\b` +
+  String.raw`(?:(?:${RESULT_LINE_BREAK_SRC}\d+\s+expect\(\)\s+calls?)?${RESULT_LINE_BREAK_SRC}Ran\s+(\d+)\s+tests?\b)?`;
+
+/**
+ * True when ONE of the call's summary blocks carries BOTH numbers of one of the
+ * record's count pairs. A discharge SIGNAL only: a pair that matches no run
+ * says nothing about the record, exactly as the widened quoted shapes above.
  */
 export function callMatchesCountClaim(
   call: ToolCallWithResult,
   claims: readonly RunCounts[]
 ): boolean {
   if (claims.length === 0) return false;
-  const counts = runCounts(call.resultText);
-  return claims.some((claim) => {
-    if (claim.ran !== null) return counts.fail === claim.fail && counts.ran === claim.ran;
-    return counts.pass === claim.pass && counts.fail === claim.fail;
-  });
+  const blocks = runCountBlocks(call.resultText);
+  return claims.some((claim) =>
+    blocks.some((block) => {
+      if (claim.ran !== null) return block.fail === claim.fail && block.ran === claim.ran;
+      return block.pass === claim.pass && block.fail === claim.fail;
+    })
+  );
 }
 
 // ---------------------------------------------------------------------------

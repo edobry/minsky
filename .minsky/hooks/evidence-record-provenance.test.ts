@@ -929,6 +929,30 @@ describe("negative-control discharge via the run's summary counts (mt#4306)", ()
     expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).not.toBe("discharged");
   });
 
+  test("both numbers must agree with ONE SUMMARY BLOCK — an output printing several summaries cannot cross-pair them", () => {
+    // PR #3733 R1. A `for` loop over three files prints three summaries in one
+    // result; `17 pass` from the first and `7 fail` from the third are not a run.
+    const looped = [
+      "(fail) A > a [1ms]\n 17 pass\n 2 fail\nRan 19 tests across 1 file.",
+      "(fail) B > b [1ms]\n 4 pass\n 1 fail\nRan 5 tests across 1 file.",
+      "(fail) C > c [1ms]\n 3 pass\n 7 fail\nRan 10 tests across 1 file.",
+    ].join("\n");
+    const calls = findToolCallsWithResults(testRun(TEST_CMD, looped));
+    expect(judgeClaims(control(SLASH_PAIR), calls, SCOPE)[0]?.verdict).not.toBe("discharged");
+    // Each block is its own candidate, so the third block's real pair still joins.
+    expect(judgeClaims(control("3 pass / 7 fail"), calls, SCOPE)[0]?.verdict).toBe("discharged");
+  });
+
+  test("a summary carried as a JSON envelope — the runner's newlines escaped to `\\n` — still forms a block", () => {
+    // A `session_exec` result in a transcript is `{"stdout":"...\n 17 pass\n 7 fail\n..."}`,
+    // with the two-character sequence, not a newline. Most real results look like this.
+    const envelope =
+      '{"success":true,"stdout":"(fail) X > y [1ms]\\n 17 pass\\n 1 skip\\n 7 fail\\n 40 expect() calls\\nRan 25 tests across 1 file.","exitCode":1}';
+    const calls = findToolCallsWithResults(testRun(TEST_CMD, envelope));
+    expect(judgeClaims(control(SLASH_PAIR), calls, SCOPE)[0]?.verdict).toBe("discharged");
+    expect(judgeClaims(control("7 of 25 failed"), calls, SCOPE)[0]?.verdict).toBe("discharged");
+  });
+
   test("both numbers must agree with ONE run — a pass count from one run and a fail count from another do not", () => {
     const calls = findToolCallsWithResults([
       ...testRun(TEST_CMD, "(fail) A > a [1ms]\n 17 pass\n 2 fail"),

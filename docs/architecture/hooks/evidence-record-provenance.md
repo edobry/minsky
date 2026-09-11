@@ -106,8 +106,8 @@ mt#4024 commit `98e2ac5fd` and the three mt#5078 labelled — none of which any 
   14 more (13 of 14 the control's own run on reading; the 14th a genuine script-shaped control
   credited to an adjacent red run — mt#4309's class).
 
-Net on the frozen population: negative-control **154 → 114 undischarged**, 53 → 34 unadjudicable,
-396 → 455 discharged; every execution-evidence count unchanged.
+Net on the frozen population: negative-control **154 → 114 undischarged**, 53 → 33 unadjudicable,
+396 → 456 discharged; every execution-evidence count unchanged.
 
 **Two candidates measured and rejected in the same pass, so they are not re-proposed.** Scoping
 the subject tokens to the control's own sentence (the "tokens bleed into the next sentence"
