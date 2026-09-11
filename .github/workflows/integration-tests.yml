@@ -90,16 +90,6 @@ on:
   schedule:
     - cron: "17 7 * * *"
 
-env:
-  # Secondary hedge for the mt#3623 install flake: disables the streaming
-  # tarball path implicated upstream (oven-sh/bun#34821; fix PR #34827 is still
-  # unmerged, so no release carries a fix). Measured at 0 failures in 10
-  # cold-cache installs with the flag set, against a 3-in-10 unmitigated
-  # baseline -- mt#3623 records both runs and the method. The per-step retry
-  # loops remain the load-bearing mitigation.
-  # Remove both when a bun release carries the upstream fix.
-  BUN_FEATURE_FLAG_DISABLE_STREAMING_INSTALL: "1"
-
 jobs:
   # Presence-check gate. GitHub Actions does not support referencing the
   # `secrets` context directly in a job-level `if:` (see
@@ -148,7 +138,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
 
       - name: Cache Bun install
         uses: actions/cache@v4
@@ -159,7 +149,7 @@ jobs:
             bun-install-${{ runner.os }}-
 
       - name: Install dependencies
-        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
+        run: bun install --frozen-lockfile --no-progress
 
       - name: Run credential-free integration test
         env:
@@ -184,7 +174,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
 
       - name: Cache Bun install
         uses: actions/cache@v4
@@ -195,7 +185,7 @@ jobs:
             bun-install-${{ runner.os }}-
 
       - name: Install dependencies
-        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
+        run: bun install --frozen-lockfile --no-progress
 
       - name: Run GitHub API integration tests
         env:
@@ -220,7 +210,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
 
       - name: Cache Bun install
         uses: actions/cache@v4
@@ -231,7 +221,7 @@ jobs:
             bun-install-${{ runner.os }}-
 
       - name: Install dependencies
-        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
+        run: bun install --frozen-lockfile --no-progress
 
       - name: Run Supabase pool-saturation integration test
         env:
@@ -287,7 +277,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
 
       - name: Cache Bun install
         uses: actions/cache@v4
@@ -298,7 +288,7 @@ jobs:
             bun-install-${{ runner.os }}-
 
       - name: Install dependencies
-        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
+        run: bun install --frozen-lockfile --no-progress
 
       - name: Apply migrations
         # The tests write real rows, so the schema has to exist. Run from source
@@ -388,7 +378,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
 
       - name: Cache Bun install
         uses: actions/cache@v4
@@ -399,7 +389,7 @@ jobs:
             bun-install-${{ runner.os }}-
 
       - name: Install dependencies
-        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
+        run: bun install --frozen-lockfile --no-progress
 
       - name: Run Docker/testcontainer pool-saturation integration test
         run: bun run test:integration:docker

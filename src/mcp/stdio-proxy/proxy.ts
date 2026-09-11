@@ -548,6 +548,28 @@ export class MinskyStdioProxy {
     this.inboundTransform = this.createInboundTransform();
     (proc.stdin as Readable).pipe(this.inboundTransform).pipe(child.stdin as Writable);
 
+    // A child that exits before the proxy finishes writing to it — a crash on
+    // boot, or the `true` stand-in the tests spawn — closes the pipe under us,
+    // and the next write (the ready probe below is the usual one) surfaces as
+    // EPIPE. That arrives ASYNCHRONOUSLY as an `error` event on the stream, so
+    // the try/catch around the write never sees it, and an `error` with no
+    // listener is an uncaught exception. Bun ≤ 1.3 dropped this silently;
+    // 1.4 emits it the way Node always has (mt#3835). The `close` handler
+    // owns what happens next — classify the exit and respawn — so this only
+    // has to keep the proxy alive long enough for that to run.
+    (child.stdin as Writable).on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EPIPE") {
+        // Expected: the child exited before we finished writing. The `close`
+        // handler is about to run and will classify + respawn.
+        log.debug("[proxy] child.stdin EPIPE (child exited first)", { error: err.message });
+        return;
+      }
+      // Anything else on this stream is not a known-benign shape — keep the
+      // proxy alive (the alternative is an uncaught exception), but say so at
+      // a level that reaches the operator's diagnostics (PR #3721 R2).
+      log.warn("[proxy] Unexpected child.stdin error", { code: err.code, error: err.message });
+    });
+
     // Wire the outbound path: child.stdout → outbound-transform → stdout
     this.outboundTransform = this.createOutboundTransform();
     (child.stdout as Readable).pipe(this.outboundTransform).pipe(proc.stdout as Writable);

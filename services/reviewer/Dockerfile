@@ -1,4 +1,6 @@
-FROM oven/bun:1.3-slim AS base
+# Digest-pinned per the root Dockerfile's mt#1726 convention; rotate all four
+# `FROM oven/bun` lines together (root, cockpit's two stages, this one).
+FROM oven/bun:1.4-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61 AS base
 
 WORKDIR /app
 
@@ -46,14 +48,7 @@ COPY services/site/package.json ./services/site/package.json
 # the root `prepare: husky` and any other install hooks (none of which need
 # to run inside the production container — husky is a dev-only git-hooks
 # helper and is not present in --production deps anyway).
-# Bun 1.3.x streaming tarball extraction intermittently fails `bun install`
-# (~30% of full installs) -- mt#3623, upstream oven-sh/bun#34821 (fix PR #34827
-# unmerged). The retry is the load-bearing mitigation: the failure is an
-# intermittent truncated download, so a fresh attempt succeeds. The env var is a
-# secondary hedge that disables the implicated streaming path; it is set inline
-# rather than via ENV so it does not persist into the runtime image. Remove both
-# when a bun release carries the upstream fix.
-RUN for i in 1 2 3; do if BUN_FEATURE_FLAG_DISABLE_STREAMING_INSTALL=1 bun install --frozen-lockfile --production --ignore-scripts; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
+RUN bun install --frozen-lockfile --production --ignore-scripts
 
 # Source for workspace packages and the reviewer service.
 COPY packages/shared/src ./packages/shared/src

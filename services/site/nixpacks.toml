@@ -64,7 +64,7 @@
 # an incident fix.
 
 # `bun` is deliberately NOT in nixPkgs (PR #3703 R1). Shipping nix's bun 1.1.43
-# alongside the pinned 1.3.14 would put two bun binaries in the image — ~90MB of
+# alongside the pinned bun below would put two bun binaries in the image — ~90MB of
 # weight, and worse, an ambiguity where a future phase written without the
 # absolute path would silently pick up the broken one. Every phase below calls
 # `/usr/local/bin/bun` explicitly, so nothing needs the nix package.
@@ -75,7 +75,7 @@ nixPkgs = ["curl", "unzip"]
 
 [phases.install]
 cmds = [
-  "curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash -s -- bun-v1.3.14",
+  "curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash -s -- bun-v1.4.2",
   "/usr/local/bin/bun --version",
   "/usr/local/bin/bun install",
 ]

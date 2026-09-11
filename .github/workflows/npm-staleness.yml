@@ -43,7 +43,7 @@ jobs:
           # Pinned to the repo-wide version (19 other workflows use this) rather
           # than `latest`: a scheduled job that nobody watches is exactly where a
           # silent runtime bump turns into an unexplained red weeks later.
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
 
       # `npm view` is this check's only data source, so the npm it runs must be
       # a declared version rather than whatever the runner image ships. Same

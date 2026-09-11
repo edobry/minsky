@@ -12,8 +12,9 @@ name: Site Build Smoke
 # runs and someone finally read one.
 #
 # WHAT IT VERIFIES, and why it mirrors the deploy rather than approximating it.
-# `services/site/nixpacks.toml` pins bun by installing `bun-v1.3.14` to
-# `/usr/local/bin/bun` and invoking every phase through that absolute path.
+# `services/site/nixpacks.toml` pins bun by installing an exact `bun-vX.Y.Z` to
+# `/usr/local/bin/bun` and invoking every phase through that absolute path. The
+# version is read from that file below, so it is stated in exactly one place.
 # This job installs the SAME pinned version the same way, then runs the same
 # `bun install` + `bun run build`. That matters: the outage was caused by the
 # BUN VERSION (1.1.43 could not parse react-dom's bun server bundle), so a

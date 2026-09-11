@@ -11,16 +11,6 @@ on:
   # explicitly; without it, this dispatches against `main`. mt#1469.
   workflow_dispatch:
 
-env:
-  # Secondary hedge for the mt#3623 install flake: disables the streaming
-  # tarball path implicated upstream (oven-sh/bun#34821; fix PR #34827 is still
-  # unmerged, so no release carries a fix). Measured at 0 failures in 10
-  # cold-cache installs with the flag set, against a 3-in-10 unmitigated
-  # baseline -- mt#3623 records both runs and the method. The per-step retry
-  # loops remain the load-bearing mitigation.
-  # Remove both when a bun release carries the upstream fix.
-  BUN_FEATURE_FLAG_DISABLE_STREAMING_INSTALL: "1"
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -41,7 +31,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
 
       - name: Cache Bun install (shared root + services/reviewer)
         uses: actions/cache@v4
@@ -58,7 +48,7 @@ jobs:
       # step-level backstop is the right granularity for this one.
       - name: Install dependencies
         timeout-minutes: 15
-        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
+        run: bun install --frozen-lockfile --no-progress
 
       # ripgrep is a RUNTIME dependency of session.grep_search (mt#3163), which
       # spawns `rg` directly — it is not a test-only convenience. ubuntu-latest
@@ -165,7 +155,7 @@ jobs:
         if: ${{ always() }}
         working-directory: services/reviewer
         run: |
-          for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
+          bun install --frozen-lockfile --no-progress
           bun run typecheck
 
       # mt#3817: services/site shipped a tsconfig but no `typecheck` script and
@@ -195,7 +185,7 @@ jobs:
         timeout-minutes: 15
         if: ${{ always() }}
         run: |
-          for i in 1 2 3; do if bun install --cwd services/reviewer --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
+          bun install --cwd services/reviewer --frozen-lockfile --no-progress
           bun run test:reviewer
 
       # Reviewer-image module-resolution smoke (mt#2453): replicates the
@@ -372,7 +362,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
 
       - name: Cache Bun install (shared root + services/reviewer)
         uses: actions/cache@v4
@@ -389,7 +379,7 @@ jobs:
       # step-level backstop is the right granularity for this one.
       - name: Install dependencies
         timeout-minutes: 15
-        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
+        run: bun install --frozen-lockfile --no-progress
 
       - uses: actions/setup-node@v4
         with:
@@ -607,7 +597,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
 
       - name: Cache Bun install (shared root + services/reviewer)
         uses: actions/cache@v4
@@ -624,7 +614,7 @@ jobs:
       # step-level backstop is the right granularity for this one.
       - name: Install dependencies
         timeout-minutes: 15
-        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
+        run: bun install --frozen-lockfile --no-progress
 
       # ripgrep is a runtime dependency of session.grep_search (mt#3163); see
       # the identical step in the `build` job above for rationale, including the
