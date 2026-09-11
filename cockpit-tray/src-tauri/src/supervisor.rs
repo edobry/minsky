@@ -1559,9 +1559,10 @@ fn run_supervisor(
         let _web_watcher = cockpit_source_root(&path)
             .and_then(|root| start_web_watcher(&app, &cockpit_web_src(&root)));
         // mt#2299: runtime backend-source watcher. Sibling of `_web_watcher`;
-        // dispatches `Restart` (not `Rebuild`) on a backend `.ts`/`.mts`/`.cts`
-        // change. `web/**` is excluded so a frontend edit never restarts the
-        // daemon. Gated on `cockpit_backend_root` (BACKEND source presence), NOT
+        // dispatches `Restart` (not `Rebuild`) on a backend module change
+        // (`.ts`/`.mts`/`.cts`/`.json`) anywhere under `src/` or `packages/*/src`
+        // (mt#4230, mt#5060). `web/**` is excluded so a frontend edit never
+        // restarts the daemon. Gated on `cockpit_backend_root` (BACKEND source presence), NOT
         // `cockpit_source_root` (web presence) — reviewer R1 B1: the web gate
         // made the whole feature silently no-op when `web/` was absent.
         //

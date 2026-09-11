@@ -8,7 +8,7 @@ For depth on this app — daemon lifecycle, status labels, auto-rebuild, testing
 
 "Why don't I see my change?" almost always means these two were confused:
 
-- **cockpit-web** (`src/cockpit/web/**`, `src/cockpit/server.ts`) — the running tray **auto-rebuilds the bundle (mt#2297) and auto-restarts the daemon (mt#2299)** on source change. No manual tray rebuild; just refresh the window.
+- **cockpit-web** (`src/cockpit/web/**`, `src/cockpit/server.ts`) — the running tray **auto-rebuilds the bundle (mt#2297) and auto-restarts the daemon (mt#2299)** on source change. The restart fires on any non-test module under `src/**` or `packages/*/src` (mt#4230, mt#5060), not just `src/cockpit`. No manual tray rebuild; just refresh the window.
 - **tray binary** (`cockpit-tray/src-tauri/**`) — the `.app` itself (menu, window, supervision). **NOT** auto-rebuilt; the installed app is a static bundle. A merged Rust change is invisible until rebuilt. mt#2219 was this layer.
 
 ## Dev loop (tray-binary changes)
