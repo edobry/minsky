@@ -11,7 +11,11 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { detectDepthRequest } from "./wall-of-text-detector";
+import {
+  DEPTH_REQUEST_NEGATOR_RE,
+  detectDepthRequest,
+  isNegatedDepthRequest,
+} from "./wall-of-text-detector";
 
 // VERBATIM `precedingPrompt` excerpts (all `truncated: false`) from the
 // 2026-09-04 window's injected over-budget records that carried
@@ -130,5 +134,122 @@ describe("mt#4969 — depth-request widening", () => {
     ]) {
       expect(detectDepthRequest([brevity]).matched).toBe(false);
     }
+  });
+});
+
+// mt#5052 — the negation guard. Eight of the ten entries matched the NEGATION
+// of the phrase they were calibrated for (a request for LESS), so the
+// over-budget reminder was withheld exactly when the principal asked for
+// brevity. One guard at the `detectDepthRequest` seam, not eight regex edits
+// and not per-entry anchoring: 9 of the 13 live suppressions in the
+// 2026-08-30 → 09-11 calibration window are mid-sentence requests that an
+// anchor would un-suppress.
+describe("mt#5052 — negated depth requests do not suppress", () => {
+  const HELP_ME_UNDERSTAND = "help-me-understand";
+  // The spec's table, verbatim — one grammatical negation per pre-existing
+  // entry. Before the guard every one of these returned `matched: true`.
+  const NEGATED_BY_ENTRY: ReadonlyArray<[string, string]> = [
+    ["walk-me-through", "dont walk me through everything, just the summary"],
+    ["show-the-detail", "do not show me the detail, just the verdict"],
+    ["full-breakdown", "no need to give me the full breakdown"],
+    ["deep-dive", "dont deep-dive into the sweep logic"],
+    ["go-into-detail", "please do not go into more detail on the failure"],
+    ["be-expansive", "dont be expansive here, keep it short"],
+    ["in-full-detail", "no need to explain it in full detail"],
+    [HELP_ME_UNDERSTAND, "no need to help me understand the internals"],
+  ];
+
+  // Each entry's calibrated phrase, in the shape the list's own comments and
+  // the corpus attest to — the guard must leave every one of these matched,
+  // with the SAME name (AT2).
+  const GENUINE_BY_ENTRY: ReadonlyArray<[string, string]> = [
+    ["walk-me-through", "walk me through everything"],
+    ["show-the-detail", "show me the detail"],
+    ["full-breakdown", "give me the full breakdown"],
+    ["deep-dive", "take a deep dive into the sweep logic"],
+    ["go-into-detail", "go into more detail on the failure"],
+    ["be-expansive", "be expansive here"],
+    ["in-full-detail", "explain it in full detail"],
+    [HELP_ME_UNDERSTAND, "help me understand the internals"],
+    ["lets-dive-deeper", "lets dive deeper into the community discourse"],
+    ["tell-me-more", "Tell me more about the sweep logic"],
+  ];
+
+  test("AT1 — each negated prompt from the spec's table is left unmatched", () => {
+    for (const [entry, negated] of NEGATED_BY_ENTRY) {
+      const r = detectDepthRequest([negated]);
+      expect({ entry, negated, matched: r.matched }).toEqual({ entry, negated, matched: false });
+    }
+  });
+
+  test("AT2 — each entry's calibrated phrase still matches, under the same name", () => {
+    for (const [entry, genuine] of GENUINE_BY_ENTRY) {
+      expect(detectDepthRequest([genuine])).toEqual({ matched: true, matchedPattern: entry });
+    }
+  });
+
+  test("AT2 — the mid-sentence live shapes still match (the reason anchoring was rejected)", () => {
+    // Verbatim shapes from the 13 live `help-me-understand` suppressions.
+    for (const live of [
+      'lets discuss mt#4827 two things What is "wake enrichment" and also, help me understand the whole "dual registration" thing',
+      'proceed, but first help me understand "Package released for review"',
+      "i see this in the claude code changelog, help me understand it Added a Containment mode",
+      'you mentioned "per-session server instances", help me understand what that means real quick',
+      "Help me understand the reviewer bug. And no, I don't want the whole history.",
+    ]) {
+      expect(detectDepthRequest([live])).toEqual({
+        matched: true,
+        matchedPattern: HELP_ME_UNDERSTAND,
+      });
+    }
+  });
+
+  test("the guard's window is tight — a negator outside it does not defeat a request", () => {
+    // "not" governs "sure", and the dash ends the clause before the request.
+    expect(
+      detectDepthRequest(["I'm not sure I follow — help me understand the peez thing"])
+    ).toEqual({
+      matched: true,
+      matchedPattern: HELP_ME_UNDERSTAND,
+    });
+    // Four tokens between the negator and the phrase: outside the {0,3} window.
+    expect(detectDepthRequest(["it's not clear to me so walk me through everything"]).matched).toBe(
+      true
+    );
+    // A comma ends the clause; the negation belongs to the first one.
+    expect(detectDepthRequest(["I did not get that, walk me through everything"]).matched).toBe(
+      true
+    );
+    // The contrastive "but" opens a fresh clause that asks for depth.
+    expect(
+      detectDepthRequest(["don't walk me through everything, but do go into detail on the failure"])
+    ).toEqual({ matched: true, matchedPattern: "go-into-detail" });
+  });
+
+  test("the guard reaches a negator up to three tokens before the phrase", () => {
+    expect(detectDepthRequest(["I'm not asking you to walk me through everything"]).matched).toBe(
+      false
+    );
+    expect(detectDepthRequest(["don't just give me the full breakdown"]).matched).toBe(false);
+    expect(detectDepthRequest(["don’t walk me through everything"]).matched).toBe(false); // curly apostrophe
+    expect(detectDepthRequest(["never go into detail on the failure"]).matched).toBe(false);
+  });
+
+  test("every occurrence is judged, so a negated first mention does not hide a later request", () => {
+    expect(
+      detectDepthRequest([
+        "don't walk me through everything. Actually, walk me through the whole process of the merge.",
+      ])
+    ).toEqual({ matched: true, matchedPattern: "walk-me-through" });
+  });
+
+  test("isNegatedDepthRequest is the single seam, testable on its own", () => {
+    const text = "dont walk me through everything";
+    expect(isNegatedDepthRequest(text, text.indexOf("walk"))).toBe(true);
+    expect(isNegatedDepthRequest("please walk me through everything", "please ".length)).toBe(
+      false
+    );
+    expect(DEPTH_REQUEST_NEGATOR_RE.test("no need to ")).toBe(true);
+    expect(DEPTH_REQUEST_NEGATOR_RE.test("nothing about ")).toBe(false); // "not" inside a word
   });
 });
