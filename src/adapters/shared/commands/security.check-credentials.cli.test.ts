@@ -27,10 +27,24 @@ function runCli(
   args: string[],
   input?: string
 ): { stdout: string; stderr: string; status: number } {
+  // The in-process harness (tests/setup.ts) sets MINSKY_LOG_MODE=STRUCTURED on
+  // process.env for ITS OWN logger. That is an env var, so unlike the
+  // globalThis silencing flag it crosses the process boundary: a spawned CLI
+  // inherits it and — correctly, per resolveDiagnosticSink, where STRUCTURED
+  // outranks the one-shot `discard` — prints its boot diagnostics as JSON on
+  // stdout. `--quiet`'s "prints nothing" contract is about the DEFAULT mode an
+  // operator's shell gives the command, which is what this test asserts, so
+  // the harness's mode must not reach the child. Bun <= 1.3 hid this: its
+  // spawnSync handed children an env snapshot that predated the preload's
+  // mutation (Node passes the live process.env); 1.4 fixed that, and the
+  // leak surfaced (mt#3835).
+  const env = { ...process.env };
+  delete env.MINSKY_LOG_MODE;
   const result = spawnSync("bun", ["run", "src/cli.ts", "security", "check-credentials", ...args], {
     input,
     encoding: "utf8",
     timeout: 15000,
+    env,
   });
   return {
     stdout: result.stdout ?? "",
