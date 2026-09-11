@@ -23,7 +23,25 @@
  * interface (`cognition/types.ts`) — `DirectCognitionProvider` does honor it,
  * but a different provider need not, so this is a request, not a guarantee.
  *
+ * **Two window shapes (mt#4961).** A first-time titling shows the model the
+ * conversation's OPENING ({@link selectTitleTurns}) — the subject is presumed
+ * to live there. A REFRESH ({@link selectRefreshTitleTurns}) additionally shows
+ * a recent-weighted TAIL, because the whole reason a refresh fires is that the
+ * conversation moved on from where it started; showing only the opening again
+ * would reproduce the stale title.
+ *
+ * **Handoff-resumed conversations (mt#4961, SC3).** A conversation whose first
+ * human turn is an ADR-046 succession claim (`handoff mt#N`, `action handoff
+ * …`, or a `minsky://task/` link) is, structurally, titled after the CLAIM
+ * rather than the work — "Handoff on mt#4956 task claim" says nothing a reader
+ * can act on. When an injected {@link WorkPackageLookup} resolves that claim's
+ * task to a `work-package`-kind task, its title and member list are prefixed
+ * onto the prompt and the model is told to title the WORK, not the handoff.
+ * This module stays pure (no DB import) — the lookup is supplied by the
+ * caller ({@link TitlePipeline}, which resolves it against the task store).
+ *
  * @see mt#3321 — this module
+ * @see mt#4961 — refresh window + handoff-aware prompt
  * @see summary-generator.ts — the paragraph-summary sibling (mt#1353)
  * @see conversation-label.ts — the consumer of the generated title
  */
@@ -143,6 +161,27 @@ const NO_SUBJECT_SENTINEL = "untitled";
  */
 export type TitleTurn = Pick<ExtractedTurn, "userText" | "assistantText">;
 
+/**
+ * A {@link TitleTurn} carrying its DB ordinal (mt#4961) — the identity
+ * {@link selectRefreshTitleTurns} de-duplicates the head/tail windows on. Plain
+ * {@link TitleTurn} has no such identity because a first-time titling only ever
+ * has ONE window to select from; a refresh has two that can overlap on a short
+ * conversation.
+ */
+export type IndexedTitleTurn = TitleTurn & { turnIndex: number };
+
+/**
+ * Resolve a handoff-claimed task id (mt#4961, SC3) — supplied by the caller
+ * ({@link TitlePipeline}), never imported here, so this module keeps no DB
+ * dependency. Returns null for anything that is not a `work-package`-kind
+ * task: an ordinary task named in a `handoff mt#N` claim is not this pattern,
+ * and the generator must fall through to its normal prompt rather than title
+ * the session after an unrelated task that happens to share the claim's id.
+ */
+export type WorkPackageLookup = (
+  taskId: string
+) => Promise<{ title: string; members: Array<{ id: string; title: string | null }> } | null>;
+
 /** Length bound for the substantive-content probe — enough to tell empty from not. */
 const SUBSTANTIVE_PROBE_LEN = 120;
 
@@ -156,6 +195,11 @@ function visibleText(text: string | null | undefined): string {
   return toDisplaySnippet(text.replace(ATTACHMENT_PLACEHOLDER_RE, " "), SUBSTANTIVE_PROBE_LEN);
 }
 
+/** Whether a turn carries anything a reader (or the model) would see as content. */
+function hasVisibleContent(turn: TitleTurn): boolean {
+  return Boolean(visibleText(turn.userText) || visibleText(turn.assistantText));
+}
+
 /**
  * Pick the turns the model is shown: the first {@link MAX_TURNS} turns that
  * carry visible content, scanning at most {@link TURN_SCAN_LIMIT} candidates.
@@ -167,11 +211,78 @@ function visibleText(text: string | null | undefined): string {
 export function selectTitleTurns<T extends TitleTurn>(turns: T[]): T[] {
   const selected: T[] = [];
   for (const turn of turns.slice(0, TURN_SCAN_LIMIT)) {
-    if (!visibleText(turn.userText) && !visibleText(turn.assistantText)) continue;
+    if (!hasVisibleContent(turn)) continue;
     selected.push(turn);
     if (selected.length >= MAX_TURNS) break;
   }
   return selected;
+}
+
+/** Head turns kept for a REFRESH prompt (mt#4961) — see {@link selectRefreshTitleTurns}. */
+export const TITLE_REFRESH_HEAD_TURNS = 4;
+
+/**
+ * The window shown to the model when REFRESHING a title (mt#4961): the
+ * conversation's opening ({@link TITLE_REFRESH_HEAD_TURNS} substantive turns —
+ * so a conversation that never left its original subject is not made to look
+ * like it drifted) plus {@link MAX_TURNS} substantive turns selected from the
+ * LAST {@link TURN_SCAN_LIMIT} turns (recent-weighted, since the entire point
+ * of a refresh is to catch where the conversation moved).
+ *
+ * `headTurns` and `tailTurns` are two independently-loaded, non-overlapping-by-
+ * INTENT windows (see `TitlePipeline.loadTurns` / `loadTailTurns`), but on a
+ * short conversation the "last 36 turns" IS the opening — so the tail pool is
+ * de-duplicated against whichever head turns were actually SELECTED (by
+ * {@link IndexedTitleTurn.turnIndex}) before its own selection runs, and the
+ * combined result is re-sorted into conversation order (the two selections
+ * each preserve order internally, but concatenation does not).
+ */
+export function selectRefreshTitleTurns<T extends IndexedTitleTurn>(
+  headTurns: T[],
+  tailTurns: T[]
+): T[] {
+  const head = selectTitleTurns(headTurns).slice(0, TITLE_REFRESH_HEAD_TURNS);
+  const headIndexes = new Set(head.map((t) => t.turnIndex));
+  const tailPool = tailTurns.filter((t) => !headIndexes.has(t.turnIndex));
+  const tail = selectTitleTurns(tailPool);
+  return [...head, ...tail].sort((a, b) => a.turnIndex - b.turnIndex);
+}
+
+/**
+ * Succession-claim shape on a conversation's first human turn (mt#4961, SC3,
+ * ADR-046): `handoff mt#N`, `action handoff mt#N`, optionally slash-prefixed
+ * (the harness command form), or a `minsky://task/mt%23N` deeplink. Returns
+ * the claimed task id (`mt#N`), or null when the text matches neither shape.
+ */
+function extractHandoffTaskId(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const claim = text.match(/^\s*\/?(?:handoff|action\s+handoff)\s+mt#(\d+)/i);
+  if (claim) return `mt#${claim[1]}`;
+  const link = text.match(/minsky:\/\/task\/mt%23(\d+)/i);
+  if (link) return `mt#${link[1]}`;
+  return null;
+}
+
+/**
+ * Render the work-package prefix prepended to a handoff-resumed conversation's
+ * prompt (mt#4961, SC3) — instructing the model to title the WORK rather than
+ * the claim, and naming the package and its members so it can.
+ */
+function buildWorkPackagePrefix(pkg: {
+  title: string;
+  members: Array<{ id: string; title: string | null }>;
+}): string {
+  const memberLines = pkg.members
+    .map((m) => `- ${m.id}${m.title ? `: ${m.title}` : ""}`)
+    .join("\n");
+  const lines = [
+    "This conversation was resumed via a handoff claim on a work package.",
+    "Title the session after the WORK described below, never after the act of",
+    "claiming it or handing it off.",
+    `Work package: ${pkg.title}`,
+  ];
+  if (memberLines) lines.push("Members:", memberLines);
+  return `${lines.join("\n")}\n\n`;
 }
 
 function buildUserPrompt(turns: TitleTurn[]): string {
@@ -222,28 +333,45 @@ export class TitleGenerator {
   constructor(
     private readonly cognitionProvider: CognitionProvider,
     /** Override the pinned cheap model — see {@link TITLE_MODEL_HINT}. */
-    private readonly modelHint: ModelHint = TITLE_MODEL_HINT
+    private readonly modelHint: ModelHint = TITLE_MODEL_HINT,
+    /** Resolve a handoff claim's task to a work package (mt#4961, SC3). Absent means never prefix. */
+    private readonly workPackageLookup?: WorkPackageLookup
   ) {}
 
   /**
-   * Generate a short title from the transcript's opening turns.
+   * Generate a short title from the given turns.
+   *
+   * `turns` is trusted to already be the window the caller wants shown —
+   * {@link selectTitleTurns} for a first-time titling, {@link
+   * selectRefreshTitleTurns} for a refresh. This method itself only strips any
+   * turn that carries no visible content (a defensive filter for a caller that
+   * passes raw, unselected turns directly, which several tests here do); it
+   * does NOT re-apply {@link MAX_TURNS} — that cap belongs to the SELECTION the
+   * caller already made, and re-imposing it here would truncate a refresh's
+   * wider (head + tail) window back down to the size of a first-time one.
    *
    * Returns null when there is nothing to title (no turn carries visible
-   * content — see {@link selectTitleTurns}) or the model reports no
-   * identifiable subject. THROWS on provider failure — the caller (the title
-   * pipeline) decides whether to skip the row and record the error; a silent
-   * null here would be indistinguishable from "nothing to do", which is the
-   * dominant latent-bug shape in this codebase (mem#682).
+   * content) or the model reports no identifiable subject. THROWS on provider
+   * failure — the caller (the title pipeline) decides whether to skip the row
+   * and record the error; a silent null here would be indistinguishable from
+   * "nothing to do", which is the dominant latent-bug shape in this codebase
+   * (mem#682).
    */
   async generateTitle(agentSessionId: string, turns: TitleTurn[]): Promise<string | null> {
-    const selected = selectTitleTurns(turns);
+    const selected = turns.filter(hasVisibleContent);
     if (selected.length === 0) return null;
+
+    // mt#4961, SC3 — the succession-claim check reads the FIRST turn handed
+    // in, which for both the fresh and refresh callers is the conversation's
+    // earliest surviving turn (selectTitleTurns/selectRefreshTitleTurns both
+    // preserve order and start from the opening).
+    const prefix = await this.buildHandoffPrefix(turns[0]?.userText ?? null);
 
     const result = await this.cognitionProvider.perform({
       id: `session-title:${agentSessionId}`,
       kind: "synthesize-narrative",
       systemPrompt: SYSTEM_PROMPT,
-      userPrompt: buildUserPrompt(selected),
+      userPrompt: prefix + buildUserPrompt(selected),
       schema: titleSchema,
       model: this.modelHint,
     });
@@ -262,5 +390,21 @@ export class TitleGenerator {
       `CognitionProvider returned 'packaged' result for session title ${agentSessionId}. ` +
         "Delegated mode is not supported for transcript titling."
     );
+  }
+
+  /**
+   * Build the work-package prefix for a handoff-resumed conversation (mt#4961,
+   * SC3), or the empty string when no lookup is wired, the first turn does not
+   * match the succession-claim shape, or the claimed task is not a work
+   * package (a bare `handoff mt#N` naming an ordinary task is not this
+   * pattern — see {@link WorkPackageLookup}).
+   */
+  private async buildHandoffPrefix(firstHumanText: string | null): Promise<string> {
+    if (!this.workPackageLookup) return "";
+    const taskId = extractHandoffTaskId(firstHumanText);
+    if (!taskId) return "";
+    const pkg = await this.workPackageLookup(taskId);
+    if (!pkg) return "";
+    return buildWorkPackagePrefix(pkg);
   }
 }

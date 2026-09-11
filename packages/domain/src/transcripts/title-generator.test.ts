@@ -16,9 +16,13 @@ import {
   TitleGenerator,
   normalizeTitle,
   selectTitleTurns,
+  selectRefreshTitleTurns,
   TITLE_MODEL_HINT,
   TITLE_MAX_LEN,
   TURN_SCAN_LIMIT,
+  TITLE_REFRESH_HEAD_TURNS,
+  type IndexedTitleTurn,
+  type WorkPackageLookup,
 } from "./title-generator";
 import type { CognitionProvider, CognitionTask, CognitionResult } from "../cognition/types";
 import type { ExtractedTurn } from "./turn-extractor";
@@ -255,5 +259,143 @@ describe("selectTitleTurns", () => {
 
     expect(title).toBeNull();
     expect(provider.lastTask).toBeNull();
+  });
+});
+
+/**
+ * mt#4961 SC1 — the REFRESH window: opening turns plus a recent-weighted tail,
+ * because a refresh's whole point is to catch where the conversation moved.
+ */
+describe("selectRefreshTitleTurns", () => {
+  function indexed(i: number, text: string | null): IndexedTitleTurn {
+    return { turnIndex: i, userText: text, assistantText: null };
+  }
+  function silentIndexed(i: number): IndexedTitleTurn {
+    return indexed(i, null);
+  }
+
+  test("combines the first head turns with tail turns, in conversation order", () => {
+    const head = Array.from({ length: 10 }, (_, i) => indexed(i, `head ${i}`));
+    const tail = Array.from({ length: 20 }, (_, i) => indexed(100 + i, `tail ${i}`));
+    const result = selectRefreshTitleTurns(head, tail);
+
+    expect(result.slice(0, TITLE_REFRESH_HEAD_TURNS).map((t) => t.turnIndex)).toEqual([0, 1, 2, 3]);
+    // 4 head + 12 tail (MAX_TURNS) = 16, no overlap between the windows here.
+    expect(result).toHaveLength(16);
+    const indexes = result.map((t) => t.turnIndex);
+    for (let i = 1; i < indexes.length; i++) {
+      const prev = indexes[i - 1];
+      const curr = indexes[i];
+      if (prev === undefined || curr === undefined) throw new Error("unexpected hole in result");
+      expect(curr).toBeGreaterThan(prev);
+    }
+  });
+
+  test("de-duplicates when the tail window IS the head window (a short conversation)", () => {
+    const turns = Array.from({ length: 8 }, (_, i) => indexed(i, `turn ${i}`));
+    const result = selectRefreshTitleTurns(turns, turns);
+    const indexes = result.map((t) => t.turnIndex);
+
+    expect(new Set(indexes).size).toBe(indexes.length);
+    expect(indexes).toEqual([...indexes].sort((a, b) => a - b));
+    // All 8 turns are substantive and fit under 4 + 12, so nothing is dropped.
+    expect(indexes).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  test("skips non-substantive turns in both windows", () => {
+    const head = [indexed(0, "real head"), silentIndexed(1), silentIndexed(2)];
+    const tail = [silentIndexed(50), indexed(51, "real tail")];
+    const result = selectRefreshTitleTurns(head, tail);
+
+    expect(result.map((t) => t.userText)).toEqual(["real head", "real tail"]);
+  });
+});
+
+/**
+ * mt#4961 SC3 — a conversation resumed via an ADR-046 handoff claim is titled
+ * after the WORK, not the act of claiming it.
+ */
+describe("handoff-resumed conversations (mt#4961, SC3)", () => {
+  /** The work package's title, reused across the matching-claim tests below. */
+  const PACKAGE_TITLE = "Cockpit widget refactor";
+
+  function makeLookup(
+    resolve: (
+      taskId: string
+    ) => { title: string; members: Array<{ id: string; title: string | null }> } | null
+  ): WorkPackageLookup {
+    return async (taskId) => resolve(taskId);
+  }
+
+  test("a first turn matching `handoff mt#N` prefixes the package title and members", async () => {
+    const provider = makeProvider(completed(PACKAGE_TITLE));
+    const lookup = makeLookup((taskId) =>
+      taskId === "mt#4956"
+        ? {
+            title: PACKAGE_TITLE,
+            members: [
+              { id: "mt#4957", title: "Widget A" },
+              { id: "mt#4958", title: null },
+            ],
+          }
+        : null
+    );
+    const generator = new TitleGenerator(provider, undefined, lookup);
+    await generator.generateTitle(SESSION, [turn("handoff mt#4956")]);
+
+    const prompt = provider.lastTask?.userPrompt ?? "";
+    expect(prompt).toContain(PACKAGE_TITLE);
+    expect(prompt).toContain("mt#4957");
+    expect(prompt).toContain("Widget A");
+    expect(prompt).toContain("mt#4958");
+    expect(prompt).toContain("Title the session after the WORK");
+  });
+
+  test("the slash-prefixed harness form `/action handoff mt#N` also matches", async () => {
+    const provider = makeProvider(completed("Some title"));
+    const lookup = makeLookup((taskId) =>
+      taskId === "mt#4956" ? { title: PACKAGE_TITLE, members: [] } : null
+    );
+    const generator = new TitleGenerator(provider, undefined, lookup);
+    await generator.generateTitle(SESSION, [turn("/action handoff mt#4956")]);
+
+    expect(provider.lastTask?.userPrompt ?? "").toContain(PACKAGE_TITLE);
+  });
+
+  test("a minsky://task/ link on the first turn also triggers the lookup", async () => {
+    const provider = makeProvider(completed("Some title"));
+    const lookup = makeLookup((taskId) =>
+      taskId === "mt#4956" ? { title: PACKAGE_TITLE, members: [] } : null
+    );
+    const generator = new TitleGenerator(provider, undefined, lookup);
+    await generator.generateTitle(SESSION, [turn("Resuming via minsky://task/mt%234956")]);
+
+    expect(provider.lastTask?.userPrompt ?? "").toContain(PACKAGE_TITLE);
+  });
+
+  test("a non-package task id (lookup returns null) produces no prefix", async () => {
+    const provider = makeProvider(completed("Some title"));
+    const lookup = makeLookup(() => null);
+    const generator = new TitleGenerator(provider, undefined, lookup);
+    await generator.generateTitle(SESSION, [turn("handoff mt#9999")]);
+
+    expect(provider.lastTask?.userPrompt ?? "").not.toContain("Work package");
+  });
+
+  test("no lookup wired means no prefix even for a matching claim", async () => {
+    const provider = makeProvider(completed("Some title"));
+    const generator = new TitleGenerator(provider); // no workPackageLookup
+    await generator.generateTitle(SESSION, [turn("handoff mt#4956")]);
+
+    expect(provider.lastTask?.userPrompt ?? "").not.toContain("Work package");
+  });
+
+  test("a first turn that does not match the claim shape produces no prefix", async () => {
+    const provider = makeProvider(completed("Some title"));
+    const lookup = makeLookup(() => ({ title: "Should not be reached", members: [] }));
+    const generator = new TitleGenerator(provider, undefined, lookup);
+    await generator.generateTitle(SESSION, [turn("why is the build failing")]);
+
+    expect(provider.lastTask?.userPrompt ?? "").not.toContain("Work package");
   });
 });
