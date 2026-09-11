@@ -61,9 +61,12 @@ import { extractNegativeControlRecords, mentionsNegativeControl } from "./test-f
 import { extractExecutionEvidenceRecords } from "./require-execution-evidence-before-merge";
 import {
   callContainsQuotedFailure,
+  callMatchesCountClaim,
   callNamesSubject,
   claimedCheckKinds,
   defaultSessionsDir,
+  extractBareIdentifiers,
+  extractCountClaims,
   extractQuotedFailures,
   extractStrictQuotedFailures,
   extractSubjectTokens,
@@ -213,8 +216,21 @@ export function judgeClaims(
     // record whose evidence was sitting in the body (see the table module).
     const quoted = extractQuotedFailures(full);
     const reds = failingTestRuns(calls);
+    // A THIRD discharge signal (mt#4306): the record states the red run's
+    // summary counts as one phrase (`17 pass / 7 fail`) where the runner prints
+    // two lines, so neither join above can see the paste. Signal only — it
+    // plays no part in adjudicability below.
+    const countClaims = extractCountClaims(full);
+    // And a FOURTH: an identifier the author wrote bare rather than backticked,
+    // which the subject extractor above cannot see. Same match as the subject
+    // join, discharge side only.
+    const bareIdentifiers = extractBareIdentifiers(full);
     const discharged = reds.some(
-      (c) => callContainsQuotedFailure(c, quoted) || callNamesSubject(c, tokens)
+      (c) =>
+        callContainsQuotedFailure(c, quoted) ||
+        callNamesSubject(c, tokens) ||
+        callMatchesCountClaim(c, countClaims) ||
+        callNamesSubject(c, bareIdentifiers)
     );
     // EITHER join discharges; NEITHER available is the only unadjudicable case.
     // A quoted failure is itself a checkable claim — a paste that appears in no

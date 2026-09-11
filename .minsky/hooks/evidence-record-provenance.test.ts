@@ -877,6 +877,167 @@ describe("writes outside the workspace do not invalidate a run (mt#5087)", () =>
 });
 
 // ---------------------------------------------------------------------------
+// The count-pair join and the abbreviated quoted line (mt#4306)
+// ---------------------------------------------------------------------------
+
+describe("negative-control discharge via the run's summary counts (mt#4306)", () => {
+  /** A control whose author wrote the runner's two summary lines as one phrase. */
+  const control = (phrase: string): string =>
+    `fix(mt#1): thing\n\nNegative control: reverted the guard and the file went to ${phrase}; restored.\n`;
+  /** The slash form from mt#5078's table, reused by the negative cases below. */
+  const SLASH_PAIR = "17 pass / 7 fail";
+
+  test.each([
+    [SLASH_PAIR, " 17 pass\n 7 fail\nRan 24 tests across 1 file."],
+    ["0 pass, 5 fail", " 0 pass\n 5 fail\nRan 5 tests across 1 file."],
+    ["7 failed, 17 passed", " 17 pass\n 7 fail\nRan 24 tests across 1 file."],
+    ["5 of 10 failed", " 5 pass\n 5 fail\nRan 10 tests across 1 file."],
+  ])("%p discharges against a run printing %p", (phrase, output) => {
+    const calls = findToolCallsWithResults(testRun(TEST_CMD, `(fail) X > y [1ms]\n${output}`));
+    expect(judgeClaims(control(phrase), calls, SCOPE)[0]?.verdict).toBe("discharged");
+  });
+
+  test("a pair matching no run leaves the verdict where it was — signal, not condemnation", () => {
+    // No subject, no `(fail)` paste: unadjudicable before, unadjudicable after.
+    // The count phrase must not drag it into `undischarged` the way mt#4067's
+    // first cut dragged 22 records (108 -> 129 fires).
+    const calls = findToolCallsWithResults(
+      testRun(TEST_CMD, "(fail) X > y [1ms]\n 3 pass\n 2 fail\nRan 5 tests across 1 file.")
+    );
+    expect(judgeClaims(control(SLASH_PAIR), calls, SCOPE)[0]?.verdict).toBe("unadjudicable");
+    expect(judgeClaims(control(SLASH_PAIR), [], SCOPE)[0]?.verdict).toBe("unadjudicable");
+  });
+
+  test("the degenerate `0 pass, 1 fail` pair does NOT discharge", () => {
+    // Measured: on the frozen population this pair matched an unrelated
+    // single-test failure 240 lines earlier in four of four cases.
+    const calls = findToolCallsWithResults(
+      testRun(
+        TEST_CMD,
+        "(fail) Unrelated > other [1ms]\n 0 pass\n 1 fail\nRan 1 test across 1 file."
+      )
+    );
+    expect(judgeClaims(control("0 pass, 1 fail"), calls, SCOPE)[0]?.verdict).not.toBe("discharged");
+    expect(judgeClaims(control("1 of 1 failed"), calls, SCOPE)[0]?.verdict).not.toBe("discharged");
+  });
+
+  test("a lone count is not a pair — `1 fail` alone joins nothing", () => {
+    const calls = findToolCallsWithResults(
+      testRun(TEST_CMD, "(fail) Unrelated > other [1ms]\n 11 pass\n 1 fail")
+    );
+    const record = "fix(mt#1): x\n\nNegative control: reverted it and saw 1 fail; restored.\n";
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).not.toBe("discharged");
+  });
+
+  test("both numbers must agree with ONE SUMMARY BLOCK — an output printing several summaries cannot cross-pair them", () => {
+    // PR #3733 R1. A `for` loop over three files prints three summaries in one
+    // result; `17 pass` from the first and `7 fail` from the third are not a run.
+    const looped = [
+      "(fail) A > a [1ms]\n 17 pass\n 2 fail\nRan 19 tests across 1 file.",
+      "(fail) B > b [1ms]\n 4 pass\n 1 fail\nRan 5 tests across 1 file.",
+      "(fail) C > c [1ms]\n 3 pass\n 7 fail\nRan 10 tests across 1 file.",
+    ].join("\n");
+    const calls = findToolCallsWithResults(testRun(TEST_CMD, looped));
+    expect(judgeClaims(control(SLASH_PAIR), calls, SCOPE)[0]?.verdict).not.toBe("discharged");
+    // Each block is its own candidate, so the third block's real pair still joins.
+    expect(judgeClaims(control("3 pass / 7 fail"), calls, SCOPE)[0]?.verdict).toBe("discharged");
+  });
+
+  test("a summary carried as a JSON envelope — the runner's newlines escaped to `\\n` — still forms a block", () => {
+    // A `session_exec` result in a transcript is `{"stdout":"...\n 17 pass\n 7 fail\n..."}`,
+    // with the two-character sequence, not a newline. Most real results look like this.
+    const envelope =
+      '{"success":true,"stdout":"(fail) X > y [1ms]\\n 17 pass\\n 1 skip\\n 7 fail\\n 40 expect() calls\\nRan 25 tests across 1 file.","exitCode":1}';
+    const calls = findToolCallsWithResults(testRun(TEST_CMD, envelope));
+    expect(judgeClaims(control(SLASH_PAIR), calls, SCOPE)[0]?.verdict).toBe("discharged");
+    expect(judgeClaims(control("7 of 25 failed"), calls, SCOPE)[0]?.verdict).toBe("discharged");
+  });
+
+  test("both numbers must agree with ONE run — a pass count from one run and a fail count from another do not", () => {
+    const calls = findToolCallsWithResults([
+      ...testRun(TEST_CMD, "(fail) A > a [1ms]\n 17 pass\n 2 fail"),
+      ...testRun(TEST_CMD, "(fail) B > b [1ms]\n 3 pass\n 7 fail"),
+    ]);
+    expect(judgeClaims(control(SLASH_PAIR), calls, SCOPE)[0]?.verdict).not.toBe("discharged");
+  });
+});
+
+describe("an ABBREVIATED quoted failure line still joins (mt#4306)", () => {
+  const FULL_LINE =
+    "(fail) mt#5065 SC4 — a rule id that collides with a Minsky-scaffolded one > the pre-existing user content SURVIVES, the path is left alone";
+
+  test("a `(fail)` line cut with an ellipsis matches when its segments appear in order", () => {
+    // The ab17be6f shape (calibration record 2026-09-11T00:07:40Z): the author
+    // kept the head and the tail of a 160-character line.
+    const record =
+      "fix(mt#1): x\n\nNegative control:\n\n```\n(fail) mt#5065 SC4 — a rule id … the pre-existing user content SURVIVES, the path i…\n```\n";
+    const calls = findToolCallsWithResults(
+      testRun(TEST_CMD, `${FULL_LINE} [1.2ms]\n 4 pass\n 1 fail`)
+    );
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).toBe("discharged");
+  });
+
+  test("the segments must appear IN ORDER — a fabricated splice of two real lines does not match", () => {
+    const record =
+      "fix(mt#1): x\n\nNegative control:\n\n```\n(fail) the path is left alone … mt#5065 SC4 — a rule id that collides\n```\n";
+    const calls = findToolCallsWithResults(
+      testRun(TEST_CMD, `${FULL_LINE} [1.2ms]\n 4 pass\n 1 fail`)
+    );
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).not.toBe("discharged");
+  });
+
+  test("an exact line is still matched exactly — nothing about the precise join loosened", () => {
+    const record = `fix(mt#1): x\n\nNegative control:\n\n\`\`\`\n${FULL_LINE}\n\`\`\`\n`;
+    const different = findToolCallsWithResults(
+      testRun(TEST_CMD, `${FULL_LINE.replace("SURVIVES", "survives")} [1.2ms]\n 4 pass\n 1 fail`)
+    );
+    expect(judgeClaims(record, different, SCOPE)[0]?.verdict).not.toBe("discharged");
+    const same = findToolCallsWithResults(
+      testRun(TEST_CMD, `${FULL_LINE} [1.2ms]\n 4 pass\n 1 fail`)
+    );
+    expect(judgeClaims(record, same, SCOPE)[0]?.verdict).toBe("discharged");
+  });
+
+  test("a subject written BARE — not backticked — discharges when the red run names it", () => {
+    // The e151405d record (calibration 2026-09-11T01:41:02Z): the subject is
+    // plain prose, the "Also:" sentence backticks unrelated identifiers, and the
+    // control's own `sed` command and output carry the subject verbatim.
+    const record =
+      "fix(mt#1): x\n\nNegative control: removing SESSION_START_TOOL_NAME from the set fails it " +
+      'with "Expected: not spoofed-by-caller". Also: `collectMcpHiddenParamKeys` over the real ' +
+      "`sessionStartCommandParams`; the comment moved into `relateSessionActor`.\n";
+    const calls = findToolCallsWithResults(
+      testRun(
+        "sed -i '' 's/^ SESSION_START_TOOL_NAME,$/ \\/\\/ SESSION_START_TOOL_NAME,/' src/mcp/server.ts && bun test src/mcp/server.test.ts",
+        "(fail) CallTool name-keyed gates match the RESOLVED name [1ms]\n 4 pass\n 1 fail"
+      )
+    );
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).toBe("discharged");
+  });
+
+  test("a bare identifier is discharge-only — it never makes a record adjudicable", () => {
+    // No backticked subject, no paste, no count pair, and the bare identifier
+    // matches no run: unadjudicable, exactly as if the identifier were not there.
+    const record =
+      "fix(mt#1): x\n\nNegative control: removing SESSION_START_TOOL_NAME breaks it.\n";
+    const calls = findToolCallsWithResults(
+      testRun(TEST_CMD, "(fail) Unrelated > other [1ms]\n 3 pass\n 1 fail")
+    );
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).toBe("unadjudicable");
+  });
+
+  test("the mt#4024 true positive still fires with every join in place", () => {
+    // The unrelated red run, and no run naming the subject, no paste, no count
+    // pair: undischarged, exactly as the first test in this file asserts.
+    const calls = findToolCallsWithResults([
+      ...testRun(TEST_CMD, GREEN_RUN),
+      ...testRun(`${TEST_CMD} PublishConversationDialog.test.tsx`, UNRELATED_FAILURE),
+    ]);
+    expect(judgeClaims(INCIDENT_MESSAGE, calls, SCOPE)[0]?.verdict).toBe("undischarged");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Artifact resolution across the three seams
 // ---------------------------------------------------------------------------
 
