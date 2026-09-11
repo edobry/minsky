@@ -26,6 +26,7 @@ import {
   annotateSessionWithAttachment,
 } from "./attachment-annotation";
 import { resolveInterfaceBinding } from "@minsky/domain/interface-binding/index";
+import { resolveCallerActorId } from "@minsky/domain/agent-identity/index";
 
 export function createSessionListCommand(
   getDeps: LazySessionDeps,
@@ -203,10 +204,19 @@ export function createSessionGetCommand(
  * SQL-capable persistence provider and skips silently when none is available
  * (e.g., CLI without a DB) — never fabricating a provider (no DI fallback).
  * Never throws — event emission must not affect the session-start outcome.
+ *
+ * `actor` (mt#5086) is the creating process's resolved agentId, or null when no
+ * source names one. The row used to carry no actor at all, so
+ * `warn-peer-task-activity` could only say "a session you may not have caused"
+ * — and on 2026-09-10 a conversation read that as its own subagent's doing when
+ * a different, principal-launched conversation had started the session (the
+ * mt#5055 retraction). A null is written as null, never as a fabricated id: the
+ * advisory says when it could not compare, rather than guessing.
  */
 async function emitSessionStartedEvent(
   provider: PersistenceProvider | undefined,
-  payload: { sessionId: string; taskId?: string }
+  payload: { sessionId: string; taskId?: string },
+  actor: string | null
 ): Promise<void> {
   try {
     const sqlProvider = provider as SqlCapablePersistenceProvider | undefined;
@@ -219,6 +229,7 @@ async function emitSessionStartedEvent(
       payload,
       relatedTaskId: payload.taskId,
       relatedSessionId: payload.sessionId,
+      ...(actor ? { actor } : {}),
     });
   } catch (err: unknown) {
     log.warn("session.started: event emission failed (best-effort, swallowed)", {
@@ -289,10 +300,17 @@ export function createSessionStartCommand(
       });
 
       // Best-effort informational event (mt#2487). Never blocks session start.
-      await emitSessionStartedEvent(getPersistenceProvider?.(), {
-        sessionId: session.sessionId,
-        taskId: session.taskId,
-      });
+      // The actor is the server-injected `callerActorId` over MCP (mt#5086 —
+      // `CALLER_ACTOR_ID_TOOL_NAMES`), falling back to the harness env on the CLI
+      // path; `resolveCallerActorId` returns null rather than inventing one.
+      await emitSessionStartedEvent(
+        getPersistenceProvider?.(),
+        {
+          sessionId: session.sessionId,
+          taskId: session.taskId,
+        },
+        resolveCallerActorId(params.callerActorId as string | undefined)
+      );
 
       return {
         success: true,

@@ -55,6 +55,12 @@ import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
 import { describeProviderResolutionFailure, ensureHookDomainBootstrap } from "./domain-bootstrap";
 import type { SqlCapablePersistenceProvider } from "../../packages/domain/src/persistence/types";
+// A static domain import, deliberately (mt#5086): `format.ts` imports only `./kinds`,
+// which imports nothing — no tsyringe, no config, no filesystem at module load, so
+// it is outside what `domain-bootstrap.ts` layer 1 guards against. It is the ONE
+// derivation of "which conversation is this actor in" (its own docblock forbids a
+// second implementation), which is why it is imported rather than re-parsed here.
+import { conversationIdFromAgentId } from "../../packages/domain/src/agent-identity/format";
 import { recordFireLogEntry } from "./fire-log";
 
 /**
@@ -103,6 +109,52 @@ export interface TaskEventRow {
   eventType: string;
   createdAt: Date | string;
   payload?: Record<string, unknown> | null;
+  /**
+   * The writer's resolved agentId (ADR-006), stamped by `session.start` since
+   * mt#5086. Null or absent on rows written before that, on CLI-path starts with
+   * no harness identity in the environment, and on every `task.status_changed`
+   * row (a different emitter, mt#2340, which still stamps nothing).
+   */
+  actor?: string | null;
+}
+
+/**
+ * How a `session.started` row's `actor` relates to the reader (mt#5086).
+ *
+ * - `this-conversation` / `another-conversation` — the row's actor is
+ *   conversation-scoped and was compared against the caller's own harness
+ *   conversation id. A subagent's MCP calls carry its PARENT's id
+ *   (`resolveLiveConversationAgentId` takes only the harness pid and the
+ *   spawn-time env — nothing per subagent enters), so `another-conversation`
+ *   also means "not your subagent's doing".
+ * - `not-compared` — the row names an actor the reader has no basis to compare
+ *   against: a `proc:`-scoped id (the shim's own process hash, minted when no
+ *   pid→conversation mapping exists) or any other non-`conv` scope. The id is
+ *   still rendered; the reader compares it against the `claimedBy` their own
+ *   `tasks_claim` / `tasks_claims_list` shows.
+ * - `unattributed` — the row carries no actor at all.
+ */
+export type SessionActorRelation =
+  | "this-conversation"
+  | "another-conversation"
+  | "not-compared"
+  | "unattributed";
+
+/**
+ * PURE: classify a `session.started` row's actor against the reader's own
+ * harness conversation id. Exported so the test can pin each branch.
+ */
+export function relateSessionActor(
+  actor: string | null | undefined,
+  callerConversationId: string | null
+): SessionActorRelation {
+  if (!actor) return "unattributed";
+  const rowConversationId = conversationIdFromAgentId(actor);
+  if (rowConversationId === null) return "not-compared";
+  if (callerConversationId === null) return "not-compared";
+  return rowConversationId.toLowerCase() === callerConversationId.trim().toLowerCase()
+    ? "this-conversation"
+    : "another-conversation";
 }
 
 export interface PeerDecision {
@@ -177,19 +229,25 @@ export function callerSessionIdFromCwd(cwd: string | undefined): string | null {
  *   from its own lifecycle, so an unwindowed version would fire on literally
  *   every call and immediately be tuned out.
  *
- * Note what this deliberately does NOT do: attribute. The rows carry no actor
- * for `task.status_changed`, and this hook cannot map its own Claude Code
- * `session_id` onto a Minsky workspace session id — they are different id
- * spaces. So it reports WHAT the ledger shows and lets the reader recognise
- * their own session. Naming an actor is exactly the axis that is broken
- * (mt#4440); this guard's whole value is that it does not depend on it.
+ * Attribution, and its limits. `task.status_changed` rows carry no actor, and
+ * this hook cannot map its own Claude Code `session_id` onto a Minsky workspace
+ * session id — they are different id spaces — so those rows are reported and
+ * NOT attributed, and the caller's own `session.started` is suppressed by the
+ * workspace id in its cwd. Since mt#5086 a `session.started` row ALSO carries
+ * the WRITER's agentId, which this hook relates to `callerConversationId` (the
+ * hook input's `session_id`) via `relateSessionActor`: a conversation-scoped
+ * actor is labelled this/another conversation; any other scope is printed with
+ * the comparison declared not made. Naming an actor from a row that names one
+ * is not the broken axis mt#4440 repaired — inferring one from timing is, and
+ * that inference is what this rendering exists to make unnecessary.
  */
 export function decidePeerActivity(
   taskId: string,
   events: TaskEventRow[],
   nowMs: number,
   callerSessionId: string | null = null,
-  windowMs: number = STATUS_CHANGE_WINDOW_MS
+  windowMs: number = STATUS_CHANGE_WINDOW_MS,
+  callerConversationId: string | null = null
 ): PeerDecision {
   // Self-attribution, as far as it honestly goes (PR #3281 R1). When the caller
   // runs inside a session workspace, its own `session.started` row is not a
@@ -217,9 +275,17 @@ export function decidePeerActivity(
     "",
   ];
 
+  let anotherConversation = false;
+  let notCompared = false;
   for (const s of sessions) {
     const sid = (s.payload?.["sessionId"] as string | undefined) ?? "(unnamed)";
-    lines.push(`  - session.started ${ageMinutes(s.createdAt, nowMs)}m ago — session ${sid}`);
+    const relation = relateSessionActor(s.actor, callerConversationId);
+    if (relation === "another-conversation") anotherConversation = true;
+    if (relation === "not-compared") notCompared = true;
+    const actorText = describeSessionActor(s.actor, relation);
+    lines.push(
+      `  - session.started ${ageMinutes(s.createdAt, nowMs)}m ago — session ${sid} — ${actorText}`
+    );
   }
   for (const c of recentStatus) {
     const from = (c.payload?.["previousStatus"] as string | undefined) ?? "?";
@@ -232,16 +298,57 @@ export function decidePeerActivity(
     "If any of that is not yours, another agent is working this task: surface the",
     "collision rather than proceeding (`user-preferences.mdc §Probe before claiming",
     "a shared resource`). If it IS yours — a session you started, a transition you",
-    "made — this is expected and needs nothing.",
+    "made — this is expected and needs nothing."
+  );
+
+  if (anotherConversation) {
+    lines.push(
+      "",
+      "A session above was started by ANOTHER conversation. That rules out a subagent",
+      "of this conversation: a subagent's MCP calls carry its parent's actor id, so a",
+      "different id is a different harness process, not something you dispatched."
+    );
+  }
+  if (notCompared) {
+    lines.push(
+      "",
+      "A session above names an actor this hook could not compare to your own id",
+      "(it is not conversation-scoped). Compare it yourself against the `claimedBy`",
+      "your own `tasks_claim` / `tasks_claims_list` result shows — do not attribute",
+      "it from timing. A subagent you dispatched shares YOUR actor id; if you need",
+      "to know what a subagent did, its transcript is at",
+      "`<session-dir>/subagents/agent-<id>.jsonl`, not in this ledger."
+    );
+  }
+
+  lines.push(
     "",
     "Attribution here is partial and deliberately so: a `session.started` you",
     "yourself started is already filtered out (matched on the session id in this",
-    "process's cwd), but a `task.status_changed` row carries no actor at all, so",
-    "those are reported and NOT attributed. Actor attribution is the axis mt#4440",
-    "is repairing; this guard is useful precisely because it needs so little of it."
+    "process's cwd), and one carrying a writer id is labelled above — but a",
+    "`task.status_changed` row carries no actor at all, so those are reported and",
+    "NOT attributed. Actor attribution is the axis mt#4440 repaired for claims and",
+    "mt#5086 extended to `session.started`; this guard stays useful without it."
   );
 
   return { fired: true, message: lines.join("\n"), outcome: "decided" };
+}
+
+/** Render one `session.started` row's actor and how it relates to the reader. */
+function describeSessionActor(
+  actor: string | null | undefined,
+  relation: SessionActorRelation
+): string {
+  switch (relation) {
+    case "this-conversation":
+      return `started by ${actor} (this conversation)`;
+    case "another-conversation":
+      return `started by ${actor} (ANOTHER conversation — not yours, not your subagent's)`;
+    case "not-compared":
+      return `started by ${actor} (comparison to your own id not made — see below)`;
+    case "unattributed":
+      return "no writer id on this row (written before mt#5086, or from a CLI with no harness identity)";
+  }
 }
 
 /** Read this task's event rows. Returns null on any failure (fail open). */
@@ -300,10 +407,22 @@ if (import.meta.main) {
         readTaskEvents(taskId),
         new Promise<null>((resolve) => setTimeout(() => resolve(null), READ_DEADLINE_MS)),
       ]);
+      // `input.session_id` is the harness CONVERSATION uuid — the id a
+      // conversation-scoped actor carries (`toConversationAgentId`), so it is what
+      // a `session.started` row's writer id is compared against (mt#5086).
       result =
         events === null
           ? { fired: false, outcome: "crashed" }
-          : decidePeerActivity(taskId, events, Date.now(), callerSessionIdFromCwd(input.cwd));
+          : decidePeerActivity(
+              taskId,
+              events,
+              Date.now(),
+              callerSessionIdFromCwd(input.cwd),
+              STATUS_CHANGE_WINDOW_MS,
+              typeof input.session_id === "string" && input.session_id.trim().length > 0
+                ? input.session_id
+                : null
+            );
     } catch (err) {
       // Fail open — an advisory guard must never block a lifecycle write. The
       // stderr line is the only account a reader gets; the process exits next.

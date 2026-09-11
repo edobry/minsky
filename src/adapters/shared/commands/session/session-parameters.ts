@@ -200,6 +200,23 @@ export const sessionStartCommandParams = {
     required: false,
     defaultValue: false,
   },
+  // mt#5086: the `session.started` event carries the creating process's actor id, so
+  // `warn-peer-task-activity` can say "another process" instead of leaving the reader to
+  // infer it from timing. Same shape as `tasks.claims.release`'s parameter: server-injected
+  // from the resolved MCP identity (`CALLER_ACTOR_ID_TOOL_NAMES` in src/mcp/server.ts),
+  // hidden from both advertised surfaces, and never hand-passable.
+  callerActorId: {
+    schema: z.string(),
+    description:
+      "The caller's resolved agentId (ADR-006), stamped as `actor` on the `session.started` " +
+      "event so the task event ledger records WHICH process created the session. " +
+      "Server-injected from the resolved MCP identity (src/mcp/server.ts) — not supplied by " +
+      "hand, and any hand-supplied value is overwritten there. Absent on the CLI path, which " +
+      "resolves identity from the harness environment instead.",
+    required: false,
+    cliHidden: true,
+    mcpHidden: true,
+  },
 };
 
 /**

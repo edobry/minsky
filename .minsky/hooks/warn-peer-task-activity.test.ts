@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   callerSessionIdFromCwd,
   decidePeerActivity,
+  relateSessionActor,
   STATUS_CHANGE_WINDOW_MS,
   TARGET_TOOLS,
   type TaskEventRow,
@@ -185,6 +186,133 @@ describe("PR #3281 R1 — reviewer findings", () => {
     // no session id to match. Failing toward warning is the safe direction.
     const events = [row("session.started", 5, { sessionId: PEER_SESSION_ID })];
     expect(decidePeerActivity("mt#4439", events, NOW, null).fired).toBe(true);
+  });
+});
+
+describe("mt#5086 — a session.started row names its writer, and the advisory says whose it is", () => {
+  // The hook input's `session_id` is the harness conversation uuid; a
+  // conversation-scoped actor carries the same uuid (`toConversationAgentId`).
+  const MY_CONVERSATION = "dd1a36b5-4da6-4965-ab6c-638292f18f4c";
+  const PEER_CONVERSATION = "e7da3c7d-61e0-4813-8c72-516728398565";
+  const CONV = (uuid: string): string => `com.anthropic.claude-code:conv:${uuid}`;
+  const PROC_ACTOR = "com.anthropic.claude-code:proc:e34afa76f037d923";
+  /** The label a peer-conversation row carries; hoisted for `no-magic-string-duplication`. */
+  const ANOTHER = "ANOTHER conversation";
+
+  /** A `session.started` row with a writer id, `minutesAgo` before NOW. */
+  function startedBy(actor: string | null, minutesAgo = 3): TaskEventRow {
+    return { ...row("session.started", minutesAgo, { sessionId: PEER_SESSION_ID }), actor };
+  }
+
+  test("relateSessionActor pins each branch", () => {
+    expect(relateSessionActor(CONV(MY_CONVERSATION), MY_CONVERSATION)).toBe("this-conversation");
+    expect(relateSessionActor(CONV(PEER_CONVERSATION), MY_CONVERSATION)).toBe(
+      "another-conversation"
+    );
+    // Case-insensitive on the uuid: `conversationIdFromAgentId` lowercases at
+    // write time, the hook input may not.
+    expect(relateSessionActor(CONV(MY_CONVERSATION), MY_CONVERSATION.toUpperCase())).toBe(
+      "this-conversation"
+    );
+    expect(relateSessionActor(PROC_ACTOR, MY_CONVERSATION)).toBe("not-compared");
+    expect(relateSessionActor(CONV(PEER_CONVERSATION), null)).toBe("not-compared");
+    expect(relateSessionActor(null, MY_CONVERSATION)).toBe("unattributed");
+    expect(relateSessionActor(undefined, MY_CONVERSATION)).toBe("unattributed");
+    expect(relateSessionActor("", MY_CONVERSATION)).toBe("unattributed");
+  });
+
+  test("AT2 — a row started by ANOTHER conversation is labelled so, and the subagent inference is ruled out", () => {
+    // Replays 2026-09-10 00:14Z: conversation dd1a36b5 had dispatched a subagent
+    // three minutes earlier; conversation e7da3c7d started the session. The old
+    // advisory said only "you may not have caused" and the reader attributed
+    // it to the subagent (mt#5055 retraction).
+    const result = decidePeerActivity(
+      "mt#5042",
+      [startedBy(CONV(PEER_CONVERSATION))],
+      NOW,
+      null,
+      STATUS_CHANGE_WINDOW_MS,
+      MY_CONVERSATION
+    );
+    expect(result.fired).toBe(true);
+    expect(result.message).toContain(`started by ${CONV(PEER_CONVERSATION)}`);
+    expect(result.message).toContain(ANOTHER);
+    expect(result.message).toContain("not your subagent's");
+    expect(result.message).toContain("rules out a subagent");
+  });
+
+  test("AT2 — a row started by THIS conversation is labelled so", () => {
+    // Reachable when the cwd-based suppression cannot fire: the caller is in the
+    // main workspace (no session id in cwd) but did start the session over MCP.
+    const result = decidePeerActivity(
+      "mt#5042",
+      [startedBy(CONV(MY_CONVERSATION))],
+      NOW,
+      null,
+      STATUS_CHANGE_WINDOW_MS,
+      MY_CONVERSATION
+    );
+    expect(result.fired).toBe(true);
+    expect(result.message).toContain("(this conversation)");
+    expect(result.message).not.toContain(ANOTHER);
+  });
+
+  test("AT2 — a row with actor null renders the unattributed form", () => {
+    const result = decidePeerActivity(
+      "mt#5042",
+      [startedBy(null)],
+      NOW,
+      null,
+      STATUS_CHANGE_WINDOW_MS,
+      MY_CONVERSATION
+    );
+    expect(result.fired).toBe(true);
+    expect(result.message).toContain("no writer id on this row");
+    expect(result.message).not.toContain("started by");
+  });
+
+  test("a proc-scoped actor is printed and the comparison is declared not made — never guessed", () => {
+    // The shim mints a `proc:` id when no pid→conversation mapping exists (the
+    // degraded path mt#4667 tracks). The hook cannot derive that hash, so it
+    // says so and points at the reader's own `claimedBy` and the subagent
+    // transcript, rather than labelling the row either way.
+    const result = decidePeerActivity(
+      "mt#5042",
+      [startedBy(PROC_ACTOR)],
+      NOW,
+      null,
+      STATUS_CHANGE_WINDOW_MS,
+      MY_CONVERSATION
+    );
+    expect(result.message).toContain(`started by ${PROC_ACTOR}`);
+    expect(result.message).toContain("comparison to your own id not made");
+    expect(result.message).toContain("do not attribute");
+    expect(result.message).toContain("subagents/agent-<id>.jsonl");
+    expect(result.message).not.toContain(ANOTHER);
+    expect(result.message).not.toContain("(this conversation)");
+  });
+
+  test("no caller conversation id → conversation-scoped rows are not compared either", () => {
+    // The consumer in turn-end-stale-state-assertion-scan passes none; a row it
+    // renders must not be labelled against an id nobody supplied.
+    const result = decidePeerActivity("mt#5042", [startedBy(CONV(PEER_CONVERSATION))], NOW);
+    expect(result.message).toContain("comparison to your own id not made");
+  });
+
+  test("the cwd-based self-suppression still wins over the actor label", () => {
+    // Existing behaviour is unchanged: the caller's own workspace session is
+    // filtered before any actor rendering happens.
+    const events = [startedBy(CONV(PEER_CONVERSATION))];
+    expect(
+      decidePeerActivity(
+        "mt#5042",
+        events,
+        NOW,
+        PEER_SESSION_ID,
+        STATUS_CHANGE_WINDOW_MS,
+        MY_CONVERSATION
+      ).fired
+    ).toBe(false);
   });
 });
 
