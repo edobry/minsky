@@ -147,11 +147,11 @@ Full model — the three axes, the four amendments the codebase audit forced, th
 Under a tray-supervised cockpit (`Minsky Cockpit.app`), the tray watches the source tree and
 self-updates: `cockpit-tray/src-tauri/src/watcher_web.rs` (mt#2297) auto-rebuilds the web bundle on
 `src/cockpit/web` changes, and `cockpit-tray/src-tauri/src/watcher_backend.rs` (mt#2299)
-auto-restarts the daemon on any other `src/cockpit` change. The daemon spawns from SOURCE
-(`bun run src/cli.ts`), so a restart picks up
-backend TS with no build step. Net effect: when `main` fast-forwards to a merge touching
-`src/cockpit/**`, the running cockpit reflects it within seconds — no manual `cockpit:build` or
-restart needed.
+auto-restarts the daemon on any other module change under `src/**` or `packages/*/src` (mt#4230,
+mt#5060). The daemon spawns from SOURCE (`bun run src/cli.ts`), so a restart picks up backend TS
+with no build step. Net effect: when `main` fast-forwards to a merge touching the daemon's import
+closure, the running cockpit reflects it within seconds — no manual `cockpit:build` or restart
+needed.
 
 - **PROBE before claiming the running cockpit is stale, or telling the operator to rebuild/restart.**
   "It's merged, so the running cockpit must be old" is an UNVERIFIED premise — the tray has very
@@ -170,6 +170,16 @@ restart needed.
   three read — add a root there, not at a call site. **Remember the tray binary is NOT auto-rebuilt**
   (`cockpit-tray-dev`): a checkout that predates mt#4230's tray release still has the old
   single-root watcher, so probe before assuming this applies to the tray you are running.
+- **The `src/` half was widened by mt#5060 — the root is `src/`, not `src/cockpit`.** mt#4230's
+  docblock stated the closure as `src/**` plus `packages/**` and its fix widened only the
+  `packages/**` half; measured on 2026-09-11, 322 of the daemon's 465 `src/` closure files
+  (`src/adapters`, `src/commands`, `src/mcp`, `src/generated`, …) sat outside the `src/cockpit`
+  root, and the module-class filter was `.ts`-only, so the two generated `.json` imports
+  (`src/generated/interceptor-catalog.json`, `completion-manifest.json`) were dropped twice over.
+  The daemon served a two-generations-old interceptor catalog for most of 2026-09-10 with a green
+  deploy on top of it. Now any non-test `.ts`/`.mts`/`.cts`/`.json` under `src/` outside `web/`,
+  `dist/`, `node_modules/` and the fixture/mock/test directory family restarts the daemon. The same
+  tray-binary caveat applies: a tray built before mt#5060 still watches `src/cockpit` only.
 - **When a restart IS needed, run `minsky cockpit restart` (mt#4232).** It works under the
   tray-supervised default, under launchd, and from an agent shell — no GUI click, no hand
   `kill`/respawn. It resolves the serving pid (from `/api/health`'s `pid`, falling back to the port

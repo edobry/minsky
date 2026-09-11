@@ -137,20 +137,57 @@ pub(crate) async fn wait_for_turn_idle_or_grace_expiry(client: &reqwest::Client)
 /// so we coalesce a burst of backend edits into a single restart.
 const RESTART_DEBOUNCE: Duration = Duration::from_secs(2);
 
-/// Path to the cockpit server-side source dir under a repo root.
+/// Path to the cockpit server-side source dir under a repo root. This is the
+/// PRESENCE gate — "is this a checkout with cockpit backend source?" (see
+/// `cockpit_backend_root`) — and no longer the watched root: the daemon's
+/// import closure is far wider than this directory (mt#5060), so the roots
+/// come from {@link daemon_source_tree} instead.
 pub(crate) fn cockpit_backend_src(repo_root: &Path) -> PathBuf {
     repo_root.join("src/cockpit")
 }
 
-/// Runtime-closure roots BEYOND `src/cockpit` whose change invalidates the
-/// running daemon (mt#4230).
+/// The tree the daemon's ENTRY POINT lives in — `src/`, because the daemon is
+/// spawned as `bun run src/cli.ts` (mt#5060).
+///
+/// Watching the entry point's own tree is a superset of the closure by
+/// construction: a relative import from an entry under `src/` resolves within
+/// `src/`, or — via the `@minsky/*` workspace packages — within `packages/*/src`,
+/// which {@link cockpit_backend_roots} discovers separately. Measured on
+/// 2026-09-11 with a `Bun.build` recording plugin over `src/cli.ts`: the static
+/// closure is 1,194 in-repo files, 465 of them under `src/`, and only 143 of
+/// those under `src/cockpit`. The other 322 (`src/adapters` 216, `src/commands`
+/// 47, `src/mcp` 39, `src/utils` 10, `src/domain` 3, `src/generated` 2, …) were
+/// unwatched, so a merge confined to them left the daemon serving stale code
+/// with nothing to notice — the same defect mt#4230 closed on the `packages/`
+/// side, one tree over.
+///
+/// Why a tree root rather than an exact closure: an exact list would be precise
+/// for static imports and blind to dynamic ones, and it would need a bun
+/// subprocess and a Rust↔bun contract at tray boot. The superset cannot miss a
+/// closure file, cannot drift as new `src/` subdirectories appear, and the cost
+/// of the extra coverage is a spurious restart on an edit to one of the ~89
+/// non-test modules under `src/` the daemon never loads — the trade mt#4230
+/// already accepted for `packages/`, measured at zero occurrences over the
+/// 24h sample that reproduced the defect.
+///
+/// The narrowing is done by {@link BACKEND_WALK_EXCLUDES} and the file-class
+/// check in {@link is_backend_module_file}, both applied to root-RELATIVE
+/// paths — so `src/cockpit/web/**` is still excluded here (the `web` component)
+/// and stays `watcher_web`'s territory.
+pub(crate) fn daemon_source_tree(repo_root: &Path) -> PathBuf {
+    repo_root.join("src")
+}
+
+/// Runtime-closure roots BEYOND `src/` whose change invalidates the running
+/// daemon (mt#4230).
 ///
 /// The daemon runs `bun run src/cli.ts`, so its import closure is `src/**` plus
 /// `packages/**` — not `src/cockpit` alone. Until mt#4230 every mechanism here
 /// modelled it as `src/cockpit`, which made a `packages/domain`-only change
 /// invisible to all three at once: no auto-restart, no adoption-staleness
 /// detection, and an `(src @ …)` uptime hint that read as current while the
-/// daemon served stale code.
+/// daemon served stale code. mt#4230 widened the `packages/**` half; mt#5060
+/// widened the `src/**` half (see {@link daemon_source_tree}).
 ///
 /// Scoped to each package's `src/` rather than the package root so the walk
 /// skips `node_modules`, `dist`, and fixture trees without relying on
@@ -164,23 +201,24 @@ const WORKSPACE_PACKAGES_DIR: &str = "packages";
 
 /// Every source root whose change should restart the daemon.
 ///
-/// Always includes {@link cockpit_backend_src}, then DISCOVERS `packages/*/src`
-/// rather than naming packages (mt#4230, PR #3083 R2). The first cut hardcoded
-/// `packages/domain/src` + `packages/shared/src` — currently an exhaustive list
-/// (`packages/` holds exactly those two, and `src/cli.ts` imports exactly those
-/// two) — but a hardcoded set reproduces THIS TASK'S OWN BUG one level up: the
-/// watched set drifts from the real import closure, silently, and the tell is a
-/// daemon serving stale code with nothing to notice. Discovery cannot drift.
+/// Always includes {@link daemon_source_tree} (`src/`, the entry point's tree —
+/// mt#5060), then DISCOVERS `packages/*/src` rather than naming packages
+/// (mt#4230, PR #3083 R2). The first cut hardcoded `packages/domain/src` +
+/// `packages/shared/src` — currently an exhaustive list (`packages/` holds
+/// exactly those two, and `src/cli.ts` imports exactly those two) — but a
+/// hardcoded set reproduces THIS TASK'S OWN BUG one level up: the watched set
+/// drifts from the real import closure, silently, and the tell is a daemon
+/// serving stale code with nothing to notice. Discovery cannot drift.
 ///
 /// Results are sorted so the root order is deterministic across runs (directory
 /// iteration order is not guaranteed), which keeps the watch order and any
 /// order-sensitive test stable.
 ///
-/// A missing or unreadable `packages/` yields just the cockpit root, so a
-/// packaged or partial checkout degrades to the pre-mt#4230 behavior rather
-/// than failing.
+/// A missing or unreadable `packages/` yields just the `src/` root, so a
+/// packaged or partial checkout degrades to watching the entry tree alone
+/// rather than failing.
 pub(crate) fn cockpit_backend_roots(repo_root: &Path) -> Vec<PathBuf> {
-    let mut roots = vec![cockpit_backend_src(repo_root)];
+    let mut roots = vec![daemon_source_tree(repo_root)];
 
     if let Ok(entries) = std::fs::read_dir(repo_root.join(WORKSPACE_PACKAGES_DIR)) {
         let mut discovered: Vec<PathBuf> = entries
@@ -247,14 +285,24 @@ fn backend_path_is_excluded(path: &Path) -> bool {
     })
 }
 
-/// A TypeScript module file the daemon loads — `.ts`/`.mts`/`.cts`, excluding
-/// test files (`*.test.{ts,mts,cts}`). The cockpit backend is currently all
-/// `.ts`, but `.mts`/`.cts` are included so a future ESM/CJS module still
-/// triggers a restart (reviewer R1 NB1). Operator config
-/// (`~/.config/minsky/cockpit.json`) lives outside `src/cockpit` and is loaded
-/// fresh per request, so it is intentionally not part of the watched tree.
+/// A module file the daemon loads — `.ts`/`.mts`/`.cts`, plus `.json`
+/// (mt#5060) — excluding test files (`*.test.{ts,mts,cts}`). The cockpit
+/// backend is currently all `.ts`, but `.mts`/`.cts` are included so a future
+/// ESM/CJS module still triggers a restart (reviewer R1 NB1). Operator config
+/// (`~/.config/minsky/cockpit.json`) lives outside the watched tree entirely and
+/// is loaded fresh per request, so it is intentionally not covered.
+///
+/// `.json` is a module class, not a data class, for this daemon: bun resolves a
+/// JSON import at process start exactly like a TS module, and the closure
+/// carries two — `src/generated/interceptor-catalog.json` (the `/interceptors`
+/// page and the aggregates cache) and `src/generated/completion-manifest.json`.
+/// Those are also the only `.json` files under `src/` outside the excluded
+/// directories, so admitting the class costs nothing today. Until mt#5060 this
+/// list was `.ts`-only, written for an all-TS `src/cockpit` — so even a WATCHED
+/// `src/generated` would have dropped the catalog on the floor here, which is
+/// why the root widening and this admission ship together.
 fn is_backend_module_file(name: &str) -> bool {
-    const EXTS: [&str; 3] = [".ts", ".mts", ".cts"];
+    const EXTS: [&str; 4] = [".ts", ".mts", ".cts", ".json"];
     // `.spec.*` joins `.test.*` at mt#4230 R1. The packages roots carry 0 of
     // them today, so this is pre-emptive rather than a measured miss — but the
     // convention is live elsewhere in the ecosystem and a first `.spec.ts` under
@@ -271,11 +319,14 @@ fn is_backend_module_file(name: &str) -> bool {
     EXTS.iter().any(|e| name.ends_with(e)) && !TEST_EXTS.iter().any(|e| name.ends_with(e))
 }
 
-/// True if a path **relative to the backend source root** is a real server-side
-/// change worth a daemon restart: a non-test TS module file, not under an
-/// excluded dir (esp. `web/`), not an editor temp file. Callers pass a
-/// `src/cockpit`-relative path (mirrors `watcher_web::is_relevant_source_change`,
-/// PR #1558).
+/// True if a path **relative to a watched root** is a real server-side change
+/// worth a daemon restart: a non-test module file (`is_backend_module_file`),
+/// not under an excluded dir (esp. `web/`), not an editor temp file. Callers
+/// pass a ROOT-relative path — `src/`-relative or `packages/<pkg>/src`-relative
+/// (mirrors `watcher_web::is_relevant_source_change`, PR #1558). Under the
+/// `src/` root (mt#5060) the cockpit's frontend arrives as `cockpit/web/…`, and
+/// the `web` component exclusion is what keeps it out — it is matched anywhere
+/// in the relative path, not only at its head.
 fn is_relevant_backend_change(rel: &Path) -> bool {
     if backend_path_is_excluded(rel) {
         return false;
@@ -286,8 +337,9 @@ fn is_relevant_backend_change(rel: &Path) -> bool {
     }
 }
 
-/// Newest mtime among relevant backend-source files under `root` (`src/cockpit`),
-/// skipping excluded dirs. `None` if `root` is absent or has no relevant files.
+/// Newest mtime among relevant backend-source files under one watched `root`
+/// (`src/` or a `packages/*/src`), skipping excluded dirs. `None` if `root` is
+/// absent or has no relevant files.
 pub(crate) fn newest_backend_mtime(root: &Path) -> Option<SystemTime> {
     fn walk(dir: &Path, root: &Path, newest: &mut Option<SystemTime>) {
         let entries = match std::fs::read_dir(dir) {
@@ -328,7 +380,8 @@ pub(crate) fn newest_backend_mtime_across(roots: &[PathBuf]) -> Option<SystemTim
     roots.iter().filter_map(|r| newest_backend_mtime(r)).max()
 }
 
-/// Start the runtime backend-source watcher on `src/cockpit`. Mirrors
+/// Start the runtime backend-source watcher over every root in
+/// `cockpit_backend_roots` (`src/` plus `packages/*/src`). Mirrors
 /// `watcher_web::start_web_watcher` but dispatches `SupervisorCmd::AutoRestart`
 /// (not `Rebuild`) on a larger debounce — `AutoRestart`, not the operator-explicit
 /// `Restart`, so the mt#3048 turn-active gate applies (see this module's
@@ -419,6 +472,8 @@ mod tests {
     fn backend_roots_include_the_daemons_real_import_closure() {
         // mt#4230: the daemon runs `bun run src/cli.ts`, so a `packages/**`
         // change invalidates it exactly as a `src/cockpit` change does.
+        // mt#5060: and so does a change anywhere else under `src/` — the root
+        // is the entry point's tree, not the cockpit subdirectory.
         let repo = tmp("roots-full");
         for d in ["src/cockpit", "packages/domain/src", "packages/shared/src"] {
             std::fs::create_dir_all(repo.join(d)).expect("mkdir");
@@ -427,9 +482,58 @@ mod tests {
         let roots = cockpit_backend_roots(&repo);
 
         assert_eq!(roots.len(), 3, "all three roots present: {roots:?}");
-        assert!(roots.contains(&repo.join("src/cockpit")));
+        assert!(roots.contains(&repo.join("src")));
+        assert!(
+            !roots.contains(&repo.join("src/cockpit")),
+            "the cockpit subdirectory is covered by the `src/` root, not listed beside it: {roots:?}"
+        );
         assert!(roots.contains(&repo.join("packages/domain/src")));
         assert!(roots.contains(&repo.join("packages/shared/src")));
+    }
+
+    #[test]
+    fn backend_roots_cover_a_src_subdirectory_nobody_named_in_code() {
+        // mt#5060: the originating gap was `src/generated` (and `src/adapters`,
+        // `src/domain`, …) — 322 of the daemon's 465 `src/` closure files sat
+        // outside the `src/cockpit` root. A tree root covers a subdirectory
+        // that appears nowhere in this crate, so the watched set never needs
+        // editing when the daemon starts importing from a new one.
+        let repo = tmp("roots-src-tree");
+        let base = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let newer = SystemTime::UNIX_EPOCH + Duration::from_secs(2_000_000);
+        touch(&repo.join("src/cockpit/server.ts"), base);
+        touch(&repo.join("src/zzz-future/module.ts"), newer);
+
+        let roots = cockpit_backend_roots(&repo);
+
+        assert_eq!(
+            newest_backend_mtime_across(&roots),
+            Some(newer),
+            "a module under an unnamed `src/` subdirectory counts: {roots:?}"
+        );
+    }
+
+    #[test]
+    fn newest_mtime_across_sees_a_generated_json_only_change() {
+        // The file that motivated mt#5060, as a unit test: only
+        // `src/generated/interceptor-catalog.json` is new. Two independent
+        // predicates used to drop it — the root (`src/cockpit` did not contain
+        // it) and the module class (`.ts`-only rejected it). Both are fixed;
+        // this walk exercises them together, the negative control below pins
+        // the root half, and `is_relevant_backend_change_filters_web_test_and_nonts`
+        // pins the module-class half on its own.
+        let repo = tmp("across-generated-json");
+        let old = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let new = SystemTime::UNIX_EPOCH + Duration::from_secs(2_000_000);
+        touch(&repo.join("src/cockpit/server.ts"), old);
+        touch(&repo.join("src/generated/interceptor-catalog.json"), new);
+
+        let roots = cockpit_backend_roots(&repo);
+
+        assert_eq!(newest_backend_mtime_across(&roots), Some(new));
+        // Negative control on the ROOT half: the single `src/cockpit` walk this
+        // change replaces cannot see the newer file at all.
+        assert_eq!(newest_backend_mtime(&cockpit_backend_src(&repo)), Some(old));
     }
 
     #[test]
@@ -460,7 +564,7 @@ mod tests {
 
         let roots = cockpit_backend_roots(&repo);
 
-        assert_eq!(roots, vec![repo.join("src/cockpit")]);
+        assert_eq!(roots, vec![repo.join("src")]);
     }
 
     #[test]
@@ -495,14 +599,14 @@ mod tests {
 
     #[test]
     fn backend_roots_degrade_when_packages_are_absent() {
-        // A packaged or partial checkout keeps the pre-mt#4230 behavior rather
-        // than watching a path that does not exist.
+        // A packaged or partial checkout watches the entry tree alone rather
+        // than a `packages/` path that does not exist.
         let repo = tmp("roots-partial");
         std::fs::create_dir_all(repo.join("src/cockpit")).expect("mkdir");
 
         let roots = cockpit_backend_roots(&repo);
 
-        assert_eq!(roots, vec![repo.join("src/cockpit")]);
+        assert_eq!(roots, vec![repo.join("src")]);
     }
 
     #[test]
@@ -568,11 +672,41 @@ mod tests {
             "node_modules/x/y.ts"
         )));
         assert!(!is_relevant_backend_change(Path::new(".git/HEAD")));
-        // non-.ts, test files, and editor temp files excluded.
+        // non-module, test files, and editor temp files excluded.
         assert!(!is_relevant_backend_change(Path::new("README.md")));
         assert!(!is_relevant_backend_change(Path::new("server.test.ts")));
         assert!(!is_relevant_backend_change(Path::new(
             "widgets/.agents.ts.swp"
+        )));
+        // mt#5060: paths are now `src/`-relative, so the cockpit's own modules
+        // arrive under a `cockpit/` prefix and its frontend under
+        // `cockpit/web/` — the `web` exclusion must still catch the latter
+        // when it is NOT the first component (test 6 under the wider root).
+        assert!(is_relevant_backend_change(Path::new("cockpit/server.ts")));
+        assert!(is_relevant_backend_change(Path::new(
+            "adapters/shared/commands/calibration.ts"
+        )));
+        assert!(!is_relevant_backend_change(Path::new(
+            "cockpit/web/App.tsx"
+        )));
+        assert!(!is_relevant_backend_change(Path::new(
+            "cockpit/web/lib/entity-codec.ts"
+        )));
+        // mt#5060: `.json` is a module class — bun resolves a JSON import at
+        // process start — and the two generated artifacts the daemon imports
+        // are the only `.json` under `src/` outside excluded dirs. A `.json`
+        // under an excluded dir stays excluded by the directory rule.
+        assert!(is_relevant_backend_change(Path::new(
+            "generated/interceptor-catalog.json"
+        )));
+        assert!(is_relevant_backend_change(Path::new(
+            "generated/completion-manifest.json"
+        )));
+        assert!(!is_relevant_backend_change(Path::new(
+            "__fixtures__/sample.json"
+        )));
+        assert!(!is_relevant_backend_change(Path::new(
+            "cockpit/web/package.json"
         )));
         // .mts/.cts modules trigger; their test variants don't (reviewer R1 NB1).
         assert!(is_relevant_backend_change(Path::new("server.mts")));

@@ -184,18 +184,30 @@ keeps the daemon current:
 
 - **Startup staleness (adopted daemon).** When the tray adopts an already-running
   daemon, it reads that daemon's start time (`ps -o etime=`) and compares it against
-  the newest backend-source mtime under `src/cockpit/**` (excluding `web/**`,
-  `node_modules`, `.git`, `dist`, and `*.test.ts`). If source is newer — the daemon
-  predates the current code — the tray restarts it before reporting ready. This is
-  the originating 2026-06-04 case: an 8-day-old daemon that missed two merged
-  feature PRs. A daemon the tray spawns fresh is trivially current, so no check is
-  needed there.
+  the newest backend-source mtime across every watched root — `src/**` plus each
+  discovered `packages/*/src` (mt#4230, mt#5060) — excluding `web/**`,
+  `node_modules`, `.git`, `dist`, the fixture/mock/test directory family, and
+  `*.test.*` / `*.spec.*` files. If source is newer — the daemon predates the current
+  code — the tray restarts it before reporting ready. This is the originating
+  2026-06-04 case: an 8-day-old daemon that missed two merged feature PRs. A daemon
+  the tray spawns fresh is trivially current, so no check is needed there.
 - **Runtime watcher.** While the daemon runs, a debounced (~2s — larger than the
-  web rebuild's 500ms, since a restart is more disruptive) filesystem watcher on
-  `src/cockpit/**` restarts the daemon on any relevant backend `.ts` change. `web/**`
-  is excluded (the mt#2297 rebuild path owns it), so a frontend edit rebuilds the
-  bundle without bouncing the daemon, and a backend edit restarts the daemon without
-  a build.
+  web rebuild's 500ms, since a restart is more disruptive) filesystem watcher on the
+  same roots restarts the daemon on any relevant backend module change
+  (`.ts`/`.mts`/`.cts`/`.json`). `web/**` is excluded (the mt#2297 rebuild path owns
+  it), so a frontend edit rebuilds the bundle without bouncing the daemon, and a
+  backend edit restarts the daemon without a build.
+- **Why the roots are trees, not a list (mt#4230, mt#5060).** The daemon is
+  `bun run src/cli.ts`, so its import closure is `src/**` plus `packages/**`. The
+  watcher started as `src/cockpit` only; mt#4230 added `packages/*/src` by
+  discovery, and mt#5060 widened the `src/` side to the whole tree after measuring
+  that 322 of the daemon's 465 `src/` closure files — `src/adapters`, `src/mcp`,
+  `src/generated`, … — were unwatched, and that the `.ts`-only module class dropped
+  the two generated `.json` imports even where they were watched. A tree root is a
+  superset of the closure by construction and cannot drift as new subdirectories
+  appear; the cost is a spurious restart on an edit to a `src/` module the daemon
+  never loads, which the debounce absorbs and which is far cheaper than serving
+  stale code with nothing to notice.
 - **Source-presence gate.** Like the rebuild path, all of the above is gated on a
   source checkout; a packaged / no-source install skips it.
 - **"Daemon uptime" line.** The tray menu shows how long the daemon has run plus the
