@@ -279,7 +279,7 @@ ANNOTATION naming the sibling — never a refusal (reference ≠ reservation).
 
 ```
 TODO        → READY, CLOSED          (drafting → open for claim)
-READY       → TODO, CLOSED           (pull back to drafting; abandon)
+READY       → TODO, DONE, CLOSED     (pull back to drafting; completed by the sweep; abandon)
 IN-PROGRESS → DONE, CLOSED
 DONE        → CLOSED
 CLOSED      → TODO (reopen)
@@ -301,6 +301,18 @@ CLOSED      → TODO (reopen)
 - **Consumer-side default-deny:** `tasks_available`, routing, backlog counts, and the
   workstream widget exclude the kind unless an explicit `kind: "work-package"` filter names
   it. A package is picked up deliberately, never auto-served.
+- **Its status is kept honest by a sweep, not by hand (mt#5132).** The `package-lifecycle`
+  loop on `minsky-ops` (every 15 min; `minsky tasks packages sweep` is the one-shot form,
+  dry-run by default) does two things: a READY or IN-PROGRESS package whose every member is
+  terminal goes `DONE` with an `origin: "completed"` transfer naming the members (a package with
+  zero member rows is reported, never closed); and an IN-PROGRESS package whose claim is older
+  than 24h and whose holder has shown no presence (`presence_claims`, refreshed on every
+  task-bearing tool call) inside that window is released back to `READY`. A conversation that
+  ends normally releases its own `conv:`-scoped claims sooner via the
+  `release-work-package-claims-on-session-end` hook (`minsky tasks release-conversation`);
+  a claim recorded under a daemon-scoped `proc:` id — shared across conversations — waits for
+  the sweep. Reopening a completed package is the ordinary `CLOSED → TODO` edge after a
+  `DONE → CLOSED`; the transfer log keeps the `completed` entry either way.
 
 **Tool mappings:**
 | State | GitHub Issues | Linear | Jira |

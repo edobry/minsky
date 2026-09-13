@@ -115,6 +115,14 @@
  *                                    the CLI's under mt#5138)
  *   REMAINDER_EXPIRY_INTERVAL_MS   — cadence in ms (default: 86400000 = 24h)
  *   REMAINDER_EXPIRY_TICK_CAP      — parks per tick (default: 50)
+ *   PACKAGE_LIFECYCLE_ENABLED      — "true" (declared in infra/index.ts — mt#5132; the
+ *                                    work-package sweep: close when every member is
+ *                                    terminal, release a claim stale 24h)
+ *   PACKAGE_LIFECYCLE_EXECUTE      — NOT set (shadow default: the tick logs the plan
+ *                                    and writes nothing; flipping it is mt#5139's
+ *                                    operator step after the first CLI execute)
+ *   PACKAGE_LIFECYCLE_INTERVAL_MS  — cadence in ms (default: 900000 = 15 min)
+ *   PACKAGE_LIFECYCLE_STALE_HOURS  — claim staleness window (default: 24)
  *
  * @see mt#2101 — implementation task (ops service code)
  * @see mt#2097 — operational topology epic

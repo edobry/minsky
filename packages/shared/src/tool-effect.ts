@@ -355,6 +355,10 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   "tasks.pointings.list": "reads",
   "tasks.pointings.candidates": "reads",
   "tasks.expire-remainder": "mutates",
+  // mt#5132: the package-lifecycle sweep (close + release; dry-run default)
+  // and the SessionEnd hook's conversation-scoped release.
+  "tasks.packages.sweep": "mutates",
+  "tasks.release-conversation": "mutates",
   "tasks.available": "reads",
   "tasks.children": "reads",
   "tasks.claims.list": "reads",

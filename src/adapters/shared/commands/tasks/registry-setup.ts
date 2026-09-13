@@ -242,6 +242,10 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
   } = require("./claims-command");
   const { createTasksClaimCommand, createTasksReleaseCommand } = require("./work-package-commands");
   const {
+    createTasksPackagesSweepCommand,
+    createTasksReleaseConversationCommand,
+  } = require("./work-package-lifecycle-commands");
+  const {
     createTasksPointingsDeclareCommand,
     createTasksPointingsListCommand,
     createTasksPointingsArchiveCommand,
@@ -330,6 +334,8 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     // Work-package claim/release (ADR-046, mt#2911)
     createTasksClaimCommand(getPersistenceProvider),
     createTasksReleaseCommand(getPersistenceProvider),
+    createTasksPackagesSweepCommand(getPersistenceProvider),
+    createTasksReleaseConversationCommand(getPersistenceProvider),
     createTasksPointingsDeclareCommand(getPersistenceProvider),
     createTasksPointingsListCommand(getPersistenceProvider),
     createTasksPointingsArchiveCommand(getPersistenceProvider),

@@ -138,9 +138,10 @@ export function explainReleaseRefusal(
  * `tasks.status.set` by design, so if emission lived in any one adapter the
  * other callers (the cockpit routes, a future sweep) would silently blind the
  * event-ledger peer probes. Never throws — the ledger is informational and
- * must not affect the claim outcome.
+ * must not affect the claim outcome. Exported for the lifecycle siblings in
+ * `work-package-lifecycle.ts` (mt#5132), which write the same CAS shape.
  */
-async function emitStatusChanged(
+export async function emitStatusChanged(
   db: PostgresJsDatabase,
   payload: { taskId: string; previousStatus: string; newStatus: string; via: string }
 ): Promise<void> {

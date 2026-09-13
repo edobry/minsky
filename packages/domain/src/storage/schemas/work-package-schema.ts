@@ -30,8 +30,21 @@ import { tasksTable } from "./task-embeddings";
  * records.
  */
 
-/** Transfer origins: how a package entered (or re-entered) the claimable pool. */
-export const WORK_PACKAGE_TRANSFER_ORIGINS = ["groomed", "succession", "release"] as const;
+/**
+ * Transfer origins: how a package entered (or re-entered) the claimable pool —
+ * plus the one that records it LEAVING the pool. `completed` (mt#5132) is
+ * appended when the lifecycle sweep closes a package whose every member is
+ * terminal: the package goes DONE, and the transfer names the sweep and the
+ * member ids so the closure is auditable without reading N task rows. A
+ * closed package is not re-offered, so `completed` is terminal in the log the
+ * same way DONE is on the row.
+ */
+export const WORK_PACKAGE_TRANSFER_ORIGINS = [
+  "groomed",
+  "succession",
+  "release",
+  "completed",
+] as const;
 export type WorkPackageTransferOrigin = (typeof WORK_PACKAGE_TRANSFER_ORIGINS)[number];
 
 export const workPackageMembersTable = pgTable(

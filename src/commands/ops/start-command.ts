@@ -49,6 +49,7 @@ import {
 } from "./adoption-sweeper-callsite-check";
 import { toilMinerOpsTick } from "./toil-miner-tick";
 import { remainderExpiryOpsTick } from "./remainder-expiry-tick";
+import { packageLifecycleOpsTick } from "./package-lifecycle-tick";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -1049,6 +1050,21 @@ export function createOpsStartCommand(externalContainer?: AppContainerInterface)
         "REMAINDER_EXPIRY",
         86_400_000, // 24 hours
         remainderExpiryOpsTick
+      );
+
+      // Package-lifecycle sweep (mt#5132, mt#5122 SC1/SC2/SC4): closes a work
+      // package whose every member is terminal and releases a claim whose
+      // holder has shown no presence for 24h. Every 15 minutes; SHADOW by
+      // default (PACKAGE_LIFECYCLE_EXECUTE unset logs the plan and writes
+      // nothing) — the first execute is the CLI's under mt#5132, and flipping
+      // the loop to execute is mt#5139's operator step.
+      registerLoop(
+        loops,
+        initializedContainer,
+        "package-lifecycle",
+        "PACKAGE_LIFECYCLE",
+        900_000, // 15 minutes
+        packageLifecycleOpsTick
       );
 
       // Start the HTTP health server.

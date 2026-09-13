@@ -449,6 +449,17 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "_comment": "mt#5132 work-package claim release — one `minsky tasks release-conversation <session_id> --reason <reason>` call, releasing the packages claimed under this conversation's `conv:` identity; the hook forwards `reason` verbatim and the COMMAND releases nothing under clear/resume. Latency half only: SessionEnd DOES fire on /clear today (340 `clear` rows measured 2026-09-13; the sibling _comment above predates that), but never on a crash, so the correctness layer is the minsky-ops package-lifecycle sweep's 24h presence-staleness backstop. Never blocks (SessionEnd cannot). Override: MINSKY_HOOK_OVERRIDE=release-work-package-claims-on-session-end.",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/release-work-package-claims-on-session-end.ts",
+            "timeout": 25,
+            "statusMessage": "Releasing this conversation's work-package claims..."
+          }
+        ]
       }
     ],
     "PostToolUse": [

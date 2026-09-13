@@ -257,6 +257,16 @@ export const SETTINGS_REGISTERED_DESCRIPTIONS: readonly (readonly [
     },
   ],
   [
+    "release-work-package-claims-on-session-end",
+    {
+      description:
+        "Releases the work-package claims a conversation holds when it ends, by spawning one `tasks release-conversation` call with the SessionEnd payload's session_id and reason. Matches only claims recorded under that conversation's own `conv:` identity — a daemon-scoped `proc:` id is shared across conversations and is left to the lifecycle sweep's staleness backstop. Skips `clear` and `resume`, under which the conversation's claim survives.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("release-work-package-claims-on-session-end")],
+      stratum: "standalone",
+    },
+  ],
+  [
     "session-start",
     {
       description:

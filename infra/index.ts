@@ -185,6 +185,12 @@ defineVariables("minsky-ops", minskyMcpEnv, minskyOpsService.id, {
   // set — the sweeper defaults to dry-run (mt#3328); flipping to execute is
   // an operator-reviewed step after mt#2132, not part of this task's scope.
   ADOPTION_SWEEPER_ENABLED: plain("true"),
+  // Package-lifecycle sweep (mt#5132): closes a work package whose every
+  // member is terminal, releases a claim whose holder has shown no presence
+  // for 24h. PACKAGE_LIFECYCLE_EXECUTE is DELIBERATELY NOT set — the loop
+  // runs in shadow (logs the plan, writes nothing) until mt#5139 flips it
+  // after the first CLI execute and one matching shadow tick.
+  PACKAGE_LIFECYCLE_ENABLED: plain("true"),
 });
 
 // ---------------------------------------------------------------------------

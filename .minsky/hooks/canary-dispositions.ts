@@ -259,6 +259,7 @@ export const CANARY_DISPOSITIONS: ReadonlyMap<string, CanaryDispositionRecord> =
         "settle either way."
     ),
   ],
+  ["release-work-package-claims-on-session-end", pending()],
   ["transcript-ingest-on-session-end", pending()],
   ["two-strikes-record", pending()],
   ["typecheck-on-edit", pending()],

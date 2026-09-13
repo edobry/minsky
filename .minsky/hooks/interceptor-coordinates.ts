@@ -845,6 +845,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       note: "Closes the dispatch row the PreToolUse `agent-dispatch-stamp` opened, recovering the parent key from the agent transcript path.",
     },
   ],
+  [
+    "release-work-package-claims-on-session-end",
+    {
+      interventions: [recordFramework],
+      mechanism: "constant",
+      role: "infrastructure",
+      note: "The latency half of mt#5132's claim release: one CLI call at SessionEnd releasing the packages claimed under this conversation's `conv:` identity. The correctness layer is the package-lifecycle sweep's 24h presence-staleness backstop on minsky-ops — the same two-layer shape as the transcript-ingest sibling, because SessionEnd does not fire on a crash.",
+    },
+  ],
   ["require-checks-on-bypass-merge", deliveryGate],
   [
     "require-deploy-verification-before-merge",
@@ -1293,6 +1302,7 @@ export const OUT_OF_MODEL_NAMES: readonly string[] = [
   "record-conversation-run-state",
   "record-subagent-invocation",
   "record-turn-anchor",
+  "release-work-package-claims-on-session-end",
   "session-start",
   "stamp-ask-conversation",
   "stamp-pr-author-link",

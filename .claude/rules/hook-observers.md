@@ -125,6 +125,12 @@ Detail: `guard-dispatcher-framework.md`.
   (40-stream exhaust, HWM cursor, dedupe-key insert). Latency only — the cockpit's periodic
   `startGuardEventsSweepBackstop` is the correctness layer (SessionEnd unreliable, ADR-017/mt#2313).
   `MINSKY_SKIP_GUARD_EVENTS_INGEST_HOOK`.
+- **Work-package claim release** (mt#5132) — SessionEnd spawns one `tasks release-conversation
+  <session_id> --reason <reason>`, releasing the packages claimed under this conversation's
+  `conv:` identity; the command releases nothing under `clear`/`resume`. Latency only — the
+  minsky-ops `package-lifecycle` sweep's 24h presence-staleness backstop is the correctness
+  layer, and a daemon-scoped `proc:` claim is only ever the sweep's.
+  `MINSKY_HOOK_OVERRIDE=release-work-package-claims-on-session-end`.
 - **Calibration (log-only)** — causal-premise/cadence/build-claim/knowledge-acquisition. `MINSKY_ACK_*`/`MINSKY_SKIP_*`.
 - **Guard-health tracker** — guard failure streaks tagged `infra`/`logic`; escalation banner cools down per-session up to 1h (mt#3072). Since mt#3892 the summary carries `liveness` + `lastCleanRunAt`, so `recovered` and `dormant` are no longer one state. none. Detail: `guard-health-tracker.md`.
 - **Cross-turn hedge** — UserPromptSubmit: a claim HEDGED in an earlier turn and restated as FACT in a later one, with no tool call naming that subject in between — the falsifier `claim-confidence.mdc`'s warrant vocabulary previously had none of. Subjects are decidable entity refs only, and the hedge turn's OWN lookup deliberately does not count as resolving, since it is usually what produced the hedge. Log-only. `MINSKY_ACK_CROSS_TURN_HEDGE`. No detail page yet — this entry is the whole documentation; a page is owned by mt#4992.
