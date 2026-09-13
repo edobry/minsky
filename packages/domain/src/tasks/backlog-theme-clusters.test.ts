@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { cosineSimilarity } from "../knowledge/reconciliation/clustering";
 import { clusterBacklogThemes, type ThemeClusterItem } from "./backlog-theme-clusters";
 import { renderThemeClustersMarkdown } from "./backlog-theme-clusters-render";
 
@@ -145,6 +146,44 @@ describe("clusterBacklogThemes", () => {
     expect(result.clusters).toEqual([]);
     expect(result.params.k).toBe(0);
   });
+
+  test("the silhouette is computed over a seeded sample when the input exceeds the cap", () => {
+    const { items, groups } = buildFixture(12);
+    const sampled = clusterBacklogThemes(items, {
+      kRange: [2, 6],
+      seed: 1,
+      nowMs: NOW_MS,
+      silhouetteSampleSize: 12,
+    });
+    expect(sampled.params.silhouettePoints).toBe(12);
+    expect(sampled.params.k).toBe(3);
+    const found = sampled.clusters.map((c) => [...c.memberIds].sort());
+    for (const expected of groups) expect(found).toContainEqual([...expected].sort());
+
+    const full = clusterBacklogThemes(items, { kRange: [2, 6], seed: 1, nowMs: NOW_MS });
+    expect(full.params.silhouettePoints).toBe(36);
+  });
+
+  test("assignment metric equals 2x the knowledge clusterer's cosine distance on unit vectors", () => {
+    // The silhouette sweep runs on squared Euclidean over unit vectors; pin the
+    // identity to cosine distance so the two never drift apart silently.
+    const a = [0.6, 0.8, 0];
+    const b = [0, 0.6, 0.8];
+    const cosDist = 1 - cosineSimilarity(a, b);
+    const sq = a.reduce((s, x, i) => s + (x - (b[i] as number)) ** 2, 0);
+    expect(sq).toBeCloseTo(2 * cosDist, 12);
+  });
+
+  test("an empty cluster is reseeded rather than left with a stale centroid", () => {
+    // k larger than the number of natural groups forces an empty cluster at
+    // some iteration; every cluster in the output must be non-empty and the
+    // member sets must still partition the input.
+    const { items } = buildFixture(4);
+    const result = clusterBacklogThemes(items, { k: 6, seed: 5, nowMs: NOW_MS });
+    const all = result.clusters.flatMap((c) => c.memberIds).sort();
+    expect(all).toEqual(items.map((i) => i.id).sort());
+    for (const c of result.clusters) expect(c.size).toBeGreaterThan(0);
+  });
 });
 
 describe("renderThemeClustersMarkdown", () => {
@@ -161,6 +200,8 @@ describe("renderThemeClustersMarkdown", () => {
     expect(md).toContain("seed=1 maxIterations=25 staleDays=90");
     expect(md).toContain("Population: 19 open non-package tasks; 18 clustered; residue 1.");
     expect(md).toContain("- 1 with no embedding row: mt#777");
+    // SC2: share is of OPEN tasks (6/19), with the clustered denominator beside it when residue > 0.
+    expect(md).toContain("- Size: 6 (31.6% of open tasks; 33.3% of clustered)");
     expect(md).not.toMatch(/\|/); // no pipe tables
     expect(md).not.toMatch(/\b(score|rank|priority)\b/i);
   });
@@ -194,6 +235,15 @@ describe("renderThemeClustersMarkdown", () => {
     expect(all).not.toContain("never");
   });
 
+  test("short domain terms on the allowlist survive the length floor", () => {
+    const { items } = buildFixture(4);
+    for (const it of items.slice(0, 4)) it.title = `${it.title} auth cli`;
+    const result = clusterBacklogThemes(items, { k: 3, seed: 1, nowMs: NOW_MS });
+    const cockpit = result.clusters.find((c) => c.memberIds.includes("mt#0"));
+    expect(cockpit?.label).toContain("auth");
+    expect(cockpit?.label).toContain("cli");
+  });
+
   test("clean run says so in the residue section", () => {
     const { items } = buildFixture(4);
     const result = clusterBacklogThemes(items, { k: 3, seed: 1, nowMs: NOW_MS });
@@ -203,5 +253,8 @@ describe("renderThemeClustersMarkdown", () => {
       missingEmbedding: [],
     });
     expect(md).toContain("- none — every open task was clustered");
+    // No residue: one denominator, and it is the open-task population.
+    expect(md).toContain("- Size: 4 (33.3% of open tasks)");
+    expect(md).not.toContain("of clustered");
   });
 });

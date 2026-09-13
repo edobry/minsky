@@ -27,7 +27,11 @@ export interface RenderMeta {
 function parameterLine(result: ThemeClusterResult): string {
   const p = result.params;
   const sweep = p.kRange ? ` (silhouette sweep over ${p.kRange[0]}..${p.kRange[1]})` : " (fixed)";
-  const sil = p.silhouette !== null ? ` silhouette=${p.silhouette.toFixed(3)}` : "";
+  const sampled =
+    p.silhouettePoints > 0 && p.silhouettePoints < result.clustered
+      ? ` (over a ${p.silhouettePoints}-point sample)`
+      : "";
+  const sil = p.silhouette !== null ? ` silhouette=${p.silhouette.toFixed(3)}${sampled}` : "";
   return (
     `Parameters: algorithm=${p.algorithm} k=${p.k}${sweep}${sil} ` +
     `seed=${p.seed} maxIterations=${p.maxIterations} staleDays=${p.staleDays}`
@@ -63,7 +67,10 @@ export function renderThemeClustersMarkdown(result: ThemeClusterResult, meta: Re
   result.clusters.forEach((c, i) => {
     lines.push(`## ${i + 1}. ${c.label.join(" · ") || "(no distinctive terms)"}`);
     lines.push("");
-    lines.push(`- Size: ${c.size} (${(c.share * 100).toFixed(1)}% of clustered)`);
+    const ofOpen = meta.openTaskCount > 0 ? (c.size / meta.openTaskCount) * 100 : 0;
+    const ofClustered =
+      residueAll.length > 0 ? `; ${(c.shareOfClustered * 100).toFixed(1)}% of clustered` : "";
+    lines.push(`- Size: ${c.size} (${ofOpen.toFixed(1)}% of open tasks${ofClustered})`);
     lines.push(
       `- Age: median ${c.medianDaysSinceTouched} days since touched; ` +
         `${c.untouchedCount} untouched ${p.staleDays}+ days`

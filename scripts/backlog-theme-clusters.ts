@@ -111,8 +111,11 @@ async function main(): Promise<void> {
 
   const identity = resolveProjectIdentity({ repoPath: process.cwd() });
   const scope = await resolveScopeOutcome(identity, db);
-  const projectFilter =
-    scope.kind === "resolved" ? eq(tasksTable.projectId, scope.projectId) : undefined;
+  // Build the predicate list explicitly so an unresolved scope simply omits the
+  // project clause (drizzle's `and` drops undefined entries itself, but the
+  // explicit form makes that visible at the call site).
+  const conditions = [notInArray(tasksTable.status, TERMINAL), ne(tasksTable.kind, EXCLUDED_KIND)];
+  if (scope.kind === "resolved") conditions.push(eq(tasksTable.projectId, scope.projectId));
 
   const asOf = new Date();
   const rows = await db
@@ -125,13 +128,7 @@ async function main(): Promise<void> {
     })
     .from(tasksTable)
     .leftJoin(tasksEmbeddingsTable, eq(tasksEmbeddingsTable.id, tasksTable.id))
-    .where(
-      and(
-        notInArray(tasksTable.status, TERMINAL),
-        ne(tasksTable.kind, EXCLUDED_KIND),
-        projectFilter
-      )
-    );
+    .where(and(...conditions));
 
   const items: ThemeClusterItem[] = [];
   const missingEmbedding: string[] = [];

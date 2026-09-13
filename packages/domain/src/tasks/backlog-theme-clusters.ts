@@ -14,13 +14,12 @@
  *
  * Algorithm: k-means++ over L2-normalized vectors (so squared Euclidean
  * distance is monotone in cosine distance), k chosen by a silhouette sweep
- * over a small range, seeded PRNG for reproducibility. Reuses
- * `cosineSimilarity` from the knowledge near-duplicate clusterer rather than
- * that module's single-linkage clusterer, whose 0.92 threshold is built for
- * duplicates and is far too tight for themes. No external dependency.
+ * over a small range, seeded PRNG for reproducibility. Same cosine metric as
+ * the knowledge near-duplicate clusterer (`cosineSimilarity`, identity pinned
+ * by a test) but not that module's single-linkage clusterer, whose 0.92
+ * threshold is built for duplicates and is far too tight for themes. No
+ * external dependency.
  */
-
-import { cosineSimilarity } from "../knowledge/reconciliation/clustering";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -52,6 +51,12 @@ export interface ThemeClusterOptions {
   proposalTag?: string;
   /** Days after which a task counts as untouched. Default 90. */
   staleDays?: number;
+  /**
+   * The silhouette needs a pairwise distance matrix, O(n²) memory. Above this
+   * many points it is computed over a seeded random sample of this size
+   * instead of the whole set. Default 2000 (~32 MB of Float64).
+   */
+  silhouetteSampleSize?: number;
 }
 
 export interface ThemeCluster {
@@ -61,8 +66,12 @@ export interface ThemeCluster {
   exemplars: Array<{ id: string; title: string }>;
   memberIds: string[];
   size: number;
-  /** size / total clustered, in [0, 1]. */
-  share: number;
+  /**
+   * size / total CLUSTERED, in [0, 1]. The renderer divides by the open-task
+   * population instead (SC2's "share of open tasks"); the two differ only when
+   * residue is non-empty, and both denominators are printed.
+   */
+  shareOfClustered: number;
   medianDaysSinceTouched: number;
   untouchedCount: number;
   untaggedShare: number;
@@ -74,6 +83,8 @@ export interface ThemeClusterParams {
   k: number;
   kRange: [number, number] | null;
   silhouette: number | null;
+  /** Points the silhouette was computed over; equals the clustered count unless sampled. */
+  silhouettePoints: number;
   seed: number;
   maxIterations: number;
   staleDays: number;
@@ -195,11 +206,65 @@ function kmeans(
     assignments = next;
     for (let c = 0; c < centroids.length; c++) {
       const members = points.filter((_, i) => assignments[i] === c);
-      if (members.length > 0) centroids[c] = meanVector(members, dims);
+      if (members.length > 0) {
+        centroids[c] = meanVector(members, dims);
+      } else {
+        // Empty cluster: reseed to the point farthest from its own centroid,
+        // the farthest-point heuristic, so a stale centroid never lingers.
+        let farthest = 0;
+        let farthestD = -1;
+        for (let i = 0; i < n; i++) {
+          const d = sqDist(points[i] as number[], centroids[assignments[i] as number] as number[]);
+          if (d > farthestD) {
+            farthestD = d;
+            farthest = i;
+          }
+        }
+        centroids[c] = [...(points[farthest] as number[])];
+        assignments[farthest] = c;
+        changed = true;
+      }
     }
     if (!changed) break;
   }
   return { assignments, centroids };
+}
+
+/**
+ * Pairwise distance matrix over `indices`, in the SAME metric as assignment
+ * (squared Euclidean on unit vectors). That equals 2·(1 − cos), so it orders
+ * every pair exactly as cosine distance does, and the silhouette — a ratio
+ * (b − a) / max(a, b) — is invariant under the factor 2. The identity against
+ * the knowledge clusterer's `cosineSimilarity` is pinned by a test.
+ */
+function distanceMatrix(points: number[][], indices: number[]): Float64Array {
+  const m = indices.length;
+  const dist = new Float64Array(m * m);
+  for (let a = 0; a < m; a++) {
+    for (let b = a + 1; b < m; b++) {
+      const d = sqDist(
+        points[indices[a] as number] as number[],
+        points[indices[b] as number] as number[]
+      );
+      dist[a * m + b] = d;
+      dist[b * m + a] = d;
+    }
+  }
+  return dist;
+}
+
+/** Seeded sample of `size` distinct indices from 0..n-1 (all of them when n ≤ size). */
+function sampleIndices(n: number, size: number, seed: number): number[] {
+  const all = Array.from({ length: n }, (_, i) => i);
+  if (n <= size) return all;
+  const rand = mulberry32(seed ^ 0x9e3779b9);
+  for (let i = n - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    const tmp = all[i] as number;
+    all[i] = all[j] as number;
+    all[j] = tmp;
+  }
+  return all.slice(0, size).sort((x, y) => x - y);
 }
 
 /** Mean silhouette over all points, using the precomputed distance matrix. */
@@ -253,12 +318,21 @@ function isIdentifierLike(token: string): boolean {
   return digits > 2 || /^\d+$/.test(token);
 }
 
+/** Short domain terms that carry theme signal despite failing the length floor. */
+const SHORT_TERMS = new Set(
+  "auth ui cli sdk api mcp db sql ask asks hook tray tag tags git ci adr rfc gh oauth cwd env".split(
+    " "
+  )
+);
+
 function tokenize(title: string): string[] {
   return title
     .toLowerCase()
     .replace(/mt#\d+|pr\s*#\d+|#\d+/g, " ")
     .split(/[^a-z0-9_]+/)
-    .filter((t) => t.length >= 4 && !STOPWORDS.has(t) && !isIdentifierLike(t));
+    .filter(
+      (t) => (t.length >= 4 || SHORT_TERMS.has(t)) && !STOPWORDS.has(t) && !isIdentifierLike(t)
+    );
 }
 
 function labelClusters(groups: ThemeClusterItem[][], termsPerCluster: number): string[][] {
@@ -322,6 +396,7 @@ export function clusterBacklogThemes(
     k,
     kRange: options.k === undefined ? (options.kRange ?? [6, 16]) : null,
     silhouette: null,
+    silhouettePoints: 0,
     seed,
     maxIterations,
     staleDays,
@@ -330,15 +405,17 @@ export function clusterBacklogThemes(
 
   const points = usable.map((u) => u.unit);
 
-  // Pairwise distance matrix (cosine distance on unit vectors), for silhouette.
-  const dist = new Float64Array(n * n);
-  for (let i = 0; i < n; i++) {
-    for (let j = i + 1; j < n; j++) {
-      const d = 1 - cosineSimilarity(points[i] as number[], points[j] as number[]);
-      dist[i * n + j] = d;
-      dist[j * n + i] = d;
-    }
-  }
+  // Silhouette over a bounded sample: the matrix is O(m²) in the sample size.
+  const sample = sampleIndices(n, options.silhouetteSampleSize ?? 2000, seed);
+  const m = sample.length;
+  const dist = distanceMatrix(points, sample);
+  const silhouetteOf = (assignments: number[], k: number): number =>
+    silhouette(
+      dist,
+      m,
+      sample.map((i) => assignments[i] as number),
+      k
+    );
 
   let bestK: number;
   let bestAssign: number[] = [];
@@ -349,7 +426,7 @@ export function clusterBacklogThemes(
     const r = kmeans(points, bestK, seed, maxIterations);
     bestAssign = r.assignments;
     bestCentroids = r.centroids;
-    if (bestK >= 2) bestSil = silhouette(dist, n, bestAssign, bestK);
+    if (bestK >= 2) bestSil = silhouetteOf(bestAssign, bestK);
   } else {
     const [lo, hi] = options.kRange ?? [6, 16];
     const kMin = Math.max(2, Math.min(lo, n));
@@ -358,7 +435,7 @@ export function clusterBacklogThemes(
     let best = -Infinity;
     for (let k = kMin; k <= kMax; k++) {
       const r = kmeans(points, k, seed, maxIterations);
-      const s = silhouette(dist, n, r.assignments, k);
+      const s = silhouetteOf(r.assignments, k);
       if (s > best) {
         best = s;
         bestK = k;
@@ -399,7 +476,7 @@ export function clusterBacklogThemes(
       exemplars,
       memberIds: g.map((u) => u.item.id),
       size: g.length,
-      share: g.length / n,
+      shareOfClustered: g.length / n,
       medianDaysSinceTouched: Math.round(median(ages)),
       untouchedCount: ages.filter((d) => d >= staleDays).length,
       untaggedShare: untagged / g.length,
@@ -412,6 +489,6 @@ export function clusterBacklogThemes(
     clusters,
     residue,
     clustered: n,
-    params: { ...emptyParams(bestK), silhouette: bestSil },
+    params: { ...emptyParams(bestK), silhouette: bestSil, silhouettePoints: m },
   };
 }
