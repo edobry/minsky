@@ -48,6 +48,7 @@ import {
   type SnapshotFetchResult,
 } from "./adoption-sweeper-callsite-check";
 import { toilMinerOpsTick } from "./toil-miner-tick";
+import { remainderExpiryOpsTick } from "./remainder-expiry-tick";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -1033,6 +1034,21 @@ export function createOpsStartCommand(externalContainer?: AppContainerInterface)
         "TOIL_MINER",
         432_000_000, // 5 days
         toilMinerOpsTick
+      );
+
+      // Remainder disposition (mt#5131, RFC 3ae937f0 Phase 1): parks open
+      // tasks untouched 90+ days that no live standing pointing matches, and
+      // reopens parked tasks a pointing now matches. Daily; disabled by
+      // default and SHADOW by default (REMAINDER_EXPIRY_EXECUTE unset logs the
+      // plan and writes nothing) — enablement and the first execute are
+      // mt#5138's operator steps.
+      registerLoop(
+        loops,
+        initializedContainer,
+        "remainder-expiry",
+        "REMAINDER_EXPIRY",
+        86_400_000, // 24 hours
+        remainderExpiryOpsTick
       );
 
       // Start the HTTP health server.

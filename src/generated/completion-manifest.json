@@ -2725,6 +2725,22 @@
               "commandId": "tasks.pointings.candidates"
             }
           ]
+        },
+        {
+          "name": "expire-remainder",
+          "description": "The backlog remainder's disposition (RFC 3ae937f0 Phase 1, mt#5131): open tasks untouched 90+ days and matching NO live standing pointing are parked — CLOSED, tagged auto-expired, spec annotated — and parked tasks a live pointing now matches are reopened (CLOSED -> TODO). Dry-run by default. With zero live pointings nothing is parked: the plan reports what WOULD park under parkingSuspended.",
+          "options": [
+            {
+              "flags": ["--execute"],
+              "description": "Apply the plan. Default is a dry-run that prints the park and resurrect id lists and writes nothing. The first --execute is a bulk shared-state mutation: run it under its wrapper task (mt#5138) after comparing the dry-run against the recorded count."
+            },
+            {
+              "flags": ["--cap"],
+              "description": "Maximum parks this run (resurrection is never capped). Omitted = uncapped; the ops loop passes its own cap.",
+              "takesValue": true
+            }
+          ],
+          "commandId": "tasks.expire-remainder"
         }
       ]
     },
@@ -7621,7 +7637,7 @@
           "options": [
             {
               "flags": ["--event-type"],
-              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | principal.message_rejected | principal.message_failed | ask.page_failed | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed | guard.overridden | principal.message_received | principal.poll_advanced | cockpit.port_displaced)",
+              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | principal.message_rejected | principal.message_failed | ask.page_failed | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed | guard.overridden | principal.message_received | principal.poll_advanced | cockpit.port_displaced | remainder.expiry.run)",
               "takesValue": true,
               "values": [
                 "ask.created",
@@ -7653,7 +7669,8 @@
                 "guard.overridden",
                 "principal.message_received",
                 "principal.poll_advanced",
-                "cockpit.port_displaced"
+                "cockpit.port_displaced",
+                "remainder.expiry.run"
               ]
             },
             {
@@ -7714,7 +7731,7 @@
             {
               "name": "eventType",
               "required": true,
-              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, principal.message_rejected, principal.message_failed, ask.page_failed, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed, guard.overridden, principal.message_received, principal.poll_advanced, cockpit.port_displaced)"
+              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, principal.message_rejected, principal.message_failed, ask.page_failed, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed, guard.overridden, principal.message_received, principal.poll_advanced, cockpit.port_displaced, remainder.expiry.run)"
             }
           ],
           "commandId": "events.emit"

@@ -136,6 +136,15 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
   // outage (mt#4154) could not be reconstructed from this table: a quiet window
   // meant "no agent was working", not "nothing happened to the daemon".
   "cockpit.port_displaced",
+  // mt#5131 (remainder disposition) — one row per EXECUTED remainder sweep,
+  // from the CLI (`tasks expire-remainder --execute`) or the minsky-ops loop
+  // with REMAINDER_EXPIRY_EXECUTE set. Informational: the per-task
+  // `task.status_changed` rows already carry each park and resurrection; this
+  // is the run-level record that puts the whole sweep — its counts, its id
+  // lists, the pointings it checked against — on the ledger as one entry, so
+  // a bulk park is attributable to a run rather than reconstructed from N rows.
+  // A dry-run emits nothing: it writes nothing, and the ledger records writes.
+  "remainder.expiry.run",
 ] as const;
 
 /**
@@ -269,6 +278,21 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
  *       justification (never empty — see `isValidDestructiveOverride`);
  *       additional guard-specific fields (e.g. `deletionCount`, `reasonCode`,
  *       `sessionId`) are merged in verbatim by the calling guard.
+ *
+ * Payload shape for the mt#5131 remainder-sweep run record:
+ *
+ *   - `remainder.expiry.run` → `{ via: "cli" | "ops-loop"; parked: string[];
+ *       resurrected: string[]; parkedCount: number; resurrectedCount: number;
+ *       pointingIds: string[]; parkingSuspended?: string; capped: boolean }`
+ *       emitted by `runRemainderSweep`
+ *       (`packages/domain/src/tasks/remainder-expiry-store.ts`) after an
+ *       EXECUTED sweep's transaction commits — never on a dry-run. `parked` and
+ *       `resurrected` are the ids actually written (a row whose status moved
+ *       between plan and apply is skipped and absent here); `pointingIds` are
+ *       the live pointings the park was evaluated against, and
+ *       `parkingSuspended` carries the reason when the park half did not run
+ *       (zero live pointings). Emitted with no `relatedTaskId`: the run is the
+ *       subject, and each task's own row is its `task.status_changed`.
  */
 
 export type SystemEventType = (typeof SYSTEM_EVENT_TYPE_VALUES)[number];
@@ -326,6 +350,7 @@ export const eventCategory = {
   "principal.message_received": "informational",
   "principal.poll_advanced": "informational",
   "cockpit.port_displaced": "actionable",
+  "remainder.expiry.run": "informational",
 } satisfies Record<SystemEventType, EventCategory>;
 
 /** Return all event types belonging to a given category (for `WHERE IN` filters). */

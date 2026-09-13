@@ -108,6 +108,13 @@
  *   ADOPTION_SWEEPER_EXECUTE       — NOT set (dry-run default, mt#3328)
  *   ADOPTION_SWEEPER_INTERVAL_MS   — interval in ms (default: 86400000 = 24h)
  *   ADOPTION_SWEEPER_LOOKBACK_DAYS — days to look back (default: 14)
+ *   REMAINDER_EXPIRY_ENABLED       — NOT set (loop registered, disabled — mt#5131;
+ *                                    enablement is mt#5138's operator step)
+ *   REMAINDER_EXPIRY_EXECUTE       — NOT set (shadow default: the tick logs the plan
+ *                                    and writes nothing; the first execute is
+ *                                    the CLI's under mt#5138)
+ *   REMAINDER_EXPIRY_INTERVAL_MS   — cadence in ms (default: 86400000 = 24h)
+ *   REMAINDER_EXPIRY_TICK_CAP      — parks per tick (default: 50)
  *
  * @see mt#2101 — implementation task (ops service code)
  * @see mt#2097 — operational topology epic

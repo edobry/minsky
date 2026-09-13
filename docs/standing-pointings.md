@@ -113,8 +113,44 @@ to ask for a new one — not an error.
 ## For other mechanisms
 
 `evaluatePointingQuery(db, query, projectScope)` (`packages/domain/src/tasks/pointings-store.ts`)
-returns the ids a query matches without going through the command. The remainder sweep (mt#5131)
-uses it to ask "does any live pointing match this task?" before parking one.
+returns the ids a query matches without going through the command. The remainder sweep below uses
+the same matcher to ask "does any live pointing match this task?" before parking one.
+
+## The remainder (mt#5131)
+
+Everything outside every live pointing has a stated disposition rather than a count (RFC §Roadmap
+Phase 1): an open task untouched 90+ days that no live pointing matches is **parked** — `CLOSED`,
+tagged `auto-expired`, spec annotated — and **resurrected** (`CLOSED → TODO`, tag removed, spec
+annotated) when a pointing's query matches it. The predicate, the exclusions and the reopen path:
+`docs/task-kinds.md §Parked tasks`.
+
+Two entry points, one mechanism (`packages/domain/src/tasks/remainder-expiry.ts` — pure — and
+`remainder-expiry-store.ts`):
+
+- **`minsky tasks expire-remainder`** — dry-run by default: prints `park`, `wouldPark`, `resurrect`
+  and the pointing ids checked, writes nothing. `--execute` applies. `--cap N` bounds parks.
+- **The `remainder-expiry` loop on `minsky-ops`** (`src/commands/ops/remainder-expiry-tick.ts`,
+  registered in `start-command.ts`): daily; `REMAINDER_EXPIRY_ENABLED` (default off),
+  `REMAINDER_EXPIRY_EXECUTE` (default off = shadow: computes and logs the plan, writes nothing),
+  `REMAINDER_EXPIRY_INTERVAL_MS`, `REMAINDER_EXPIRY_TICK_CAP` (default 50 parks per tick). Enabling
+  it and running the first execute are operator steps (mt#5138) — the first `--execute` is a bulk
+  mutation over shared state and runs under a wrapper task after its dry-run is recorded.
+
+**`declare` resurrects in the same call.** A pointing declared after a park brings its parked tasks
+back immediately: the response carries `resurrected: string[]` (and `resurrectionError` if that
+best-effort step failed — the pointing is still declared, and the next sweep tick resurrects the
+same rows).
+
+**With zero live pointings nothing is parked.** "Outside every live pointing" is vacuous then; the
+dry-run reports `parkingSuspended: "no live pointings"` with the `wouldPark` set, so the count is
+visible before the first pointing exists.
+
+Every park and every resurrection emits a `task.status_changed` event with `via` naming the caller
+(`cli`, `ops-loop`, or `pointings.declare`), so the event ledger records each decision. An executed
+sweep (the CLI with `--execute`, or the loop with `REMAINDER_EXPIRY_EXECUTE`) additionally emits one
+`remainder.expiry.run` event carrying the parked and resurrected id lists and counts, the pointing ids
+it checked against, and `parkingSuspended` when the park half did not run — one ledger row per run,
+so a bulk park is attributable to the run that made it. A dry-run emits nothing.
 
 ## What this does not do (yet)
 
