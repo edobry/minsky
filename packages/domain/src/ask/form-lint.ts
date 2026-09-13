@@ -69,7 +69,7 @@
  * calibration history the ladder needs. What changed is the MESSAGE: it no
  * longer tells the author the flag prevents holding, and names `severity`
  * as the whole instruction. The check's remaining value is that reminder;
- * the re-key is queued as its own task.
+ * the re-key rides mt#4389, which already owns narrowing this predicate.
  *
  * **A seventh check, blocking from the start (mt#3477).**
  * `missing-decision-options` fires when a decision-shaped ask
