@@ -21,16 +21,24 @@ import { writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import type { DispatchContext } from "./registry";
 import type { ToolHookInput } from "./types";
-import type { TranscriptLine } from "./transcript";
+import type { ToolCallWithResult, TranscriptLine } from "./transcript";
 import { GUARD_REGISTRY } from "./registry";
 import {
+  callContainsQuotedFailure,
   defaultSessionsDir,
+  extractQuotedFailures,
   extractSubjectTokens,
+  failingControlRuns,
+  failingHarnessRuns,
+  failingTypecheckRuns,
   fileWrites,
   isCheckRunningCall,
+  isRunShapedCommand,
   isTestRunningCall,
   isWorkspaceWrite,
   failingTestRuns,
+  leadingPrograms,
+  outputReportsHarnessFailure,
 } from "./evidence-provenance-table";
 import type { WorkspaceScope } from "./evidence-provenance-table";
 import { judgeClaims, resolveArtifactText, run } from "./evidence-record-provenance";
@@ -1034,6 +1042,182 @@ describe("an ABBREVIATED quoted failure line still joins (mt#4306)", () => {
       ...testRun(`${TEST_CMD} PublishConversationDialog.test.tsx`, UNRELATED_FAILURE),
     ]);
     expect(judgeClaims(INCIDENT_MESSAGE, calls, SCOPE)[0]?.verdict).toBe("undischarged");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A control run WITHOUT a test runner (mt#4309)
+// ---------------------------------------------------------------------------
+//
+// A negative control is a run observed failing; nothing about that needs a test
+// runner. Three shapes measured on 21 days of writes: runner spellings the
+// regex missed (`bun --cwd <dir> test`, `bun scripts/run-related-tests.ts`), a
+// script-harness or probe RUN reporting failure in its own vocabulary, and a
+// typecheck-shaped control. The load-bearing half is run-vs-read: 22 of the 45
+// naive candidates were `sed`/`cat`/`grep` of a file whose text held a marker.
+
+describe("runner spellings the regex missed (mt#4309)", () => {
+  test("`bun --cwd <dir> test …` is a test run", () => {
+    const ran = findToolCallsWithResults(
+      testRun(
+        "bun --cwd services/reviewer test --preload ../../tests/setup.ts src/x.test.ts",
+        GREEN_RUN
+      )
+    );
+    expect(ran.filter(isTestRunningCall)).toHaveLength(1);
+  });
+
+  test("`bun scripts/run-related-tests.ts …` is a test run, with or without a `timeout` prefix", () => {
+    const plain = findToolCallsWithResults(
+      testRun("bun scripts/run-related-tests.ts src/cockpit/web/lib/digest.ts", GREEN_RUN)
+    );
+    const timed = findToolCallsWithResults(
+      testRun("timeout 110 bun scripts/run-related-tests.ts src/x.ts 2>&1 | tail -25", GREEN_RUN)
+    );
+    expect(plain.filter(isTestRunningCall)).toHaveLength(1);
+    expect(timed.filter(isTestRunningCall)).toHaveLength(1);
+  });
+
+  test("a grep that merely names either spelling is still not a run", () => {
+    const grepped = findToolCallsWithResults(
+      testRun('grep -rn "run-related-tests" package.json scripts/', "")
+    );
+    expect(grepped.filter(isTestRunningCall)).toHaveLength(0);
+  });
+});
+
+describe("run-shaped vs read-shaped commands (mt#4309)", () => {
+  test("leadingPrograms strips assignments, cd, timeout and sleep to the program that runs", () => {
+    expect(
+      leadingPrograms('D=$(mktemp -d); cd "$D" && timeout 240 bun add @edobry/minsky >/dev/null')
+    ).toEqual(["bun"]);
+    expect(
+      leadingPrograms("MINSKY_X='postgres://u@h/db' bun scripts/verify.ts; echo exit=$?")
+    ).toEqual(["bun", "echo"]);
+    expect(leadingPrograms("cd /repo && sleep 110; tail -25 run.log")).toEqual(["tail"]);
+  });
+
+  test("an invocation is run-shaped; a display of a file is not, whatever it prints", () => {
+    expect(
+      isRunShapedCommand(
+        "bun scripts/verify-driver-generation-column.ts > ./nc.log 2>&1; echo exit=$?"
+      )
+    ).toBe(true);
+    expect(
+      isRunShapedCommand("cp a.ts /tmp/a.bak && sed -i '' 's/x/y/' a.ts && bun scripts/verify.ts")
+    ).toBe(true);
+    expect(isRunShapedCommand("minsky github status; echo EXIT_CODE=$?")).toBe(true);
+    expect(isRunShapedCommand("sed -n '120,240p' src/x.test.tsx")).toBe(false);
+    expect(isRunShapedCommand("cat scripts/verify-close-terminates-wedged-pool.ts")).toBe(false);
+    expect(
+      isRunShapedCommand("grep -rn 'reviewer_webhook_events' --include='*.ts' . | head -40")
+    ).toBe(false);
+    expect(isRunShapedCommand("wc -l a.test.ts; grep -n 'describe(' a.test.ts")).toBe(false);
+  });
+
+  test("a --help invocation is documentation, not a run — its text says FAIL", () => {
+    expect(isRunShapedCommand("bun run src/cli.ts compile --help 2>&1 | head -40")).toBe(false);
+  });
+
+  test("outputReportsHarnessFailure reads a harness's own vocabulary, and a green tally is green", () => {
+    expect(
+      outputReportsHarnessFailure("13/14 guards instrumented\nexit=1 (expected 1 pre-migration)")
+    ).toBe(true);
+    expect(outputReportsHarnessFailure("verify: ✗ block-github-mcp-pr-writes")).toBe(true);
+    expect(outputReportsHarnessFailure("EXIT_CODE=2")).toBe(true);
+    expect(outputReportsHarnessFailure("Error: Cannot find module './x'")).toBe(true);
+    expect(outputReportsHarnessFailure("14/14 guards instrumented\nexit=0")).toBe(false);
+    expect(outputReportsHarnessFailure(" 5 pass\n 0 fail\nRan 5 tests")).toBe(false);
+  });
+});
+
+describe("a harness or probe run discharges a control; a read that displays one does not (mt#4309)", () => {
+  const record =
+    "fix(mt#1): the column\n\nNegative control — `verifyDriverGenerationColumn`: run pre-migration, " +
+    "the script reports the column absent and exits 1.\n";
+  const harnessOutput =
+    "verifyDriverGenerationColumn: driver_generation column ABSENT\nFAIL\nexit=1 (expected 1 pre-migration)";
+
+  test("AT3: the script run reporting failure and naming the subject discharges", () => {
+    const calls = findToolCallsWithResults(
+      testRun(
+        "bun scripts/verify-driver-generation-column.ts > ./nc.log 2>&1; cat ./nc.log; echo exit=$?",
+        harnessOutput
+      )
+    );
+    expect(failingHarnessRuns(calls)).toHaveLength(1);
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).toBe("discharged");
+  });
+
+  test("AT3 negative control: the SAME output shown by a read is not a run, and the record still fires", () => {
+    // The 22-of-45 class: `cat` of the script whose source contains both the
+    // subject and the word FAIL. Nothing ran.
+    const calls = findToolCallsWithResults(
+      testRun("cat scripts/verify-driver-generation-column.ts", harnessOutput)
+    );
+    expect(failingHarnessRuns(calls)).toHaveLength(0);
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).toBe("undischarged");
+  });
+
+  test("a run that names a DIFFERENT subject does not discharge — the join still binds", () => {
+    const calls = findToolCallsWithResults(
+      testRun("bun scripts/verify-something-else.ts; echo exit=$?", "somethingElse: FAIL\nexit=1")
+    );
+    expect(failingHarnessRuns(calls)).toHaveLength(1);
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).toBe("undischarged");
+  });
+
+  test("a runner invocation is credited to the runner set, never double-counted as a harness run", () => {
+    const calls = findToolCallsWithResults(testRun(TEST_CMD, SUBJECT_FAILURE));
+    expect(failingTestRuns(calls)).toHaveLength(1);
+    expect(failingHarnessRuns(calls)).toHaveLength(0);
+    expect(failingControlRuns(calls)).toHaveLength(1);
+  });
+});
+
+describe("a typecheck-shaped control (mt#4309)", () => {
+  const record =
+    "fix(mt#1): tighten the interface\n\nNegative control — `oldInterfaceShape`: a scratch module " +
+    "asserting the shapes the OLD interface accepted, pushed through tsgo, rejected.\n";
+
+  test("`bunx tsgo --noEmit` on a scratch module, observed failing, discharges", () => {
+    const calls = findToolCallsWithResults(
+      testRun(
+        "cat > .minsky/hooks/zz-typecontrol.ts <<'EOF'\nimport { oldInterfaceShape } from './x';\nEOF\nbunx tsgo --noEmit -p tsconfig.hooks.json",
+        "zz-typecontrol.ts(3,5): error TS2322: Type 'oldInterfaceShape' is not assignable"
+      )
+    );
+    expect(failingTypecheckRuns(calls)).toHaveLength(1);
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).toBe("discharged");
+  });
+
+  test("the validate_typecheck TOOL's errors are mid-edit noise, not a control — measured 8 of 8 false", () => {
+    const calls = findToolCallsWithResults(
+      call(
+        "mcp__minsky__validate_typecheck",
+        {},
+        '{"errorCount":1,"errors":[{"file":"x.ts","message":"oldInterfaceShape"}]}'
+      )
+    );
+    expect(failingTypecheckRuns(calls)).toHaveLength(0);
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).toBe("undischarged");
+  });
+});
+
+describe("ANSI is stripped BEFORE the quoted-line markers see a line (mt#4309, PR #3143 R1)", () => {
+  test("an anchored FAIL marker preceded by an escape sequence is still extracted", () => {
+    const pasted =
+      "\u001b[31mFAIL\u001b[0m src/widgets/Credentials.test.tsx > renders the masked value";
+    const quoted = extractQuotedFailures(`Negative control — pasted:\n${pasted}\n`);
+    expect(quoted).toEqual(["FAIL src/widgets/Credentials.test.tsx > renders the masked value"]);
+    // And the extracted line is what the comparison reuses: a plain-text result
+    // that contains it matches.
+    const calls = findToolCallsWithResults(
+      testRun(TEST_CMD, "FAIL src/widgets/Credentials.test.tsx > renders the masked value\n 1 fail")
+    );
+    const [red] = calls;
+    expect(red).toBeDefined();
+    expect(callContainsQuotedFailure(red as ToolCallWithResult, quoted)).toBe(true);
   });
 });
 
