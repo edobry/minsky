@@ -5722,18 +5722,18 @@
                 },
                 {
                   "flags": ["--service-strategy"],
-                  "description": "Routing strategy: 'asap' (default) | 'scheduled' | 'deadline-bound'. When absent, per-kind defaults apply.",
+                  "description": "Recorded on the ask; does not affect routing (mt#4427 — every value dispatches immediately). Accepted values: 'asap' (the default for every kind) | 'scheduled' | 'deadline-bound'.",
                   "takesValue": true,
                   "values": ["asap", "scheduled", "deadline-bound"]
                 },
                 {
                   "flags": ["--window-key"],
-                  "description": "Named service window (e.g. 'ask-hours'). Only used when serviceStrategy='scheduled'.",
+                  "description": "Recorded on the ask; does not affect routing (mt#4427). Only ever meaningful with serviceStrategy='scheduled'; rejected when serviceStrategy is explicitly set to another value, accepted (and ignored) when serviceStrategy is omitted.",
                   "takesValue": true
                 },
                 {
                   "flags": ["--force-immediate"],
-                  "description": "When true, bypass the window check and route immediately. Use only for critical-path unblocking."
+                  "description": "No-op since mt#4427: every ask already routes immediately, so there is nothing to bypass. Recorded on the ask. To page the principal, use severity='incident'."
                 },
                 {
                   "flags": ["--severity"],

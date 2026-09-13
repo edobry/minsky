@@ -5,21 +5,25 @@
  * seven ADR-008 Ask kinds. `asks.create` applies these defaults when the
  * requestor does not supply explicit service-window arguments.
  *
- * ## What still consumes this, after the window retirement (mt#4421)
+ * ## What still consumes this, after the window retirement (mt#4421, mt#4427)
  *
- * ONE live consumer: `policyFirstRoute`'s Phase 3 in `router.ts`, which branches
- * on `serviceStrategy`. Nothing else acts on the values.
+ * NOTHING acts on the value any more. `policyFirstRoute`'s Phase 3 in
+ * `router.ts` was the one live consumer, and mt#4427 retired its two suspend
+ * branches: every strategy dispatches immediately, and the router's verdict
+ * was never persisted differently for an operator-bound ask anyway
+ * (`routeResultToOutcomeWrite` lands both a routed inbox result and a
+ * suspended one in `suspended`, the inbox state). The three values remain
+ * ACCEPTED — migration 0029's CHECK constraint, live rows, the `asks.create`
+ * param — and are now a record field only:
  *
- *   - `asap` — route normally. This is now the default for every kind whose
- *     entry used to name a window.
- *   - `deadline-bound` — still branches (suspend until the deadline is within
- *     the page threshold). Left alone here: whether `deadline` does anything at
- *     all is mt#4304's subject, explicitly out of this task's scope.
- *   - `scheduled` — the branch is still IN the router, but nothing opens a
- *     window any more, so an ask suspended against one is suspended against a
- *     door that never opens. **No default produces this value now.** A caller
- *     may still pass it explicitly; that is their call to make, and mt#4304
- *     owns the honesty of the surrounding contract.
+ *   - `asap` — the default for every kind.
+ *   - `deadline-bound` — no-op. Until mt#4427 it suspended an ask whose
+ *     deadline was more than PAGE_THRESHOLD_MS out (or absent), waiting on a
+ *     reaper mt#4410 retired. `authorization.approve` defaulted to it; it now
+ *     defaults to `asap`. Whether `deadline` itself should do anything is
+ *     mt#4304's subject.
+ *   - `scheduled` — no-op. No default produces it; a caller may still pass
+ *     it, and it will be stored and ignored.
  *
  * ## Why the two `scheduled` rows changed (mt#4421)
  *
@@ -47,7 +51,7 @@
  * |-----------------------|-----------------|-----------|----------------------------------------------|
  * | direction.decide      | asap            | (none)    | was scheduled/ask-hours until mt#4421        |
  * | quality.review        | asap            | (none)    | was scheduled/ask-hours until mt#4421        |
- * | authorization.approve | deadline-bound  | (none)    | Time-sensitive; unchanged (see mt#4304)      |
+ * | authorization.approve | asap            | (none)    | was deadline-bound until mt#4427             |
  * | stuck.unblock         | asap            | (none)    | Critical-path; delay compounds the block     |
  * | coordination.notify   | asap            | (none)    | Fire-and-forget; ordering matters, not timing|
  * | capability.escalate   | asap            | (none)    | Sync-blocking; requestor is stalled waiting  |
@@ -109,11 +113,18 @@ export const SERVICE_WINDOW_DEFAULTS: Record<AskKind, ServiceWindowDefault> = {
   },
 
   /**
-   * Policy-gate asks — time-sensitive; must not wait indefinitely.
-   * deadline-bound means: route immediately, but escalate as deadline nears.
+   * Was `deadline-bound` until mt#4427 (2026-09-13).
+   *
+   * The rationale here used to read "time-sensitive; must not wait
+   * indefinitely — route immediately, but escalate as deadline nears". No such
+   * escalation ever ran: the branch that read this value suspended the ask
+   * unless its deadline was within 15 minutes, the reaper that would have woken
+   * it never had a production caller (mt#4313) and was then retired (mt#4410),
+   * and even that reaper's dispatch was log-only. On the inbox transport this
+   * kind always uses, the persisted state was `suspended` either way.
    */
   "authorization.approve": {
-    serviceStrategy: "deadline-bound",
+    serviceStrategy: "asap",
   },
 
   /**

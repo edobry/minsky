@@ -36,9 +36,11 @@ import type { Ask, AskState } from "./types";
  * request — that is what makes the resolver safe to call on every sweep tick.
  *
  * Both `routed` and `suspended` are reachable and neither may be dropped: an
- * ask's `serviceStrategy` decides which, and `deadline-bound` kinds land in
- * `suspended`. `packages/domain/src/credentials/request-resolver.ts` carries the
- * full citation chain for why.
+ * operator-bound ask is persisted as `suspended` (the inbox state), and
+ * `routed` is where a row strands if the state-machine walk stops one step
+ * short. `serviceStrategy` no longer decides anything (mt#4427).
+ * `packages/domain/src/credentials/request-resolver.ts` carries the full
+ * citation chain for why.
  */
 export const PENDING_REQUEST_STATES: readonly AskState[] = [
   "detected",

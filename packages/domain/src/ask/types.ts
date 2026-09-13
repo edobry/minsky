@@ -383,48 +383,45 @@ export interface Ask {
   // -------------------------------------------------------------------------
 
   /**
-   * Routing strategy for the service-window primitive.
+   * Routing strategy from the retired service-window primitive (mt#1411).
    *
-   * - `"asap"` (default when absent) — route immediately, no window check.
-   * - `"scheduled"` — route only during the named `windowKey` window.
-   * - `"deadline-bound"` — route immediately but escalate as deadline nears.
-   *
-   * When absent, the router behaves as if the value were `"asap"`.
-   * Per-kind defaults are applied by `asks.create` via the
-   * `service-window-defaults` module; explicit requestor values override.
+   * **A record field only since mt#4427 — nothing routes on it.** The router
+   * used to suspend a `"scheduled"` ask until its window opened and a
+   * `"deadline-bound"` one until its deadline came within the page threshold;
+   * both waited on a reaper mt#4410 retired, and mt#4427 removed the branches.
+   * Every value now dispatches immediately. The three values stay accepted so
+   * existing rows and callers keep validating (migration 0029's CHECK
+   * constraint); per-kind defaults in `service-window-defaults` are `"asap"`
+   * for every kind.
    */
   serviceStrategy?: "asap" | "scheduled" | "deadline-bound";
 
   /**
-   * Named service window this Ask targets (e.g. `"ask-hours"`).
+   * Named service window this Ask targeted (e.g. `"ask-hours"`).
    *
-   * Only meaningful when `serviceStrategy` is `"scheduled"`. The router
-   * (mt#1490) will look up window configuration by this key and defer the
-   * Ask until the window opens. Absent when strategy is `"asap"` or
-   * `"deadline-bound"`.
+   * Stored and ignored since mt#4427; no default sets it (mt#4421). Only ever
+   * meaningful alongside `serviceStrategy: "scheduled"`. The create-path
+   * validation rejects it with an EXPLICIT non-scheduled strategy and accepts
+   * it when the strategy is omitted (a legacy acceptance, kept rather than
+   * tightened — see `validateAsksCreateParams`).
    */
   windowKey?: string;
 
   /**
    * How many scheduled windows this Ask has already missed.
    *
-   * Incremented by the reaper (mt#1490) each time the window opens and
-   * the Ask is still pending. Used to decide when to escalate beyond the
-   * scheduled window. Defaults to `0` when absent.
+   * Written only by the retired reaper (mt#1490 → mt#4410), so it is `0` on
+   * every row created since. Defaults to `0` when absent.
    */
   windowMissedCount?: number;
 
   /**
-   * When `true`, bypass the service-window check and route immediately.
+   * Formerly "bypass the service-window check and route immediately".
    *
-   * Intended for critical-path unblocking where waiting for the next
-   * scheduled window would cause unacceptable delay. Stored as a top-level
-   * field (not metadata) because four downstream consumers cross the
-   * typed-contract threshold: Router, mt#1035 noticer, Cockpit render,
-   * and per-kind defaults logic.
-   *
-   * NOTE: mt#1035 noticer anti-pattern guard (flag to operator when this
-   * is used too frequently) is tracked as a TODO for mt#1490.
+   * A no-op since mt#4427: with no suspend branch left in the router there is
+   * nothing to bypass, and every ask already routes immediately. Retained on
+   * the record because callers set it and rows carry it; a severity page is
+   * `severity: "incident"`'s job, not this field's.
    *
    * Defaults to `false` when absent.
    */

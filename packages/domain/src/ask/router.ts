@@ -6,12 +6,13 @@
  *            short-circuit to closed with responder="policy".
  *   Phase 2: for uncovered asks, pick routingTarget and transport by kind
  *            per the ADR-008 transport-binding matrix.
- *   Phase 3: service-window selector (mt#1490) — evaluate serviceStrategy:
- *            - asap / no strategy: dispatch immediately (existing behavior)
- *            - forceImmediate=true: bypass windowing, dispatch immediately
- *            - scheduled: suspend with windowKey; reaper dispatches on window-open
- *            - deadline-bound: if deadline is within PAGE_THRESHOLD, dispatch
- *              immediately; else suspend
+ *   Phase 3: RETIRED (mt#4427). The service-window selector (mt#1490) used to
+ *            suspend a `scheduled` ask until its window opened and a
+ *            `deadline-bound` ask until its deadline came within
+ *            PAGE_THRESHOLD_MS, both waiting on a reaper mt#4410 retired. Every
+ *            `serviceStrategy` now dispatches immediately — see the note above
+ *            the dispatch below for why the branches were dead even while the
+ *            reaper ran.
  *
  * This module does NOT dispatch to non-policy transports. Inbox, AG-UI,
  * mesh, and subagent dispatch are separate child tasks (mt#1070, mt#454,
@@ -35,10 +36,13 @@ import type { SystemEventInput } from "../storage/schemas/system-events-schema";
 // ---------------------------------------------------------------------------
 
 /**
- * Page threshold in milliseconds for deadline-bound Asks.
+ * Page threshold in milliseconds for deadline-bound Asks — 15 minutes.
  *
- * When a deadline-bound Ask has a deadline within this window, the router
- * dispatches immediately rather than suspending. Default: 15 minutes.
+ * No longer read by the router (mt#4427): the deadline-bound branch that
+ * compared a deadline against it is gone. Kept exported for the RETIRED
+ * service-window reaper and `pending-asks-for-window.ts`, which still import it
+ * and are reachable only from `startServiceWindowSweeper` (deliberately
+ * uncalled, mt#4410) and the `window.status` CLI.
  */
 export const PAGE_THRESHOLD_MS = 15 * 60 * 1000;
 
@@ -105,28 +109,29 @@ export interface RoutedAsk extends Ask {
 }
 
 /**
- * An Ask that the router has suspended pending a service window.
+ * An Ask in the `suspended` state with its routing resolved.
  *
- * Produced by Phase 3 (window selector) when `serviceStrategy` is `"scheduled"`
- * or `"deadline-bound"` (with deadline beyond page-threshold).
- *
- * The `routingTarget` and `transport` are still resolved by Phase 2, so the
- * reaper knows where to dispatch when the window opens. This satisfies ADR Q2:
- * future channel work (mt#1409) can flip transport without touching window logic.
+ * **The router no longer produces this (mt#4427).** Phase 3 used to return it
+ * for a `scheduled` ask, or a `deadline-bound` one beyond page-threshold, so a
+ * reaper could dispatch it later. The shape survives because `createAsk`
+ * (src/adapters/shared/commands/asks.ts) reconciles its return value from the
+ * persisted row, and for an operator-bound ask that row is `suspended` — the
+ * inbox state (`advancement.ts`). Retiring it from `RouterResult` is mt#5134,
+ * with its own blast radius (advancement, createAsk, elicitation).
  */
 export interface SuspendedAsk extends Ask {
   state: "suspended";
   routingTarget: AgentId | "operator" | "policy";
   transport: TransportBinding;
   packagedPayload: AskPayload;
-  /** The window key this Ask is waiting for (undefined for deadline-bound). */
+  /** The window key this Ask was waiting for. Never set since mt#4427. */
   suspendedForWindowKey?: string;
 }
 
 /**
- * Union of router output types. A router call may produce:
- * - RoutedAsk (state "routed" or "closed") — immediate dispatch
- * - SuspendedAsk (state "suspended") — deferred pending a service window
+ * Union of router output types. Since mt#4427 `policyFirstRoute` returns only
+ * the RoutedAsk member (state "routed" or "closed"); SuspendedAsk stays in the
+ * union for the consumers named on its docblock.
  */
 export type RouterResult = RoutedAsk | SuspendedAsk;
 
@@ -363,12 +368,9 @@ export interface PolicyFirstRouteOptions {
  * Phase 2: For uncovered asks, pick routingTarget and transport via the
  *   transport-binding matrix.
  *
- * Phase 3: Service-window selector (mt#1490).
- *   - forceImmediate=true → bypass, return RoutedAsk immediately.
- *   - asap (or no strategy) → return RoutedAsk immediately (unchanged behavior).
- *   - scheduled → return SuspendedAsk; reaper dispatches on window-open.
- *   - deadline-bound → if deadline ≤ PAGE_THRESHOLD_MS from now, return
- *     RoutedAsk immediately; else return SuspendedAsk.
+ * Phase 3: retired (mt#4427). Every strategy returns a RoutedAsk immediately;
+ *   `serviceStrategy`, `windowKey`, `deadline` and `forceImmediate` ride through
+ *   on the record and no longer affect routing.
  */
 export async function policyFirstRoute(
   ask: Ask,
@@ -446,77 +448,33 @@ export async function policyFirstRoute(
   const nowIso = new Date(nowTs).toISOString();
 
   // -----------------------------------------------------------------------
-  // Phase 3: service-window selector (mt#1490)
+  // Phase 3: service-window selector — RETIRED (mt#4427)
   // -----------------------------------------------------------------------
-
-  // forceImmediate short-circuits all window logic.
-  const strategy = ask.serviceStrategy ?? "asap";
-
-  if (!ask.forceImmediate && strategy !== "asap") {
-    if (strategy === "scheduled") {
-      // Suspend until the named window opens. The reaper will dispatch on
-      // `minsky.attention_window_opened` for `ask.windowKey`.
-      const suspended: SuspendedAsk = {
-        ...ask,
-        state: "suspended",
-        routingTarget,
-        transport,
-        packagedPayload,
-        routedAt: nowIso,
-        suspendedAt: nowIso,
-        suspendedForWindowKey: ask.windowKey,
-      };
-
-      log.debug("ask.router: suspending scheduled Ask", {
-        askId: ask.id,
-        kind: ask.kind,
-        windowKey: ask.windowKey,
-      });
-
-      return suspended;
-    }
-
-    if (strategy === "deadline-bound") {
-      // Dispatch immediately if deadline is within page-threshold; else suspend.
-      const deadline = ask.deadline ? new Date(ask.deadline).getTime() : null;
-      const withinThreshold = deadline !== null && deadline - nowTs <= PAGE_THRESHOLD_MS;
-
-      if (!withinThreshold) {
-        // Suspend — reaper will check periodically and dispatch when close.
-        const suspended: SuspendedAsk = {
-          ...ask,
-          state: "suspended",
-          routingTarget,
-          transport,
-          packagedPayload,
-          routedAt: nowIso,
-          suspendedAt: nowIso,
-          suspendedForWindowKey: undefined, // deadline-bound has no specific window
-        };
-
-        log.debug("ask.router: suspending deadline-bound Ask (beyond threshold)", {
-          askId: ask.id,
-          kind: ask.kind,
-          deadline: ask.deadline,
-        });
-
-        return suspended;
-      }
-
-      // Within threshold — fall through to immediate dispatch.
-      log.debug("ask.router: dispatching deadline-bound Ask (within threshold)", {
-        askId: ask.id,
-        kind: ask.kind,
-        deadline: ask.deadline,
-      });
-    }
-  } else if (ask.forceImmediate && strategy !== "asap") {
-    log.debug("ask.router: forceImmediate bypassing window selector", {
-      askId: ask.id,
-      kind: ask.kind,
-      strategy,
-    });
-  }
+  //
+  // Two suspend branches stood here. `scheduled` returned a SuspendedAsk to be
+  // woken on `minsky.attention_window_opened`; `deadline-bound` returned one
+  // unless the deadline was within PAGE_THRESHOLD_MS, with the comment "reaper
+  // will check periodically and dispatch when close". mt#4410 retired that
+  // reaper, so neither wake ever came — but the branches were inert before
+  // that too, for two reasons worth keeping here so nobody restores them on
+  // the strength of the strategy names:
+  //
+  //   1. The verdict never reached disk. `routeResultToOutcomeWrite`
+  //      (advancement.ts) persists an operator-bound RoutedAsk as `suspended`
+  //      exactly as it persists a SuspendedAsk — `suspended` IS the inbox
+  //      state, and `authorization.approve` (the only kind that defaulted to
+  //      deadline-bound) is not a sync kind, so its transport is always inbox.
+  //   2. The one path that DID read the verdict is the live elicitation
+  //      dispatch in createAsk, which runs only for a non-suspended result.
+  //      That transport has never fired in production (0 of 6,517 closed
+  //      rows on 2026-09-13), and once mt#4915 wires it a lingering suspend
+  //      branch would have silently skipped the dialog.
+  //
+  // Measured on the same date: 4 of 43 suspended asks were deadline-bound,
+  // none of them carried a deadline (so all four took the `deadline === null`
+  // sub-case), and 17 were `asap` asks sitting in `suspended` regardless.
+  // The strategy values stay accepted (migration 0029's CHECK constraint,
+  // live rows) and are documented as no-ops in service-window-defaults.ts.
 
   const routed: RoutedAsk = {
     ...ask,

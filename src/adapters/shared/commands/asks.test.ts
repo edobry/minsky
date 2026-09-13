@@ -644,9 +644,12 @@ describe("service-window-defaults module", () => {
     }
   });
 
-  test("authorization.approve defaults to deadline-bound with no windowKey", () => {
+  test("mt#4427: authorization.approve defaults to asap with no windowKey", () => {
+    // Was deadline-bound. The branch that read that value suspended the ask
+    // waiting on a reaper mt#4410 retired; mt#4427 removed the branch and
+    // completed mt#4421's re-defaulting.
     const def = getServiceWindowDefault(KIND_AUTHORIZATION_APPROVE);
-    expect(def.serviceStrategy).toBe("deadline-bound");
+    expect(def.serviceStrategy).toBe("asap");
     expect(def.windowKey).toBeUndefined();
   });
 
@@ -705,6 +708,9 @@ describe("createAsk — service-window defaults and overrides", () => {
     // unreachable by default, so `windowKey` being unset above is what closes it.
     expect(persisted.windowKey).toBeUndefined();
   });
+
+  // mt#4427's authorization.approve create-path guards live in
+  // `asks-service-strategy.test.ts` — this file is at the max-lines ceiling.
 
   test("stuck.unblock with no service-window args gets asap/null windowKey", async () => {
     const repo = new FakeAskRepository();
@@ -953,7 +959,11 @@ describe("validateAsksCreateParams", () => {
     const error = caught as ValidationError;
     expect(error.message).toContain("windowKey is only valid when serviceStrategy='scheduled'");
     expect(error.message).toContain("serviceStrategy='asap'");
-    expect(error.message).toContain("omit serviceStrategy to use the kind's default");
+    // mt#4427: the message used to advise "omit serviceStrategy to use the
+    // kind's default" — no default selects `scheduled` any more, so that
+    // advice would send a caller down a path that changes nothing.
+    expect(error.message).not.toContain("kind's default");
+    expect(error.message).toContain("stored on the ask and ignored");
   });
 
   test("accepts windowKey when serviceStrategy is 'scheduled'", () => {
@@ -1230,7 +1240,8 @@ describe("createAsk — scheduled ask lands with state=suspended (R1 fix)", () =
       { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
     );
 
-    // Router returns suspended for direction.decide/scheduled.
+    // Suspended via the inbox mapping in routeResultToOutcomeWrite — the router
+    // itself returns `routed` for every strategy since mt#4427.
     expect(result.state).toBe("suspended");
 
     // The persisted row must also be suspended, not "detected".
@@ -1239,6 +1250,8 @@ describe("createAsk — scheduled ask lands with state=suspended (R1 fix)", () =
   });
 
   test("explicit scheduled serviceStrategy also lands at state=suspended in the repo", async () => {
+    // mt#4427: the router no longer suspends on `scheduled`; the row still
+    // lands in `suspended` because that is where every inbox-bound ask goes.
     const repo = new FakeAskRepository();
 
     const result = await createAsk(
