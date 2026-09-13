@@ -1,8 +1,18 @@
 import { z } from "zod";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 import { describePersistenceUnavailability } from "@minsky/domain/persistence/unconfigured-provider";
-import type { TaskRoutingService } from "@minsky/domain/tasks/task-routing-service";
+import type { AvailableTask, TaskRoutingService } from "@minsky/domain/tasks/task-routing-service";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
+import {
+  computeAutonomyClass,
+  countExcluded,
+  emptyExcludedByClass,
+  isServableClass,
+  specSignalsFromContent,
+  type AutonomySpecSignals,
+  type ExcludedByClass,
+  type TaskAutonomyClass,
+} from "@minsky/domain/tasks/autonomy-class";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
 import { assertKnownKind } from "@minsky/domain/tasks/workflows";
 import { TaskParameters } from "../../common-parameters";
@@ -117,7 +127,10 @@ export function createTasksAvailableCommand(
 
       // Track whether we have dependency data available
       let dependencyDataAvailable = true;
-      let availableTasks;
+      let availableTasks: AvailableTask[] | undefined;
+      // Consumer-side default-deny on the computed autonomy class (mt#5130):
+      // how many candidates were not served, so the exclusion is visible.
+      let excludedByClass: ExcludedByClass = emptyExcludedByClass();
 
       // Try to use the full routing service with dependency graph
       const hasSql = provider.capabilities.sql;
@@ -126,7 +139,7 @@ export function createTasksAvailableCommand(
         const routingService = getTaskRoutingService();
 
         try {
-          availableTasks = await routingService.findAvailableTasks({
+          const result = await routingService.findAvailableTasksWithClass({
             statusFilter,
             backendFilter: params.backend,
             kind: params.kind,
@@ -134,6 +147,8 @@ export function createTasksAvailableCommand(
             showEffort: params.showEffort,
             showPriority: params.showPriority,
           });
+          availableTasks = result.tasks;
+          excludedByClass = result.excludedByClass;
         } catch (error) {
           if (
             error instanceof Error &&
@@ -173,13 +188,46 @@ export function createTasksAvailableCommand(
             ? filteredTasks.filter((task) => statusFilter.includes(task.status))
             : filteredTasks;
 
-        availableTasks = statusFilteredTasks.slice(0, limit).map((task) => ({
+        // No bulk spec source on this path (mt#5130), so the spec is read per
+        // candidate through the task service — bounded: the walk stops once
+        // `limit` servable tasks are in hand, so it costs at most `limit` plus
+        // the withheld count in reads, on a backend that is a file store
+        // whenever this path is reachable. A spec that cannot be read leaves
+        // the class `unknown`, which is withheld and counted, never served.
+        const classed: Array<{
+          task: (typeof statusFilteredTasks)[number];
+          cls: TaskAutonomyClass;
+        }> = [];
+        for (const task of statusFilteredTasks) {
+          if (classed.length >= limit) break;
+          let spec: AutonomySpecSignals | undefined;
+          try {
+            const read = await fallbackTaskService.getTaskSpecContent(task.id);
+            spec = specSignalsFromContent(read.content);
+          } catch {
+            spec = undefined;
+          }
+          const { class: cls } = computeAutonomyClass({
+            id: task.id,
+            kind: task.kind,
+            status: task.status,
+            tags: task.tags ?? [],
+            title: task.title ?? "",
+            spec,
+            humanOrigin: undefined,
+          });
+          if (isServableClass(cls)) classed.push({ task, cls });
+          else countExcluded(excludedByClass, cls);
+        }
+
+        availableTasks = classed.map(({ task, cls }) => ({
           taskId: task.id,
           title: task.title || "Unknown",
           status: task.status,
           readinessScore: 1.0,
           blockedBy: [] as string[],
           backend: task.id.includes("#") ? task.id.split("#")[0] : undefined,
+          autonomyClass: cls,
         }));
       }
 
@@ -198,6 +246,7 @@ export function createTasksAvailableCommand(
             availableTasks: readyTasks,
             count: readyTasks.length,
             dependencyDataAvailable,
+            excludedByClass,
           },
         };
       }
@@ -206,7 +255,11 @@ export function createTasksAvailableCommand(
       let output = `📋 Available Tasks (${readyTasks.length} unblocked)\n`;
       output += `${"━".repeat(60)}\n`;
       if (!dependencyDataAvailable) {
-        output += `⚠️  Dependency data unavailable — all tasks shown as available (no SQL backend)\n`;
+        output += `⚠️  Dependency data unavailable — all tasks shown as available (no SQL backend); autonomy class computed from a per-task spec read, so a spec that could not be read is unknown and withheld\n`;
+      }
+      const excludedTotal = excludedByClass.principalGated + excludedByClass.unknown;
+      if (excludedTotal > 0) {
+        output += `🚫 Withheld by autonomy class: ${excludedByClass.principalGated} principal-gated, ${excludedByClass.unknown} unknown (never auto-served — a person decides)\n`;
       }
       output += `\n`;
 
@@ -228,7 +281,8 @@ export function createTasksAvailableCommand(
       if (fullyReady.length > 0) {
         output += "✅ **Ready to Start**\n";
         for (const task of fullyReady.slice(0, 10)) {
-          output += `   ${task.taskId}: ${task.title.substring(0, 60)}... (${task.status})\n`;
+          const cls = task.autonomyClass ? `, ${task.autonomyClass}` : "";
+          output += `   ${task.taskId}: ${task.title.substring(0, 60)}... (${task.status}${cls})\n`;
         }
         output += "\n";
       }
@@ -306,11 +360,23 @@ export function createTasksRouteCommand(
 
       // Generate human-readable route plan
       let output = `🎯 Route to ${route.targetTaskId}: ${route.targetTitle}\n`;
-      output += `📊 Strategy: ${route.strategy} | Tasks: ${route.totalTasks} | Ready: ${route.readyTasks} | Blocked: ${route.blockedTasks}\n`;
-      output += `${"━".repeat(80)}\n\n`;
+      output += `📊 Strategy: ${route.strategy} | Tasks: ${route.totalTasks} | Ready: ${route.readyTasks} | Blocked: ${route.blockedTasks}`;
+      if (route.targetAutonomyClass) output += ` | Class: ${route.targetAutonomyClass}`;
+      output += `\n${"━".repeat(80)}\n\n`;
+
+      // A route to a gated target is still a legal navigation query; what it
+      // must not say is "ready to start" (mt#5130).
+      const targetGated =
+        route.targetAutonomyClass === "principal-gated" || route.targetAutonomyClass === "unknown";
+      if (targetGated) {
+        const why = (route.targetAutonomyReasons ?? []).join("; ") || "no reason recorded";
+        output += `⛔ Target is ${route.targetAutonomyClass} (${why}) — a person decides; it is never auto-selected.\n\n`;
+      }
 
       if (route.steps.length === 0) {
-        output += "✅ Target task has no dependencies - ready to start immediately!";
+        output += targetGated
+          ? "Target task has no dependencies."
+          : "✅ Target task has no dependencies - ready to start immediately!";
         return { success: true, output };
       }
 
@@ -346,8 +412,11 @@ export function createTasksRouteCommand(
                   : "⚪";
           const depCount = step.dependencies.length;
           const depText = depCount > 0 ? ` (${depCount} deps)` : "";
+          const gated =
+            step.autonomyClass === "principal-gated" || step.autonomyClass === "unknown";
+          const classText = gated ? ` [${step.autonomyClass}]` : "";
 
-          output += `   ${statusIcon} ${step.taskId}: ${step.title.substring(0, 60)}...${depText}\n`;
+          output += `   ${statusIcon} ${step.taskId}: ${step.title.substring(0, 60)}...${depText}${classText}\n`;
         }
         output += "\n";
       }

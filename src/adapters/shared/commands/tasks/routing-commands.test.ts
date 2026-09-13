@@ -58,9 +58,11 @@ describe("tasks.available — limit omission (mt#2705 / mt#2759)", () => {
     const allTasks = makeFullyReadyTasks(50);
     const persistenceProvider = { capabilities: { sql: true } } as unknown as PersistenceProvider;
     const routingService = {
-      findAvailableTasks: async (opts: { limit?: number }) =>
+      findAvailableTasksWithClass: async (opts: { limit?: number }) => ({
         // Models the real TaskRoutingService: honors the `limit` it's given.
-        allTasks.slice(0, opts.limit),
+        tasks: allTasks.slice(0, opts.limit),
+        excludedByClass: { principalGated: 0, unknown: 0 },
+      }),
     } as unknown as TaskRoutingService;
     const taskService = {} as unknown as TaskServiceInterface;
 
@@ -83,7 +85,10 @@ describe("tasks.available — limit omission (mt#2705 / mt#2759)", () => {
     const allTasks = makeFullyReadyTasks(50);
     const persistenceProvider = { capabilities: { sql: true } } as unknown as PersistenceProvider;
     const routingService = {
-      findAvailableTasks: async (opts: { limit?: number }) => allTasks.slice(0, opts.limit),
+      findAvailableTasksWithClass: async (opts: { limit?: number }) => ({
+        tasks: allTasks.slice(0, opts.limit),
+        excludedByClass: { principalGated: 0, unknown: 0 },
+      }),
     } as unknown as TaskRoutingService;
     const taskService = {} as unknown as TaskServiceInterface;
 
@@ -106,8 +111,10 @@ describe("tasks.available — minReadiness omission (mt#2705 / mt#2759)", () => 
     const allTasks = makeFakeAvailableTasks(9); // 3x 0.3, 3x 0.6, 3x 1.0
     const persistenceProvider = { capabilities: { sql: true } } as unknown as PersistenceProvider;
     const routingService = {
-      findAvailableTasks: async (opts: { limit?: number }) =>
-        allTasks.slice(0, opts.limit ?? allTasks.length),
+      findAvailableTasksWithClass: async (opts: { limit?: number }) => ({
+        tasks: allTasks.slice(0, opts.limit ?? allTasks.length),
+        excludedByClass: { principalGated: 0, unknown: 0 },
+      }),
     } as unknown as TaskRoutingService;
     const taskService = {} as unknown as TaskServiceInterface;
 
@@ -133,8 +140,10 @@ describe("tasks.available — minReadiness omission (mt#2705 / mt#2759)", () => 
     const allTasks = makeFakeAvailableTasks(9);
     const persistenceProvider = { capabilities: { sql: true } } as unknown as PersistenceProvider;
     const routingService = {
-      findAvailableTasks: async (opts: { limit?: number }) =>
-        allTasks.slice(0, opts.limit ?? allTasks.length),
+      findAvailableTasksWithClass: async (opts: { limit?: number }) => ({
+        tasks: allTasks.slice(0, opts.limit ?? allTasks.length),
+        excludedByClass: { principalGated: 0, unknown: 0 },
+      }),
     } as unknown as TaskRoutingService;
     const taskService = {} as unknown as TaskServiceInterface;
 
@@ -153,5 +162,91 @@ describe("tasks.available — minReadiness omission (mt#2705 / mt#2759)", () => 
     };
 
     expect(result.data.count).toBe(3); // only the 3x 1.0 tasks clear a 0.9 floor
+  });
+});
+
+describe("tasks.available — computed autonomy class, consumer-side default-deny (mt#5130)", () => {
+  test("SQL path: the service's excludedByClass counts reach the JSON output and each item carries its class", async () => {
+    const persistenceProvider = { capabilities: { sql: true } } as unknown as PersistenceProvider;
+    const routingService = {
+      findAvailableTasksWithClass: async () => ({
+        tasks: [
+          {
+            taskId: "mt#1",
+            title: "Served",
+            status: "TODO",
+            readinessScore: 1,
+            blockedBy: [],
+            autonomyClass: "pull-only",
+          },
+        ],
+        excludedByClass: { principalGated: 15, unknown: 2 },
+      }),
+    } as unknown as TaskRoutingService;
+
+    const command = createTasksAvailableCommand(
+      () => persistenceProvider,
+      () => routingService,
+      () => ({}) as unknown as TaskServiceInterface
+    );
+
+    const result = (await command.execute({ json: true } as never)) as {
+      data: {
+        availableTasks: Array<{ autonomyClass?: string }>;
+        excludedByClass: { principalGated: number; unknown: number };
+      };
+    };
+    expect(result.data.excludedByClass).toEqual({ principalGated: 15, unknown: 2 });
+    expect(result.data.availableTasks[0]?.autonomyClass).toBe("pull-only");
+
+    const text = (await command.execute({} as never)) as { output: string };
+    expect(text.output).toContain("Withheld by autonomy class: 15 principal-gated, 2 unknown");
+    expect(text.output).toContain("(TODO, pull-only)");
+  });
+
+  test("no-SQL fallback: the spec is read per task; a tagged proposal and a hook-scoped task are withheld, an unreadable spec is unknown — nothing is served silently", async () => {
+    const persistenceProvider = { capabilities: { sql: false } } as unknown as PersistenceProvider;
+    const specs: Record<string, string> = {
+      "mt#3421": "## Summary\n\nMined.\n\n## Scope\n\nNone.",
+      "mt#2": "## Summary\n\nA guard.\n\n## Scope\n\nIn scope: `.minsky/hooks/x.ts`.",
+      "mt#1": "## Summary\n\nPlain.\n\n## Scope\n\nIn scope: `src/x.ts`.",
+    };
+    const taskService = {
+      listTasks: async () => [
+        {
+          id: "mt#3421",
+          title: "EngProd proposal: Bash",
+          status: "TODO",
+          tags: ["engprod-proposal"],
+        },
+        { id: "mt#2", title: "Hook guard", status: "TODO", tags: [] },
+        { id: "mt#9", title: "No spec row", status: "TODO", tags: [] },
+        { id: "mt#1", title: "Plain task", status: "TODO", tags: [] },
+      ],
+      getTaskSpecContent: async (id: string) => {
+        const content = specs[id];
+        if (content === undefined) throw new Error(`no spec for ${id}`);
+        return { content };
+      },
+    } as unknown as TaskServiceInterface;
+
+    const command = createTasksAvailableCommand(
+      () => persistenceProvider,
+      () => ({}) as unknown as TaskRoutingService,
+      () => taskService
+    );
+
+    const result = (await command.execute({ json: true } as never)) as {
+      data: {
+        count: number;
+        availableTasks: Array<{ taskId: string; autonomyClass?: string }>;
+        dependencyDataAvailable: boolean;
+        excludedByClass: { principalGated: number; unknown: number };
+      };
+    };
+    expect(result.data.dependencyDataAvailable).toBe(false);
+    expect(result.data.availableTasks.map((t) => t.taskId)).toEqual(["mt#1"]);
+    expect(result.data.availableTasks[0]?.autonomyClass).toBe("pull-only");
+    expect(result.data.excludedByClass).toEqual({ principalGated: 2, unknown: 1 });
   });
 });

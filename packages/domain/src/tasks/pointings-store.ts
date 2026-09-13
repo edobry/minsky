@@ -14,6 +14,8 @@ import { tasksTable, taskSpecsTable } from "../storage/schemas/task-embeddings";
 import { taskRelationshipsTable } from "../storage/schemas/task-relationships";
 import { pointingsTable, type PointingQuery } from "../storage/schemas/pointings-schema";
 import { ALL_PROJECTS, type ProjectScope } from "../project/scope";
+import { computeAutonomyClass } from "./autonomy-class";
+import { loadAutonomySpecSignals } from "./autonomy-class-store";
 import { isTerminal } from "./workflows";
 import {
   buildAncestorLookup,
@@ -352,11 +354,26 @@ export async function computeCandidateSet(
   const nowMs = options.nowMs ?? Date.now();
   const { rows, ancestorsOf } = await loadCandidateRows(db, scope, nowMs);
   const matched = rows.filter((r) => taskMatchesPointingQuery(r, pointing.query, ancestorsOf));
-  const signals = await loadSignals(
-    db,
-    matched.map((r) => r.id)
-  );
-  const set = selectCandidates(matched, signals, { ...options, nowMs });
+  const matchedIds = matched.map((r) => r.id);
+  const signals = await loadSignals(db, matchedIds);
+  // The computed autonomy class per candidate (mt#5130): one bulk section
+  // load over the matched ids, then the pure classifier. Annotation — the
+  // set stays what the query matched; the deny lands on the pull.
+  const specSignals = await loadAutonomySpecSignals(db, matchedIds);
+  const classOf = (taskId: string) => {
+    const row = matched.find((r) => r.id === taskId);
+    if (!row) return undefined;
+    return computeAutonomyClass({
+      id: row.id,
+      kind: row.kind,
+      status: row.status,
+      tags: row.tags,
+      title: row.title,
+      spec: specSignals.get(row.id),
+      humanOrigin: undefined,
+    }).class;
+  };
+  const set = selectCandidates(matched, signals, { ...options, nowMs, classOf });
   return {
     ...set,
     pointing: {

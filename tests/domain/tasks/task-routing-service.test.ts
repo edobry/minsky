@@ -3,6 +3,19 @@ import { first, elementAt } from "../../../src/utils/array-safety";
 import { TaskRoutingService } from "@minsky/domain/tasks/task-routing-service";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
+import type { AutonomySignalSource } from "@minsky/domain/tasks/autonomy-class-store";
+
+/**
+ * mt#5130: the routing service withholds every candidate it cannot classify.
+ * These tests are about readiness and dependency traversal, so every id gets
+ * a well-formed empty-section spec and resolves pull-only.
+ */
+function stubSignalSource(): AutonomySignalSource {
+  return {
+    loadSpecSignals: async (ids) =>
+      new Map(ids.map((id) => [id, { scope: null, summary: null, origin: null }])),
+  };
+}
 
 // Mock implementations
 const mockTaskGraphService: TaskGraphService = {
@@ -59,7 +72,11 @@ describe("TaskRoutingService", () => {
   let routingService: TaskRoutingService;
 
   beforeEach(() => {
-    routingService = new TaskRoutingService(mockTaskGraphService, mockTaskService);
+    routingService = new TaskRoutingService(
+      mockTaskGraphService,
+      mockTaskService,
+      stubSignalSource()
+    );
   });
 
   describe("findAvailableTasks", () => {
@@ -174,7 +191,11 @@ describe("TaskRoutingService", () => {
         },
       } as unknown as TaskServiceInterface;
 
-      const mtRoutingService = new TaskRoutingService(mockTaskGraphService, mockWithMtTasks);
+      const mtRoutingService = new TaskRoutingService(
+        mockTaskGraphService,
+        mockWithMtTasks,
+        stubSignalSource()
+      );
 
       const availableTasks = await mtRoutingService.findAvailableTasks({
         statusFilter: ["TODO"],
@@ -279,7 +300,11 @@ describe("TaskRoutingService", () => {
         },
       } as unknown as TaskGraphService;
 
-      const perfRoutingService = new TaskRoutingService(mockGraphService, mockTaskService);
+      const perfRoutingService = new TaskRoutingService(
+        mockGraphService,
+        mockTaskService,
+        stubSignalSource()
+      );
 
       // Test findAvailableTasks with multiple tasks
       await perfRoutingService.findAvailableTasks({
@@ -300,7 +325,11 @@ describe("TaskRoutingService", () => {
         getTask: async () => null,
       } as unknown as TaskServiceInterface;
 
-      const emptyRoutingService = new TaskRoutingService(mockTaskGraphService, emptyTaskService);
+      const emptyRoutingService = new TaskRoutingService(
+        mockTaskGraphService,
+        emptyTaskService,
+        stubSignalSource()
+      );
       const availableTasks = await emptyRoutingService.findAvailableTasks();
 
       expect(availableTasks).toEqual([]);
@@ -324,7 +353,11 @@ describe("TaskRoutingService", () => {
         },
       } as unknown as TaskServiceInterface;
 
-      const routingService = new TaskRoutingService(mockWithMissingDeps, mockServiceWithX);
+      const routingService = new TaskRoutingService(
+        mockWithMissingDeps,
+        mockServiceWithX,
+        stubSignalSource()
+      );
       const availableTasks = await routingService.findAvailableTasks();
 
       // Should handle missing dependencies gracefully
@@ -355,7 +388,8 @@ describe("TaskRoutingService", () => {
 
       const circularRoutingService = new TaskRoutingService(
         circularGraphService,
-        circularTaskService
+        circularTaskService,
+        stubSignalSource()
       );
 
       // This should not hang due to infinite recursion

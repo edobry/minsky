@@ -582,9 +582,12 @@ re-application readiness, not a live dollar bill. See memory `2d6cdbaf`.
 
 The operator-facing half of the EngProd toil-miner's curation gate (RFC Notion
 `3ac937f0-3cb4-816e-8af7-e5380f10a24b`, Phase 1). The miner mines recurring
-tool-call patterns from agent transcripts and files a BLOCKED
-`engprod-proposal` task per surviving cluster; this surface is where an
-operator reviews and disposes of those proposals.
+tool-call patterns from agent transcripts and files a TODO task tagged
+`engprod-proposal` per surviving cluster; this surface is where an
+operator reviews and disposes of those proposals. The tag is what keeps a
+pending proposal out of `tasks_available`: it makes the task's computed
+autonomy class `principal-gated` (`docs/autonomy-class.md`, mt#5130). Until
+mt#5130 the containment was a BLOCKED status.
 
 Proposals are grouped by the mining run that produced them, each with its
 evidence block (tool sequence, occurrence frequency, distinct sessions,
@@ -594,15 +597,22 @@ scanned, clusters found, clusters sent to the LLM stage, suppressed
 breakdown, LLM errors), so an operator can tell a healthy quiet run ("nothing
 found this run") apart from one that errored.
 
-- **Accept** unblocks the task (`BLOCKED -> TODO`) into the normal task
-  lifecycle and records `accepted` in the ledger.
-- **Reject** requires a free-text reason, closes the task (`BLOCKED ->
-CLOSED`), and records `rejected` + the reason in the ledger — the ledger's
-  re-surface threshold reads this verdict to decide whether the same
-  recurring pattern is allowed to be re-proposed later (only once its
-  observed frequency at least doubles).
+- **Accept** swaps the task's `engprod-proposal` tag for `engprod-accepted`
+  (status untouched) and records `accepted` in the ledger. The task is now an
+  ordinary agent-filed TODO — `pull-only` under the computed class — and
+  routable.
+- **Reject** requires a free-text reason, closes the task (`-> CLOSED`), and
+  records `rejected` + the reason in the ledger — the ledger's re-surface
+  threshold reads this verdict to decide whether the same recurring pattern
+  is allowed to be re-proposed later (only once its observed frequency at
+  least doubles).
 
-Both actions write the task's status and the ledger's verdict in a single
+A proposal's disposition is derived from its task's status and tags, the
+same table the ledger's own reconciliation uses (`decideReconciliation`):
+CLOSED → rejected; `engprod-accepted`, or a status past TODO (someone planned
+it outside this page) → accepted; otherwise pending.
+
+Both actions write the task row and the ledger's verdict in a single
 database transaction — the ledger is the miner's only persistent memory of
 past decisions, so a task update that lands without its matching ledger
 write would let a rejected cluster silently reappear on the next mining run.
@@ -618,20 +628,23 @@ attributed to the wrong run.
 
 Read-only (no auth beyond the standard loopback/token gate — see
 `docs/architecture/cockpit.md`'s auth posture). Returns
-`{ runs: EngprodRunSummary[], proposals: EngprodProposalRow[] }`: every
-`engprod-proposal`-tagged task (any status — an already-actioned proposal
-still renders, showing its final disposition) plus the most recent mining
-runs. Grouping-by-run and ranking are derived client-side
+`{ runs: EngprodRunSummary[], proposals: EngprodProposalRow[] }`: every task
+tagged `engprod-proposal` or `engprod-accepted` (any status — an
+already-actioned proposal still renders, showing its final disposition),
+each row carrying its `tags`, plus the most recent mining runs.
+Grouping-by-run, ranking and disposition are derived client-side
 (`src/cockpit/web/lib/engprod-proposals.ts`).
 
 ### `POST /api/engprod/proposals/:taskId/accept`
 
 Mutation (bearer/cookie auth, same as every other cockpit mutation
-endpoint). No body. `404` if the task doesn't exist, `400` if it isn't
-tagged `engprod-proposal`, `409` if it isn't currently `BLOCKED` (already
-actioned), `500` if no matching ledger row exists (a hard failure — the task
-write is rolled back rather than left to diverge from the ledger). On
-success: `{ ok: true, taskId, status: "TODO" }`.
+endpoint). No body. `404` if the task doesn't exist, `400` if it carries
+neither proposal tag, `409` if it is no longer pending (already accepted or
+CLOSED — the error names which), `500` if no matching ledger row exists (a
+hard failure — the task write is rolled back rather than left to diverge
+from the ledger). On success: `{ ok: true, taskId, status, tags }` with the
+`engprod-proposal` tag replaced by `engprod-accepted` and the status
+unchanged.
 
 ### `POST /api/engprod/proposals/:taskId/reject`
 

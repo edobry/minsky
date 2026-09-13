@@ -16,6 +16,7 @@
  * `pointings-store.ts`; this file is what the unit tests exercise.
  */
 
+import type { TaskAutonomyClass } from "./autonomy-class";
 import { isTerminal } from "./workflows";
 import type { PointingQuery } from "../storage/schemas/pointings-schema";
 
@@ -134,6 +135,12 @@ export interface CandidateItem {
   unblockCount: number;
   incidentLineage: boolean;
   daysSinceTouched: number;
+  /**
+   * Computed autonomy class (mt#5130), when the caller supplied a classifier.
+   * Annotation only — membership in a pointing never overrides the class, and
+   * a `principal-gated` candidate is the principal's to pick, not an agent's.
+   */
+  autonomyClass?: TaskAutonomyClass;
 }
 
 export interface CandidateSet {
@@ -201,21 +208,32 @@ export function hasIncidentLineage(row: Pick<PointingTaskRow, "tags" | "originLi
 export function selectCandidates(
   matched: readonly PointingTaskRow[],
   signals: CandidateSignals,
-  options: { cap?: number; seed?: number; nowMs?: number } = {}
+  options: {
+    cap?: number;
+    seed?: number;
+    nowMs?: number;
+    /** Class per task id (mt#5130); items get `autonomyClass` only when supplied. */
+    classOf?: (taskId: string) => TaskAutonomyClass | undefined;
+  } = {}
 ): CandidateSet {
   const cap = Math.max(1, Math.min(options.cap ?? CANDIDATE_CAP_MAX, CANDIDATE_CAP_MAX));
   const nowMs = options.nowMs ?? Date.now();
   const seed = options.seed ?? Date.now();
   const picked = seededShuffle(matched, seed).slice(0, cap);
-  const items: CandidateItem[] = picked.map((row) => ({
-    id: row.id,
-    title: row.title,
-    status: row.status,
-    readiness: readinessOf(row.id, signals.dependsOn, signals.statusOf),
-    unblockCount: signals.openDependents.get(row.id) ?? 0,
-    incidentLineage: hasIncidentLineage(row),
-    daysSinceTouched: Math.max(0, Math.floor((nowMs - row.updatedAtMs) / MS_PER_DAY)),
-  }));
+  const items: CandidateItem[] = picked.map((row) => {
+    const item: CandidateItem = {
+      id: row.id,
+      title: row.title,
+      status: row.status,
+      readiness: readinessOf(row.id, signals.dependsOn, signals.statusOf),
+      unblockCount: signals.openDependents.get(row.id) ?? 0,
+      incidentLineage: hasIncidentLineage(row),
+      daysSinceTouched: Math.max(0, Math.floor((nowMs - row.updatedAtMs) / MS_PER_DAY)),
+    };
+    const cls = options.classOf?.(row.id);
+    if (cls !== undefined) item.autonomyClass = cls;
+    return item;
+  });
   return {
     ordering: "arbitrary",
     matched: matched.length,

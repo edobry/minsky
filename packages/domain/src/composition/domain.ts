@@ -220,7 +220,18 @@ export async function createDomainContainer(): Promise<AppContainerInterface> {
 
   container.register("taskRoutingService", async (c) => {
     const { TaskRoutingService } = await import("../tasks/task-routing-service");
-    return new TaskRoutingService(c.get("taskGraphService"), c.get("taskService"));
+    const { createDbAutonomySignalSource } = await import("../tasks/autonomy-class-store");
+    // The autonomy classifier's bulk spec-section loader (mt#5130) — same db
+    // handle the graph service gets; without it every candidate is `unknown`.
+    const persistence = c.get(
+      "persistence"
+    ) as import("../persistence/types").SqlCapablePersistenceProvider;
+    const db = await persistence.getDatabaseConnection();
+    return new TaskRoutingService(
+      c.get("taskGraphService"),
+      c.get("taskService"),
+      createDbAutonomySignalSource(db as import("drizzle-orm/postgres-js").PostgresJsDatabase)
+    );
   });
 
   container.register("workspaceUtils", async (c) => {

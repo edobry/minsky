@@ -1,7 +1,7 @@
 /**
  * Tests for proposal filing — the second dedupe stage + containment (mt#3330).
  *
- * AT1 (containment): every filed task is created with status "BLOCKED" and
+ * AT1 (containment, rewritten by mt#5130): every filed task is created TODO and
  * tag `engprod-proposal` — this is verified here at the call-site level
  * (the actual `tasks_available` zero-routability claim is exercised
  * end-to-end against the REAL `TaskRoutingService` in `containment.test.ts`
@@ -92,10 +92,18 @@ describe("buildProposalTitle / buildProposalSpec", () => {
     expect(spec).toContain("sig-1");
     expect(spec).toContain("s1#2");
   });
+
+  test("spec tells a reader the tag swap is acceptance and never to unblock (mt#5130)", () => {
+    const spec = buildProposalSpec(cluster(), analysis);
+    expect(spec).toContain("`engprod-proposal` tag for `engprod-accepted`");
+    expect(spec).toContain("principal-gated");
+    expect(spec).not.toContain("Unblocking this task");
+    expect(spec).not.toContain("is BLOCKED");
+  });
 });
 
 describe("fileProposal", () => {
-  test("AT1 containment: files a BLOCKED task tagged engprod-proposal when no similar task exists", async () => {
+  test("AT1 containment: files a TODO task tagged engprod-proposal when no similar task exists", async () => {
     const taskService = fakeTaskService(new Map());
     const ledgerService = fakeLedgerService();
     const result = await fileProposal(
@@ -114,7 +122,7 @@ describe("fileProposal", () => {
 
     expect(result.filed).toBe(true);
     expect(taskService.created).toHaveLength(1);
-    expect(taskService.created[0]?.options.status).toBe("BLOCKED");
+    expect(taskService.created[0]?.options.status).toBe("TODO");
     expect(taskService.created[0]?.options.tags).toEqual([ENGPROD_PROPOSAL_TAG]);
     expect(ledgerService.proposed).toHaveLength(1);
     if (result.taskId === undefined) throw new Error("expected a filed task id");
@@ -125,7 +133,7 @@ describe("fileProposal", () => {
     const proposalTask: Task = {
       id: "mt#100",
       title: "Existing proposal",
-      status: "BLOCKED",
+      status: "TODO",
       tags: [ENGPROD_PROPOSAL_TAG],
     };
     const humanTask: Task = {
@@ -169,7 +177,7 @@ describe("fileProposal", () => {
     const proposalTask: Task = {
       id: "mt#100",
       title: "Existing proposal",
-      status: "BLOCKED",
+      status: "TODO",
       tags: [ENGPROD_PROPOSAL_TAG],
     };
     const taskService = fakeTaskService(new Map([["mt#100", proposalTask]]));

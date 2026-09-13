@@ -13,8 +13,21 @@
  * @see mt#3330 — this module
  */
 
-/** Tag stamped on every task this miner files. Never routable via `tasks_available`/`tasks_route` while BLOCKED. */
+/**
+ * Tag stamped on every task this miner files, and the pending-curation marker
+ * the computed autonomy class reads (mt#5130): a task carrying it is
+ * `principal-gated`, so `tasks_available` never serves it — whatever its
+ * status. Until mt#5130 the containment was `status: "BLOCKED"`; the tag is
+ * now the whole mechanism.
+ */
 export const ENGPROD_PROPOSAL_TAG = "engprod-proposal";
+
+/**
+ * The acceptance act (mt#5130): the cockpit Proposals page's Accept swaps
+ * `engprod-proposal` for this tag, so the task stops being gated by its
+ * provenance and the page keeps listing it with its final disposition.
+ */
+export const ENGPROD_ACCEPTED_TAG = "engprod-accepted";
 
 /**
  * The dominant `arg_fingerprint` sequence within a name-level cluster's

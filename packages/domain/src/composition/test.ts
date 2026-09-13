@@ -95,6 +95,10 @@ export function createTestContainer(overrides: Partial<AppServices> = {}): AppCo
 
     taskRoutingService: {
       findAvailableTasks: async () => [],
+      findAvailableTasksWithClass: async () => ({
+        tasks: [],
+        excludedByClass: { principalGated: 0, unknown: 0 },
+      }),
       generateRoute: async () => ({
         targetTaskId: "",
         targetTitle: "",

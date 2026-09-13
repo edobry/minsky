@@ -82,7 +82,8 @@ at most `cap` items (default and maximum 10; a larger `cap` is clamped). The res
   "cap": 10,
   "items": [
     { "id": "mt#…", "title", "status",
-      "readiness": 1.0, "unblockCount": 2, "incidentLineage": false, "daysSinceTouched": 12 }
+      "readiness": 1.0, "unblockCount": 2, "incidentLineage": false, "daysSinceTouched": 12,
+      "autonomyClass": "pull-only" }
   ]
 }
 ```
@@ -100,6 +101,11 @@ The four flags, per item:
 - `incidentLineage` — the `incident` tag, or a spec `Origin:` line naming an incident. Never a
   free-text match: a third of the backlog mentions the word.
 - `daysSinceTouched` — from `updated_at`.
+
+Plus `autonomyClass` (mt#5130): the task's computed class — `principal-gated`, `pull-only`,
+`contained`, or `unknown` (`docs/autonomy-class.md`). An annotation, not a filter: membership in a
+pointing never overrides the class, so a `principal-gated` candidate is the principal's to pick and
+is never auto-selected. The consumer-side deny lands on Phase 2's pull.
 
 An **empty set is returned as-is**. It is the RFC's signal that a pointing is done and the moment
 to ask for a new one — not an error.

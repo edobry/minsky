@@ -4,7 +4,9 @@
  * empty-run distinction (spec SC3 / AT2).
  */
 import { describe, test, expect } from "bun:test";
+import { ENGPROD_ACCEPTED_TAG as DOMAIN_ACCEPTED_TAG } from "@minsky/domain/engprod/types";
 import {
+  ENGPROD_ACCEPTED_TAG,
   deriveDisposition,
   assignRun,
   groupProposalsByRun,
@@ -36,7 +38,8 @@ function proposal(overrides: Partial<EngprodProposalRow> = {}): EngprodProposalR
   return {
     taskId: "mt#1",
     title: "EngProd proposal: Bash -> Bash",
-    status: "BLOCKED",
+    status: "TODO",
+    tags: ["engprod-proposal"],
     clusterSignature: "sig-1",
     toolSequence: ["Bash", "Bash"],
     evidenceFrequency: 100,
@@ -49,18 +52,28 @@ function proposal(overrides: Partial<EngprodProposalRow> = {}): EngprodProposalR
   };
 }
 
-describe("deriveDisposition", () => {
-  test("BLOCKED -> pending", () => {
-    expect(deriveDisposition("BLOCKED")).toBe("pending");
+describe("deriveDisposition (mirrors decideReconciliation, mt#5130)", () => {
+  const pending = (status: string) => ({ status, tags: ["engprod-proposal"] });
+
+  test("the browser-side tag literal equals the domain constant it mirrors", () => {
+    expect(ENGPROD_ACCEPTED_TAG).toBe(DOMAIN_ACCEPTED_TAG);
+  });
+
+  test("TODO with the pending tag -> pending (the filed shape)", () => {
+    expect(deriveDisposition(pending("TODO"))).toBe("pending");
+  });
+  test("BLOCKED with the pending tag -> pending (not yet migrated)", () => {
+    expect(deriveDisposition(pending("BLOCKED"))).toBe("pending");
   });
   test("CLOSED -> rejected", () => {
-    expect(deriveDisposition("CLOSED")).toBe("rejected");
+    expect(deriveDisposition(pending("CLOSED"))).toBe("rejected");
   });
-  test("TODO -> accepted (left BLOCKED = accepted, per decideReconciliation)", () => {
-    expect(deriveDisposition("TODO")).toBe("accepted");
+  test("engprod-accepted tag -> accepted, whatever the status", () => {
+    expect(deriveDisposition({ status: "TODO", tags: ["engprod-accepted"] })).toBe("accepted");
   });
-  test("DONE -> accepted", () => {
-    expect(deriveDisposition("DONE")).toBe("accepted");
+  test("planned past TODO -> accepted", () => {
+    expect(deriveDisposition(pending("PLANNING"))).toBe("accepted");
+    expect(deriveDisposition(pending("DONE"))).toBe("accepted");
   });
 });
 

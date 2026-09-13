@@ -7,8 +7,9 @@
  * evidence block (tool sequence, frequency, sessions, chain length) and
  * inline Accept/Reject actions.
  *
- * Accept unblocks the task into the normal lifecycle (BLOCKED -> TODO) and
- * records `accepted` in the ledger; reject closes the task and records
+ * Accept swaps the task's `engprod-proposal` tag for `engprod-accepted` (mt#5130
+ * — the tag, not a BLOCKED status, is what keeps a pending proposal out of
+ * `tasks_available`) and records `accepted` in the ledger; reject closes the task and records
  * `rejected` + the supplied reason — both writes happen atomically on the
  * server (../../routes/engprod-proposals.ts's `db.transaction()`).
  *
@@ -290,7 +291,7 @@ function ProposalRow({
   actions: ProposalActions;
   onRequestReject: (target: RejectTarget) => void;
 }) {
-  const disposition = deriveDisposition(proposal.status);
+  const disposition = deriveDisposition(proposal);
   const pending = actions.pendingTaskId === proposal.taskId;
   const rowError = actions.errorsByTaskId[proposal.taskId];
 
@@ -449,7 +450,7 @@ export function ProposalsPage() {
 
   const { runs, proposals } = query.data ?? { runs: [], proposals: [] };
   const groups = groupProposalsByRun(runs, proposals);
-  const pendingCount = proposals.filter((p) => deriveDisposition(p.status) === "pending").length;
+  const pendingCount = proposals.filter((p) => deriveDisposition(p) === "pending").length;
 
   return (
     <div className="p-4 max-w-5xl mx-auto w-full space-y-3">

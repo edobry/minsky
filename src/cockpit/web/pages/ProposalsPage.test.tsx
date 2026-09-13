@@ -91,7 +91,9 @@ function proposal(overrides: Partial<EngprodProposalRow> = {}): EngprodProposalR
   return {
     taskId: "mt#3446",
     title: "EngProd proposal: deployment_status -> deployment_status (6x/6 sessions)",
-    status: "BLOCKED",
+    // The post-mt#5130 filed shape: TODO, pending by tag.
+    status: "TODO",
+    tags: ["engprod-proposal"],
     clusterSignature: "a8f4f3cc3e9fdcaa53538cbd",
     toolSequence: ["deployment_status", "deployment_status"],
     evidenceFrequency: 6,
