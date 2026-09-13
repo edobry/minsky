@@ -16,7 +16,7 @@
  * pointings it checked against, so a run is a ledger entry in its own right.
  */
 
-import { and, eq, inArray, like, not, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, like, not, or, sql, type SQL } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import { getLoggableErrorSummary } from "../errors/index";
@@ -46,6 +46,12 @@ export interface RemainderSweepOptions {
   cap?: number;
   /** Names the caller in each event's `via` — `cli` or `ops-loop`. */
   via: string;
+  /**
+   * Runs between the plan and its application — the seam the plan/apply race
+   * tests use to move a row after it was planned and assert the CAS guards
+   * skip it. Production callers leave it unset.
+   */
+  beforeApply?: () => Promise<void>;
 }
 
 export interface RemainderSweepResult {
@@ -79,15 +85,31 @@ interface LoadedRow extends RemainderTaskRow {
  * CLOSED rows this mechanism parked (resurrection). Hand-closed rows are not
  * loaded — they are nobody's to reopen.
  */
+/**
+ * "Carries the `auto-expired` tag", as a SQL predicate over the JSON-text
+ * `tasks.tags` column. The quotes in the pattern are what make it exact: a
+ * JSON array element is always `"auto-expired"` with both quotes, so a longer
+ * tag such as `"not-auto-expired"` does not match (its leading character is
+ * `-`, not `"`), and no tag can contain a raw `"`. The column is text rather
+ * than jsonb — the repo-wide tags convention, not this module's to change —
+ * so JSON operators and a GIN index are unavailable here; the plan re-checks
+ * membership on the parsed array (`isParkedRow`) after the load regardless.
+ */
+const carriesAutoExpiredTag = (): SQL => like(tasksTable.tags, `%"${AUTO_EXPIRED_TAG}"%`);
+
 async function loadRows(
   db: PostgresJsDatabase,
   projectScope: ProjectScope,
   nowMs: number
 ): Promise<LoadedRow[]> {
   const conditions: SQL[] = [
+    // A NULL status is neither open nor parked; `NOT IN` already yields NULL
+    // (excluded) for it, and the explicit predicate keeps that visible so the
+    // status CAS below never compares against a coerced empty string.
+    isNotNull(tasksTable.status),
     or(
       not(inArray(tasksTable.status, ["DONE", "CLOSED"])),
-      and(eq(tasksTable.status, "CLOSED"), like(tasksTable.tags, `%"${AUTO_EXPIRED_TAG}"%`))
+      and(eq(tasksTable.status, "CLOSED"), carriesAutoExpiredTag())
     ) as SQL,
   ];
   if (projectScope !== ALL_PROJECTS) conditions.push(eq(tasksTable.projectId, projectScope));
@@ -173,10 +195,31 @@ async function emitRunRecord(
   }
 }
 
+type Tx = Parameters<Parameters<PostgresJsDatabase["transaction"]>[0]>[0];
+
 /**
- * Apply a plan against rows the plan was computed from. Each status write is
- * guarded on the status the plan saw; a row that moved in between is skipped
- * and reported as not applied.
+ * Append a section to a task's spec, creating the spec row when the task has
+ * none. A blind UPDATE would affect zero rows there and the park or
+ * resurrection would land without its annotation (PR #3747 R1) — the section
+ * IS the audit record, so it is written unconditionally: INSERT the section as
+ * the whole spec, or on conflict append it to what is there.
+ */
+async function appendSpecSection(tx: Tx, taskId: string, section: string, now: Date) {
+  await tx
+    .insert(taskSpecsTable)
+    .values({ taskId, content: section.replace(/^\n+/, ""), updatedAt: now })
+    .onConflictDoUpdate({
+      target: taskSpecsTable.taskId,
+      set: { content: sql`${taskSpecsTable.content} || ${section}`, updatedAt: now },
+    });
+}
+
+/**
+ * Apply a plan against rows the plan was computed from. Each write is guarded
+ * on what the plan saw — the park on the row's status, the resurrection on
+ * `CLOSED` AND the tag (a hand-closed row, or one whose tag was removed after
+ * the plan, is never reopened); a row that moved in between is skipped and
+ * reported as not applied.
  */
 async function applyPlan(
   db: PostgresJsDatabase,
@@ -213,13 +256,7 @@ async function applyPlan(
         )
         .returning({ id: tasksTable.id });
       if (updated.length === 0) continue;
-      await tx
-        .update(taskSpecsTable)
-        .set({
-          content: sql`${taskSpecsTable.content} || ${autoExpiredSection(nowMs, plan.pointingIds)}`,
-          updatedAt: now,
-        })
-        .where(eq(taskSpecsTable.taskId, id));
+      await appendSpecSection(tx, id, autoExpiredSection(nowMs, plan.pointingIds), now);
       parked.push(id);
       events.push({ taskId: id, previousStatus: row.status, newStatus: "CLOSED" });
     }
@@ -235,16 +272,12 @@ async function applyPlan(
           tags: JSON.stringify(tagsAfterResurrect(row.rawTags)),
           updatedAt: now,
         })
-        .where(and(eq(tasksTable.id, r.id), eq(tasksTable.status, "CLOSED")))
+        .where(
+          and(eq(tasksTable.id, r.id), eq(tasksTable.status, "CLOSED"), carriesAutoExpiredTag())
+        )
         .returning({ id: tasksTable.id });
       if (updated.length === 0) continue;
-      await tx
-        .update(taskSpecsTable)
-        .set({
-          content: sql`${taskSpecsTable.content} || ${resurrectedSection(nowMs, pointing)}`,
-          updatedAt: now,
-        })
-        .where(eq(taskSpecsTable.taskId, r.id));
+      await appendSpecSection(tx, r.id, resurrectedSection(nowMs, pointing), now);
       resurrected.push(r.id);
       events.push({ taskId: r.id, previousStatus: "CLOSED", newStatus: "TODO" });
     }
@@ -275,6 +308,7 @@ export async function runRemainderSweep(
   });
   if (!execute) return { dryRun: true, plan, applied: { parked: [], resurrected: [] } };
 
+  if (options.beforeApply) await options.beforeApply();
   const applied = await applyPlan(
     db,
     plan,

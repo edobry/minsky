@@ -61,6 +61,8 @@ const DDL = `
   create table task_specs (
     task_id text primary key,
     content text not null,
+    version integer default 1,
+    created_at timestamp with time zone default now(),
     updated_at timestamp with time zone default now()
   );
   create table task_relationships (
@@ -374,6 +376,57 @@ if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
       expect(run.plan.capped).toBe(true);
       expect(run.applied.parked).toEqual(["mt#20"]);
       expect(await statusOf("mt#21")).toBe("TODO");
+    });
+
+    test("R1: a task with no spec row is annotated anyway — the section becomes its spec", async () => {
+      // Oldest of the remaining candidates, so cap 1 selects it. No task_specs row on purpose.
+      await sql`insert into tasks (id, status, title, tags, kind, project_id, updated_at)
+        values ('mt#22', 'TODO', 'Stale, specless', '[]', 'implementation', ${PROJECT_ID}, ${daysAgo(500)})`;
+      const [before] = await sql`select count(*)::int as n from task_specs where task_id = 'mt#22'`;
+      expect(before?.n).toBe(0);
+
+      const run = await runRemainderSweep(db, {
+        projectScope: PROJECT_ID,
+        execute: true,
+        nowMs: NOW_MS,
+        cap: 1,
+        via: "test",
+      });
+      expect(run.applied.parked).toEqual(["mt#22"]);
+      expect(await statusOf("mt#22")).toBe("CLOSED");
+      const created = await specOf("mt#22");
+      expect(created.startsWith("## Auto-expired (2026-09-13)")).toBe(true);
+      expect(created).toContain("Pointings checked:");
+    });
+
+    test("R1: a parked row whose tag is removed between plan and apply is not reopened", async () => {
+      // mt#6 was parked in AT1 (CLOSED + auto-expired + misc). A pointing over `misc` plans
+      // its resurrection; a hand-edit drops the tag before apply — the CAS must refuse.
+      expect(await tagsOf("mt#6")).toEqual(["misc", AUTO_EXPIRED_TAG]);
+      const declared = await declarePointing(db, {
+        name: "misc",
+        query: { tags: ["misc"] },
+        projectScope: PROJECT_ID,
+      });
+      if (!declared.ok) throw new Error(declared.message);
+      // The store-level declare does not resurrect (the command layer does), so mt#6 is still parked here.
+      expect(await statusOf("mt#6")).toBe("CLOSED");
+
+      const run = await runRemainderSweep(db, {
+        projectScope: PROJECT_ID,
+        execute: true,
+        nowMs: NOW_MS,
+        cap: 0,
+        via: "test",
+        beforeApply: async () => {
+          await sql`update tasks set tags = '["misc"]' where id = 'mt#6'`;
+        },
+      });
+      expect(run.plan.resurrect.map((r) => r.id)).toContain("mt#6");
+      expect(run.applied.resurrected).not.toContain("mt#6");
+      expect(await statusOf("mt#6")).toBe("CLOSED");
+      expect(await tagsOf("mt#6")).toEqual(["misc"]);
+      expect(await specOf("mt#6")).not.toContain("## Resurrected");
     });
   });
 }
