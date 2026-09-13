@@ -945,7 +945,8 @@ export function validateAsksCreateParams(params: {
   ) {
     throw new ValidationError(
       `windowKey is only valid when serviceStrategy='scheduled'. You explicitly set serviceStrategy='${params.serviceStrategy}' but also provided windowKey. ` +
-        "Either drop windowKey, set serviceStrategy='scheduled', or omit serviceStrategy to use the kind's default."
+        "Either drop windowKey or set serviceStrategy='scheduled'. Note that neither field affects " +
+        "routing any more (mt#4427) — both are stored on the ask and ignored."
     );
   }
 }

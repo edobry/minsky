@@ -959,7 +959,11 @@ describe("validateAsksCreateParams", () => {
     const error = caught as ValidationError;
     expect(error.message).toContain("windowKey is only valid when serviceStrategy='scheduled'");
     expect(error.message).toContain("serviceStrategy='asap'");
-    expect(error.message).toContain("omit serviceStrategy to use the kind's default");
+    // mt#4427: the message used to advise "omit serviceStrategy to use the
+    // kind's default" — no default selects `scheduled` any more, so that
+    // advice would send a caller down a path that changes nothing.
+    expect(error.message).not.toContain("kind's default");
+    expect(error.message).toContain("stored on the ask and ignored");
   });
 
   test("accepts windowKey when serviceStrategy is 'scheduled'", () => {
