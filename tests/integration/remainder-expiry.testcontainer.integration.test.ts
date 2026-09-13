@@ -3,9 +3,10 @@
  *
  * The live exercise for the store: park (status, tag, spec append, CAS on the
  * status the plan saw), resurrect, idempotence, the zero-pointings guard, and
- * the `pointings.declare` seam that resurrects in the same call (AT3). The
- * `system_events` table is deliberately absent: emission is best-effort and
- * swallowed, and these tests assert the rows, not the ledger.
+ * the `pointings.declare` seam that resurrects in the same call (AT3), and the
+ * ledger: an executed sweep writes one `remainder.expiry.run` row plus one
+ * `task.status_changed` per applied task, and a dry-run writes none. The
+ * `system_events` DDL below carries only the two enum values this store emits.
  *
  * Gated like its siblings: RUN_INTEGRATION_TESTS=1 RUN_TESTCONTAINER_TESTS=1.
  */
@@ -40,6 +41,8 @@ function makeNoOpWaitStrategy(defaultTimeoutMs: number): WaitStrategy {
 }
 
 const POSTGRES_IMAGE = "postgres:16-alpine";
+const RUN_EVENT = "remainder.expiry.run";
+const STATUS_EVENT = "task.status_changed";
 const PROJECT_ID = "3ac3d147-2b6f-4cf9-a52a-2b6e32d3c5fe";
 
 const DDL = `
@@ -75,6 +78,16 @@ const DDL = `
     "project_id" uuid,
     "created_at" timestamp with time zone DEFAULT now() NOT NULL,
     "archived_at" timestamp with time zone
+  );
+  create type system_event_type as enum ('task.status_changed', 'remainder.expiry.run');
+  create table system_events (
+    id uuid primary key default gen_random_uuid(),
+    event_type system_event_type not null,
+    payload jsonb not null,
+    actor text,
+    related_task_id text,
+    related_session_id text,
+    created_at timestamp with time zone default now() not null
   );
 `;
 
@@ -177,6 +190,16 @@ if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
     const [r] = await sql`select content from task_specs where task_id = ${id}`;
     return String(r?.content);
   };
+  const eventsOf = async (
+    type: string
+  ): Promise<Array<{ payload: Record<string, unknown>; relatedTaskId: string | null }>> => {
+    const rows = await sql`select payload, related_task_id from system_events
+      where event_type = ${type}::system_event_type order by created_at`;
+    return rows.map((r) => ({
+      payload: r.payload as Record<string, unknown>,
+      relatedTaskId: (r.related_task_id as string | null) ?? null,
+    }));
+  };
 
   describe("mt#5131 — remainder disposition against a real Postgres", () => {
     afterAll(async () => {
@@ -197,6 +220,20 @@ if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
       expect(out.plan.park).toEqual([]);
       expect(out.applied).toEqual({ parked: [], resurrected: [] });
       expect(await statusOf("mt#5")).toBe("TODO");
+      // The run is on the ledger with the suspension named; no task row moved, so no task rows.
+      const records = await eventsOf(RUN_EVENT);
+      expect(records).toHaveLength(1);
+      expect(records[0]?.payload).toEqual({
+        via: "test",
+        parked: [],
+        resurrected: [],
+        parkedCount: 0,
+        resurrectedCount: 0,
+        pointingIds: [],
+        parkingSuspended: "no live pointings",
+        capped: false,
+      });
+      expect(await eventsOf(STATUS_EVENT)).toEqual([]);
     });
 
     test("AT1: dry-run reports park {mt#5, mt#6} and resurrect {mt#7}; execute produces exactly that; a second run is 0 / 0", async () => {
@@ -222,6 +259,9 @@ if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
       expect(dry.plan.wouldPark).not.toContain("mt#12");
       // A hand-closed task a pointing matches is not resurrected — only ours.
       expect(dry.plan.resurrect.map((r) => r.id)).not.toContain("mt#10");
+      // A dry-run writes nothing, so it records nothing: still the one record from the test above.
+      expect(await eventsOf(RUN_EVENT)).toHaveLength(1);
+      expect(await eventsOf(STATUS_EVENT)).toEqual([]);
 
       const run = await runRemainderSweep(db, {
         projectScope: PROJECT_ID,
@@ -231,6 +271,29 @@ if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
       });
       expect(run.applied.parked).toEqual(["mt#5", "mt#6"]);
       expect(run.applied.resurrected).toEqual(["mt#7"]);
+
+      // The ledger: one run record carrying the whole sweep, one row per applied task.
+      const runRecords = await eventsOf(RUN_EVENT);
+      expect(runRecords).toHaveLength(2);
+      expect(runRecords[1]?.relatedTaskId).toBeNull();
+      expect(runRecords[1]?.payload).toEqual({
+        via: "test",
+        parked: ["mt#5", "mt#6"],
+        resurrected: ["mt#7"],
+        parkedCount: 2,
+        resurrectedCount: 1,
+        pointingIds: [declared.pointing.id],
+        capped: false,
+      });
+      const statusRows = await eventsOf(STATUS_EVENT);
+      expect(
+        statusRows.map((r) => [r.relatedTaskId, r.payload.previousStatus, r.payload.newStatus])
+      ).toEqual([
+        ["mt#5", "TODO", "CLOSED"],
+        ["mt#6", "BLOCKED", "CLOSED"],
+        ["mt#7", "CLOSED", "TODO"],
+      ]);
+      expect(statusRows.every((r) => r.payload.via === "test")).toBe(true);
 
       expect(await statusOf("mt#5")).toBe("CLOSED");
       expect(await tagsOf("mt#5")).toEqual([AUTO_EXPIRED_TAG]);
@@ -259,6 +322,11 @@ if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
       expect(again.plan.park).toEqual([]);
       expect(again.plan.resurrect).toEqual([]);
       expect(again.applied).toEqual({ parked: [], resurrected: [] });
+      // An executed run that wrote nothing is still a run: recorded with zero counts.
+      const afterAgain = await eventsOf(RUN_EVENT);
+      expect(afterAgain).toHaveLength(3);
+      expect(afterAgain[2]?.payload).toMatchObject({ parkedCount: 0, resurrectedCount: 0 });
+      expect(await eventsOf(STATUS_EVENT)).toHaveLength(3);
 
       await archivePointing(db, declared.pointing.id, new Date(NOW_MS));
     });

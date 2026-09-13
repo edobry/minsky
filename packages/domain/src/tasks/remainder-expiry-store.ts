@@ -11,7 +11,9 @@
  * Every applied row emits `task.status_changed` (best-effort, after the
  * transaction) with `via` naming this mechanism, so the event ledger — the
  * one peer probe that answers rather than signals — records each park and
- * each resurrection.
+ * each resurrection. An executed sweep additionally emits ONE
+ * `remainder.expiry.run` row carrying the counts, the id lists and the
+ * pointings it checked against, so a run is a ledger entry in its own right.
  */
 
 import { and, eq, inArray, like, not, or, sql, type SQL } from "drizzle-orm";
@@ -136,6 +138,42 @@ async function emitStatusChanged(
 }
 
 /**
+ * The run-level ledger record of an EXECUTED sweep (payload shape documented
+ * on `SYSTEM_EVENT_TYPE_VALUES`). One row per run, after the transaction
+ * commits, so a bulk park is attributable to a run rather than reconstructed
+ * from its per-task rows. Best-effort like the per-task emit: the writes have
+ * already landed, and a ledger failure must not report the sweep as failed.
+ */
+async function emitRunRecord(
+  db: PostgresJsDatabase,
+  plan: RemainderPlan,
+  applied: { parked: string[]; resurrected: string[] },
+  via: string
+): Promise<void> {
+  try {
+    const { DrizzleEventEmitter } = await import("../events/emitter");
+    await new DrizzleEventEmitter(db).emit({
+      eventType: "remainder.expiry.run",
+      payload: {
+        via,
+        parked: applied.parked,
+        resurrected: applied.resurrected,
+        parkedCount: applied.parked.length,
+        resurrectedCount: applied.resurrected.length,
+        pointingIds: plan.pointingIds,
+        ...(plan.parkingSuspended ? { parkingSuspended: plan.parkingSuspended } : {}),
+        capped: plan.capped,
+      },
+    });
+  } catch (err: unknown) {
+    log.warn("remainder.expiry.run: event emission failed (best-effort, swallowed)", {
+      via,
+      error: getLoggableErrorSummary(err),
+    });
+  }
+}
+
+/**
  * Apply a plan against rows the plan was computed from. Each status write is
  * guarded on the status the plan saw; a row that moved in between is skipped
  * and reported as not applied.
@@ -245,6 +283,7 @@ export async function runRemainderSweep(
     nowMs,
     options.via
   );
+  await emitRunRecord(db, plan, applied, options.via);
   return { dryRun: false, plan, applied };
 }
 

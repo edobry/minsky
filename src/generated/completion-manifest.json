@@ -7637,7 +7637,7 @@
           "options": [
             {
               "flags": ["--event-type"],
-              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | principal.message_rejected | principal.message_failed | ask.page_failed | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed | guard.overridden | principal.message_received | principal.poll_advanced | cockpit.port_displaced)",
+              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | principal.message_rejected | principal.message_failed | ask.page_failed | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed | guard.overridden | principal.message_received | principal.poll_advanced | cockpit.port_displaced | remainder.expiry.run)",
               "takesValue": true,
               "values": [
                 "ask.created",
@@ -7669,7 +7669,8 @@
                 "guard.overridden",
                 "principal.message_received",
                 "principal.poll_advanced",
-                "cockpit.port_displaced"
+                "cockpit.port_displaced",
+                "remainder.expiry.run"
               ]
             },
             {
@@ -7730,7 +7731,7 @@
             {
               "name": "eventType",
               "required": true,
-              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, principal.message_rejected, principal.message_failed, ask.page_failed, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed, guard.overridden, principal.message_received, principal.poll_advanced, cockpit.port_displaced)"
+              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, principal.message_rejected, principal.message_failed, ask.page_failed, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed, guard.overridden, principal.message_received, principal.poll_advanced, cockpit.port_displaced, remainder.expiry.run)"
             }
           ],
           "commandId": "events.emit"

@@ -146,7 +146,11 @@ dry-run reports `parkingSuspended: "no live pointings"` with the `wouldPark` set
 visible before the first pointing exists.
 
 Every park and every resurrection emits a `task.status_changed` event with `via` naming the caller
-(`cli`, `ops-loop`, or `pointings.declare`), so the event ledger records each decision.
+(`cli`, `ops-loop`, or `pointings.declare`), so the event ledger records each decision. An executed
+sweep (the CLI with `--execute`, or the loop with `REMAINDER_EXPIRY_EXECUTE`) additionally emits one
+`remainder.expiry.run` event carrying the parked and resurrected id lists and counts, the pointing ids
+it checked against, and `parkingSuspended` when the park half did not run — one ledger row per run,
+so a bulk park is attributable to the run that made it. A dry-run emits nothing.
 
 ## What this does not do (yet)
 

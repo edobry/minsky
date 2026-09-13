@@ -78,6 +78,10 @@ describe("event category classification", () => {
           "task.bulk_edit.executed",
           "principal.message_received",
           "principal.poll_advanced",
+          // mt#5131: the run-level record of an executed remainder sweep. The
+          // per-task rows are `task.status_changed`; this one is discoverable
+          // on the operator's own schedule, like the bulk-edit records.
+          "remainder.expiry.run",
         ] satisfies SystemEventType[]
       ).sort()
     );
