@@ -818,6 +818,11 @@ export const NON_ENFORCEMENT_CLAUDE_HOOKS: NonEnforcementHook[] = [
       "Ingests the finished transcript at SessionEnd — recording, not enforcement (hook-observers.mdc)",
   },
   {
+    configPath: ".claude/hooks/release-work-package-claims-on-session-end.ts",
+    reason:
+      "mt#5132 — releases the ending conversation's work-package claims at SessionEnd via one CLI call; a state repair with no permission decision, and the correctness layer is the minsky-ops package-lifecycle sweep, not this hook (hook-observers.mdc)",
+  },
+  {
     configPath: ".claude/hooks/guard-events-ingest-on-session-end.ts",
     reason:
       "mt#4035 guard/calibration exhaust ingest push at SessionEnd — recording, not enforcement; the correctness layer is the cockpit sweep, not this hook (hook-observers.mdc)",

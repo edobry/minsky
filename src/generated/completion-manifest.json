@@ -2639,6 +2639,47 @@
           "commandId": "tasks.release"
         },
         {
+          "name": "packages",
+          "description": "packages commands",
+          "subcommands": [
+            {
+              "name": "sweep",
+              "description": "Work-package lifecycle sweep (mt#5132): close every READY / IN-PROGRESS package whose members are all terminal (DONE, `completed` transfer naming the members), and release every IN-PROGRESS claim older than the staleness window whose holder has shown no presence inside it (READY, `release` transfer). Zero-member packages are reported, never closed. Dry-run by default.",
+              "options": [
+                {
+                  "flags": ["--execute"],
+                  "description": "Apply the plan. Default is a dry-run that prints the close / release / keep lists and writes nothing. The first --execute against production is a bulk shared-state mutation: compare the dry-run against the count recorded on mt#5132 before applying."
+                },
+                {
+                  "flags": ["--stale-hours"],
+                  "description": "Claim staleness window in hours (default 24): a claim older than this whose holder has shown no presence inside it is released.",
+                  "takesValue": true
+                }
+              ],
+              "commandId": "tasks.packages.sweep"
+            }
+          ]
+        },
+        {
+          "name": "release-conversation",
+          "description": "Release every IN-PROGRESS work package claimed by a conversation that has ended — the SessionEnd hook's write (mt#5132). Matches claims whose identity is exactly `<kind>:conv:<conversationId>`; a `proc:`-scoped or free-text claim is never matched (that identity is shared or unattributable) and is left to the lifecycle sweep's staleness backstop. Skips reasons `clear` and `resume`.",
+          "options": [
+            {
+              "flags": ["--reason"],
+              "description": "The SessionEnd payload's `reason`. `clear` and `resume` release nothing: the conversation's identity outlives the event. Any other value (logout, prompt_input_exit, other, or none) releases.",
+              "takesValue": true
+            }
+          ],
+          "arguments": [
+            {
+              "name": "conversationId",
+              "required": true,
+              "description": "The ending conversation's id — the SessionEnd payload's `session_id` (a uuid)."
+            }
+          ],
+          "commandId": "tasks.release-conversation"
+        },
+        {
           "name": "pointings",
           "description": "pointings commands",
           "subcommands": [

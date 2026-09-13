@@ -417,12 +417,19 @@ export const WORKFLOWS: Record<TaskKind, Workflow> = {
   // is always written atomically with the transition (a CAS on status — see
   // mt#2911's schema; deliberately NOT the 15-minute presence-claims table,
   // whose liveness grain is a different job, mem#1231).
+  //
+  // READY → DONE (mt#5132) is the completion edge for an OPEN package whose
+  // every member finished without anyone claiming it — the lifecycle sweep's
+  // write (`completeWorkPackage`), which appends the `completed` transfer in
+  // the same transaction. Reserved for that path for the same reason the
+  // claim edge is: the transfer log must record every exit, and a bare
+  // status-set would leave DONE with no `completed` entry beside it.
   // -------------------------------------------------------------------------
   "work-package": {
     states: ["TODO", "READY", "IN-PROGRESS", "DONE", "CLOSED"],
     transitions: {
       TODO: ["READY", "CLOSED"],
-      READY: ["TODO", "CLOSED"],
+      READY: ["TODO", "DONE", "CLOSED"],
       "IN-PROGRESS": ["DONE", "CLOSED"],
       DONE: ["CLOSED"],
       CLOSED: ["TODO"],
@@ -434,6 +441,12 @@ export const WORKFLOWS: Record<TaskKind, Workflow> = {
         to: "IN-PROGRESS",
         message:
           "A work package is claimed, not status-set: use the claim command (tasks claim), which records claimed_by atomically with the transition.",
+      },
+      {
+        from: "READY",
+        to: "DONE",
+        message:
+          "An open work package is completed by the lifecycle sweep (tasks packages sweep), which records the `completed` transfer atomically with the transition; a package with open members is not completable.",
       },
     ],
     mappings: {

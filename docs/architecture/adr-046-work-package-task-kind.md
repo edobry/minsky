@@ -20,9 +20,14 @@ Four calls, decided together:
 2. **It ships as a task KIND**, an entry in the `WORKFLOWS` registry (mt#1812/mt#3010), not as a
    sibling substrate entity on the Ask pattern.
 3. **Lifecycle is mutate-plus-log**: the row persists across claims, releases and successions;
-   `origin` (`groomed` | `succession` | `release`) is a per-transfer fact in
+   `origin` (`groomed` | `succession` | `release` | `completed`) is a per-transfer fact in
    `work_package_transfers`, not a per-row column. Supersede-on-write and mint-per-succession are
-   rejected.
+   rejected. _Amended 2026-09-13 (mt#5132):_ `completed` is the exit entry — appended when the
+   package-lifecycle sweep closes a package whose every member is terminal (the RFC's Correction 2
+   terminal state, reached by a third path beside successor-writes-handoff and cockpit-manual).
+   The same sweep releases a claim whose holder has shown no presence for 24h, the RFC's
+   "claims self-stale" window read from `presence_claims` rather than from process liveness; a
+   SessionEnd hook releases a `conv:`-scoped claim sooner, as a latency optimization.
 4. **Collision prevention stays at task entry**, not on the entity: `warn-peer-task-activity`
    flips from advisory to deny (mt#4788, substrate open question 4 answered "prevent" for this
    surface). A package create that queues a task another open package already queues is

@@ -3554,6 +3554,39 @@
       "sourceFile": "record-turn-anchor"
     },
     {
+      "guardName": "release-work-package-claims-on-session-end",
+      "description": "Releases the work-package claims a conversation holds when it ends, by spawning one `tasks release-conversation` call with the SessionEnd payload's session_id and reason. Matches only claims recorded under that conversation's own `conv:` identity — a daemon-scoped `proc:` id is shared across conversations and is left to the lifecycle sweep's staleness backstop. Skips `clear` and `resume`, under which the conversation's claim survives.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [".minsky/hooks/release-work-package-claims-on-session-end.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "canaryDisposition": {
+        "disposition": "canary-pending",
+        "owner": "mt#5080",
+        "source": "entity"
+      },
+      "registered": false,
+      "undescribed": false,
+      "point": "SessionEnd",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "framework"
+        }
+      ],
+      "mechanism": "constant",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "release-work-package-claims-on-session-end"
+    },
+    {
       "guardName": "require-checks-on-bypass-merge",
       "description": "Denies a bypass merge whose required status checks have not passed.",
       "failureClasses": ["unreviewed-merge"],
