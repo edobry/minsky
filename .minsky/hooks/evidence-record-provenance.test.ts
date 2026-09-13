@@ -1145,6 +1145,135 @@ describe("run", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// A subagent's write is judged against the SUBAGENT's transcript (mt#5108)
+// ---------------------------------------------------------------------------
+//
+// The `implementer` pattern: the orchestrator dispatches an agent that runs the
+// control, then calls `session_pr_create` itself. `ctx.transcriptLines` is the
+// PARENT's lines by construction (mt#3293), so before this the record was
+// judged against a transcript holding none of the writer's runs — 6 of 19 fires
+// in one calibration window. The fixture below is that shape: the control's
+// failing run in `agent-X.jsonl`, nothing in the parent.
+
+describe("subagent writes are judged against the writer's own transcript (mt#5108)", () => {
+  const PARENT_PATH = "/tmp/sess-mt4044.jsonl";
+  const WRITER_ID = "a37322f8fd759001b";
+  const WRITER_PATH = `/tmp/sess-mt4044/subagents/agent-${WRITER_ID}.jsonl`;
+  const CANDIDATES = [PARENT_PATH, WRITER_PATH];
+  /** The record field naming which transcript the verdict rests on. */
+  const JUDGED_TRANSCRIPT = "judgedTranscript";
+
+  /** The parent ran nothing relevant — an orchestrator that only dispatched. */
+  const parentWithoutRun = call("Agent", { subagent_type: "implementer" }, "done");
+  /** The writer's own control run, which is the evidence the record describes. */
+  const writerWithRun = testRun(`${TEST_CMD} SharedConversationPage.test.tsx`, SUBJECT_FAILURE);
+
+  function subagentCtx(parentLines: TranscriptLine[]): DispatchContext {
+    return {
+      transcriptLines: parentLines,
+      transcriptCandidates: CANDIDATES,
+    } as unknown as DispatchContext;
+  }
+
+  /** A transcript reader keyed by path — the only file it knows is the writer's. */
+  function readerWith(writerLines: TranscriptLine[]): (path: string) => TranscriptLine[] {
+    return (path) => {
+      expect(path).toBe(WRITER_PATH);
+      return writerLines;
+    };
+  }
+
+  function subagentCommit(message: string): ToolHookInput {
+    return { ...commitInput(message), agent_id: WRITER_ID } as ToolHookInput;
+  }
+
+  test("AT1 — the control ran in the writer's file and NOT the parent: discharged", () => {
+    const outcome = run(subagentCommit(INCIDENT_MESSAGE), subagentCtx(parentWithoutRun), {
+      parseTranscript: readerWith(writerWithRun),
+    });
+    expect(outcome?.calibration?.["outcome"]).toBe("clean");
+    expect(outcome?.calibration?.[JUDGED_TRANSCRIPT]).toBe("writer");
+  });
+
+  test("AT1 negative control — the same fixture with no agent id is judged against the parent and fires", () => {
+    // Today's behaviour, now scoped to main-thread writes: a `parseTranscript`
+    // that throws proves the writer's file is never consulted on this path.
+    const poisoned = (): TranscriptLine[] => {
+      throw new Error("a main-thread write must not read a subagent file");
+    };
+    const outcome = run(commitInput(INCIDENT_MESSAGE), subagentCtx(parentWithoutRun), {
+      parseTranscript: poisoned,
+    });
+    expect(outcome?.calibration?.["outcome"]).toBe("matched");
+    expect(outcome?.calibration?.[JUDGED_TRANSCRIPT]).toBe("parent");
+    expect(outcome?.calibration?.["writerAgentId"]).toBeNull();
+  });
+
+  test("AT2 — the run is in the PARENT and the writer's file has none: undischarged under writer-only", () => {
+    // The orchestrator's runs are not the subagent's evidence. Measured (30 days,
+    // 306 records): the union bought no real discharge over writer-only, so the
+    // parent's lines are deliberately not consulted here.
+    const outcome = run(subagentCommit(INCIDENT_MESSAGE), subagentCtx(writerWithRun), {
+      parseTranscript: readerWith(parentWithoutRun),
+    });
+    expect(outcome?.calibration?.["outcome"]).toBe("matched");
+    expect(outcome?.calibration?.["reason"]).toBe("undischarged=1");
+    expect(outcome?.calibration?.[JUDGED_TRANSCRIPT]).toBe("writer");
+  });
+
+  test("AT3 — the calibration record carries the writer's agent id", () => {
+    const outcome = run(subagentCommit(INCIDENT_MESSAGE), subagentCtx(parentWithoutRun), {
+      parseTranscript: readerWith(writerWithRun),
+    });
+    expect(outcome?.calibration?.["writerAgentId"]).toBe(WRITER_ID);
+    // Still the parent's session id — that is the conversation the write belongs
+    // to; the agent id is what locates the transcript within it.
+    expect(outcome?.calibration?.["sessionId"]).toBe("sess-mt4044");
+  });
+
+  test("a subagent whose transcript is not among the candidates is skipped, never judged against the parent", () => {
+    // The fallback that must not exist. A parent-judged verdict here would be
+    // the pre-mt#5108 miss again, filed under `matched` where nobody would look
+    // for an outage.
+    const poisoned = (): TranscriptLine[] => {
+      throw new Error("nothing to parse when the writer's file is absent");
+    };
+    const outcome = run(
+      subagentCommit(INCIDENT_MESSAGE),
+      {
+        transcriptLines: parentWithoutRun,
+        transcriptCandidates: [PARENT_PATH],
+      } as unknown as DispatchContext,
+      { parseTranscript: poisoned }
+    );
+    expect(outcome?.calibration?.["outcome"]).toBe("skipped");
+    expect(outcome?.calibration?.["reason"]).toContain(`agent-${WRITER_ID}.jsonl`);
+    expect(outcome?.calibration?.[JUDGED_TRANSCRIPT]).toBe("writer-missing");
+    expect(outcome?.additionalContext).toBeUndefined();
+  });
+
+  test("an execution-evidence claim is discharged by the WRITER's check of that kind", () => {
+    // The mt#4029 shape from the originating window: the subagent ran
+    // `bun run format:check` in its own transcript, and the record claimed it.
+    const writerFormatRun = testRun(
+      "bun run format:check 2>&1 | tail -20",
+      "All matched files use Prettier code style!"
+    );
+    const message =
+      "feat(mt#4029): align concepts.md\n\nExecution evidence:\n\n```\n$ bun run format:check\nAll matched files use Prettier code style!\n```\n";
+    const judgedAgainstWriter = run(subagentCommit(message), subagentCtx(parentWithoutRun), {
+      parseTranscript: readerWith(writerFormatRun),
+    });
+    expect(judgedAgainstWriter?.calibration?.["outcome"]).toBe("clean");
+
+    const judgedAgainstParent = run(commitInput(message), subagentCtx(parentWithoutRun), {
+      parseTranscript: readerWith(writerFormatRun),
+    });
+    expect(judgedAgainstParent?.calibration?.["outcome"]).toBe("matched");
+  });
+});
+
 describe("registration", () => {
   test("is calibration-first — asserted, not merely intended", () => {
     const reg = GUARD_REGISTRY.find((r) => r.name === "evidence-record-provenance");

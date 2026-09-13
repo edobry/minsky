@@ -114,6 +114,22 @@ If 1 and 2 together exceed half the `matched` records over the first window, ses
 history is too narrow a falsifier and the check should be narrowed or replaced by requiring the
 record to cite its search inline. Full analysis: mt#4004's spec, `## SC3`.
 
+**Source 2's inverse was the larger one, and it is closed (mt#5108).** The list above anticipates a
+subagent whose PARENT searched; what the calibration log actually showed was a subagent that
+searched ITSELF and was flagged anyway, because `ctx.transcriptLines` is the parent's lines by
+construction (mt#3293) and the subagent's `tasks_search` sits in its own `agent-<id>.jsonl`. Over
+30 days, 16 subagent `tasks_create` calls carried 5 search claims: judged against the parent, 4
+fired; judged against the writer, 2 — and 3 of the parent's 4 fires were records whose named query
+the subagent had run. This guard INJECTS on `matched`, so each of those warnings reached an agent
+that had done the work. The guard now judges a subagent's create against the subagent's own
+transcript via `resolveWriterTranscriptLines` (`transcript.ts`), writer-only — the same helper and
+the same measurement as `evidence-record-provenance.md §Which transcript is judged`. Source 2 as
+written is now a TRUE positive under writer-only semantics: the one such case in the window was a
+record claiming an unnamed search the writer never ran, cleared by an unrelated parent search. The
+record carries `writerAgentId` and `judgedTranscript` so a reviewer can open the file the verdict
+rests on; an `agent_id` with no per-agent candidate records `skipped`, never a parent-judged
+verdict.
+
 ## Implementation note
 
 The registration MUST declare `needsTranscript: true`. `ctx.transcriptLines` is populated only for

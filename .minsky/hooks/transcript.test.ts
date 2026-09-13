@@ -10,6 +10,7 @@ import {
   resolveCompletedTurn,
   resolveParentTranscriptLines,
   resolveParentTranscriptLinesForPath,
+  resolveWriterTranscriptLines,
   readLogTailText,
   sessionHasLoggedKey,
   collectShortIdBindings,
@@ -699,6 +700,97 @@ describe("resolveParentTranscriptLinesForPath", () => {
     expect(
       resolveParentTranscriptLinesForPath(LONE_SESSION_PATH, "some-agent-id", parseTranscriptFn)
     ).toEqual(parentLines);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveWriterTranscriptLines (mt#5108) — the writer's lines, not the parent's
+// ---------------------------------------------------------------------------
+//
+// The provenance guards judge a claim against the runs that back it, and the
+// runs backing a SUBAGENT's write live in its own agent-<id>.jsonl — the file
+// `resolveParentTranscriptLines` above deliberately excludes. Same candidate
+// list, opposite selection.
+
+describe("resolveWriterTranscriptLines", () => {
+  const PARENT_PATH = "/tmp/session-1.jsonl";
+  const WRITER_ID = "a37322f8fd759001b";
+  const WRITER_PATH = `/tmp/session-1/subagents/agent-${WRITER_ID}.jsonl`;
+  const SIBLING_PATH = "/tmp/session-1/subagents/agent-ad6f00096d8a7a4d7.jsonl";
+  const parentLines = [userPrompt("orchestrate"), assistantText("dispatching")];
+  const writerLines = [userPrompt("implement mt#4029"), assistantText("ran format:check")];
+
+  test("no agent id -> the parent's lines, untouched, and nothing is parsed", () => {
+    const poisoned = (): TranscriptLine[] => {
+      throw new Error("parseTranscriptFn must not be called for a main-thread write");
+    };
+    const resolved = resolveWriterTranscriptLines(
+      undefined,
+      [PARENT_PATH, WRITER_PATH],
+      parentLines,
+      poisoned
+    );
+    expect(resolved.source).toBe("parent");
+    // The SAME array, not a copy — SC2's byte-identical main-thread behaviour.
+    expect(resolved.lines).toBe(parentLines);
+  });
+
+  test("agent id present -> ITS per-agent file, parsed alone, never a sibling's", () => {
+    const parseTranscriptFn = (path: string): TranscriptLine[] => {
+      expect(path).toBe(WRITER_PATH);
+      return writerLines;
+    };
+    const resolved = resolveWriterTranscriptLines(
+      WRITER_ID,
+      [PARENT_PATH, SIBLING_PATH, WRITER_PATH],
+      parentLines,
+      parseTranscriptFn
+    );
+    expect(resolved.source).toBe("writer");
+    expect(resolved.lines).toBe(writerLines);
+  });
+
+  test("agent id present but no matching candidate -> writer-missing, NOT the parent", () => {
+    // The fallback that must not exist: judging a subagent's write against the
+    // parent is the pre-mt#5108 miss, and returning the parent here would put
+    // it back under a verdict. The caller records `skipped` instead.
+    const poisoned = (): TranscriptLine[] => {
+      throw new Error("nothing to parse when the writer's file is absent");
+    };
+    const resolved = resolveWriterTranscriptLines(
+      WRITER_ID,
+      [PARENT_PATH, SIBLING_PATH],
+      parentLines,
+      poisoned
+    );
+    expect(resolved.source).toBe("writer-missing");
+    expect(resolved.lines).toEqual([]);
+  });
+
+  test("the match is directory-qualified — a same-named file outside subagents/ is not the writer", () => {
+    const poisoned = (): TranscriptLine[] => {
+      throw new Error("a bare-basename match must not be parsed");
+    };
+    const resolved = resolveWriterTranscriptLines(
+      WRITER_ID,
+      [PARENT_PATH, "/elsewhere/agent-a37322f8fd759001b.jsonl"],
+      parentLines,
+      poisoned
+    );
+    expect(resolved.source).toBe("writer-missing");
+  });
+
+  test("an agent id that is a PREFIX of another's does not match the longer file", () => {
+    const poisoned = (): TranscriptLine[] => {
+      throw new Error("a prefix must not select a different agent's file");
+    };
+    const resolved = resolveWriterTranscriptLines(
+      "a37322f8",
+      [PARENT_PATH, WRITER_PATH],
+      parentLines,
+      poisoned
+    );
+    expect(resolved.source).toBe("writer-missing");
   });
 });
 

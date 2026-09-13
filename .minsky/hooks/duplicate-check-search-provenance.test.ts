@@ -283,3 +283,99 @@ describe("mt#4975 — named-query discharge", () => {
     expect(outcome?.calibration?.outcome).toBe("matched");
   });
 });
+
+// ---------------------------------------------------------------------------
+// A subagent's create is judged against the SUBAGENT's transcript (mt#5108)
+// ---------------------------------------------------------------------------
+//
+// Same exposure as `evidence-record-provenance`, same helper: a dispatched agent
+// that ran its own `tasks_search` and then filed the task has that call in its
+// `agent-<id>.jsonl`, and `ctx.transcriptLines` is the parent's by construction
+// (mt#3293). Judged against the parent, the truthful record read as fabricated
+// — and this guard INJECTS on `matched`, so the warning reached the subagent.
+
+describe("subagent creates are judged against the writer's own transcript (mt#5108)", () => {
+  const PARENT_PATH = "/tmp/sess-mt4004.jsonl";
+  const WRITER_ID = "a07eb288e49755cf8";
+  const WRITER_PATH = `/tmp/sess-mt4004/subagents/agent-${WRITER_ID}.jsonl`;
+  /** The record field naming which transcript the verdict rests on. */
+  const JUDGED_TRANSCRIPT = "judgedTranscript";
+
+  function subagentCtx(parentLines: TranscriptLine[]): DispatchContext {
+    return {
+      transcriptLines: parentLines,
+      transcriptCandidates: [PARENT_PATH, WRITER_PATH],
+    } as unknown as DispatchContext;
+  }
+
+  function subagentInput(spec: string): ToolHookInput {
+    return { ...inputWith(spec), agent_id: WRITER_ID } as ToolHookInput;
+  }
+
+  const readerWith =
+    (writerLines: TranscriptLine[]) =>
+    (path: string): TranscriptLine[] => {
+      expect(path).toBe(WRITER_PATH);
+      return writerLines;
+    };
+
+  test("the writer ran the named query and the parent did not: clean, judged against the writer", () => {
+    const outcome = run(
+      subagentInput(specNaming("foo bar baz")),
+      subagentCtx([toolCallLine("Agent")]),
+      {
+        parseTranscript: readerWith([searchCallLine(SEARCH_TOOL, "foo bar baz")]),
+      }
+    );
+    expect(outcome?.calibration?.outcome).toBe("clean");
+    expect(outcome?.calibration?.[JUDGED_TRANSCRIPT]).toBe("writer");
+    expect(outcome?.calibration?.["writerAgentId"]).toBe(WRITER_ID);
+    expect(outcome?.additionalContext).toBeUndefined();
+  });
+
+  test("negative control: the same fixture with no agent id is judged against the parent and warns", () => {
+    const poisoned = (): TranscriptLine[] => {
+      throw new Error("a main-thread create must not read a subagent file");
+    };
+    const outcome = run(
+      inputWith(specNaming("foo bar baz")),
+      subagentCtx([toolCallLine("Agent")]),
+      {
+        parseTranscript: poisoned,
+      }
+    );
+    expect(outcome?.calibration?.outcome).toBe("matched");
+    expect(outcome?.calibration?.[JUDGED_TRANSCRIPT]).toBe("parent");
+    expect(outcome?.additionalContext).toContain("foo bar baz");
+  });
+
+  test("the PARENT ran the named query and the writer did not: still flags — writer-only", () => {
+    // The orchestrator's search is not the subagent's. The one such case in the
+    // 30-day measurement was a record claiming an unnamed search the writer
+    // never ran, cleared by an unrelated parent search — a true positive.
+    const outcome = run(
+      subagentInput(specNaming("foo bar baz")),
+      subagentCtx([searchCallLine(SEARCH_TOOL, "foo bar baz")]),
+      { parseTranscript: readerWith([toolCallLine("Bash")]) }
+    );
+    expect(outcome?.calibration?.outcome).toBe("matched");
+    expect(outcome?.calibration?.[JUDGED_TRANSCRIPT]).toBe("writer");
+  });
+
+  test("a subagent whose transcript is not among the candidates is skipped, not judged against the parent", () => {
+    const poisoned = (): TranscriptLine[] => {
+      throw new Error("nothing to parse when the writer's file is absent");
+    };
+    const outcome = run(
+      subagentInput(specNaming("foo bar baz")),
+      {
+        transcriptLines: [searchCallLine(SEARCH_TOOL, "foo bar baz")],
+        transcriptCandidates: [PARENT_PATH],
+      } as unknown as DispatchContext,
+      { parseTranscript: poisoned }
+    );
+    expect(outcome?.calibration?.outcome).toBe("skipped");
+    expect(outcome?.calibration?.reason).toContain(`agent-${WRITER_ID}.jsonl`);
+    expect(outcome?.additionalContext).toBeUndefined();
+  });
+});
