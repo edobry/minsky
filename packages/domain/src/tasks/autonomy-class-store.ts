@@ -14,7 +14,11 @@
 import { inArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { taskSpecsTable } from "../storage/schemas/task-embeddings";
-import type { AutonomySpecSignals } from "./autonomy-class";
+import {
+  SPEC_ORIGIN_PATTERN,
+  specSectionPattern,
+  type AutonomySpecSignals,
+} from "./autonomy-class";
 
 /** What a consumer needs from the DB to classify: spec sections by task id. */
 export interface AutonomySignalSource {
@@ -25,14 +29,11 @@ export interface AutonomySignalSource {
 /** Summary text beyond this is never needed for a marker match. */
 export const SUMMARY_CAP_CHARS = 2000;
 
-/** Postgres ARE: a `## <Heading>` section body up to the next `## ` heading. */
-function sectionPattern(heading: string): string {
-  return `(?:^|\\n)## ${heading}[^\\n]*\\n((?:[^\\n]|\\n(?!## ))*)`;
-}
-
-const SCOPE_PATTERN = sectionPattern("Scope");
-const SUMMARY_PATTERN = sectionPattern("Summary");
-const ORIGIN_PATTERN = "(?:^|\\n)(Origin:[^\\n]*)";
+// The same pattern strings the TS extractor compiles — Postgres AREs accept
+// this dialect (lookahead included), so one definition serves both paths.
+const SCOPE_PATTERN = specSectionPattern("Scope");
+const SUMMARY_PATTERN = specSectionPattern("Summary");
+const ORIGIN_PATTERN = SPEC_ORIGIN_PATTERN;
 
 /** Ids per IN-list; the default population fits in one, this keeps a pathological one bounded. */
 const CHUNK = 2000;

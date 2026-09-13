@@ -120,10 +120,12 @@ export class TaskRoutingService {
     const ids = [...new Set([...dependencyMap.values()].flat())];
     const statusOf = new Map<string, string>();
     if (ids.length === 0) return statusOf;
-    const bulk = (this.taskService as { getTasks?: unknown }).getTasks;
-    if (typeof bulk === "function") {
+    // A hand-written fake may implement only `getTask`; treat `getTasks` as a
+    // capability and call it through the same narrowed view we checked.
+    const service: Partial<Pick<TaskServiceInterface, "getTasks">> = this.taskService;
+    if (typeof service.getTasks === "function") {
       try {
-        for (const dep of await this.taskService.getTasks(ids)) statusOf.set(dep.id, dep.status);
+        for (const dep of await service.getTasks(ids)) statusOf.set(dep.id, dep.status);
         return statusOf;
       } catch {
         // intentional-swallow: a bulk read that fails falls through to the per-id path below.

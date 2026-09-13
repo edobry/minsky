@@ -231,7 +231,7 @@ export function selectCandidates(
       daysSinceTouched: Math.max(0, Math.floor((nowMs - row.updatedAtMs) / MS_PER_DAY)),
     };
     const cls = options.classOf?.(row.id);
-    if (cls) item.autonomyClass = cls;
+    if (cls !== undefined) item.autonomyClass = cls;
     return item;
   });
   return {

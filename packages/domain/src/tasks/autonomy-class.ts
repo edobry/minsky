@@ -170,16 +170,29 @@ export function extractScopePaths(text: string | null | undefined): string[] {
 
 const DOCS_ONLY_RE = /^(?:docs\/|src\/generated\/)/;
 
-/** A `## <Heading>` section body up to the next `## ` heading — the TS twin of the loader's SQL pattern. */
+/**
+ * The ONE pattern for a `## <Heading>` section body up to the next `## `
+ * heading, as a source string valid in both JS `RegExp` and a Postgres ARE
+ * (`substring(col from pattern)` returns group 1). `autonomy-class-store.ts`
+ * sends it to SQL; `extractSpecSection` compiles it here — one definition, so
+ * the two paths cannot drift (PR #3746 R1).
+ */
+export function specSectionPattern(heading: string): string {
+  return `(?:^|\\n)## ${heading}[^\\n]*\\n((?:[^\\n]|\\n(?!## ))*)`;
+}
+
+/** Same contract for the spec's `Origin:` line. */
+export const SPEC_ORIGIN_PATTERN = "(?:^|\\n)(Origin:[^\\n]*)";
+
+/** A `## <Heading>` section body — the TS side of `specSectionPattern`. */
 export function extractSpecSection(content: string, heading: string): string | null {
-  const re = new RegExp(`(?:^|\\n)## ${heading}[^\\n]*\\n((?:[^\\n]|\\n(?!## ))*)`);
-  const m = re.exec(content);
+  const m = new RegExp(specSectionPattern(heading)).exec(content);
   return m ? (m[1] ?? "") : null;
 }
 
 /** Spec signals from a whole spec's text — for a caller with no bulk loader. */
 export function specSignalsFromContent(content: string): AutonomySpecSignals {
-  const origin = /(?:^|\n)(Origin:[^\n]*)/.exec(content);
+  const origin = new RegExp(SPEC_ORIGIN_PATTERN).exec(content);
   return {
     scope: extractSpecSection(content, "Scope"),
     summary: extractSpecSection(content, "Summary"),

@@ -11,7 +11,12 @@
  */
 import { describe, test, expect } from "bun:test";
 import { ENGPROD_ACCEPTED_TAG, ENGPROD_PROPOSAL_TAG } from "@minsky/domain/engprod/types";
-import { parseTaskTags, checkProposalGuard, validateRejectionReason } from "./engprod-proposals";
+import {
+  acceptedTaskRow,
+  parseTaskTags,
+  checkProposalGuard,
+  validateRejectionReason,
+} from "./engprod-proposals";
 
 /** Shared fixture: the JSON-serialized tags column value for a tagged proposal task. */
 const PROPOSAL_TAGS_JSON = JSON.stringify([ENGPROD_PROPOSAL_TAG]);
@@ -85,6 +90,23 @@ describe("checkProposalGuard", () => {
     expect(checkProposalGuard({ status: null, tags: PROPOSAL_TAGS_JSON })).toEqual({
       kind: "ok",
       tags: [ENGPROD_PROPOSAL_TAG],
+    });
+  });
+
+  test("acceptedTaskRow: swaps the tag and keeps the status — except a legacy BLOCKED row, lifted to TODO (PR #3746 R1)", () => {
+    expect(acceptedTaskRow("TODO", [ENGPROD_PROPOSAL_TAG, "other"])).toEqual({
+      status: "TODO",
+      tags: ["other", ENGPROD_ACCEPTED_TAG],
+    });
+    expect(acceptedTaskRow("PLANNING", [ENGPROD_PROPOSAL_TAG])).toEqual({
+      status: "PLANNING",
+      tags: [ENGPROD_ACCEPTED_TAG],
+    });
+    // A proposal filed before mt#5130 and not yet migrated must not stay in
+    // the retired containment state once accepted.
+    expect(acceptedTaskRow("BLOCKED", [ENGPROD_PROPOSAL_TAG])).toEqual({
+      status: "TODO",
+      tags: [ENGPROD_ACCEPTED_TAG],
     });
   });
 

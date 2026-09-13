@@ -160,7 +160,11 @@ export function mountEngprodProposalRoutes(app: express.Express): void {
           .orderBy(desc(engprodMinerRunsTable.startedAt))
           .limit(MAX_RUNS),
       ]);
-      const proposalTasks = [...pendingTasks, ...acceptedTasks];
+      // De-duplicated by id: the tags are meant to be mutually exclusive, but
+      // a row that somehow carries both must not render twice (PR #3746 R1).
+      const proposalTasks = [
+        ...new Map([...pendingTasks, ...acceptedTasks].map((t) => [t.id, t])).values(),
+      ];
 
       const taskIds = proposalTasks.map((t) => formatTaskIdForDisplay(t.id));
       const ledgerService = new ProposalLedgerService(db);
@@ -293,6 +297,23 @@ export function checkProposalGuard(
 }
 
 /**
+ * The task-row write Accept makes (mt#5130): swap the pending tag for
+ * `engprod-accepted`, and leave the status alone — EXCEPT the legacy BLOCKED
+ * shape (filed before mt#5130, not yet migrated), which is lifted to TODO so
+ * an accepted task is never left in the retired containment state
+ * (PR #3746 R1). Pure and exported for the same reason as the guard.
+ */
+export function acceptedTaskRow(
+  currentStatus: string,
+  tags: readonly string[]
+): { status: string; tags: string[] } {
+  return {
+    status: currentStatus === "BLOCKED" ? "TODO" : currentStatus,
+    tags: [...tags.filter((t) => t !== ENGPROD_PROPOSAL_TAG), ENGPROD_ACCEPTED_TAG],
+  };
+}
+
+/**
  * Pure validation for the reject action's required free-text reason (spec
  * requirement #4). Free text is fine; empty/whitespace-only or a
  * non-string body field is not.
@@ -360,14 +381,13 @@ async function handleDecision(
       if (guard.kind === "not-a-proposal") return { kind: "not-a-proposal" };
       if (guard.kind === "conflict") return { kind: "conflict", disposition: guard.disposition };
 
-      // Accept = the tag swap, status untouched; reject = CLOSED (mt#5130).
-      // The current status is read from the row the guard just saw.
+      // Accept = the tag swap (and a legacy BLOCKED row lifted to TODO);
+      // reject = CLOSED (mt#5130). See `acceptedTaskRow`.
       const currentStatus = String(task?.status ?? "TODO");
-      const newStatus = decision === "accept" ? currentStatus : "CLOSED";
-      const newTags =
+      const { status: newStatus, tags: newTags } =
         decision === "accept"
-          ? [...guard.tags.filter((t) => t !== ENGPROD_PROPOSAL_TAG), ENGPROD_ACCEPTED_TAG]
-          : guard.tags;
+          ? acceptedTaskRow(currentStatus, guard.tags)
+          : { status: "CLOSED", tags: guard.tags };
 
       const ledgerRows = await tx
         .select()
