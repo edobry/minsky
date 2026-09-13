@@ -350,6 +350,10 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   // a transfer-log row).
   "tasks.claim": "mutates",
   "tasks.release": "mutates",
+  "tasks.pointings.declare": "mutates",
+  "tasks.pointings.archive": "mutates",
+  "tasks.pointings.list": "reads",
+  "tasks.pointings.candidates": "reads",
   "tasks.available": "reads",
   "tasks.children": "reads",
   "tasks.claims.list": "reads",

@@ -241,6 +241,12 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksClaimsReleaseCommand,
   } = require("./claims-command");
   const { createTasksClaimCommand, createTasksReleaseCommand } = require("./work-package-commands");
+  const {
+    createTasksPointingsDeclareCommand,
+    createTasksPointingsListCommand,
+    createTasksPointingsArchiveCommand,
+    createTasksPointingsCandidatesCommand,
+  } = require("./pointing-commands");
 
   return [
     createTasksStatusGetCommand(getPersistenceProvider, getTaskService),
@@ -323,5 +329,9 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     // Work-package claim/release (ADR-046, mt#2911)
     createTasksClaimCommand(getPersistenceProvider),
     createTasksReleaseCommand(getPersistenceProvider),
+    createTasksPointingsDeclareCommand(getPersistenceProvider),
+    createTasksPointingsListCommand(getPersistenceProvider),
+    createTasksPointingsArchiveCommand(getPersistenceProvider),
+    createTasksPointingsCandidatesCommand(getPersistenceProvider),
   ];
 }
