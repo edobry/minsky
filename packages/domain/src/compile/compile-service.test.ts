@@ -242,7 +242,7 @@ describe("MinskyCompileService", () => {
       expect(result).not.toHaveProperty("contentsByPath");
     });
 
-    it("AT1: the dry-run result still carries the content — that mode's purpose IS the content", async () => {
+    it("SC2: the dry-run result still carries the content — that mode's purpose IS the content", async () => {
       const service = new MinskyCompileService();
       service.registerTarget(stubTarget);
 
