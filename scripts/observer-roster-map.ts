@@ -91,6 +91,7 @@ export const ROSTER_TO_GUARDS: Record<string, readonly string[]> = {
   "Subagent model verification": ["verify-subagent-model"],
   "Session-end ingest": ["transcript-ingest-on-session-end"],
   "Guard-events sweep ingest": ["guard-events-ingest-on-session-end"],
+  "Work-package claim release": ["release-work-package-claims-on-session-end"],
   "Calibration (log-only)": [
     "causal-premise-detector",
     "calibration-review-cadence-detector",
