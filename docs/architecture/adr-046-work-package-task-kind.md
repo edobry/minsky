@@ -28,6 +28,17 @@ Four calls, decided together:
    The same sweep releases a claim whose holder has shown no presence for 24h, the RFC's
    "claims self-stale" window read from `presence_claims` rather than from process liveness; a
    SessionEnd hook releases a `conv:`-scoped claim sooner, as a latency optimization.
+   _Amended 2026-09-13 (mt#5133) — deviation recorded:_ from acceptance (2026-08-30; the design
+   rounds began 2026-08-24) until 2026-09-13, mint-per-succession is what actually SHIPPED —
+   `/handoff` step 8 called `tasks_create` unconditionally, because the package surface exposed
+   create, claim and release only and nothing could rewrite a package's members or append a
+   `succession` transfer. Measured cost: the onboarding queue became a 7-link chain
+   (mt#5030 → mt#5035 → mt#5041 → mt#5053 → mt#5074 → mt#5107 → mt#5119) with the origin
+   still TODO, and 31 of 74 packages open on 2026-09-13. Repair: `tasks.package.succeed`
+   (the primitive this decision assumed — rewrite members and briefing, append the
+   `succession` transfer, render the log into the spec's `## Transfers`, release) and the
+   skill's step-8 branch that uses it when the conversation holds a package; the sibling
+   sweep (mt#5132) closes the finished ones. The existing chains are not migrated by either.
 4. **Collision prevention stays at task entry**, not on the entity: `warn-peer-task-activity`
    flips from advisory to deny (mt#4788, substrate open question 4 answered "prevent" for this
    surface). A package create that queues a task another open package already queues is

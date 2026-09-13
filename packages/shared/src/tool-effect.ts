@@ -359,6 +359,9 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   // and the SessionEnd hook's conversation-scoped release.
   "tasks.packages.sweep": "mutates",
   "tasks.release-conversation": "mutates",
+  // mt#5133: succession rewrites the held package's members/briefing, appends a
+  // transfer, and (by default) releases it — the same class as tasks.release.
+  "tasks.package.succeed": "mutates",
   "tasks.available": "reads",
   "tasks.children": "reads",
   "tasks.claims.list": "reads",

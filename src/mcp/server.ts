@@ -240,6 +240,12 @@ const CLAIMS_RELEASE_TOOL_NAME = "tasks.claims.release";
  */
 const WORK_PACKAGE_CLAIM_TOOL_NAME = "tasks.claim";
 const WORK_PACKAGE_RELEASE_TOOL_NAME = "tasks.release";
+/**
+ * Succession (mt#5133) records the caller as `by_conversation` on the
+ * `succession` transfer and on the release that follows it — the successor
+ * linkage a handoff exists to leave behind, deliverable only this way.
+ */
+const WORK_PACKAGE_SUCCEED_TOOL_NAME = "tasks.package.succeed";
 
 /**
  * `tasks.create` records the caller as `by_conversation` on a work-package's
@@ -267,7 +273,7 @@ const SESSION_START_TOOL_NAME = "session.start";
  * merely CONTAINS one of these cannot receive the param. Built once at module
  * load rather than per request.
  *
- * Why a set rather than a second `if`: the injection is now eight tools wide and
+ * Why a set rather than a second `if`: the injection is now nine tools wide and
  * the matching rule (exact match on the resolved name, server overwrites any
  * caller-supplied value) is the part that must not drift between them. One
  * membership test cannot disagree with itself.
@@ -301,6 +307,7 @@ const CALLER_ACTOR_ID_TOOL_NAMES: ReadonlySet<string> = new Set([
   CLAIMS_RELEASE_TOOL_NAME,
   WORK_PACKAGE_CLAIM_TOOL_NAME,
   WORK_PACKAGE_RELEASE_TOOL_NAME,
+  WORK_PACKAGE_SUCCEED_TOOL_NAME,
   TASKS_CREATE_TOOL_NAME,
   SESSION_START_TOOL_NAME,
 ]);

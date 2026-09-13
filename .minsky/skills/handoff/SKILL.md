@@ -187,17 +187,42 @@ State explicitly: **resume in same conversation OR new session.** Apply this rul
 
 When in doubt, recommend new session. Cost of fresh-context restart is low; cost of context-collapse mid-action is high.
 
-### 8. Write the durable payload: a succession work package
+### 8. Write the durable payload: succeed the package you hold, or mint one
 
-Before rendering anything to chat, call `mcp__minsky__tasks_create` with
-`kind: "work-package"` to persist the full structured handoff payload as a claimable task —
-this is the durable, machine-checkable artifact (ADR-046, mt#2911; it replaced the mt#2827
-memory record); chat prose is advisory only.
+Before rendering anything to chat, persist the full structured handoff payload as a
+claimable `kind: "work-package"` task — the durable, machine-checkable artifact (ADR-046,
+mt#2911; it replaced the mt#2827 memory record); chat prose is advisory only. **Which write
+depends on whether this conversation already holds a package** (mt#5133):
 
-- `title`: `Handoff: <short cluster description>`
+- **This conversation CLAIMED a work package** — it ran `tasks_claim` on one, or the prompt
+  that started it named a package it then claimed per `## Continuation guidance` step 1 —
+  → call `mcp__minsky__tasks_package_succeed` on THAT package and **mint nothing**.
+  ADR-046 decision 3 is mutate-plus-log: the package row persists across hops, and a
+  handoff is the act by which it re-enters the pool carrying state. Pass `taskId` (the
+  package you hold), `notes` (the outcome: what shipped, what remains, the judgment that
+  must survive the fold) and `spec` — the full replacement briefing below, exactly as a
+  create would take it. The command replaces the member set from the briefing's
+  `## Members`, replaces the spec, appends a `succession` transfer under your identity,
+  renders the whole transfer log into a `## Transfers` section of the spec, and releases the
+  claim so the SAME package returns to READY. There is no predecessor to close, because
+  nothing new was minted — minting per hop is what produced the 7-link chain
+  mt#5030 → … → mt#5119 with its origin still open.
+  - A package whose members are ALL finished has nothing left to re-offer: the command
+    refuses an empty member set. Leave the members as they are and the lifecycle sweep
+    (mt#5132) completes the package, or set it DONE directly — do not mint a new one to
+    carry an empty queue.
+  - The same refusals as a create apply (an unresolvable cited ref, a missing required
+    section), plus one more: a package that is not IN-PROGRESS is refused — succession is
+    the act of the conversation that holds it. If your claim was released underneath you
+    (the sweep's staleness backstop, or another conversation's release), re-claim it first
+    if it is READY; if it is DONE/CLOSED, mint as below.
+- **This conversation claimed nothing** → call `mcp__minsky__tasks_create` with
+  `kind: "work-package"` as before; the briefing is the same either way.
+
+- `title` (create only): `Handoff: <short cluster description>`
 - `spec` — the **briefing**, built from steps 1-7 as plain markdown (same no-tables
   discipline as chat output, step 9), with the succession-origin sections the create seam
-  validates:
+  validates (the succeed command runs the same validation):
   - The line `Origin: succession` near the top.
   - `## Situation` — the original motivation (step 1), what shipped and what process
     artifacts landed (steps 2-3), and where things stand now.
@@ -220,11 +245,14 @@ memory record); chat prose is advisory only.
   sibling — record it in the briefing's open threads ("coordinate, don't race"), it is not a
   refusal.
 
-Then call `mcp__minsky__tasks_status_set` to move the package `TODO → READY` — a handoff
-package is open for claiming the moment it is written. (READY → IN-PROGRESS is reserved for
-the claim path; the successor runs `tasks claim`, not a status set.)
+On the CREATE branch, then call `mcp__minsky__tasks_status_set` to move the new package
+`TODO → READY` — a handoff package is open for claiming the moment it is written. (READY →
+IN-PROGRESS is reserved for the claim path; the successor runs `tasks claim`, not a status
+set.) On the SUCCEED branch the release inside the command already returned the package to
+READY; there is no status to set.
 
-Capture the returned `mt#N` id — the chat pointer in step 9 cites it.
+Capture the package's `mt#N` id — the one you succeeded, or the one create returned — the
+chat pointer in step 9 cites it.
 
 ### 9. Render chat output: pointer + summary, no tables
 
@@ -327,7 +355,12 @@ Instead:
    briefing written in step 8 — not the chat summary. To take ownership of the queue before
    working it, claim the package (`tasks claim mt#N` / `tasks_claim`) — the claim records
    your identity atomically with READY → IN-PROGRESS, and a losing concurrent claim is
-   refused naming the holder. (A handoff written before ADR-046 points at
+   refused naming the holder. **The package you claim may carry prior transfers** — since
+   mt#5133 a hop succeeds the package it holds instead of minting a new one, so read the
+   briefing's `## Transfers` section first: one line per transfer (seq, origin, when, which
+   conversation, its notes), the succession notes being each predecessor's outcome — then
+   the members. When you hand off, step 8's succeed branch appends your own entry to it. (A
+   handoff written before ADR-046 points at
    `minsky://memory/<uuid>` instead — dereference those with `memory_get`; the rest of this
    guidance applies unchanged.)
 2. **Re-derive statuses live — don't trust the pasted table or the memory snapshot's status
