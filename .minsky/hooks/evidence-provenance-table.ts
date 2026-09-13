@@ -778,25 +778,37 @@ const READ_PROGRAMS: ReadonlySet<string> = new Set([
 const RUN_PROGRAM_RE =
   /^(?:bun|bunx|node|npx|deno|minsky|python3?|tsx|ts-node|sh|bash|zsh|\.\/\S+|\S+\/[\w.-]+\.(?:ts|js|mjs|cjs|sh|py))$/;
 
+/** One statement with its prefixes exhausted, so its first word is the program that runs. */
+function stripStatementPrefixes(rawStatement: string): string {
+  let statement = rawStatement.trim();
+  let previous: string;
+  do {
+    previous = statement;
+    statement = statement.replace(STATEMENT_PREFIX_RE, "").trim();
+  } while (statement !== previous && statement.length > 0);
+  return statement;
+}
+
 /** Every statement's leading program, after {@link STATEMENT_PREFIX_RE} is exhausted. */
 export function leadingPrograms(command: string): string[] {
   const out: string[] = [];
   for (const rawStatement of command.split(STATEMENT_SPLIT_RE)) {
-    let statement = rawStatement.trim();
-    let previous: string;
-    do {
-      previous = statement;
-      statement = statement.replace(STATEMENT_PREFIX_RE, "").trim();
-    } while (statement !== previous && statement.length > 0);
-    const program = statement.split(/\s+/)[0] ?? "";
+    const program = stripStatementPrefixes(rawStatement).split(/\s+/)[0] ?? "";
     if (program.length > 0) out.push(program);
   }
   return out;
 }
 
-/** A `--help` / `-h` invocation prints documentation, which routinely contains the word FAIL. */
-function isHelpInvocation(command: string): boolean {
-  return /(?:^|\s)(?:--help|-h)(?:\s|$)/.test(command);
+/**
+ * A `--help` / `-h` invocation prints documentation, which routinely contains
+ * the word FAIL. Tested per STATEMENT, not per command (PR #3742 R1): a
+ * `--help` in one segment must not suppress a real run in another, and a pipe
+ * is one statement — `bun test | tail --help` is a help invocation of the whole
+ * pipeline's output, which is fine to call not-a-run, while `echo --help; bun
+ * scripts/verify.ts` still has a run in its second statement.
+ */
+function isHelpInvocation(statement: string): boolean {
+  return /(?:^|\s)(?:--help|-h)(?:\s|$)/.test(statement);
 }
 
 /**
@@ -805,8 +817,16 @@ function isHelpInvocation(command: string): boolean {
  * not a run, whatever its output happens to contain.
  */
 export function isRunShapedCommand(command: string): boolean {
-  if (isHelpInvocation(command)) return false;
-  return leadingPrograms(command).some((p) => RUN_PROGRAM_RE.test(p) && !READ_PROGRAMS.has(p));
+  return command.split(STATEMENT_SPLIT_RE).some((rawStatement) => {
+    const statement = stripStatementPrefixes(rawStatement);
+    const program = statement.split(/\s+/)[0] ?? "";
+    return (
+      program.length > 0 &&
+      RUN_PROGRAM_RE.test(program) &&
+      !READ_PROGRAMS.has(program) &&
+      !isHelpInvocation(statement)
+    );
+  });
 }
 
 /**
@@ -819,12 +839,19 @@ export function isRunShapedCommand(command: string): boolean {
  */
 const HARNESS_FAILURE_MARKER_RE =
   /\b(?:exit(?:_code|ed)?|EXIT(?:_CODE)?|status)\s*[=:]\s*[1-9]\d*\b|\bexit(?:ed)?\s+(?:code\s+|status\s+)?[1-9]\d*\b|\bFAIL(?:ED|URE|S)?\b|✗|✘|\bError:/;
-const TALLY_RE = /\b(\d{1,4})\/(\d{1,4})\b/g;
+/**
+ * Held as a SOURCE string and compiled per call, like this module's other
+ * `g`-flagged patterns (PR #3742 R1): a shared global-flag instance carries
+ * `lastIndex` between callers. `matchAll` happens to clone its argument, so
+ * this one was never live — the convention is kept so the next reader does not
+ * have to know that.
+ */
+const TALLY_SRC = String.raw`\b(\d{1,4})\/(\d{1,4})\b`;
 
 /** True when the output carries a harness failure marker, or a short tally. */
 export function outputReportsHarnessFailure(resultText: string): boolean {
   if (HARNESS_FAILURE_MARKER_RE.test(resultText)) return true;
-  for (const m of resultText.matchAll(TALLY_RE)) {
+  for (const m of resultText.matchAll(new RegExp(TALLY_SRC, "g"))) {
     const passed = Number(m[1]);
     const total = Number(m[2]);
     if (total > 0 && passed < total) return true;

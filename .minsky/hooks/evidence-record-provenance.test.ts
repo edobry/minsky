@@ -1119,6 +1119,16 @@ describe("run-shaped vs read-shaped commands (mt#4309)", () => {
     expect(isRunShapedCommand("bun run src/cli.ts compile --help 2>&1 | head -40")).toBe(false);
   });
 
+  test("--help in ONE statement does not suppress a run in ANOTHER (PR #3742 R1)", () => {
+    // The exclusion is per statement: the second statement here is a real run.
+    expect(isRunShapedCommand("echo --help; bun scripts/verify.ts")).toBe(true);
+    expect(isRunShapedCommand("bun run src/cli.ts compile --help && bun scripts/verify.ts")).toBe(
+      true
+    );
+    // A pipe is one statement, so `--help` anywhere in it is that statement's.
+    expect(isRunShapedCommand("bun scripts/verify.ts --help | head -20")).toBe(false);
+  });
+
   test("outputReportsHarnessFailure reads a harness's own vocabulary, and a green tally is green", () => {
     expect(
       outputReportsHarnessFailure("13/14 guards instrumented\nexit=1 (expected 1 pre-migration)")
