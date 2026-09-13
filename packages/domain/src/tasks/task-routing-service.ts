@@ -109,6 +109,40 @@ export class TaskRoutingService {
   }
 
   /**
+   * Status by id for every dependency in the map, in one `getTasks` read when
+   * the service offers it (the multi-backend service does), else one `getTask`
+   * per unique id — the shape a hand-written fake usually provides. A lookup
+   * that throws leaves the id absent, which reads as "not found" downstream.
+   */
+  private async loadDependencyStatuses(
+    dependencyMap: ReadonlyMap<string, readonly string[]>
+  ): Promise<Map<string, string>> {
+    const ids = [...new Set([...dependencyMap.values()].flat())];
+    const statusOf = new Map<string, string>();
+    if (ids.length === 0) return statusOf;
+    const bulk = (this.taskService as { getTasks?: unknown }).getTasks;
+    if (typeof bulk === "function") {
+      try {
+        for (const dep of await this.taskService.getTasks(ids)) statusOf.set(dep.id, dep.status);
+        return statusOf;
+      } catch {
+        // intentional-swallow: a bulk read that fails falls through to the per-id path below.
+      }
+    }
+    await Promise.all(
+      ids.map(async (id) => {
+        try {
+          const dep = await this.taskService.getTask(id);
+          if (dep) statusOf.set(id, dep.status);
+        } catch {
+          // intentional-swallow: a dependency that cannot be read is treated as not found.
+        }
+      })
+    );
+    return statusOf;
+  }
+
+  /**
    * Find all tasks that are currently available to work on (unblocked by dependencies).
    * Same result as `findAvailableTasksWithClass(...).tasks` — the class filter applies
    * on both, so no caller of the old shape can be served a gated task.
@@ -194,29 +228,26 @@ export class TaskRoutingService {
       }
     }
 
+    // Dependency statuses in ONE read (mt#5130). This used to be a getTask
+    // per dependency, serially per task — measured at 159 round-trips and
+    // ~18 s per `tasks_available` call on prod before the class filter even
+    // ran. A dependency that cannot be found is simply absent from the map.
+    const depStatus = await this.loadDependencyStatuses(dependencyMap);
+
     // Calculate readiness score for each task
     const availableTasks: AvailableTask[] = [];
 
     for (const task of statusFilteredTasks) {
       const blockedBy = dependencyMap.get(task.id) || [];
 
-      // Get status of blocking dependencies
-      const blockingTasks = await Promise.all(
-        blockedBy.map(async (depId) => {
-          try {
-            const depTask = await this.taskService.getTask(depId);
-            return depTask ? { id: depId, status: depTask.status } : null;
-          } catch {
-            return null; // Task not found
-          }
-        })
-      );
-
       // Filter out non-existent dependencies and completed ones (mt#3010:
       // migrated off the mt#3011 interim TASK_STATUS.DONE/.CLOSED comparison
       // to the registry's terminal predicate).
-      const actualBlockingTasks = blockingTasks
-        .filter((dep): dep is { id: string; status: string } => dep !== null)
+      const actualBlockingTasks = blockedBy
+        .flatMap((depId) => {
+          const status = depStatus.get(depId);
+          return status === undefined ? [] : [{ id: depId, status }];
+        })
         .filter((dep) => !isTerminal(dep.status));
 
       // Calculate readiness score (1.0 = no blockers, 0.0 = all blockers pending)
