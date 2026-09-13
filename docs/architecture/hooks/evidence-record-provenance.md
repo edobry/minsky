@@ -116,6 +116,49 @@ a write-tool input naming the subject, followed by any failing run — recovered
 3 of the 4 true positives, `98e2ac5fd` included: an unrelated red run after an ordinary edit is
 common, so the ordering carries no information. That is mt#4044's rejection, now with numbers.
 
+#### A control run WITHOUT a test runner (mt#4309)
+
+Every join above runs over `failingTestRuns` — calls whose command is a test-runner invocation
+and whose output carries a runner's failure marker. A control run any other way could never enter
+that set, so its record fired whatever it pasted or named. mt#4067 measured the class at 3 of 96
+(3.1%) on the artifact side; re-measured at planning over 21 days of parent and subagent writes,
+judged against the writer's own prefix (post-mt#5108), it was not one class:
+
+| shape                                                                                                            | claims | disposition                                                                                                                     |
+| ---------------------------------------------------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| runner spellings `TEST_RUN_COMMAND_RE` missed — `bun --cwd <dir> test …`, `bun scripts/run-related-tests.ts …`   | 11     | recognized; real runners, zero false-discharge risk, and `run-related-tests` now also feeds the ordering join's "last test run" |
+| a script-harness or probe RUN reporting failure in its own vocabulary (`exit=1`, `13/14`, `FAIL`, `✗`, `Error:`) | 11     | recognized — `failingHarnessRuns`, joined by the same subject/quoted/count joins                                                |
+| a typecheck-shaped control: a scratch module through `bunx tsgo --noEmit`, observed `error TS…`                  | 2      | recognized — `failingTypecheckRuns`, COMMAND invocations only                                                                   |
+| a read of a log the run wrote (`tail -30 …/related.log`, a saved CI job log)                                     | 6      | deliberately NOT recognized; see below                                                                                          |
+
+**The load-bearing half is run-vs-read, and it was found by the failure it prevents.** The obvious
+widening — any command whose output carries a failure marker and names the subject — produced 45
+candidates, of which 22 were `sed -n` of a source file, `cat` of a script, `grep -rn` over the
+tree or a spec read whose TEXT happened to contain `FAIL` or `Error:` beside the subject's name.
+Each would have been a false DISCHARGE, the direction the table module's header forbids. So a
+harness run must INVOKE something: `leadingPrograms` strips `VAR=…`, `cd …`, `timeout N`,
+`sleep N` and takes each statement's first word; `isRunShapedCommand` needs at least one
+interpreter, package runner, `minsky`, or script-by-path among them and no `--help`; a command
+that is reads end to end is not a run whatever it prints. The `validate_typecheck` TOOL was
+tried as a fourth shape and rejected on the same sweep: 8 discharges, every one a transient
+mid-edit type error that happened to name the subject.
+
+Measured on the frozen population (`scripts/measure-control-recognizer-classes.ts`, the same
+script on both trees): 657 distinct control claims, undischarged **123 → 99**; discharged
+runner 487 (unchanged) + runner-widened 11 + harness 11 + typecheck 2. Every one of the 24 was
+read, and none of the 22 read-shaped candidates moved. The residue (99) is mt#4306's vocabulary
+class (78), green runs (15), the two log reads, and four with nothing naming the subject.
+
+The log-read class stays a miss on purpose: the run was backgrounded or ran in CI and its output
+reached the transcript through a `tail`, which is indistinguishable in SHAPE from the 22 false
+candidates. Recognizing it needs a way to tell a run's log from any other file; recorded here so
+it is not re-proposed as a plain widening.
+
+Also closed here, from PR #3143's approving review: `extractQuotedFailures` now strips ANSI
+BEFORE testing a line against the quoted-line markers, so an anchored `FAIL` preceded by an
+escape is extracted and the comparison reuses the same normalized line. Measured inert (0 of 186
+red results carry an escape); pinned by a unit test.
+
 ### Granularity, and the ordering the free version did NOT buy (mt#4236)
 
 At `PreToolUse` the transcript holds exactly the calls that already happened, so "before this

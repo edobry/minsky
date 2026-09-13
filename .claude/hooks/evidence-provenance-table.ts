@@ -648,9 +648,18 @@ const COMMAND_TOOL_NAMES: readonly string[] = ["bash", "session_exec"];
  * tests. The `\b(?:bun|npm|…)\s` prefix requirement is the one narrowing kept,
  * because without it `grep -n "test:components" package.json` — a real call from
  * the originating session — reads as a test run.
+ *
+ * Two spellings this repo actually uses were missed until mt#4309, and each was
+ * a real control observed red that could never discharge: `bun --cwd
+ * services/reviewer test …` (`--cwd` sits between `bun` and `test`) and
+ * `bun scripts/run-related-tests.ts …` (the pre-commit fast gate; the pattern
+ * matched `run-tests*` only). 6 of 123 undischarged claims in a 21-day window.
+ * Both are test runners, so recognizing them carries no false-discharge risk,
+ * and `run-related-tests` now also counts as the "last test run" the
+ * stale-evidence ordering (mt#4236) compares against.
  */
 const TEST_RUN_COMMAND_RE =
-  /\b(?:bun|bunx|npm|pnpm|yarn|npx|deno)\s+(?:run\s+)?(?:test\b|test:[\w-]+|vitest\b|jest\b|scripts\/run-tests[\w-]*)|\b(?:vitest|jest|pytest|mocha|ava)\b|\bgo\s+test\b|\bcargo\s+test\b/i;
+  /\b(?:bun|bunx|npm|pnpm|yarn|npx|deno)\s+(?:--cwd\s+\S+\s+)?(?:run\s+)?(?:test\b|test:[\w-]+|vitest\b|jest\b|scripts\/run-(?:related-)?tests[\w-]*)|\b(?:vitest|jest|pytest|mocha|ava)\b|\bgo\s+test\b|\bcargo\s+test\b/i;
 
 /**
  * A test run that FAILED, read off the run's own output.
@@ -679,6 +688,244 @@ export function sessionRanTests(calls: readonly ToolCallWithResult[]): boolean {
 /** Test runs whose OUTPUT reports at least one failure. */
 export function failingTestRuns(calls: readonly ToolCallWithResult[]): ToolCallWithResult[] {
   return calls.filter((c) => isTestRunningCall(c) && FAILURE_MARKER_RE.test(c.resultText));
+}
+
+// ---------------------------------------------------------------------------
+// Discharge, part 1b: a control run WITHOUT a test runner (mt#4309)
+// ---------------------------------------------------------------------------
+//
+// A negative control is a run observed failing against the un-fixed tree, and
+// nothing about that requires a test runner: a verify script reporting `13/14`
+// and `exit=1`, a CLI probe against a scratch database, an in-process probe
+// importing the pre-fix module, a bundle-install probe in a temp dir, a scratch
+// module pushed through `tsgo --noEmit`. Every one of those is a run that can
+// fail, and until mt#4309 none could enter the join above, so the record fired
+// no matter what it pasted or named. Measured over 21 days (parent and subagent
+// writes, judged against the writer's own prefix): 12 of 123 undischarged claims
+// were such runs, and 2 more were typecheck-shaped.
+//
+// WHAT MAKES A CALL A RUN THAT CAN FAIL IS THE SHAPE, NOT A SCRIPT LIST — an
+// invocation plus result-shaped output — and the load-bearing half is the
+// RUN-vs-READ distinction. The same measurement tried the obvious widening,
+// "any command whose output carries a failure marker and names the subject":
+// 45 candidates, of which 22 were `sed -n` of a source file, `cat` of a script,
+// `grep -rn` over the tree or `tail` of a log whose TEXT happened to contain
+// `FAIL` or `Error:` beside the subject's name. Each of those would have been a
+// false DISCHARGE — the direction this module's header forbids, because a
+// provenance guard that discharges on a file read is silently useless rather
+// than merely noisy. So a candidate must INVOKE something: an interpreter, a
+// script, a CLI. A read that displays a failure is not the failure.
+//
+// Deliberately NOT recognized, recorded so it is not re-proposed: a read of a
+// log the run wrote (`tail -30 /tmp/related.log`, a saved CI job log) — 6 of the
+// 123. The run was backgrounded or ran in CI and its output reached the
+// transcript through a read, which is indistinguishable in shape from the 22
+// false candidates above. It stays a miss until a recognizer can tell a run's
+// log from any other file.
+
+/**
+ * Shell-statement prefixes that carry no program of their own: `VAR=value`,
+ * `VAR=$(…)`, `cd <dir> &&`, `timeout N`, `sleep N;`, `nohup`, `env`,
+ * `export …;`. Stripped repeatedly until the statement's first word is the
+ * program that actually runs — `D=$(mktemp -d); cd "$D" && timeout 240 bun add
+ * …` resolves to `bun`.
+ */
+const STATEMENT_PREFIX_RE =
+  /^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\$\([^)]*\)|\S*)\s*;?\s*|cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*(?:&&|;)?\s*|(?:timeout|sleep)\s+\d+[smh]?\s*;?\s*|nohup\s+|env\s+|export\s+\S+\s*;?\s*|set\s+-[a-z]+\s*;?\s*)/;
+
+/** Where one shell statement ends and the next begins. A pipe does NOT split — `bun test | tail` is one run. */
+const STATEMENT_SPLIT_RE = /\s*(?:&&|\|\||;|\n)\s*/;
+
+/**
+ * Programs whose output is a DISPLAY of something, never a result of running
+ * it. A command whose statements all start here is a read, whatever its output
+ * says. `echo`/`printf` are here because an author's own banner is not a run.
+ */
+const READ_PROGRAMS: ReadonlySet<string> = new Set([
+  "sed",
+  "cat",
+  "grep",
+  "rg",
+  "head",
+  "tail",
+  "wc",
+  "ls",
+  "less",
+  "more",
+  "awk",
+  "cut",
+  "find",
+  "stat",
+  "file",
+  "diff",
+  "echo",
+  "printf",
+  "jq",
+  "sort",
+  "uniq",
+  "tr",
+  "cp",
+  "mv",
+  "rm",
+  "mkdir",
+  "touch",
+  "true",
+  "false",
+]);
+
+/**
+ * Programs that RUN something: an interpreter, a package runner, this repo's
+ * own CLI, or a script invoked by path. `bun add …` in a scratch dir is a run
+ * (an install that fails IS the control, 864fea65); `bun run x --help` is not,
+ * see {@link isHelpInvocation}.
+ */
+const RUN_PROGRAM_RE =
+  /^(?:bun|bunx|node|npx|deno|minsky|python3?|tsx|ts-node|sh|bash|zsh|\.\/\S+|\S+\/[\w.-]+\.(?:ts|js|mjs|cjs|sh|py))$/;
+
+/** One statement with its prefixes exhausted, so its first word is the program that runs. */
+function stripStatementPrefixes(rawStatement: string): string {
+  let statement = rawStatement.trim();
+  let previous: string;
+  do {
+    previous = statement;
+    statement = statement.replace(STATEMENT_PREFIX_RE, "").trim();
+  } while (statement !== previous && statement.length > 0);
+  return statement;
+}
+
+/** Every statement's leading program, after {@link STATEMENT_PREFIX_RE} is exhausted. */
+export function leadingPrograms(command: string): string[] {
+  const out: string[] = [];
+  for (const rawStatement of command.split(STATEMENT_SPLIT_RE)) {
+    const program = stripStatementPrefixes(rawStatement).split(/\s+/)[0] ?? "";
+    if (program.length > 0) out.push(program);
+  }
+  return out;
+}
+
+/**
+ * A `--help` / `-h` invocation prints documentation, which routinely contains
+ * the word FAIL. Tested per STATEMENT, not per command (PR #3742 R1): a
+ * `--help` in one segment must not suppress a real run in another, and a pipe
+ * is one statement — `bun test | tail --help` is a help invocation of the whole
+ * pipeline's output, which is fine to call not-a-run, while `echo --help; bun
+ * scripts/verify.ts` still has a run in its second statement.
+ */
+function isHelpInvocation(statement: string): boolean {
+  return /(?:^|\s)(?:--help|-h)(?:\s|$)/.test(statement);
+}
+
+/**
+ * True when at least one statement of the command INVOKES something rather than
+ * displaying it. A command that is reads end to end — `sed -n … ; grep …` — is
+ * not a run, whatever its output happens to contain.
+ */
+export function isRunShapedCommand(command: string): boolean {
+  return command.split(STATEMENT_SPLIT_RE).some((rawStatement) => {
+    const statement = stripStatementPrefixes(rawStatement);
+    const program = statement.split(/\s+/)[0] ?? "";
+    return (
+      program.length > 0 &&
+      RUN_PROGRAM_RE.test(program) &&
+      !READ_PROGRAMS.has(program) &&
+      !isHelpInvocation(statement)
+    );
+  });
+}
+
+/**
+ * How a script harness or a probe says it failed — its own vocabulary, not a
+ * test runner's: an explicit exit status the author echoed (`exit=1`,
+ * `EXIT_CODE=1`, `exit 1`), a PASS/FAIL table's verdict, a tick/cross table,
+ * an `N/M` tally with N < M, or an uncaught `Error:`. ` 0 fail` and `14/14` are
+ * green and must not match; the tally check is done in code because a regex
+ * cannot compare the two numbers.
+ */
+const HARNESS_FAILURE_MARKER_RE =
+  /\b(?:exit(?:_code|ed)?|EXIT(?:_CODE)?|status)\s*[=:]\s*[1-9]\d*\b|\bexit(?:ed)?\s+(?:code\s+|status\s+)?[1-9]\d*\b|\bFAIL(?:ED|URE|S)?\b|✗|✘|\bError:/;
+/**
+ * Held as a SOURCE string and compiled per call, like this module's other
+ * `g`-flagged patterns (PR #3742 R1): a shared global-flag instance carries
+ * `lastIndex` between callers. `matchAll` happens to clone its argument, so
+ * this one was never live — the convention is kept so the next reader does not
+ * have to know that.
+ */
+const TALLY_SRC = String.raw`\b(\d{1,4})\/(\d{1,4})\b`;
+
+/** True when the output carries a harness failure marker, or a short tally. */
+export function outputReportsHarnessFailure(resultText: string): boolean {
+  if (HARNESS_FAILURE_MARKER_RE.test(resultText)) return true;
+  for (const m of resultText.matchAll(new RegExp(TALLY_SRC, "g"))) {
+    const passed = Number(m[1]);
+    const total = Number(m[2]);
+    if (total > 0 && passed < total) return true;
+  }
+  return false;
+}
+
+/**
+ * A run-shaped command (see {@link isRunShapedCommand}) whose output reports a
+ * failure in a harness's own vocabulary, EXCLUDING test-runner invocations —
+ * those are {@link failingTestRuns}'s, judged by the runner's markers, and
+ * counting them twice would not change a verdict but would blur the
+ * attribution the measurement script reports.
+ */
+export function isFailingHarnessRun(call: ToolCallWithResult): boolean {
+  if (!COMMAND_TOOL_NAMES.includes(normalizeToolName(call.toolName))) return false;
+  if (isTestRunningCall(call)) return false;
+  const command = typeof call.input["command"] === "string" ? call.input["command"] : "";
+  return isRunShapedCommand(command) && outputReportsHarnessFailure(call.resultText);
+}
+
+/** Harness and probe runs whose output reports a failure. */
+export function failingHarnessRuns(calls: readonly ToolCallWithResult[]): ToolCallWithResult[] {
+  return calls.filter(isFailingHarnessRun);
+}
+
+/** `error TS2345: …` — the compiler's own failure line. */
+const TYPECHECK_FAILURE_RE = /\berror TS\d+\b/;
+const TYPECHECK_COMMAND_RE = /\b(?:tsgo|tsc)\b/;
+
+/**
+ * A TYPECHECK-shaped control: a scratch module asserting the shapes the OLD
+ * interface accepted, pushed through `bunx tsgo --noEmit` and observed failing.
+ * Two of the 123, both genuine. The join is the same subject join as every
+ * other red run.
+ *
+ * COMMAND invocations only — deliberately NOT the `validate_typecheck` tool.
+ * The first cut accepted that tool's `errorCount > 0` results too, and the
+ * replay sweep showed what it bought: 8 discharges, every one a TRANSIENT type
+ * error from mid-implementation editing that happened to name the record's
+ * subject (a file under edit, a symbol being renamed). Those are not controls;
+ * they are the ordinary noise of writing code, and a control that runs the
+ * tool rather than the compiler is not a shape the corpus has produced. The two
+ * genuine cases both wrote a scratch module and invoked the compiler on it —
+ * a deliberate act with a command, which is what this recognizes.
+ */
+export function isFailingTypecheckRun(call: ToolCallWithResult): boolean {
+  if (!COMMAND_TOOL_NAMES.includes(normalizeToolName(call.toolName))) return false;
+  const command = typeof call.input["command"] === "string" ? call.input["command"] : "";
+  return TYPECHECK_COMMAND_RE.test(command) && TYPECHECK_FAILURE_RE.test(call.resultText);
+}
+
+/** Typecheck invocations whose output reports at least one error. */
+export function failingTypecheckRuns(calls: readonly ToolCallWithResult[]): ToolCallWithResult[] {
+  return calls.filter(isFailingTypecheckRun);
+}
+
+/**
+ * Every run a negative control can join against: test runners observed red,
+ * harness/probe runs reporting failure, and typecheck-shaped controls. This is
+ * the set `judgeClaims` hands the joins; the three parts are exported separately
+ * so the replay sweep can attribute a discharge to the shape that produced it.
+ */
+export function failingControlRuns(calls: readonly ToolCallWithResult[]): ToolCallWithResult[] {
+  return calls.filter(
+    (c) =>
+      (isTestRunningCall(c) && FAILURE_MARKER_RE.test(c.resultText)) ||
+      isFailingHarnessRun(c) ||
+      isFailingTypecheckRun(c)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1371,7 +1618,15 @@ export function extractStrictQuotedFailures(record: string): string[] {
 /** Run-output lines the record quotes, as literal strings to look for. */
 export function extractQuotedFailures(record: string): string[] {
   const out: string[] = [];
-  for (const raw of record.split("\n")) {
+  for (const rawLine of record.split("\n")) {
+    // Normalized ONCE, here, before the markers see it (mt#4309, from PR #3143's
+    // approving review): the comparison below already strips escapes from both
+    // sides, but an anchored marker like `^\s*(?:PASS|FAIL)\b` tested against the
+    // RAW line never matched `<ESC>[31mFAIL<ESC>[0m …` — the escape sat between
+    // line-start and the word — so such a line was never extracted and the
+    // comparison-time stripping never got its chance. Same normalization, one
+    // step earlier, and the extracted line is what the comparison reuses.
+    const raw = normalizeForComparison(rawLine);
     if (!QUOTED_RESULT_LINE_MARKERS.some((re) => re.test(raw))) continue;
     // Drop the runner's per-test duration: the paste and the live result agree
     // on the name but a re-run's timing differs, and the timing is the tail of
