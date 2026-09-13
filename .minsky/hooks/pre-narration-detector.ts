@@ -48,6 +48,7 @@ import {
   extractLastAssistantTurn,
   extractAssistantText,
   extractToolUseNames,
+  findToolCallsWithResults,
   findToolUseInputs,
   isRealUserPrompt,
 } from "./transcript";
@@ -467,6 +468,29 @@ export const SUPPRESSION_IDENTITY_SCOPED_TOOL_CALL = "identity-scoped-tool-call"
  * else absorbs it", and only the per-reason split separates them (mem#1208).
  */
 export const SUPPRESSION_IDENTITY_SCOPED_CONTEXT = "identity-scoped-context";
+/**
+ * The claim's PR number is named in a SUBAGENT REPORT within the window
+ * (mt#5109). The orchestrator pattern: a parent dispatches an implementer, the
+ * implementer calls `session_pr_create` in ITS transcript, and the parent then
+ * writes "PR #3723 is up". No required tool ran in the parent and no parent
+ * tool INPUT names 3723, so the three sources above are blind by construction —
+ * measured at 7 of the 12 unsuppressed records over 2026-08-30 → 09-11, 12 of
+ * 12 false. What the parent has is the REPORT, and it reads it from the
+ * transcript: see `extractReportedPrNumbers` for the two shapes it takes.
+ * Identity-scoped like the two above, and for the same reason — a report naming
+ * the WRONG number is exactly the pre-narration this detector exists for.
+ */
+export const SUPPRESSION_RELAYED_SUBAGENT_REPORT = "relayed-subagent-report";
+/**
+ * A `merged` claim whose own sentence carries an ISO date strictly before the
+ * day this conversation began (mt#5109). "PR #34861 merged 2026-07-21" written
+ * on 2026-09-11 in a conversation opened 2026-08-05 narrates history, not this
+ * conversation's action. Distinct from the clock-time signal mt#4256 measured
+ * and rejected — a claim that cites WHEN it observed something this
+ * conversation is dated inside the conversation's span and keeps firing; only
+ * a date the conversation could not have produced is excluded.
+ */
+export const SUPPRESSION_DATED_HISTORICAL = "dated-historical";
 
 /** A claim that matched its category's patterns but was backed by a real tool call. */
 export interface SuppressedClaimMatch extends ClaimMatch {
@@ -640,6 +664,145 @@ export function buildIdentityEvidence(
 }
 
 /**
+ * Tools whose RESULT is another agent's report: the foreground shape of a
+ * subagent completion (mt#5109). Bare names — these are harness-native, not MCP.
+ */
+const SUBAGENT_REPORT_TOOLS = new Set(["Agent", "SendMessage", "TaskOutput"]);
+
+/**
+ * The background shape of the same report (mt#5109): Claude Code delivers a
+ * finished background agent's result as a STRING-CONTENT user line carrying a
+ * `<task-notification>` envelope, whose `<summary>` opens `Agent "…" finished`.
+ * The `Agent` tool's own `tool_result` is then only the launch stub. Observed
+ * 2026-09-11 (`f290bb69`, all 10 `Agent` results stubs, 7 of 7 relays carried
+ * by this envelope); the envelope is a harness artifact and may change shape —
+ * the fixture in the test file pins the shape as observed.
+ *
+ * `Background command …` and `MCP task …` notifications carry the parent's OWN
+ * command back and are deliberately excluded: a report is another agent's
+ * outcome, not the parent's.
+ */
+const TASK_NOTIFICATION_OPEN = "<task-notification>";
+const AGENT_COMPLETION_SUMMARY = /<summary>\s*Agent\b/;
+
+/**
+ * PR-shaped mentions of a number: `PR #3723`, `PR 3723`, `#3723`, `pull/3723`,
+ * `changeset/3723`. The lone `#N` form must not be preceded by a word character,
+ * so a task (`mt#4959`) or memory (`mem#1386`) short id never reads as a PR.
+ */
+const PR_SHAPED_MENTION = /(?:\bPR\s*#?|(?<![A-Za-z0-9])#|\bpull\/|\bchangeset\/)(\d{1,7})\b/g;
+
+export function extractPrShapedNumbers(text: string): Set<number> {
+  const numbers = new Set<number>();
+  for (const m of text.matchAll(PR_SHAPED_MENTION)) {
+    const raw = m[1];
+    if (raw === undefined) continue;
+    const n = Number.parseInt(raw, 10);
+    if (Number.isFinite(n)) numbers.add(n);
+  }
+  return numbers;
+}
+
+/**
+ * PR numbers named in subagent reports within the trailing window (mt#5109),
+ * in either shape: a background completion's `<task-notification>` user line,
+ * or the `tool_result` body of a foreground `Agent` / `SendMessage` /
+ * `TaskOutput` call. Window-scoped by the same `windowSlice` the other
+ * evidence uses, so the four sources share one scope (PR #3096 R2's lesson).
+ */
+export function extractReportedPrNumbers(
+  lines: TranscriptLine[],
+  windowTurns: number
+): Set<number> {
+  const slice = windowSlice(lines, windowTurns);
+  const numbers = new Set<number>();
+  for (const line of slice) {
+    const content = line.message?.content;
+    if (
+      line.type === "user" &&
+      typeof content === "string" &&
+      content.includes(TASK_NOTIFICATION_OPEN) &&
+      AGENT_COMPLETION_SUMMARY.test(content)
+    ) {
+      for (const n of extractPrShapedNumbers(content)) numbers.add(n);
+    }
+  }
+  for (const call of findToolCallsWithResults(slice)) {
+    if (!call.hasResult || !SUBAGENT_REPORT_TOOLS.has(bareToolName(call.toolName))) continue;
+    for (const n of extractPrShapedNumbers(call.resultText)) numbers.add(n);
+  }
+  return numbers;
+}
+
+/**
+ * The calendar day (`YYYY-MM-DD`, UTC) of the conversation's first timestamped
+ * line, or null when no line carries a timestamp (synthetic fixtures). The
+ * anchor `dated-historical` compares against.
+ */
+export function conversationStartDay(lines: TranscriptLine[]): string | null {
+  for (const line of lines) {
+    const ts = line.timestamp;
+    if (typeof ts !== "string") continue;
+    const ms = Date.parse(ts);
+    if (Number.isFinite(ms)) return new Date(ms).toISOString().slice(0, 10);
+  }
+  return null;
+}
+
+// `(?!\d)` rather than a trailing `\b`: in `2026-09-02T21:19:45Z` the day is
+// followed by `T`, a word character, so `\b` would NOT match and the datetime
+// form — the shape of 1 of the 3 measured dated claims — would be invisible.
+const ISO_DATE = /\b(20\d{2}-\d{2}-\d{2})(?!\d)/g;
+
+/**
+ * True when `sentence` names an ISO date strictly before `startDay` (mt#5109).
+ * ISO dates compare lexically; a sentence with no date, or only dates on or
+ * after the conversation's first day, is NOT historical.
+ */
+export function isDatedBeforeConversation(sentence: string, startDay: string | null): boolean {
+  if (startDay === null) return false;
+  for (const m of sentence.matchAll(ISO_DATE)) {
+    const day = m[1];
+    if (day !== undefined && day < startDay) return true;
+  }
+  return false;
+}
+
+/** The two mt#5109 evidence inputs, built once per pass alongside the older two. */
+export interface RelayEvidence {
+  /** PR numbers named in subagent reports within the window. */
+  reportedPrNumbers: ReadonlySet<number>;
+  /** `YYYY-MM-DD` of the conversation's first timestamped line, or null. */
+  conversationStartDay: string | null;
+}
+
+/** Everything `detectPreNarrationWithSuppression` reads beyond the turn itself. */
+export interface SuppressionEvidence extends RelayEvidence {
+  windowToolNames: ReadonlySet<string>;
+  evidencePrNumbers: ReadonlyMap<string, ReadonlySet<number>>;
+}
+
+/**
+ * ONE assembly of every suppression input, shared by `run()`, `main()` and the
+ * replay in `scripts/diagnose-pre-narration-window.ts` (mt#5109). The script's
+ * own docblock says why it must build evidence on the detector's exact terms —
+ * "otherwise this script's before/after would misreport the very fix it exists
+ * to measure" — and a shared builder is what makes that hold by construction
+ * rather than by keeping two call sites in step by hand.
+ */
+export function buildSuppressionEvidence(
+  lines: TranscriptLine[],
+  windowTurns: number = TRAILING_WINDOW_TURNS
+): SuppressionEvidence {
+  return {
+    windowToolNames: extractWindowToolUseNames(lines, windowTurns),
+    evidencePrNumbers: buildIdentityEvidence(lines, windowTurns),
+    reportedPrNumbers: extractReportedPrNumbers(lines, windowTurns),
+    conversationStartDay: conversationStartDay(lines),
+  };
+}
+
+/**
  * Detect pre-narrated tool outcomes in an assistant turn.
  *
  * For each outcome category, if a completion-shaped claim pattern matches the
@@ -682,7 +845,13 @@ export function detectPreNarrationWithSuppression(
    * `buildIdentityEvidence`. Omitting it disables identity-scoped suppression
    * entirely — the safe direction for a suppressor.
    */
-  evidencePrNumbers?: ReadonlyMap<string, ReadonlySet<number>>
+  evidencePrNumbers?: ReadonlyMap<string, ReadonlySet<number>>,
+  /**
+   * Subagent reports in the window plus the conversation's first day (mt#5109).
+   * Build it with `buildSuppressionEvidence`. Omitting it disables both new
+   * sources — again the safe direction.
+   */
+  relay?: RelayEvidence
 ): PreNarrationDetection {
   const rawText = extractAssistantText(turnLines);
   if (!rawText) return { matches: [], suppressed: [], judgedText: "" };
@@ -739,21 +908,37 @@ export function detectPreNarrationWithSuppression(
     const identityBacked =
       claimedPr !== null && (evidencePrNumbers?.get(category.key)?.has(claimedPr) ?? false);
 
-    if (sameTurn || inWindow || identityBacked) {
+    // mt#5109: a subagent REPORT in the window naming the claimed PR. Any
+    // category whose claim names a PR can be relayed; a claim naming none is
+    // never report-backed and falls through, like identity above.
+    const relayed = claimedPr !== null && (relay?.reportedPrNumbers.has(claimedPr) ?? false);
+    // mt#5109: a `merged` claim dated before this conversation began. Read from
+    // the claim's own sentence — the `context` the record already carries.
+    const datedHistorical =
+      category.key === "merged" &&
+      isDatedBeforeConversation(matched.context, relay?.conversationStartDay ?? null);
+
+    if (sameTurn || inWindow || identityBacked || relayed || datedHistorical) {
       // Ordered by strength of evidence, so the recorded reason names the
       // source that actually carried the suppression: a same-turn call is the
       // strongest, and identity-scoped is only reached when NO `requiredTools`
       // call was present at all — which is precisely the case a calibration
-      // reviewer needs to see distinctly (PR #3096 R3).
+      // reviewer needs to see distinctly (PR #3096 R3). The two mt#5109 sources
+      // come LAST so the three older reasons' per-record counts are exactly
+      // what they were before — the paired replay's invariant.
       suppressed.push({
         ...matched,
         reason: sameTurn
           ? SUPPRESSION_SAME_TURN_TOOL_CALL
           : inWindow
             ? SUPPRESSION_WINDOW_TOOL_CALL
-            : contextPr !== null
-              ? SUPPRESSION_IDENTITY_SCOPED_CONTEXT
-              : SUPPRESSION_IDENTITY_SCOPED_TOOL_CALL,
+            : identityBacked
+              ? contextPr !== null
+                ? SUPPRESSION_IDENTITY_SCOPED_CONTEXT
+                : SUPPRESSION_IDENTITY_SCOPED_TOOL_CALL
+              : relayed
+                ? SUPPRESSION_RELAYED_SUBAGENT_REPORT
+                : SUPPRESSION_DATED_HISTORICAL,
       });
       continue;
     }
@@ -948,10 +1133,15 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
     if (turnLines.length === 0) return null;
     // Cross-turn suppression (mt#2671): window computed from ctx.transcriptLines
-    // per the guard-module contract (mt#2637) — never re-derived.
-    const windowToolNames = extractWindowToolUseNames(lines, TRAILING_WINDOW_TURNS);
-    const evidencePrNumbers = buildIdentityEvidence(lines, TRAILING_WINDOW_TURNS);
-    detection = detectPreNarrationWithSuppression(turnLines, windowToolNames, evidencePrNumbers);
+    // per the guard-module contract (mt#2637) — never re-derived. One builder
+    // for every evidence input (mt#5109), shared with the replay script.
+    const evidence = buildSuppressionEvidence(lines, TRAILING_WINDOW_TURNS);
+    detection = detectPreNarrationWithSuppression(
+      turnLines,
+      evidence.windowToolNames,
+      evidence.evidencePrNumbers,
+      evidence
+    );
   } catch (err) {
     process.stderr.write(
       `[pre-narration-detector] Detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -1029,10 +1219,15 @@ export async function main(): Promise<void> {
       process.exit(0);
     }
     // Cross-turn suppression (mt#2671): scan the trailing window for backing
-    // tool calls so legitimate back-references don't fire.
-    const windowToolNames = extractWindowToolUseNames(lines, TRAILING_WINDOW_TURNS);
-    const evidencePrNumbers = buildIdentityEvidence(lines, TRAILING_WINDOW_TURNS);
-    detection = detectPreNarrationWithSuppression(turnLines, windowToolNames, evidencePrNumbers);
+    // tool calls so legitimate back-references don't fire. Same builder as
+    // `run()` (mt#5109).
+    const evidence = buildSuppressionEvidence(lines, TRAILING_WINDOW_TURNS);
+    detection = detectPreNarrationWithSuppression(
+      turnLines,
+      evidence.windowToolNames,
+      evidence.evidencePrNumbers,
+      evidence
+    );
   } catch (err) {
     console.error(
       `[pre-narration-detector] Detection error: ${err instanceof Error ? err.message : String(err)}`
