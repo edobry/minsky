@@ -169,8 +169,18 @@ export class MinskyCompileService {
       }
     );
 
+    // The compiled text has done its job above — it was what the staleness
+    // comparison ran over — and it is not part of what a check reports (mt#5115).
+    // Spreading it through made the MCP result for `claude-hooks` 4.7 MB
+    // (`content` was 96% of the payload), past the response-safety limit, so
+    // the caller got a 2,000-byte preview that cut off before `compiledWorkspace`
+    // — the one field a routed check exists to return. A check-mode caller reads
+    // `stale`, `staleFile`, `filesWritten`, the skip reasons and the workspace;
+    // the content is dry-run's deliverable, and dry-run keeps it.
+    const { content: _content, contentsByPath: _contentsByPath, ...verdict } = dryResult;
+
     return {
-      ...dryResult,
+      ...verdict,
       filesWritten: dryResult.filesWritten.filter((p) => !foreignPaths.has(p)),
       ...(foreignSkips.length > 0
         ? {

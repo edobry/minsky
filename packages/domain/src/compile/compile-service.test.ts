@@ -204,4 +204,79 @@ describe("MinskyCompileService", () => {
       expect(result.staleFile).toBe(STUB_FILE);
     });
   });
+
+  describe("compile — check mode carries the verdict, not the compiled text (mt#5115)", () => {
+    const freshFs = {
+      async readFile(_path: string, _enc: "utf-8"): Promise<string> {
+        return STUB_CONTENT;
+      },
+      async writeFile(): Promise<void> {},
+      async mkdir(): Promise<undefined> {
+        return undefined;
+      },
+      async readdir(_path: string): Promise<string[]> {
+        return ["stub.md"];
+      },
+      async access(): Promise<void> {},
+      async chmod(_path: string, _mode: number): Promise<void> {},
+    };
+
+    it("AT1: the check-mode result has no content-bearing field", async () => {
+      // Check mode runs the target as a dry-run internally and compared THAT
+      // content against disk; spreading it into the result is what made one
+      // MCP response 4.7 MB. The verdict fields stay; both content fields go.
+      const service = new MinskyCompileService();
+      service.registerTarget(stubTarget);
+
+      const result = await service.compile(
+        "stub",
+        { workspacePath: "/workspace", check: true },
+        freshFs
+      );
+
+      expect(result.check).toBe(true);
+      expect(result.stale).toBe(false);
+      expect(result.filesWritten).toEqual([STUB_FILE]);
+      expect(result.definitionsIncluded).toEqual(["stub-skill"]);
+      expect(result).not.toHaveProperty("content");
+      expect(result).not.toHaveProperty("contentsByPath");
+    });
+
+    it("SC2: the dry-run result still carries the content — that mode's purpose IS the content", async () => {
+      const service = new MinskyCompileService();
+      service.registerTarget(stubTarget);
+
+      const result = await service.compile(
+        "stub",
+        { workspacePath: "/workspace", dryRun: true },
+        freshFs
+      );
+
+      expect(result.content).toBe(STUB_CONTENT);
+      expect(result.contentsByPath?.get(STUB_FILE)).toBe(STUB_CONTENT);
+    });
+
+    it("a stale verdict is still reached from the content that was dropped", async () => {
+      // The content is consumed BEFORE it is dropped: a differing file on disk
+      // must still read as stale, or the fix would have removed the comparison
+      // along with the payload.
+      const service = new MinskyCompileService();
+      service.registerTarget(stubTarget);
+
+      const result = await service.compile(
+        "stub",
+        { workspacePath: "/workspace", check: true },
+        {
+          ...freshFs,
+          async readFile(): Promise<string> {
+            return "# Old content";
+          },
+        }
+      );
+
+      expect(result.stale).toBe(true);
+      expect(result.staleFile).toBe(STUB_FILE);
+      expect(result).not.toHaveProperty("content");
+    });
+  });
 });

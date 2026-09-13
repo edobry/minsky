@@ -671,6 +671,29 @@ describe("runMinskyCompile — bare-invocation default-target resolution (mt#280
     expect(result.filesWritten).toEqual([]);
   });
 
+  it("mt#5115: a multi-target --check carries no compiled text at the top level or in any targets[] entry", async () => {
+    // Each `targets[]` entry comes from the same `compileService.compile`
+    // call the single-target path uses, so the check-mode projection is
+    // inherited rather than re-applied here — this pins that the aggregator
+    // does not reintroduce `content` / `contentsByPath` on either level.
+    const { fs } = makeFakeFs({
+      [`${WS}/.minsky/skills/.keep`]: "",
+      [`${WS}/.minsky/hooks/.keep`]: "",
+    });
+
+    const result = await runMinskyCompile({ workspacePath: WS, check: true, fsDeps: fs });
+
+    expect(result.check).toBe(true);
+    expect(result.targets?.map((t) => t.target)).toEqual(["claude-skills", "claude-hooks"]);
+    expect(result).not.toHaveProperty("content");
+    expect(result).not.toHaveProperty("contentsByPath");
+    for (const perTarget of result.targets ?? []) {
+      expect(perTarget.check).toBe(true);
+      expect(perTarget).not.toHaveProperty("content");
+      expect(perTarget).not.toHaveProperty("contentsByPath");
+    }
+  });
+
   it("explicit --target compiles exactly one target, ignoring other existing source dirs", async () => {
     const { fs } = makeFakeFs({
       [`${WS}/.minsky/skills/.keep`]: "",
