@@ -2711,7 +2711,7 @@
               "options": [
                 {
                   "flags": ["--cap"],
-                  "description": "Maximum items returned (1..10); default 10",
+                  "description": "Maximum items returned; default 10, and larger values are clamped to 10",
                   "takesValue": true
                 }
               ],

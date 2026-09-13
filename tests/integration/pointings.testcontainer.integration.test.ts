@@ -58,6 +58,7 @@ const DDL = `
     title text,
     tags text default '[]',
     kind text default 'implementation' not null,
+    created_at timestamp with time zone default now(),
     updated_at timestamp with time zone default now(),
     project_id uuid references projects(id)
   );

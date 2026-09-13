@@ -219,8 +219,8 @@ export function createTasksPointingsArchiveCommand(getPersistenceProvider: () =>
 const candidatesParams = {
   id: pointingIdParam,
   cap: {
-    schema: z.number().int().min(1).max(CANDIDATE_CAP_MAX).optional(),
-    description: `Maximum items returned (1..${CANDIDATE_CAP_MAX}); default ${CANDIDATE_CAP_MAX}`,
+    schema: z.number().int().min(1).optional(),
+    description: `Maximum items returned; default ${CANDIDATE_CAP_MAX}, and larger values are clamped to ${CANDIDATE_CAP_MAX}`,
     required: false,
   },
 } as const;

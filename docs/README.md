@@ -30,6 +30,7 @@ For the brand foundation (locked myth, cultural code, vocabulary), see the [`min
 - [**Multi-Backend User Guide**](./multi-backend-user-guide.md) — Complete guide to the multi-backend task system
 - [**Multi-Backend Quick Reference**](./multi-backend-quick-reference.md) — Command reference and cheat sheet
 - [**Tasks Dependencies**](./tasks-dependencies.md) — Task dependency model and CLI
+- [**Standing Pointings**](./standing-pointings.md) — Saved-query pointings and the capped, unordered candidate set (`tasks pointings`)
 
 ### MCP Integration
 

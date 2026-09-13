@@ -116,12 +116,34 @@ export async function declarePointing(
       message: `A live pointing named "${name}" already exists.`,
     };
   }
-  const [row] = await db
-    .insert(pointingsTable)
-    .values({ name, query, autonomyClass, wipLimit, projectId })
-    .returning();
+  // The pre-check above fast-paths the common case; the partial unique index
+  // is the arbiter. Two concurrent declares can both pass the pre-check, and
+  // the loser's insert raises 23505 — mapped to the same outcome, not thrown.
+  let row: typeof pointingsTable.$inferSelect | undefined;
+  try {
+    [row] = await db
+      .insert(pointingsTable)
+      .values({ name, query, autonomyClass, wipLimit, projectId })
+      .returning();
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      return {
+        ok: false,
+        reason: "name-taken",
+        message: `A live pointing named "${name}" already exists.`,
+      };
+    }
+    throw err;
+  }
   if (!row) throw new Error("pointings insert returned no row");
   return { ok: true, pointing: toRecord(row) };
+}
+
+/** Postgres unique_violation, surfaced by postgres-js on the error or its cause. */
+function isUniqueViolation(err: unknown): boolean {
+  const code = (e: unknown) => (e as { code?: unknown } | null)?.code;
+  const cause = (err as { cause?: unknown } | null)?.cause;
+  return code(err) === "23505" || code(cause) === "23505";
 }
 
 export async function listPointings(
@@ -201,10 +223,17 @@ function originLineOf(content: string | null): string | null {
   return m ? m[0] : null;
 }
 
+function touchedAtMs(updatedAt: Date | null, createdAt: Date | null, nowMs: number): number {
+  if (updatedAt) return new Date(updatedAt).getTime();
+  if (createdAt) return new Date(createdAt).getTime();
+  return nowMs;
+}
+
 /** The open, candidate-eligible backlog in scope, with parent edges resolved. */
 async function loadCandidateRows(
   db: PostgresJsDatabase,
-  projectScope: ProjectScope
+  projectScope: ProjectScope,
+  nowMs: number = Date.now()
 ): Promise<{ rows: PointingTaskRow[]; ancestorsOf: (id: string) => string[] }> {
   const scopeCondition =
     projectScope === ALL_PROJECTS ? undefined : eq(tasksTable.projectId, projectScope);
@@ -216,6 +245,7 @@ async function loadCandidateRows(
       kind: tasksTable.kind,
       tags: tasksTable.tags,
       updatedAt: tasksTable.updatedAt,
+      createdAt: tasksTable.createdAt,
       origin: sql<string | null>`substring(${taskSpecsTable.content} from 1 for 4000)`,
     })
     .from(tasksTable)
@@ -238,7 +268,9 @@ async function loadCandidateRows(
       kind: r.kind,
       tags: parseTags(r.tags),
       parentId: parentOf.get(r.id) ?? null,
-      updatedAtMs: r.updatedAt ? new Date(r.updatedAt).getTime() : 0,
+      // Both default to now() on insert; a legacy NULL falls back to createdAt, then to
+      // "touched now" rather than epoch zero, which would read as decades untouched.
+      updatedAtMs: touchedAtMs(r.updatedAt, r.createdAt, nowMs),
       originLine: originLineOf(r.origin),
     };
     if (isPointingCandidateRow(row)) rows.push(row);
@@ -317,13 +349,14 @@ export async function computeCandidateSet(
   options: { cap?: number; seed?: number; nowMs?: number } = {}
 ): Promise<CandidateSetResult> {
   const scope: ProjectScope = pointing.projectId ?? ALL_PROJECTS;
-  const { rows, ancestorsOf } = await loadCandidateRows(db, scope);
+  const nowMs = options.nowMs ?? Date.now();
+  const { rows, ancestorsOf } = await loadCandidateRows(db, scope, nowMs);
   const matched = rows.filter((r) => taskMatchesPointingQuery(r, pointing.query, ancestorsOf));
   const signals = await loadSignals(
     db,
     matched.map((r) => r.id)
   );
-  const set = selectCandidates(matched, signals, options);
+  const set = selectCandidates(matched, signals, { ...options, nowMs });
   return {
     ...set,
     pointing: {
