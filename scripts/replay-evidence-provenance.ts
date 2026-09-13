@@ -39,6 +39,15 @@
  *
  * A missing transcript file is a SKIP (exit 0), not a failure — transcripts are
  * local harness state and are not present in CI.
+ *
+ * A SUBAGENT's writes are replayed by pointing this at its own per-agent file,
+ * `<session-dir>/subagents/agent-<id>.jsonl` — the writer's calls are recorded
+ * there and nowhere else, and since mt#5108 that is the transcript the live
+ * guard judges a subagent's write against (writer-only; `transcript.ts`
+ * `resolveWriterTranscriptLines`). Pointing it at the PARENT transcript replays
+ * the parent's own writes only: a parent that merely dispatched has none, and
+ * the script says so with a SKIP rather than judging the subagent's claims
+ * against calls the parent never made.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { parseTranscript, findToolCallsWithResults } from "../.minsky/hooks/transcript";

@@ -360,6 +360,75 @@ export function resolveParentTranscriptLinesForPath(
 }
 
 // ---------------------------------------------------------------------------
+// Writer-scoped line resolution (mt#5108 — provenance guards)
+// ---------------------------------------------------------------------------
+
+/**
+ * Where {@link resolveWriterTranscriptLines} found the writer's lines.
+ *
+ * `writer-missing` is a distinct value rather than a fallback to `parent`
+ * because the two mean different things to a provenance guard: `parent` is a
+ * main-thread write judged against its own conversation; `writer-missing` is a
+ * subagent write whose transcript could not be located, and a guard that quietly
+ * judged it against the parent would be reproducing the miss this helper exists
+ * to close — under a verdict, where nobody would look for it.
+ */
+export type WriterTranscriptSource = "parent" | "writer" | "writer-missing";
+
+export interface WriterTranscriptLines {
+  lines: TranscriptLine[];
+  source: WriterTranscriptSource;
+}
+
+/**
+ * Resolve the lines of the transcript that recorded the CALLING agent's own
+ * tool calls — the WRITER of the artifact a provenance guard is about to judge.
+ *
+ * `ctx.transcriptLines` is the PARENT conversation's lines by construction
+ * (mt#3293; see `registry.ts`). That is right for the turn-extraction consumers
+ * the field was hoisted for, and wrong for a guard adjudicating a writer's
+ * CLAIM against the runs that back it: when a dispatched subagent runs the
+ * tests, runs the negative control, and calls `session_pr_create` itself — the
+ * `implementer` pattern — every run the record describes is in
+ * `<session-dir>/subagents/agent-<agent_id>.jsonl`, and the parent holds none
+ * of it. Measured over 30 days of subagent writes (306 records on 371 writes):
+ * judged against the parent, 201 undischarged; against the writer, 27.
+ *
+ * WRITER-ONLY, not parent+writer, and that was measured rather than reasoned
+ * out. The union bought nothing on the same population: every record it
+ * discharged beyond writer-only was either a parent run that happened AFTER the
+ * subagent's write (which a PreToolUse guard could never have seen) or a parent
+ * test run on a different task, hours earlier, discharging a block that was not
+ * about it. The orchestrator's runs are not the subagent's evidence.
+ *
+ * - No `agentId` → `parent`: `parentLines` returned unchanged, so a main-thread
+ *   write is judged exactly as before mt#5108.
+ * - `agentId` present and a candidate ends in `subagents/agent-<agentId>.jsonl`
+ *   → `writer`: that file parsed alone. The match is the directory-qualified
+ *   suffix `record-subagent-invocation.ts` uses, never a bare basename — a
+ *   similarly-named file outside a `subagents/` directory is not the writer.
+ * - `agentId` present and no such candidate → `writer-missing`, no lines. The
+ *   caller records `skipped`; see {@link WriterTranscriptSource} for why this
+ *   does not fall back to the parent.
+ *
+ * `resolveTranscriptCandidates` already places the per-agent file in the
+ * candidate list whenever `agent_id` is present (its third entry), so the path
+ * is known to every dispatched guard; this helper is the consumption side.
+ */
+export function resolveWriterTranscriptLines(
+  agentId: string | undefined,
+  transcriptCandidates: readonly string[] | undefined,
+  parentLines: TranscriptLine[],
+  parseTranscriptFn: (path: string) => TranscriptLine[] = parseTranscript
+): WriterTranscriptLines {
+  if (!agentId) return { lines: parentLines, source: "parent" };
+  const writerSuffix = join("subagents", `agent-${agentId}.jsonl`);
+  const writerPath = transcriptCandidates?.find((candidate) => candidate.endsWith(writerSuffix));
+  if (!writerPath) return { lines: [], source: "writer-missing" };
+  return { lines: parseTranscriptFn(writerPath), source: "writer" };
+}
+
+// ---------------------------------------------------------------------------
 // Per-session dedupe-log primitives (mt#3003 — shared dedup helpers)
 // ---------------------------------------------------------------------------
 

@@ -283,6 +283,54 @@ order, it is just firing. On the originating incident the pair reads:
 real history is what decides a graduation; it cannot be estimated from the cases the author
 thought of.
 
+Pointed at a per-agent file — `<session-dir>/subagents/agent-<id>.jsonl` — the script replays a
+SUBAGENT's writes against the subagent's own calls, which since mt#5108 is what the live guard does
+too. That is how the originating window's six fires were shown to be misses (below): the same
+writes, replayed against the writer instead of the parent, all came back `discharged`.
+
+## Which transcript is judged (mt#5108)
+
+The guard judges a claim against the calls of the agent that WROTE it, which is not always the
+conversation the hook fired in. `ctx.transcriptLines` is the parent conversation's lines by
+construction (mt#3293; the `registry.ts` docblock), and that is correct for the sixteen
+turn-extraction consumers the field was hoisted for. It is wrong here whenever the write is a
+dispatched subagent's — the `implementer` pattern, where the orchestrator's `Agent` child runs the
+tests, runs the negative control, and calls `session_pr_create` itself. Every run the record
+describes then sits in `<session-dir>/subagents/agent-<agent_id>.jsonl`, the record is judged
+against a transcript holding none of them, and a reviewer following the record's `session_id`
+finds no run either.
+
+Measured in the 2026-09-10/11 calibration window: 6 of 19 matched records — 2 of 9 distinct fires —
+were this class, both in one orchestrator conversation. Replayed against the writers' own files,
+all six came back `discharged` (a format check the subagent had run twice; a title-pipeline
+control it had observed red twice), and the parent transcript held no `session_pr_*` calls at
+all: it had made none of the writes it was being judged for.
+
+**Writer-only, and the alternative was measured rather than reasoned out.** The obvious
+generalization — parent AND writer — was replayed over 30 days of subagent writes (227 subagent
+transcripts, 48 with replayable writes, 371 writes, 306 records). Against the parent alone (the
+full parent transcript, an upper bound on what the live guard could see): 201 undischarged, 90
+discharged, 15 unadjudicable. Against the writer alone: 27 / 271 / 8. The union discharged 5
+records beyond writer-only; 4 were parent runs that happened AFTER the subagent's write, invisible
+to a PreToolUse guard, and the 5th was a parent test run on a different task 17 hours earlier
+clearing an "Execution evidence: not applicable" block — a wrong-subject discharge. Union-only
+discharges: 0. The orchestrator's runs are not the subagent's evidence, so the parent's lines are
+not consulted when `agent_id` is present.
+
+Mechanics: `resolveWriterTranscriptLines` in `.minsky/hooks/transcript.ts` — the writer-side twin
+of `resolveParentTranscriptLines`. With no `agent_id` it returns `ctx.transcriptLines` unchanged
+(a main-thread write is judged exactly as before). With one, it selects the candidate ending in
+`subagents/agent-<agent_id>.jsonl` from `ctx.transcriptCandidates` (the directory-qualified suffix
+`record-subagent-invocation.ts` also matches on) and parses that file alone. With an `agent_id`
+and no such candidate, the record is `skipped` with the file named: falling back to the parent
+would reproduce the miss under a verdict, where nobody would look for an outage. The calibration
+record now carries `writerAgentId` and `judgedTranscript` (`parent` / `writer` /
+`writer-missing`), so a reviewer can open the transcript the verdict actually rests on.
+
+The 27 residual writer-only fires are the join-vocabulary misses mt#4306 and mt#4309 own (20
+negative-control, 7 execution-evidence/test), not this class. The same exposure was found and
+closed on the `tasks_create` sibling in the same change; see `duplicate-check-search-provenance.md`.
+
 ## Wiring note
 
 This guard's registration added the **first dispatcher entry** on the commit/PR-body seam. Those

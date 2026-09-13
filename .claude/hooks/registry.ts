@@ -121,6 +121,13 @@ export interface DispatchContext {
    * short-circuit scanning, or one whose job IS reading subagent transcripts — walk
    * `transcriptCandidates` and parse them yourself. That is cheap (`parseTranscript`
    * is a pure read with no shared state) and, unlike the old default, it is explicit.
+   *
+   * **A guard judging the CALLER's own claim wants the WRITER's lines, not the
+   * parent's** (mt#5108) — when `agent_id` is set, the calls backing a subagent's
+   * commit message or PR body are in its `agent-<agent_id>.jsonl`, not here. That
+   * consumption is shared: `resolveWriterTranscriptLines` in `transcript.ts`
+   * selects the per-agent candidate by `agent_id` and falls back to this field
+   * only for a main-thread call. Both provenance guards use it.
    */
   transcriptLines: TranscriptLine[];
   /**

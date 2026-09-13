@@ -51,8 +51,8 @@ import { readFileSync } from "node:fs";
 import { findRepoRoot, readInput } from "./types";
 import type { ToolHookInput } from "./types";
 import type { DispatchContext, GuardOutcome } from "./registry";
-import { findToolCallsWithResults } from "./transcript";
-import type { ToolCallWithResult } from "./transcript";
+import { findToolCallsWithResults, resolveWriterTranscriptLines } from "./transcript";
+import type { ToolCallWithResult, TranscriptLine } from "./transcript";
 import { captureArtifact, CAPTURE_SCHEMA_VERSION } from "./judged-input-capture";
 import { extractNegativeControlRecords, mentionsNegativeControl } from "./test-first-evidence";
 import { extractExecutionEvidenceRecords } from "./require-execution-evidence-before-merge";
@@ -351,7 +351,19 @@ export const INJECTS_NOTHING_BY_DESIGN = true;
 // Dispatcher entry point (ADR-028 D1/D2)
 // ---------------------------------------------------------------------------
 
-export function run(input: ToolHookInput, ctx: DispatchContext): GuardOutcome | null {
+/**
+ * Injectable seams for `run()`. The dispatcher passes none; tests pass a
+ * transcript reader so a subagent fixture is value-only rather than a real file.
+ */
+export interface RunDeps {
+  parseTranscript?: (path: string) => TranscriptLine[];
+}
+
+export function run(
+  input: ToolHookInput,
+  ctx: DispatchContext,
+  deps: RunDeps = {}
+): GuardOutcome | null {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   if (
     overrideVal === "1" ||
@@ -367,11 +379,31 @@ export function run(input: ToolHookInput, ctx: DispatchContext): GuardOutcome | 
     };
   }
 
+  // WHICH transcript the claim is judged against (mt#5108). `transcriptLines`
+  // is the parent's by construction (mt#3293), and a subagent's write — the
+  // `implementer` pattern, where the dispatched agent runs the control and
+  // calls `session_pr_create` itself — is backed by runs the parent never made.
+  // Six of one window's nineteen fires were exactly that. The writer's own
+  // file is judged instead, writer-only; the measurement behind that choice is
+  // on the helper.
+  const writer = resolveWriterTranscriptLines(
+    input.agent_id,
+    ctx.transcriptCandidates,
+    ctx.transcriptLines,
+    deps.parseTranscript
+  );
+
   const base = {
     ts: new Date().toISOString(),
     sessionId: input.session_id ?? null,
     toolName: input.tool_name ?? null,
     captureSchema: CAPTURE_SCHEMA_VERSION,
+    // Which agent wrote the artifact, and which transcript the verdict rests on
+    // — so a reviewer can open the file the guard actually read. Before mt#5108
+    // a subagent's record named only the parent `session_id`, and a reviewer
+    // following it found a transcript with no run in it either.
+    writerAgentId: input.agent_id ?? null,
+    judgedTranscript: writer.source,
   };
 
   const text = resolveArtifactText(input.tool_input);
@@ -379,7 +411,20 @@ export function run(input: ToolHookInput, ctx: DispatchContext): GuardOutcome | 
     return { calibration: { ...base, outcome: "skipped", reason: "no artifact text to read" } };
   }
 
-  const lines = ctx.transcriptLines;
+  if (writer.source === "writer-missing") {
+    // A subagent write whose transcript is not among the candidates. Judging
+    // it against the parent would produce the pre-mt#5108 miss under a verdict;
+    // `skipped` with the file named keeps the outage countable instead.
+    return {
+      calibration: {
+        ...base,
+        outcome: "skipped",
+        reason: `writer transcript agent-${input.agent_id}.jsonl not among candidates`,
+      },
+    };
+  }
+
+  const lines = writer.lines;
   if (!lines || lines.length === 0) {
     // A claim we cannot adjudicate is recorded as skipped, never as clean. A
     // guard whose "no transcript" path returned a pass would report an outage as
