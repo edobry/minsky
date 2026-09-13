@@ -19,6 +19,11 @@ const SHARED_SRC_ROOT = "packages/shared/src/";
 const WIDENED_ROOTS = [SRC_ROOT, DOMAIN_SRC_ROOT, SHARED_SRC_ROOT];
 /** The pre-mt#5120 root set — the negative control below runs the defect against it. */
 const SRC_ONLY_ROOTS = [SRC_ROOT];
+/** A change under the entry tree, for the src-only cases. */
+const SRC_CHANGE = ["src/mcp/server.ts"];
+/** Absolute `<pkg>/src` paths in the in-memory layouts below. */
+const REPO_DOMAIN_SRC = "/repo/packages/domain/src";
+const REPO_SHARED_SRC = "/repo/packages/shared/src";
 
 /** The exact changed-file list of PR #3741 (mt#5115), the merge that exposed the defect. */
 const PACKAGES_ONLY_MERGE = [
@@ -171,7 +176,7 @@ describe("StalenessDetector source roots (mt#5120)", () => {
   });
 
   it("a merge confined to src/** is still stale", () => {
-    const { detector } = detectorOver(["src/mcp/server.ts"], WIDENED_ROOTS);
+    const { detector } = detectorOver(SRC_CHANGE, WIDENED_ROOTS);
     expect(detector.getStaleWarning()).not.toBeNull();
   });
 
@@ -208,8 +213,29 @@ describe("StalenessDetector source roots (mt#5120)", () => {
     expect(git.diffCommands).toHaveLength(0);
   });
 
+  it("never lets a root that is not shell-safe reach the command string (PR #3748 R1)", () => {
+    // The diff is a SHELL string. Discovery already refuses such names; this is the sink-side
+    // check, exercised through the injected seam that bypasses discovery.
+    const hostile = [
+      "src/",
+      "packages/evil; rm -rf ~/src/",
+      "packages/$(id)/src/",
+      "packages/a b/src/",
+    ];
+    const { detector, git } = detectorOver(SRC_CHANGE, hostile);
+    detector.getStaleWarning();
+    expect(git.diffCommands).toHaveLength(1);
+    expect(git.diffCommands[0]).toBe("git diff --name-only startupab movedhead -- src/");
+  });
+
+  it("issues no diff at all when every root was refused", () => {
+    const { detector, git } = detectorOver(SRC_CHANGE, ["packages/$(id)/src/"]);
+    expect(detector.getStaleWarning()).toBeNull();
+    expect(git.diffCommands).toHaveLength(0);
+  });
+
   it("hands git every discovered root as its own pathspec, in one diff", () => {
-    const { detector, git } = detectorOver(["src/mcp/server.ts"], WIDENED_ROOTS);
+    const { detector, git } = detectorOver(SRC_CHANGE, WIDENED_ROOTS);
     detector.getStaleWarning();
     expect(git.diffCommands).toHaveLength(1);
     expect(git.diffCommands[0]).toBe(
@@ -232,10 +258,7 @@ describe("discoverSourceRoots (mt#5120)", () => {
   }
 
   it("lists src/ first, then every packages/<pkg>/src/ that exists, sorted", () => {
-    const fs = layoutFs(
-      ["shared", "domain", "no-src-here"],
-      ["/repo/packages/domain/src", "/repo/packages/shared/src"]
-    );
+    const fs = layoutFs(["shared", "domain", "no-src-here"], [REPO_DOMAIN_SRC, REPO_SHARED_SRC]);
     expect(discoverSourceRoots("/repo", fs)).toEqual(WIDENED_ROOTS);
   });
 
@@ -243,12 +266,34 @@ describe("discoverSourceRoots (mt#5120)", () => {
     expect(discoverSourceRoots("/repo", layoutFs(null, []))).toEqual(SRC_ONLY_ROOTS);
   });
 
+  it("refuses a package directory whose name is not shell-safe (PR #3748 R1)", () => {
+    // Directory names come off the live filesystem and end up in a shell command string; a
+    // name carrying whitespace or a metacharacter is skipped, never escaped.
+    const fs = layoutFs(
+      ["domain", "evil; rm -rf ~", "$(id)", "sp ace", "shared", "ok-name.v2"],
+      [
+        REPO_DOMAIN_SRC,
+        "/repo/packages/evil; rm -rf ~/src",
+        "/repo/packages/$(id)/src",
+        "/repo/packages/sp ace/src",
+        REPO_SHARED_SRC,
+        "/repo/packages/ok-name.v2/src",
+      ]
+    );
+    expect(discoverSourceRoots("/repo", fs)).toEqual([
+      SRC_ROOT,
+      DOMAIN_SRC_ROOT,
+      "packages/ok-name.v2/src/",
+      SHARED_SRC_ROOT,
+    ]);
+  });
+
   it("covers a package nobody named in code", () => {
     // The reason the roots are discovered rather than listed: a hard-coded pair would drift
     // from the real closure the day a third workspace package appears.
     const fs = layoutFs(
       ["domain", "future", "shared"],
-      ["/repo/packages/domain/src", "/repo/packages/future/src", "/repo/packages/shared/src"]
+      [REPO_DOMAIN_SRC, "/repo/packages/future/src", REPO_SHARED_SRC]
     );
     expect(discoverSourceRoots("/repo", fs)).toContain("packages/future/src/");
   });

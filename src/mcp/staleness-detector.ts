@@ -37,7 +37,7 @@ const WORKSPACE_PACKAGES_DIR = "packages";
 /**
  * The two filesystem reads `discoverSourceRoots` needs, injectable so a test can describe a
  * layout without touching the disk. `listDirectories` throws when `dir` is missing or
- * unreadable — that is the signal the discovery degrades on.
+ * unreadable — that is the signal the discovery degrades on. Exported for the test seam only.
  */
 export interface SourceRootsFs {
   listDirectories(dir: string): string[];
@@ -60,8 +60,27 @@ const realSourceRootsFs: SourceRootsFs = {
   },
 };
 
-/** Resolves the source roots for a workspace; the seam `StalenessDetector` takes. */
+/**
+ * Resolves the source roots for a workspace; the seam `StalenessDetector` takes. Exported for
+ * the test seam only (alongside `SourceRootsFs` and `discoverSourceRoots`) — not a public API.
+ */
 export type SourceRootsFn = (workspacePath: string) => string[];
+
+/**
+ * The only shape a discovered package directory name may take before it is interpolated into
+ * the `git diff` command string. `exec` runs that string through a shell (`execSync`), so a
+ * name carrying whitespace or a metacharacter (`;`, `&`, `$(`, a quote) would otherwise be
+ * spliced into the command verbatim. Workspace package directories are `[a-z0-9._-]` in
+ * practice; anything else is skipped (and logged) rather than escaped, because a root that
+ * cannot be named safely is not worth diffing at the cost of a shell seam.
+ */
+const SAFE_PACKAGE_DIR_NAME = /^[A-Za-z0-9._-]+$/;
+
+/**
+ * The same bound, applied at the SINK: every pathspec is re-checked where it meets the command
+ * string, so an injected `SourceRootsFn` cannot widen what discovery already refuses.
+ */
+const SAFE_PATHSPEC = /^[A-Za-z0-9._/-]+$/;
 
 /**
  * Every source root whose change invalidates the running server, as workspace-relative git
@@ -102,6 +121,14 @@ export function discoverSourceRoots(
     return roots;
   }
   const discovered = packageNames
+    .filter((name) => {
+      if (SAFE_PACKAGE_DIR_NAME.test(name)) return true;
+      log.warn(
+        `StalenessDetector: skipping workspace package ${JSON.stringify(name)} — its directory ` +
+          `name is not shell-safe, so it is not watched for staleness`
+      );
+      return false;
+    })
     .filter((name) => fs.isDirectory(join(packagesDir, name, "src")))
     .map((name) => `${WORKSPACE_PACKAGES_DIR}/${name}/src/`)
     .sort();
@@ -159,7 +186,11 @@ export class StalenessDetector {
     try {
       // Inside the try on purpose: this runs on the tools/call path, and an injected discovery
       // that throws must read as "not stale" like a failed diff does, never fail the tool call.
-      const pathspecs = this.discoverRoots(this.workspacePath).join(" ");
+      // Re-validated here because the command below is a SHELL string (see SAFE_PATHSPEC).
+      const pathspecs = this.discoverRoots(this.workspacePath)
+        .filter((root) => SAFE_PATHSPEC.test(root))
+        .join(" ");
+      if (pathspecs.length === 0) return false;
       const diff = this.exec(
         `git diff --name-only ${this.startupHead} ${currentHead} -- ${pathspecs}`,
         {
