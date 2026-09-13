@@ -2637,6 +2637,94 @@
             }
           ],
           "commandId": "tasks.release"
+        },
+        {
+          "name": "pointings",
+          "description": "pointings commands",
+          "subcommands": [
+            {
+              "name": "declare",
+              "description": "Declare a standing pointing: a saved query (tags, parent subtrees, explicit ids — unioned) plus an autonomy class and a WIP limit. Pointings are the principal's to declare. Refuses an empty query.",
+              "options": [
+                {
+                  "flags": ["--tags"],
+                  "description": "Comma-separated tags; a task matches if it carries ANY of them",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--parent-ids"],
+                  "description": "Comma-separated task ids; a task matches if it sits anywhere under any of them (e.g. \"mt#3483\")",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--task-ids"],
+                  "description": "Comma-separated explicit task ids to include",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--autonomy-class"],
+                  "description": "The class agents may pull at (Phase 2). One of principal-gated, pull-only, contained; default pull-only",
+                  "takesValue": true,
+                  "values": ["principal-gated", "pull-only", "contained"]
+                },
+                {
+                  "flags": ["--wip-limit"],
+                  "description": "Pull-time WIP bound (Phase 2 admission control); default 1",
+                  "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "name",
+                  "required": true,
+                  "description": "Short name for the pointing; unique among live pointings in the project"
+                }
+              ],
+              "commandId": "tasks.pointings.declare"
+            },
+            {
+              "name": "list",
+              "description": "List the project's standing pointings (live by default).",
+              "options": [
+                {
+                  "flags": ["--include-archived"],
+                  "description": "Include archived pointings (hidden by default)"
+                }
+              ],
+              "commandId": "tasks.pointings.list"
+            },
+            {
+              "name": "archive",
+              "description": "Archive a standing pointing. The row is kept (never deleted) so its history stays citable.",
+              "arguments": [
+                {
+                  "name": "id",
+                  "required": true,
+                  "description": "Pointing id (uuid) as returned by tasks.pointings.declare / list"
+                }
+              ],
+              "commandId": "tasks.pointings.archive"
+            },
+            {
+              "name": "candidates",
+              "description": "The capped, UNORDERED candidate set for a pointing: open tasks its query matches, each carrying four flags — readiness, unblockCount, incidentLineage, daysSinceTouched. The order is a shuffle and means nothing (ordering: \"arbitrary\"); an empty set is the signal a pointing is done.",
+              "options": [
+                {
+                  "flags": ["--cap"],
+                  "description": "Maximum items returned (1..10); default 10",
+                  "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "id",
+                  "required": true,
+                  "description": "Pointing id (uuid) as returned by tasks.pointings.declare / list"
+                }
+              ],
+              "commandId": "tasks.pointings.candidates"
+            }
+          ]
         }
       ]
     },
