@@ -10,10 +10,11 @@
  * pattern.
  */
 import { describe, test, expect } from "bun:test";
+import { ENGPROD_ACCEPTED_TAG, ENGPROD_PROPOSAL_TAG } from "@minsky/domain/engprod/types";
 import { parseTaskTags, checkProposalGuard, validateRejectionReason } from "./engprod-proposals";
 
 /** Shared fixture: the JSON-serialized tags column value for a tagged proposal task. */
-const PROPOSAL_TAGS_JSON = JSON.stringify(["engprod-proposal"]);
+const PROPOSAL_TAGS_JSON = JSON.stringify([ENGPROD_PROPOSAL_TAG]);
 
 describe("parseTaskTags", () => {
   test("parses a JSON-serialized tag array", () => {
@@ -49,23 +50,49 @@ describe("checkProposalGuard", () => {
     });
   });
 
-  test("tagged proposal task not currently BLOCKED -> conflict, carrying its status", () => {
+  test("pending proposal (TODO + engprod-proposal, the post-mt#5130 filed shape) -> ok", () => {
     expect(checkProposalGuard({ status: "TODO", tags: PROPOSAL_TAGS_JSON })).toEqual({
-      kind: "conflict",
-      status: "TODO",
+      kind: "ok",
+      tags: [ENGPROD_PROPOSAL_TAG],
     });
   });
 
-  test("a null status reports as 'unknown' in the conflict, never a bare null", () => {
-    expect(checkProposalGuard({ status: null, tags: PROPOSAL_TAGS_JSON })).toEqual({
-      kind: "conflict",
-      status: "unknown",
-    });
-  });
-
-  test("tagged proposal task currently BLOCKED -> ok", () => {
+  test("a not-yet-migrated BLOCKED proposal is still pending -> ok", () => {
     expect(checkProposalGuard({ status: "BLOCKED", tags: PROPOSAL_TAGS_JSON })).toEqual({
       kind: "ok",
+      tags: [ENGPROD_PROPOSAL_TAG],
+    });
+  });
+
+  test("already accepted (tag swapped) -> conflict naming the disposition", () => {
+    expect(
+      checkProposalGuard({ status: "TODO", tags: JSON.stringify([ENGPROD_ACCEPTED_TAG]) })
+    ).toEqual({ kind: "conflict", disposition: "accepted" });
+  });
+
+  test("already rejected (CLOSED) -> conflict naming the disposition", () => {
+    expect(checkProposalGuard({ status: "CLOSED", tags: PROPOSAL_TAGS_JSON })).toEqual({
+      kind: "conflict",
+      disposition: "rejected",
+    });
+  });
+
+  test("a planned proposal still carrying the pending tag may be actioned (a null status too)", () => {
+    expect(checkProposalGuard({ status: "PLANNING", tags: PROPOSAL_TAGS_JSON })).toEqual({
+      kind: "ok",
+      tags: [ENGPROD_PROPOSAL_TAG],
+    });
+    expect(checkProposalGuard({ status: null, tags: PROPOSAL_TAGS_JSON })).toEqual({
+      kind: "ok",
+      tags: [ENGPROD_PROPOSAL_TAG],
+    });
+  });
+
+  test("the guard hands back the parsed tags so Accept can swap without re-parsing", () => {
+    const tags = JSON.stringify([ENGPROD_PROPOSAL_TAG, "other"]);
+    expect(checkProposalGuard({ status: "TODO", tags })).toEqual({
+      kind: "ok",
+      tags: [ENGPROD_PROPOSAL_TAG, "other"],
     });
   });
 });

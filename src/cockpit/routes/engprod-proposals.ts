@@ -4,19 +4,33 @@
  * The operator-facing half of the toil-miner curation gate (RFC Notion
  * 3ac937f0-3cb4-816e-8af7-e5380f10a24b, Phase 1). Endpoints:
  *
- *   GET  /api/engprod/proposals                  — filed `engprod-proposal`
- *                                                    tasks (any status) + recent
- *                                                    miner runs, raw (grouping
- *                                                    happens client-side —
+ *   GET  /api/engprod/proposals                  — filed proposal tasks (tagged
+ *                                                    `engprod-proposal` or
+ *                                                    `engprod-accepted`, any
+ *                                                    status) + recent miner runs,
+ *                                                    raw (grouping happens
+ *                                                    client-side —
  *                                                    ../web/lib/engprod-proposals.ts,
  *                                                    mirroring the /digest split)
- *   POST /api/engprod/proposals/:taskId/accept    — accept: task BLOCKED -> TODO
- *                                                    (unblocks into the normal
- *                                                    lifecycle) + ledger
+ *   POST /api/engprod/proposals/:taskId/accept    — accept: swap the task's
+ *                                                    `engprod-proposal` tag for
+ *                                                    `engprod-accepted` (status
+ *                                                    untouched) + ledger
  *                                                    verdict=accepted, atomically
- *   POST /api/engprod/proposals/:taskId/reject    — reject: task BLOCKED -> CLOSED
- *                                                    + ledger verdict=rejected +
+ *   POST /api/engprod/proposals/:taskId/reject    — reject: task -> CLOSED +
+ *                                                    ledger verdict=rejected +
  *                                                    the supplied reason, atomically
+ *
+ * ## Containment moved off BLOCKED (mt#5130)
+ *
+ * Proposals used to be filed BLOCKED, Accept meant BLOCKED -> TODO, and the
+ * routing service's status filter kept them unservable. The computed
+ * autonomy class now does that job: a task carrying `engprod-proposal` is
+ * `principal-gated` and never served by `tasks_available`, whatever its
+ * status. So proposals are filed TODO, "pending" is the tag, and the
+ * acceptance act is a tag SWAP — the page keeps listing accepted proposals
+ * by their new tag, and the task stops being gated by its provenance.
+ * `decideReconciliation` in `ledger-service.ts` is the same table.
  *
  * ## Atomicity (spec SC2)
  *
@@ -27,7 +41,7 @@
  * `tasksTable` / `engprodProposalLedgerTable` Drizzle handles (bypassing
  * `TaskServiceInterface`, which has no cross-table transaction seam — see
  * `getServerEngprodDb`'s doc comment in `../db-providers.ts`). A missing
- * ledger row for an otherwise-valid BLOCKED proposal task is treated as a
+ * ledger row for an otherwise-valid pending proposal task is treated as a
  * hard failure (rolls back the task write too) rather than a partial
  * success — see `LedgerRowMissingError` below.
  *
@@ -80,7 +94,7 @@ import {
   getServerEngprodDb,
   describeServerPersistenceUnavailability,
 } from "../db-providers";
-import { ENGPROD_PROPOSAL_TAG } from "@minsky/domain/engprod/types";
+import { ENGPROD_ACCEPTED_TAG, ENGPROD_PROPOSAL_TAG } from "@minsky/domain/engprod/types";
 import { ProposalLedgerService } from "@minsky/domain/engprod/ledger-service";
 import {
   engprodProposalLedgerTable,
@@ -135,14 +149,18 @@ export function mountEngprodProposalRoutes(app: express.Express): void {
 
       const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
 
-      const [proposalTasks, runRows] = await Promise.all([
+      // Two reads, not one: `listTasks`' tag filter ANDs its tags, and a
+      // proposal carries exactly one of the two (mt#5130).
+      const [pendingTasks, acceptedTasks, runRows] = await Promise.all([
         taskService.listTasks({ tags: [ENGPROD_PROPOSAL_TAG], all: true }),
+        taskService.listTasks({ tags: [ENGPROD_ACCEPTED_TAG], all: true }),
         db
           .select()
           .from(engprodMinerRunsTable)
           .orderBy(desc(engprodMinerRunsTable.startedAt))
           .limit(MAX_RUNS),
       ]);
+      const proposalTasks = [...pendingTasks, ...acceptedTasks];
 
       const taskIds = proposalTasks.map((t) => formatTaskIdForDisplay(t.id));
       const ledgerService = new ProposalLedgerService(db);
@@ -160,6 +178,8 @@ export function mountEngprodProposalRoutes(app: express.Express): void {
           taskId: id,
           title: t.title ?? "",
           status: (t.status ?? "TODO").toUpperCase(),
+          // Disposition is derived client-side from status AND tags (mt#5130).
+          tags: t.tags ?? [],
           clusterSignature: ledger?.clusterSignature ?? "",
           toolSequence: ledger?.toolSequence ?? [],
           evidenceFrequency: ledger?.evidenceFrequency ?? 0,
@@ -219,8 +239,8 @@ export function mountEngprodProposalRoutes(app: express.Express): void {
 type DecisionOutcome =
   | { kind: "not-found" }
   | { kind: "not-a-proposal" }
-  | { kind: "conflict"; status: string }
-  | { kind: "ok"; newStatus: string };
+  | { kind: "conflict"; disposition: string }
+  | { kind: "ok"; newStatus: string; tags: string[] };
 
 /**
  * Parse the `tasks.tags` column (a JSON-serialized string[], per
@@ -250,20 +270,26 @@ export function parseTaskTags(raw: string | null | undefined): string[] {
 export type ProposalGuardResult =
   | { kind: "not-found" }
   | { kind: "not-a-proposal" }
-  | { kind: "conflict"; status: string }
-  | { kind: "ok" };
+  | { kind: "conflict"; disposition: string }
+  | { kind: "ok"; tags: string[] };
 
+/**
+ * A proposal may be actioned while it is PENDING: tagged `engprod-proposal`,
+ * not already `engprod-accepted`, and not CLOSED (mt#5130 — status is no
+ * longer the pending marker; BLOCKED and TODO are both pending). A task
+ * carrying neither tag is not a proposal at all.
+ */
 export function checkProposalGuard(
   task: { status: string | null | undefined; tags: string | null | undefined } | undefined
 ): ProposalGuardResult {
   if (!task) return { kind: "not-found" };
-  if (!parseTaskTags(task.tags).includes(ENGPROD_PROPOSAL_TAG)) {
-    return { kind: "not-a-proposal" };
-  }
-  if (task.status !== "BLOCKED") {
-    return { kind: "conflict", status: task.status ?? "unknown" };
-  }
-  return { kind: "ok" };
+  const tags = parseTaskTags(task.tags);
+  const pending = tags.includes(ENGPROD_PROPOSAL_TAG);
+  const accepted = tags.includes(ENGPROD_ACCEPTED_TAG);
+  if (!pending && !accepted) return { kind: "not-a-proposal" };
+  if (accepted) return { kind: "conflict", disposition: "accepted" };
+  if (task.status === "CLOSED") return { kind: "conflict", disposition: "rejected" };
+  return { kind: "ok", tags };
 }
 
 /**
@@ -283,10 +309,10 @@ export function validateRejectionReason(
 
 /**
  * Shared accept/reject handler. Both actions share the identical guard
- * sequence (task exists, is tagged `engprod-proposal`, is currently
- * BLOCKED) and the identical atomicity contract (task status + ledger
- * verdict in one transaction) — they differ only in the target status,
- * the ledger verdict value, and whether a reason is required.
+ * sequence (task exists, is tagged `engprod-proposal`, is still pending)
+ * and the identical atomicity contract (task row + ledger verdict in one
+ * transaction) — they differ in what the task write is (a tag swap vs
+ * CLOSED), the ledger verdict value, and whether a reason is required.
  */
 async function handleDecision(
   req: express.Request,
@@ -325,8 +351,6 @@ async function handleDecision(
       return;
     }
 
-    const newStatus = decision === "accept" ? "TODO" : "CLOSED";
-
     const outcome: DecisionOutcome = await db.transaction(async (tx) => {
       const taskRows = await tx.select().from(tasksTable).where(eq(tasksTable.id, taskId)).limit(1);
       const task = taskRows[0];
@@ -334,7 +358,16 @@ async function handleDecision(
       const guard = checkProposalGuard(task);
       if (guard.kind === "not-found") return { kind: "not-found" };
       if (guard.kind === "not-a-proposal") return { kind: "not-a-proposal" };
-      if (guard.kind === "conflict") return { kind: "conflict", status: guard.status };
+      if (guard.kind === "conflict") return { kind: "conflict", disposition: guard.disposition };
+
+      // Accept = the tag swap, status untouched; reject = CLOSED (mt#5130).
+      // The current status is read from the row the guard just saw.
+      const currentStatus = String(task?.status ?? "TODO");
+      const newStatus = decision === "accept" ? currentStatus : "CLOSED";
+      const newTags =
+        decision === "accept"
+          ? [...guard.tags.filter((t) => t !== ENGPROD_PROPOSAL_TAG), ENGPROD_ACCEPTED_TAG]
+          : guard.tags;
 
       const ledgerRows = await tx
         .select()
@@ -351,7 +384,11 @@ async function handleDecision(
       const now = new Date();
       await tx
         .update(tasksTable)
-        .set({ status: newStatus as (typeof tasksTable.$inferSelect)["status"], updatedAt: now })
+        .set({
+          status: newStatus as (typeof tasksTable.$inferSelect)["status"],
+          tags: JSON.stringify(newTags),
+          updatedAt: now,
+        })
         .where(eq(tasksTable.id, taskId));
 
       // Constrained by BOTH the cluster signature AND the filedTaskId (the
@@ -378,7 +415,7 @@ async function handleDecision(
           )
         );
 
-      return { kind: "ok", newStatus };
+      return { kind: "ok", newStatus, tags: newTags };
     });
 
     switch (outcome.kind) {
@@ -390,11 +427,11 @@ async function handleDecision(
         return;
       case "conflict":
         res.status(409).json({
-          error: `Task ${taskId} is not BLOCKED (current status: ${outcome.status}) — it may have already been actioned.`,
+          error: `Task ${taskId} is not pending (already ${outcome.disposition}) — it has been actioned.`,
         });
         return;
       case "ok":
-        res.json({ ok: true, taskId, status: outcome.newStatus });
+        res.json({ ok: true, taskId, status: outcome.newStatus, tags: outcome.tags });
         return;
     }
   } catch (err) {

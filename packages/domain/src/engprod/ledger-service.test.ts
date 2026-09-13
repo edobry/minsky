@@ -16,7 +16,7 @@ import {
   ProposalLedgerService,
 } from "./ledger-service";
 import type { ProposalLedgerRow } from "../storage/schemas/engprod-proposal-ledger-schema";
-import type { MinedCluster } from "./types";
+import { ENGPROD_ACCEPTED_TAG, ENGPROD_PROPOSAL_TAG, type MinedCluster } from "./types";
 
 function ledgerRow(overrides: Partial<ProposalLedgerRow> = {}): ProposalLedgerRow {
   const now = new Date();
@@ -278,22 +278,44 @@ describe("describeChunkFailure / describeRowFailure (pure core, mt#3628)", () =>
   });
 });
 
-describe("decideReconciliation", () => {
-  test("no-change while the task is still BLOCKED", () => {
-    expect(decideReconciliation("BLOCKED")).toBe("no-change");
+describe("decideReconciliation (mt#5130: disposition, not containment)", () => {
+  const pending = (status: string) => ({ status, tags: [ENGPROD_PROPOSAL_TAG] });
+
+  test("no-change while TODO with the pending tag — the post-mt#5130 filed shape", () => {
+    expect(decideReconciliation(pending("TODO"))).toBe("no-change");
+  });
+
+  test("no-change while BLOCKED with the pending tag — a not-yet-migrated proposal", () => {
+    expect(decideReconciliation(pending("BLOCKED"))).toBe("no-change");
   });
 
   test("no-change when the task cannot be found (transient gap)", () => {
     expect(decideReconciliation(undefined)).toBe("no-change");
   });
 
-  test("rejected when the task was CLOSED without ever being unblocked", () => {
-    expect(decideReconciliation("CLOSED")).toBe("rejected");
+  test("rejected when the task was CLOSED", () => {
+    expect(decideReconciliation(pending("CLOSED"))).toBe("rejected");
+    expect(decideReconciliation({ status: "CLOSED", tags: [ENGPROD_ACCEPTED_TAG] })).toBe(
+      "rejected"
+    );
   });
 
-  test("SC3: accepted for any status other than BLOCKED/CLOSED (unblocking)", () => {
-    for (const status of ["TODO", "PLANNING", "READY", "IN-PROGRESS", "IN-REVIEW", "DONE"]) {
-      expect(decideReconciliation(status)).toBe("accepted");
+  test("accepted once the cockpit's Accept has swapped the tag, whatever the status", () => {
+    for (const status of ["TODO", "BLOCKED", "PLANNING", "DONE"]) {
+      expect(decideReconciliation({ status, tags: [ENGPROD_ACCEPTED_TAG] })).toBe("accepted");
     }
+  });
+
+  test("accepted when the task was planned past TODO outside the cockpit", () => {
+    for (const status of ["PLANNING", "READY", "IN-PROGRESS", "IN-REVIEW", "DONE"]) {
+      expect(decideReconciliation(pending(status))).toBe("accepted");
+    }
+  });
+
+  test("a BLOCKED → TODO migration records nothing — the whole point of the new rule", () => {
+    // Under the old "acceptance = unblocking" rule the migration of the 15
+    // live proposals would have recorded all of them accepted.
+    expect(decideReconciliation(pending("BLOCKED"))).toBe("no-change");
+    expect(decideReconciliation(pending("TODO"))).toBe("no-change");
   });
 });

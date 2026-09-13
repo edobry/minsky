@@ -29,7 +29,9 @@
  *    representative tool-name + fingerprint samples in the prompt
  *    (mt#3429 SC3 — never raw arguments).
  * 8. Budget cap (default 5) + task-similarity dedupe (second dedupe stage)
- *    decide which survivors actually get filed as BLOCKED proposal tasks.
+ *    decide which survivors actually get filed as proposal tasks (TODO,
+ *    tagged `engprod-proposal` — contained by the computed autonomy class,
+ *    mt#5130).
  * 9. Persist per-run counters + history (self-observability, and the
  *    durable state needed for "two consecutive zero-cluster runs" —
  *    an in-memory counter would not survive an ops-service restart).
@@ -136,7 +138,9 @@ export async function toilMinerTick(
 
   try {
     const reconciled = await ledgerService.reconcileVerdicts((id) =>
-      deps.taskService.getTask(id).then((t) => t?.status)
+      deps.taskService
+        .getTask(id)
+        .then((t) => (t ? { status: t.status, tags: t.tags ?? [] } : undefined))
     );
     log.info("engprod_toil_miner.reconciled", {
       event: "engprod_toil_miner.reconciled",

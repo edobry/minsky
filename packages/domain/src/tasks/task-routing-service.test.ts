@@ -14,6 +14,20 @@ import { TaskRoutingService } from "./task-routing-service";
 import type { TaskGraphService } from "./task-graph-service";
 import type { TaskServiceInterface } from "./taskService";
 import type { Task } from "./types";
+import type { AutonomySignalSource } from "./autonomy-class-store";
+
+/**
+ * mt#5130: without a signal source every candidate not gated by its row is
+ * `unknown` and withheld — the default-deny under test in containment.test.ts.
+ * These tests are about the kind filter and dependency terminality, so give
+ * every id a well-formed (empty-section) spec and let them resolve pull-only.
+ */
+function stubSignalSource(): AutonomySignalSource {
+  return {
+    loadSpecSignals: async (ids) =>
+      new Map(ids.map((id) => [id, { scope: null, summary: null, origin: null }])),
+  };
+}
 
 function makeStubTaskGraphService(): TaskGraphService {
   return {
@@ -29,7 +43,11 @@ describe("TaskRoutingService.findAvailableTasks kind filter (mt#2762)", () => {
       getTask: async () => null,
     } as unknown as TaskServiceInterface;
 
-    const service = new TaskRoutingService(makeStubTaskGraphService(), taskService);
+    const service = new TaskRoutingService(
+      makeStubTaskGraphService(),
+      taskService,
+      stubSignalSource()
+    );
 
     await service.findAvailableTasks({
       statusFilter: ["TODO"],
@@ -48,7 +66,11 @@ describe("TaskRoutingService.findAvailableTasks kind filter (mt#2762)", () => {
       getTask: async () => null,
     } as unknown as TaskServiceInterface;
 
-    const service = new TaskRoutingService(makeStubTaskGraphService(), taskService);
+    const service = new TaskRoutingService(
+      makeStubTaskGraphService(),
+      taskService,
+      stubSignalSource()
+    );
 
     await service.findAvailableTasks({ statusFilter: ["TODO"] });
 
@@ -68,14 +90,25 @@ describe("TaskRoutingService.findAvailableTasks kind filter (mt#2762)", () => {
       getTask: async (id: string) => umbrellaTasks.find((t) => t.id === id) ?? null,
     } as unknown as TaskServiceInterface;
 
-    const service = new TaskRoutingService(makeStubTaskGraphService(), taskService);
+    const service = new TaskRoutingService(
+      makeStubTaskGraphService(),
+      taskService,
+      stubSignalSource()
+    );
 
-    const result = await service.findAvailableTasks({
+    const result = await service.findAvailableTasksWithClass({
       statusFilter: ["TODO", "IN-PROGRESS"],
       kind: "umbrella",
     });
 
-    expect(result.map((t) => t.taskId).sort()).toEqual(["mt#1552", "mt#2230"]);
+    // The kind reached listTasks (the forwarding contract this file is about)…
+    expect(listTasksMock).toHaveBeenCalledWith(expect.objectContaining({ kind: "umbrella" }));
+    // …and then the computed autonomy class withheld both (mt#5130): an
+    // umbrella is principal-gated however it was asked for. Unlike ADR-046's
+    // work-package carve-out, an explicit kind does not bypass the class —
+    // the exclusion is reported, not silent.
+    expect(result.tasks).toEqual([]);
+    expect(result.excludedByClass).toEqual({ principalGated: 2, unknown: 0 });
   });
 });
 
@@ -103,7 +136,7 @@ describe("TaskRoutingService dependency-completeness treats CLOSED as terminal (
       getTask: async (id: string) => (id === closedDep.id ? closedDep : null),
     } as unknown as TaskServiceInterface;
 
-    const service = new TaskRoutingService(taskGraphService, taskService);
+    const service = new TaskRoutingService(taskGraphService, taskService, stubSignalSource());
 
     const result = await service.findAvailableTasks({ statusFilter: ["TODO"] });
 
@@ -128,7 +161,7 @@ describe("TaskRoutingService dependency-completeness treats CLOSED as terminal (
       },
     } as unknown as TaskServiceInterface;
 
-    const service = new TaskRoutingService(taskGraphService, taskService);
+    const service = new TaskRoutingService(taskGraphService, taskService, stubSignalSource());
 
     const route = await service.generateRoute(target.id);
 
@@ -156,7 +189,7 @@ describe("TaskRoutingService.findAvailableTasks work-package default-deny (ADR-0
       ),
       getTask: async (id: string) => tasks.find((t) => t.id === id) ?? null,
     } as unknown as TaskServiceInterface;
-    return new TaskRoutingService(makeStubTaskGraphService(), taskService);
+    return new TaskRoutingService(makeStubTaskGraphService(), taskService, stubSignalSource());
   }
 
   test("no kind filter: zero work-packages in the result (AT6 first half)", async () => {

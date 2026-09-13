@@ -29,6 +29,14 @@
  * rather than silently misattributed to the nearest run.
  */
 
+/**
+ * Mirrors `ENGPROD_ACCEPTED_TAG` in `packages/domain/src/engprod/types.ts` —
+ * repeated rather than imported because that module is Node-only and this
+ * one is bundled for the browser (`custom/no-node-import-in-cockpit-web`,
+ * mt#3239). `engprod-proposals.test.ts` pins the two literals equal.
+ */
+export const ENGPROD_ACCEPTED_TAG = "engprod-accepted";
+
 // ---------------------------------------------------------------------------
 // Wire types — what GET /api/engprod/proposals returns
 // ---------------------------------------------------------------------------
@@ -53,8 +61,10 @@ export interface EngprodRunSummary {
 export interface EngprodProposalRow {
   taskId: string;
   title: string;
-  /** The task's CURRENT status — ground truth for disposition, not the ledger's `verdict` column (see module doc comment). */
+  /** The task's CURRENT status — with `tags`, the ground truth for disposition, not the ledger's `verdict` column (see module doc comment). */
   status: string;
+  /** The task's current tags: `engprod-proposal` = pending, `engprod-accepted` = accepted (mt#5130). */
+  tags: string[];
   clusterSignature: string;
   toolSequence: string[];
   evidenceFrequency: number;
@@ -91,6 +101,8 @@ export interface EngprodDecisionResult {
   ok: true;
   taskId: string;
   status: string;
+  /** The task's tags after the decision (mt#5130) — Accept swaps the pending tag. */
+  tags?: string[];
 }
 
 async function postDecision(
@@ -110,7 +122,7 @@ async function postDecision(
   return (await res.json()) as EngprodDecisionResult;
 }
 
-/** Accept a proposal: unblocks its task (BLOCKED -> TODO) into the normal lifecycle. */
+/** Accept a proposal: swaps its `engprod-proposal` tag for `engprod-accepted` (mt#5130); status is untouched. */
 export function acceptProposal(taskId: string): Promise<EngprodDecisionResult> {
   return postDecision(taskId, "accept");
 }
@@ -126,17 +138,25 @@ export function rejectProposal(taskId: string, reason: string): Promise<EngprodD
 
 export type ProposalDisposition = "pending" | "accepted" | "rejected";
 
+/** Statuses that mean someone planned the proposal outside the cockpit gate. */
+const PLANNED_PAST_TODO = new Set(["PLANNING", "READY", "IN-PROGRESS", "IN-REVIEW", "DONE"]);
+
 /**
- * Derive accept/reject/pending disposition from the task's CURRENT status —
- * mirrors `decideReconciliation` in `packages/domain/src/engprod/ledger-service.ts`
- * exactly (BLOCKED -> pending/no-change, CLOSED -> rejected, anything else ->
- * accepted), computed independently here so the digest's rendering is correct
+ * Derive accept/reject/pending disposition from the task's CURRENT status and
+ * tags — mirrors `decideReconciliation` in
+ * `packages/domain/src/engprod/ledger-service.ts` exactly (mt#5130: CLOSED ->
+ * rejected; `engprod-accepted` tag or status past TODO -> accepted; otherwise
+ * pending), computed independently here so the digest's rendering is correct
  * even when the ledger's own `verdict` column has drifted (see module doc).
  */
-export function deriveDisposition(status: string): ProposalDisposition {
-  if (status === "BLOCKED") return "pending";
-  if (status === "CLOSED") return "rejected";
-  return "accepted";
+export function deriveDisposition(task: {
+  status: string;
+  tags: readonly string[];
+}): ProposalDisposition {
+  if (task.status === "CLOSED") return "rejected";
+  if (task.tags.includes(ENGPROD_ACCEPTED_TAG)) return "accepted";
+  if (PLANNED_PAST_TODO.has(task.status)) return "accepted";
+  return "pending";
 }
 
 /** Sentinel run key for proposals whose createdAt matches no recorded run window. */

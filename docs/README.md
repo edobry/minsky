@@ -31,6 +31,7 @@ For the brand foundation (locked myth, cultural code, vocabulary), see the [`min
 - [**Multi-Backend Quick Reference**](./multi-backend-quick-reference.md) — Command reference and cheat sheet
 - [**Tasks Dependencies**](./tasks-dependencies.md) — Task dependency model and CLI
 - [**Standing Pointings**](./standing-pointings.md) — Saved-query pointings and the capped, unordered candidate set (`tasks pointings`)
+- [**Computed Autonomy Class**](./autonomy-class.md) — principal-gated / pull-only / contained, computed never stored; the consumer-side default-deny in `tasks_available`
 
 ### MCP Integration
 

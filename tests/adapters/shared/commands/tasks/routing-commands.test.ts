@@ -75,16 +75,19 @@ describe("Routing Commands", () => {
         const providerWithSql = (() =>
           ({ capabilities: { sql: true } }) as unknown as PersistenceProvider)();
         const routingService = {
-          findAvailableTasks: async () => [
-            {
-              taskId: "mt#9999",
-              title: "Fully ready task",
-              status: "TODO",
-              readinessScore: 1.0,
-              blockedBy: [],
-              backend: "mt",
-            },
-          ],
+          findAvailableTasksWithClass: async () => ({
+            tasks: [
+              {
+                taskId: "mt#9999",
+                title: "Fully ready task",
+                status: "TODO",
+                readinessScore: 1.0,
+                blockedBy: [],
+                backend: "mt",
+              },
+            ],
+            excludedByClass: { principalGated: 0, unknown: 0 },
+          }),
         } as unknown as TaskRoutingService;
 
         const command = createTasksAvailableCommand(
@@ -108,9 +111,9 @@ describe("Routing Commands", () => {
           ({ capabilities: { sql: true } }) as unknown as PersistenceProvider)();
         let receivedLimit: unknown = "not-called";
         const routingService = {
-          findAvailableTasks: async (options: { limit?: number }) => {
+          findAvailableTasksWithClass: async (options: { limit?: number }) => {
             receivedLimit = options.limit;
-            return [];
+            return { tasks: [], excludedByClass: { principalGated: 0, unknown: 0 } };
           },
         } as unknown as TaskRoutingService;
 
@@ -136,6 +139,9 @@ describe("Routing Commands", () => {
         }));
         const taskService = {
           listTasks: async () => manyTasks,
+          // mt#5130: the fallback reads each candidate's spec to classify it; an
+          // empty spec is a well-formed pull-only input.
+          getTaskSpecContent: async () => ({ content: "" }),
         } as unknown as TaskServiceInterface;
 
         const command = createTasksAvailableCommand(

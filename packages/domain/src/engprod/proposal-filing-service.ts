@@ -11,10 +11,12 @@
  * each similarity hit and checking its tags, since `TaskSimilarityService`
  * has no tag-filter parameter.
  *
- * Containment (spec SC3): every filed task is tagged `engprod-proposal` and
- * created in BLOCKED status, which `TaskRoutingService.findAvailableTasks`
- * (backing `tasks_available`) excludes by its `["TODO", "IN-PROGRESS"]`
- * default filter — verified against the live service, not assumed.
+ * Containment (spec SC3, rewritten by mt#5130): every filed task is tagged
+ * `engprod-proposal` and created TODO. The tag makes its computed autonomy
+ * class `principal-gated`, which `TaskRoutingService.findAvailableTasks`
+ * (backing `tasks_available`) never serves — the safety lives in the
+ * consumer, not in a status the filer sets. Until mt#5130 the mechanism was
+ * `status: "BLOCKED"` plus the routing service's status filter.
  */
 
 import { log } from "@minsky/shared/logger";
@@ -41,9 +43,10 @@ export function buildProposalSpec(cluster: MinedCluster, analysis: ClusterAnalys
     "## Summary",
     "",
     "Recurring tool-call pattern mined from agent transcripts by the EngProd",
-    "toil miner (mt#3330). This task was filed automatically and is BLOCKED",
-    "pending principal triage — it is not routable via `tasks_available`",
-    "or `tasks_route` while BLOCKED.",
+    "toil miner (mt#3330). This task was filed automatically and is pending",
+    "principal triage — while it carries the `engprod-proposal` tag its",
+    "computed autonomy class is principal-gated, so `tasks_available` never",
+    "serves it (mt#5130).",
     "",
     "## Proposed primitive",
     "",
@@ -64,9 +67,11 @@ export function buildProposalSpec(cluster: MinedCluster, analysis: ClusterAnalys
     "",
     "## Disposition",
     "",
-    "Unblocking this task = accepting the proposal. Closing it without",
-    "unblocking = rejecting the proposal; the same cluster will not",
-    "re-surface unless its observed frequency at least doubles.",
+    "Accepting = the cockpit Proposals page's Accept, which swaps the",
+    "`engprod-proposal` tag for `engprod-accepted`; planning this task",
+    "counts as accepting too. Closing it = rejecting the proposal; the same",
+    "cluster will not re-surface unless its observed frequency at least",
+    "doubles. Do not unblock it — it is not blocked.",
     "",
     "## Cross-references",
     "",
@@ -91,7 +96,7 @@ export interface FileProposalResult {
 
 /**
  * Run the second dedupe stage (task-similarity, non-proposal tasks only)
- * and, if no match is found, file the BLOCKED proposal task. Always records
+ * and, if no match is found, file the tagged proposal task. Always records
  * a ledger verdict either way (superseded or proposed) — the curation gate
  * never silently drops a survivor.
  */
@@ -131,8 +136,9 @@ export async function fileProposal(
 
   const title = buildProposalTitle(cluster);
   const spec = buildProposalSpec(cluster, analysis);
+  // TODO, not BLOCKED (mt#5130): the tag is what contains it now.
   const newTask = await deps.taskService.createTaskFromTitleAndSpec(title, spec, {
-    status: "BLOCKED",
+    status: "TODO",
     tags: [ENGPROD_PROPOSAL_TAG],
   });
   await deps.ledgerService.recordProposed(cluster, newTask.id);

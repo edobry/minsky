@@ -13,13 +13,15 @@
  * - Verdict recording for the three post-LLM outcomes: proposed (task
  *   filed), superseded (matched an existing human task — the SECOND dedupe
  *   stage), suppressed (cut by the per-run budget cap).
- * - Reconciliation of "acceptance = unblocking" (spec SC3): a previously
- *   `proposed` cluster whose filed task moved out of BLOCKED is recorded
- *   `accepted`; one that was CLOSED without ever leaving BLOCKED is
- *   recorded `rejected`. Both are terminal within the ledger's own state
- *   machine — once set, a signature is not re-checked against its task
- *   again (matches the spec's literal "acceptance = unblocking," a
- *   one-time signal).
+ * - Reconciliation of the proposal's DISPOSITION (mt#5130 rewrote spec
+ *   SC3's "acceptance = unblocking"): a previously `proposed` cluster whose
+ *   filed task now carries the `engprod-accepted` tag, or has advanced past
+ *   TODO (someone planned it), is recorded `accepted`; one that was CLOSED
+ *   is recorded `rejected`. Status alone no longer means anything here —
+ *   proposals are filed TODO and contained by the computed autonomy class,
+ *   not by BLOCKED. Both verdicts are terminal within the ledger's own
+ *   state machine — once set, a signature is not re-checked against its
+ *   task again.
  */
 
 import { injectable } from "tsyringe";
@@ -33,7 +35,7 @@ import {
 } from "../storage/schemas/engprod-proposal-ledger-schema";
 import { log } from "@minsky/shared/logger";
 import { getLoggableErrorSummary } from "../errors/index";
-import type { MinedCluster } from "./types";
+import { ENGPROD_ACCEPTED_TAG, type MinedCluster } from "./types";
 
 export type ProposalVerdict = "proposed" | "accepted" | "rejected" | "superseded" | "suppressed";
 
@@ -102,15 +104,37 @@ export function decideShouldPropose(
 
 export type ReconciliationDecision = "accepted" | "rejected" | "no-change";
 
+/** The slice of a filed task the disposition is read from. */
+export interface ProposalTaskDisposition {
+  status: string;
+  tags: readonly string[];
+}
+
+/** Statuses that mean someone took the proposal up outside the cockpit gate. */
+const PLANNED_PAST_TODO = new Set(["PLANNING", "READY", "IN-PROGRESS", "IN-REVIEW", "DONE"]);
+
 /**
- * Pure decision function for ledger reconciliation ("acceptance =
- * unblocking", spec SC3). `status` is the filed task's CURRENT status, or
- * `undefined` if the task could not be found this run.
+ * Pure decision function for ledger reconciliation (mt#5130 — disposition,
+ * not containment). `task` is the filed task's CURRENT status and tags, or
+ * `undefined` if it could not be found this run.
+ *
+ * - CLOSED → rejected.
+ * - `engprod-accepted` tag (the cockpit's Accept), or status past TODO
+ *   (planned outside the cockpit) → accepted.
+ * - TODO or BLOCKED still carrying `engprod-proposal`, or not found →
+ *   no-change: pending, left for the next run.
+ *
+ * Mirrored client-side by `deriveDisposition` in
+ * `src/cockpit/web/lib/engprod-proposals.ts`; keep the two tables identical.
  */
-export function decideReconciliation(status: string | undefined): ReconciliationDecision {
-  if (status === undefined || status === "BLOCKED") return "no-change";
-  if (status === "CLOSED") return "rejected";
-  return "accepted";
+export function decideReconciliation(
+  task: ProposalTaskDisposition | undefined
+): ReconciliationDecision {
+  if (task === undefined) return "no-change";
+  if (task.status === "CLOSED") return "rejected";
+  if (task.tags.includes(ENGPROD_ACCEPTED_TAG)) return "accepted";
+  if (PLANNED_PAST_TODO.has(task.status)) return "accepted";
+  return "no-change";
 }
 
 /** Injectable warn/error sink for ProposalLedgerService (mt#3628). */
@@ -536,20 +560,15 @@ export class ProposalLedgerService {
 
   /**
    * Reconcile every `proposed` ledger row against its filed task's CURRENT
-   * status. `getTaskStatus` is injected so callers can pass a plain
-   * `taskId => status` lookup (typically `taskService.getTask(id).then(t
-   * => t?.status)`) without this service depending on the task domain
-   * directly.
-   *
-   * - status === "BLOCKED" (or task not found): no change — still pending,
-   *   or a transient lookup gap; left for the next run rather than guessed.
-   * - status === "CLOSED": rejected (closed without ever being unblocked).
-   * - anything else (TODO/PLANNING/READY/IN-PROGRESS/IN-REVIEW/DONE):
-   *   accepted — the task left BLOCKED at some point, which per spec SC3
-   *   IS acceptance, regardless of what happened to it afterward.
+   * status and tags (the disposition table is `decideReconciliation`).
+   * `getTask` is injected so callers can pass a plain lookup (typically
+   * `taskService.getTask(id).then(t => t && { status: t.status, tags:
+   * t.tags ?? [] })`) without this service depending on the task domain
+   * directly. A not-found task is `no-change` — a transient lookup gap is
+   * left for the next run rather than guessed.
    */
   async reconcileVerdicts(
-    getTaskStatus: (taskId: string) => Promise<string | undefined>
+    getTask: (taskId: string) => Promise<ProposalTaskDisposition | undefined>
   ): Promise<{ accepted: number; rejected: number }> {
     let rows: ProposalLedgerRow[];
     try {
@@ -568,16 +587,16 @@ export class ProposalLedgerService {
     let rejected = 0;
     for (const row of rows) {
       if (!row.filedTaskId) continue;
-      let status: string | undefined;
+      let task: ProposalTaskDisposition | undefined;
       try {
-        status = await getTaskStatus(row.filedTaskId);
+        task = await getTask(row.filedTaskId);
       } catch (err) {
-        log.warn(`engprod ledger: status lookup failed for ${row.filedTaskId}`, {
+        log.warn(`engprod ledger: task lookup failed for ${row.filedTaskId}`, {
           error: getLoggableErrorSummary(err),
         });
         continue;
       }
-      const decision = decideReconciliation(status);
+      const decision = decideReconciliation(task);
       if (decision === "no-change") continue;
 
       const now = new Date();
@@ -586,7 +605,7 @@ export class ProposalLedgerService {
           .update(engprodProposalLedgerTable)
           .set({
             verdict: "rejected",
-            rejectionReason: "task closed without ever being unblocked",
+            rejectionReason: "task closed without being accepted",
             updatedAt: now,
           })
           .where(eq(engprodProposalLedgerTable.clusterSignature, row.clusterSignature));
@@ -619,8 +638,9 @@ export class ProposalLedgerService {
    * task the digest lists.
    *
    * Deliberately NOT used to derive accepted/rejected/pending disposition —
-   * the digest reads the TASK's own current status for that (mirroring
-   * `decideReconciliation` above exactly), not this row's `verdict` column.
+   * the digest reads the TASK's own current status and tags for that
+   * (mirroring `decideReconciliation` above exactly), not this row's
+   * `verdict` column.
    *
    * That started as a WORKAROUND: the suppression upsert used to set
    * `verdict: EXCLUDED.verdict` unconditionally, so a signature previously

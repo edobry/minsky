@@ -1,6 +1,17 @@
 import { injectable } from "tsyringe";
+import {
+  computeAutonomyClass,
+  countExcluded,
+  emptyExcludedByClass,
+  isServableClass,
+  type AutonomyClassResult,
+  type ExcludedByClass,
+  type TaskAutonomyClass,
+} from "./autonomy-class";
+import type { AutonomySignalSource } from "./autonomy-class-store";
 import type { TaskGraphService } from "./task-graph-service";
 import type { TaskServiceInterface } from "./taskService";
+import type { Task } from "./types";
 import { isTerminal } from "./workflows";
 
 export interface AvailableTask {
@@ -13,6 +24,14 @@ export interface AvailableTask {
   effort?: number;
   category?: string;
   backend?: string;
+  /** Computed, never stored (mt#5130). Only `pull-only`/`contained` are ever served. */
+  autonomyClass?: TaskAutonomyClass;
+}
+
+export interface AvailableTasksResult {
+  tasks: AvailableTask[];
+  /** How many candidates the class filter excluded, so the exclusion is visible. */
+  excludedByClass: ExcludedByClass;
 }
 
 export interface RouteStep {
@@ -22,6 +41,8 @@ export interface RouteStep {
   dependencies: string[];
   depth: number;
   isParallel: boolean;
+  /** Computed (mt#5130); a principal-gated step is never "ready" work. */
+  autonomyClass?: TaskAutonomyClass;
 }
 
 export interface TaskRoute {
@@ -34,29 +55,76 @@ export interface TaskRoute {
   readyTasks: number;
   blockedTasks: number;
   estimatedEffort?: number;
+  /** The target's own class and why (mt#5130) — a route to a gated target says so. */
+  targetAutonomyClass?: TaskAutonomyClass;
+  targetAutonomyReasons?: string[];
+}
+
+export interface FindAvailableTasksOptions {
+  statusFilter?: string[];
+  backendFilter?: string;
+  /** Filter by workflow kind (mt#2762), forwarded server-side to taskService.listTasks. */
+  kind?: string;
+  limit?: number;
+  showEffort?: boolean;
+  showPriority?: boolean;
 }
 
 @injectable()
 export class TaskRoutingService {
+  /**
+   * `signalSource` loads the spec sections the autonomy classifier reads, in
+   * bulk. Optional so the DI-free construction sites keep working; without it
+   * every candidate not gated by its row alone resolves `unknown` and is
+   * excluded — the default-deny the RFC asks for, made visible in
+   * `excludedByClass` rather than served.
+   */
   constructor(
     private taskGraphService: TaskGraphService,
-    private taskService: TaskServiceInterface
+    private taskService: TaskServiceInterface,
+    private signalSource?: AutonomySignalSource
   ) {}
 
+  /** Classify a batch of task rows with one bulk signal load. */
+  private async classify(tasks: readonly Task[]): Promise<Map<string, AutonomyClassResult>> {
+    const signals = this.signalSource
+      ? await this.signalSource.loadSpecSignals(tasks.map((t) => t.id))
+      : undefined;
+    const out = new Map<string, AutonomyClassResult>();
+    for (const task of tasks) {
+      out.set(
+        task.id,
+        computeAutonomyClass({
+          id: task.id,
+          kind: task.kind,
+          status: task.status,
+          tags: task.tags ?? [],
+          title: task.title ?? "",
+          spec: signals?.get(task.id),
+          humanOrigin: undefined,
+        })
+      );
+    }
+    return out;
+  }
+
   /**
-   * Find all tasks that are currently available to work on (unblocked by dependencies)
+   * Find all tasks that are currently available to work on (unblocked by dependencies).
+   * Same result as `findAvailableTasksWithClass(...).tasks` — the class filter applies
+   * on both, so no caller of the old shape can be served a gated task.
    */
-  async findAvailableTasks(
-    options: {
-      statusFilter?: string[];
-      backendFilter?: string;
-      /** Filter by workflow kind (mt#2762), forwarded server-side to taskService.listTasks. */
-      kind?: string;
-      limit?: number;
-      showEffort?: boolean;
-      showPriority?: boolean;
-    } = {}
-  ): Promise<AvailableTask[]> {
+  async findAvailableTasks(options: FindAvailableTasksOptions = {}): Promise<AvailableTask[]> {
+    return (await this.findAvailableTasksWithClass(options)).tasks;
+  }
+
+  /**
+   * `findAvailableTasks` plus the per-class exclusion counts (mt#5130). The
+   * class is computed BEFORE the per-task dependency lookup so an excluded
+   * candidate costs no extra query.
+   */
+  async findAvailableTasksWithClass(
+    options: FindAvailableTasksOptions = {}
+  ): Promise<AvailableTasksResult> {
     const { statusFilter = ["TODO", "IN-PROGRESS"], backendFilter, kind, limit = 50 } = options;
 
     // Get all tasks
@@ -83,13 +151,28 @@ export class TaskRoutingService {
       : allTasks;
 
     // Filter by status if multiple statuses specified
-    const statusFilteredTasks =
+    const statusFiltered =
       statusFilter.length > 1
         ? filteredTasks.filter((task) => statusFilter.includes(task.status))
         : filteredTasks;
 
+    const excludedByClass = emptyExcludedByClass();
+    if (statusFiltered.length === 0) {
+      return { tasks: [], excludedByClass };
+    }
+
+    // Consumer-side default-deny on the computed autonomy class (mt#5130,
+    // RFC 3ae937f0): `principal-gated` and `unknown` are never served. Same
+    // posture as the work-package exclusion above, one more predicate.
+    const classes = await this.classify(statusFiltered);
+    const statusFilteredTasks = statusFiltered.filter((task) => {
+      const cls = classes.get(task.id)?.class ?? "unknown";
+      if (isServableClass(cls)) return true;
+      countExcluded(excludedByClass, cls);
+      return false;
+    });
     if (statusFilteredTasks.length === 0) {
-      return [];
+      return { tasks: [], excludedByClass };
     }
 
     // Get task IDs for bulk dependency lookup
@@ -148,6 +231,7 @@ export class TaskRoutingService {
         readinessScore,
         blockedBy: actualBlockingTasks.map((dep) => dep.id),
         backend: task.id.includes("#") ? task.id.split("#")[0] : undefined,
+        autonomyClass: classes.get(task.id)?.class,
         // TODO: Add priority and effort when available in task metadata
       };
 
@@ -162,7 +246,7 @@ export class TaskRoutingService {
       return a.blockedBy.length - b.blockedBy.length;
     });
 
-    return availableTasks.slice(0, limit);
+    return { tasks: availableTasks.slice(0, limit), excludedByClass };
   }
 
   /**
@@ -195,6 +279,17 @@ export class TaskRoutingService {
 
     const validTasks = taskDetails.filter((task) => task !== null);
 
+    // The route is navigation toward a caller-named target, never selection —
+    // so nothing is refused here. What it must not do is present a gated task
+    // as work to start (mt#5130): every step and the target carry their class,
+    // and the ready count below skips the ones a person has to decide on.
+    const classes = await this.classify([{ ...targetTask, id: targetTaskId }, ...validTasks]);
+    const targetClass = classes.get(targetTaskId);
+    const isReadyClass = (id: string): boolean => {
+      const cls = classes.get(id)?.class ?? "unknown";
+      return isServableClass(cls);
+    };
+
     // Build route steps with dependency information
     const steps: RouteStep[] = [];
     const visitedDepths = new Map<string, number>();
@@ -212,6 +307,7 @@ export class TaskRoutingService {
         dependencies,
         depth: visitedDepths.get(task.id) || 0,
         isParallel: false, // TODO: Implement parallel detection
+        autonomyClass: classes.get(task.id)?.class,
       });
     }
 
@@ -235,12 +331,15 @@ export class TaskRoutingService {
       });
     }
 
-    // Calculate summary statistics
-    const readyTasks = steps.filter((step) =>
-      step.dependencies.every((depId) => {
-        const depTask = validTasks.find((t) => t.id === depId);
-        return isTerminal(depTask?.status);
-      })
+    // Calculate summary statistics. A step whose class a person must decide on
+    // counts as blocked even with every dependency terminal (mt#5130).
+    const readyTasks = steps.filter(
+      (step) =>
+        isReadyClass(step.taskId) &&
+        step.dependencies.every((depId) => {
+          const depTask = validTasks.find((t) => t.id === depId);
+          return isTerminal(depTask?.status);
+        })
     ).length;
 
     const blockedTasks = steps.length - readyTasks;
@@ -254,6 +353,8 @@ export class TaskRoutingService {
       totalTasks: steps.length,
       readyTasks,
       blockedTasks,
+      targetAutonomyClass: targetClass?.class,
+      targetAutonomyReasons: targetClass?.reasons,
     };
   }
 

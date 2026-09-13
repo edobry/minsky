@@ -232,7 +232,9 @@ export function createTasksPointingsCandidatesCommand(getPersistenceProvider: ()
     name: "candidates",
     description:
       "The capped, UNORDERED candidate set for a pointing: open tasks its query matches, each " +
-      "carrying four flags — readiness, unblockCount, incidentLineage, daysSinceTouched. The " +
+      "carrying four flags — readiness, unblockCount, incidentLineage, daysSinceTouched — plus " +
+      "its computed autonomyClass (principal-gated / pull-only / contained / unknown; a " +
+      "principal-gated candidate is the principal's to pick, never auto-selected). The " +
       'order is a shuffle and means nothing (ordering: "arbitrary"); an empty set is the ' +
       "signal a pointing is done.",
     parameters: candidatesParams,

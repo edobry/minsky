@@ -35,7 +35,10 @@
  * not in `DEPLOY_SURFACE_SERVICE_MAP` below) are conservatively treated as
  * broad-impact by `findAffectedServices`: watch more, miss nothing.
  */
-const CONFIG_SURFACE_PATTERNS: readonly RegExp[] = [
+// Exported for the autonomy classifier (mt#5130), which wants the deploy
+// BOUNDARIES alone — not the wholesale source-tree entries the service map
+// adds below for deploy verification.
+export const CONFIG_SURFACE_PATTERNS: readonly RegExp[] = [
   // Pulumi / infra-as-code tree — not scoped to one service.
   /^infra\//,
   // Root Dockerfile — the `minsky-mcp` image. Railway auto-detects it at repo
