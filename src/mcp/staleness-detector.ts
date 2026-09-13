@@ -49,7 +49,15 @@ const realSourceRootsFs: SourceRootsFs = {
     readdirSync(dir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name),
-  isDirectory: (path) => statSync(path, { throwIfNoEntry: false })?.isDirectory() ?? false,
+  isDirectory: (path) => {
+    try {
+      return statSync(path, { throwIfNoEntry: false })?.isDirectory() ?? false;
+    } catch {
+      // intentional-swallow: an unreadable `packages/<pkg>/src` (EACCES, a dangling symlink) is
+      // not a root we can diff; treat it as absent rather than failing the whole check.
+      return false;
+    }
+  },
 };
 
 /** Resolves the source roots for a workspace; the seam `StalenessDetector` takes. */
@@ -148,8 +156,10 @@ export class StalenessDetector {
    */
   private checkSourceRootsChanged(currentHead: string): boolean {
     if (!this.startupHead) return false;
-    const pathspecs = this.discoverRoots(this.workspacePath).join(" ");
     try {
+      // Inside the try on purpose: this runs on the tools/call path, and an injected discovery
+      // that throws must read as "not stale" like a failed diff does, never fail the tool call.
+      const pathspecs = this.discoverRoots(this.workspacePath).join(" ");
       const diff = this.exec(
         `git diff --name-only ${this.startupHead} ${currentHead} -- ${pathspecs}`,
         {

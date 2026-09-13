@@ -195,6 +195,19 @@ describe("StalenessDetector source roots (mt#5120)", () => {
     expect(detector.isCurrentlyStale()).toBe(false);
   });
 
+  it("a discovery that throws reads as not-stale instead of failing the tool call", () => {
+    // `getStaleWarning` runs on the tools/call path; a filesystem error during discovery has
+    // to degrade the way a failed `git diff` already does.
+    const git = pathspecHonoringExec(PACKAGES_ONLY_MERGE);
+    const detector = new StalenessDetector("/fake/path", git.exec as any, () => {
+      throw new Error("EACCES");
+    });
+    (detector as any).lastCheckTime = 0;
+    expect(detector.getStaleWarning()).toBeNull();
+    expect(detector.isCurrentlyStale()).toBe(false);
+    expect(git.diffCommands).toHaveLength(0);
+  });
+
   it("hands git every discovered root as its own pathspec, in one diff", () => {
     const { detector, git } = detectorOver(["src/mcp/server.ts"], WIDENED_ROOTS);
     detector.getStaleWarning();
