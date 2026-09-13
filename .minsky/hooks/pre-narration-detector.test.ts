@@ -1453,6 +1453,12 @@ describe("mt#5109 — report evidence helpers", () => {
     expect(extractPrShapedNumbers("Ran 12 tests across 1 file. exit 0")).toEqual(new Set());
   });
 
+  test("PR #3750 R1: an underscore is a word character too — `foo_#123` is not a PR", () => {
+    expect(extractPrShapedNumbers("see foo_#123 and bar9#456")).toEqual(new Set());
+    // …while a real separator still admits the lone `#N` form.
+    expect(extractPrShapedNumbers("see (#123) and foo #456")).toEqual(new Set([123, 456]));
+  });
+
   test("extractReportedPrNumbers is window-scoped like the other evidence", () => {
     const old = makeStringUserLine(agentCompletionNotification(1111));
     const lines: TranscriptLine[] = [makeUserLine(), old];

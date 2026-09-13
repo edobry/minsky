@@ -690,10 +690,14 @@ const AGENT_COMPLETION_SUMMARY = /<summary>\s*Agent\b/;
 
 /**
  * PR-shaped mentions of a number: `PR #3723`, `PR 3723`, `#3723`, `pull/3723`,
- * `changeset/3723`. The lone `#N` form must not be preceded by a word character,
- * so a task (`mt#4959`) or memory (`mem#1386`) short id never reads as a PR.
+ * `changeset/3723`. The lone `#N` form must not be preceded by a word character
+ * (`\w`: letters, digits AND underscore — PR #3750 R1 caught the class written
+ * without `_`), so a task (`mt#4959`) or memory (`mem#1386`) short id, or a
+ * `foo_#123`, never reads as a PR. The negative lookbehind needs a JS engine
+ * with lookbehind support; hooks run under Bun (JavaScriptCore), which has it,
+ * and three sibling hooks already rely on it.
  */
-const PR_SHAPED_MENTION = /(?:\bPR\s*#?|(?<![A-Za-z0-9])#|\bpull\/|\bchangeset\/)(\d{1,7})\b/g;
+const PR_SHAPED_MENTION = /(?:\bPR\s*#?|(?<!\w)#|\bpull\/|\bchangeset\/)(\d{1,7})\b/g;
 
 export function extractPrShapedNumbers(text: string): Set<number> {
   const numbers = new Set<number>();
@@ -741,6 +745,13 @@ export function extractReportedPrNumbers(
  * The calendar day (`YYYY-MM-DD`, UTC) of the conversation's first timestamped
  * line, or null when no line carries a timestamp (synthetic fixtures). The
  * anchor `dated-historical` compares against.
+ *
+ * "The conversation" is the PARENT transcript: both callers hand this the
+ * parent-only lines — `ctx.transcriptLines` is resolved by
+ * `resolveParentTranscriptLines` (D6), which re-parses the parent alone whenever
+ * subagent candidates exist, and `main()` goes through
+ * `resolveParentTranscriptLinesForPath` — so a subagent's earlier lines cannot
+ * pull the anchor back (PR #3750 R1, non-blocking).
  */
 export function conversationStartDay(lines: TranscriptLine[]): string | null {
   for (const line of lines) {
