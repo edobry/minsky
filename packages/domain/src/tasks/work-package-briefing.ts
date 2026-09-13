@@ -102,22 +102,41 @@ function parseMembersSection(spec: string): ParsedMember[] {
   if (!body) return [];
 
   const members: ParsedMember[] = [];
+  const seen = new Set<string>();
   for (const item of body.matchAll(LIST_ITEM_RE)) {
     const line = item[1] ?? "";
     const refMatch = line.match(TASK_REF_RE);
     if (!refMatch) continue;
     const ref = refMatch[0];
-    const afterRef = line.slice(line.indexOf(ref) + ref.length);
-    // A ref written as `**mt#N**` or `` `mt#N` `` closes its emphasis right after
-    // the ref; that marker is not the rationale's first word (seen on mt#5125).
-    const rationale =
-      afterRef
-        .replace(/^(?:\*\*|__|\*|_|`)/, "")
-        .replace(/^[\s—–:-]+/, "")
-        .trim() || null;
+    // A ref listed twice keeps its first position: the member table's key is
+    // (package, member), so a duplicate row cannot be written (PR #3751 R1).
+    if (seen.has(ref)) continue;
+    seen.add(ref);
+    const refAt = line.indexOf(ref);
+
+    const beforeRef = line.slice(0, refAt);
+    const afterRef = stripClosingEmphasis(beforeRef, line.slice(refAt + ref.length));
+    const rationale = afterRef.replace(/^[\s—–:-]+/, "").trim() || null;
     members.push({ taskId: ref, rank: members.length + 1, rationale });
   }
   return members;
+}
+
+const EMPHASIS_MARKERS = ["**", "__", "`", "*", "_"] as const;
+
+/**
+ * A ref written as `**mt#N**` or `` `mt#N` `` closes its emphasis right after
+ * the ref, and that closing marker is not the rationale's first word (seen on
+ * mt#5125). Only a marker that also OPENS right before the ref is stripped, so
+ * markup that genuinely starts the rationale is left alone (PR #3751 R1).
+ */
+function stripClosingEmphasis(beforeRef: string, afterRef: string): string {
+  for (const marker of EMPHASIS_MARKERS) {
+    if (beforeRef.endsWith(marker) && afterRef.startsWith(marker)) {
+      return afterRef.slice(marker.length);
+    }
+  }
+  return afterRef;
 }
 
 /**

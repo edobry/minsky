@@ -80,20 +80,31 @@ const succeedParams = {
   releaseClaim: {
     schema: z.boolean().default(true),
     description:
-      "Release the claim after the succession so the package returns to READY (default). Pass " +
-      "false to record the succession and keep holding the package.",
+      "Release the claim after the succession so the package returns to READY (default). " +
+      "`releaseClaim: false` on the MCP tool records the succession and keeps the package " +
+      "held; the CLI flag is boolean and cannot be negated — on the CLI, re-claim after the " +
+      "release instead.",
     required: false,
     defaultValue: true,
   },
   callerActorId: callerActorIdParam,
 } as const;
 
-/** Pure: the comma list as the command reads it — trimmed, empties dropped, order kept. */
+/**
+ * Pure: the comma list as the command reads it — trimmed, empties dropped,
+ * order kept, a repeated ref keeping its first position (the member table's
+ * key is (package, member); PR #3751 R1).
+ */
 export function parseMemberList(members: string): string[] {
+  const seen = new Set<string>();
   return members
     .split(",")
     .map((m) => m.trim())
-    .filter((m) => m.length > 0);
+    .filter((m) => {
+      if (m.length === 0 || seen.has(m)) return false;
+      seen.add(m);
+      return true;
+    });
 }
 
 async function getDb(getPersistenceProvider: () => unknown) {

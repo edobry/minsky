@@ -1,5 +1,10 @@
 import { describe, test, expect } from "bun:test";
-import { emptyMembersRefusal, explainSuccessionRefusal } from "./work-package-succession";
+import {
+  dedupeMembers,
+  emptyMembersRefusal,
+  explainSuccessionRefusal,
+  isSucceedableRow,
+} from "./work-package-succession";
 
 // The pure half of succession: the refusal diagnoses the transaction returns
 // from the locked row. The store itself is exercised against a real Postgres in
@@ -45,6 +50,44 @@ describe("explainSuccessionRefusal (mt#5133)", () => {
     });
     if (out.ok || out.reason !== "not-claimed") throw new Error("expected not-claimed");
     expect(out.status).toBe("DONE");
+  });
+
+  test("IN-PROGRESS with no recorded holder → not-claimed, naming the missing holder (PR #3751 R1)", () => {
+    const out = explainSuccessionRefusal("mt#4", {
+      kind: "work-package",
+      status: "IN-PROGRESS",
+      claimedBy: null,
+    });
+    if (out.ok || out.reason !== "not-claimed") throw new Error("expected not-claimed");
+    expect(out.status).toBe("IN-PROGRESS");
+    expect(out.message).toContain("records no holder");
+  });
+});
+
+describe("isSucceedableRow", () => {
+  test("only a held (IN-PROGRESS + claimed_by) work package qualifies", () => {
+    const held = { kind: "work-package", status: "IN-PROGRESS", claimedBy: "conv:x" };
+    expect(isSucceedableRow(held)).toBe(true);
+    expect(isSucceedableRow({ ...held, claimedBy: null })).toBe(false);
+    expect(isSucceedableRow({ ...held, claimedBy: "" })).toBe(false);
+    expect(isSucceedableRow({ ...held, status: "READY" })).toBe(false);
+    expect(isSucceedableRow({ ...held, kind: "implementation" })).toBe(false);
+    expect(isSucceedableRow(undefined)).toBe(false);
+  });
+});
+
+describe("dedupeMembers", () => {
+  test("first occurrence wins, order kept", () => {
+    expect(
+      dedupeMembers([
+        { taskId: "mt#2", rationale: "a" },
+        { taskId: "mt#1", rationale: "b" },
+        { taskId: "mt#2", rationale: "c" },
+      ])
+    ).toEqual([
+      { taskId: "mt#2", rationale: "a" },
+      { taskId: "mt#1", rationale: "b" },
+    ]);
   });
 });
 

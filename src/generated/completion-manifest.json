@@ -2704,7 +2704,7 @@
                 },
                 {
                   "flags": ["--release-claim"],
-                  "description": "Release the claim after the succession so the package returns to READY (default). Pass false to record the succession and keep holding the package."
+                  "description": "Release the claim after the succession so the package returns to READY (default). `releaseClaim: false` on the MCP tool records the succession and keeps the package held; the CLI flag is boolean and cannot be negated — on the CLI, re-claim after the release instead."
                 }
               ],
               "arguments": [

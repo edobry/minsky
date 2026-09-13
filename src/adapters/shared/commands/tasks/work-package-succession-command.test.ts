@@ -59,6 +59,10 @@ describe("parseMemberList", () => {
     expect(parseMemberList(" mt#3, mt#1 ,,mt#2 ")).toEqual(["mt#3", "mt#1", "mt#2"]);
     expect(parseMemberList("")).toEqual([]);
   });
+
+  test("a repeated ref keeps its first position (PR #3751 R1)", () => {
+    expect(parseMemberList("mt#3,mt#1,mt#3,mt#2,mt#1")).toEqual(["mt#3", "mt#1", "mt#2"]);
+  });
 });
 
 describe("resolveSuccessionMembers (mt#5133)", () => {

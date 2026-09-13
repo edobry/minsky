@@ -235,6 +235,8 @@ if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
   await pkg("mt#102", "READY", MEMBERS_ABC, null); // AT2 not claimed
   await pkg("mt#103", "IN-PROGRESS", MEMBERS_ABC, CONV_ACTOR_A); // AT2 empty members
   await pkg("mt#104", "IN-PROGRESS", MEMBERS_ABC, CONV_ACTOR_A); // releaseClaim: false
+  await pkg("mt#105", "IN-PROGRESS", MEMBERS_ABC, null); // R1: IN-PROGRESS with no holder
+  await pkg("mt#106", "IN-PROGRESS", MEMBERS_ABC, CONV_ACTOR_A); // R1: duplicate ref in the list
 
   const rowOf = async (id: string) => {
     const [r] = await sql`select status, claimed_by from tasks where id = ${id}`;
@@ -431,6 +433,50 @@ if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
       expect(await specOf("mt#103")).toBe(ORIGINAL_BRIEFING);
       expect(await rowOf("mt#103")).toEqual({ status: "IN-PROGRESS", claimedBy: CONV_ACTOR_A });
       expect(await statusEvents("mt#103")).toEqual([]);
+    });
+
+    test("R1: an IN-PROGRESS package with no recorded holder is refused, nothing written", async () => {
+      const out = await succeedWorkPackage(db, {
+        taskId: "mt#105",
+        spec: null,
+        members: [{ taskId: "mt#2", rationale: null, statusAtWrite: "READY" }],
+        byConversation: CONV_ACTOR_A,
+        notes: "should not land",
+        releaseClaim: true,
+      });
+      expect(out.ok).toBe(false);
+      if (out.ok) throw new Error("unreachable");
+      expect(out.reason).toBe("not-claimed");
+      expect(out.message).toContain("records no holder");
+      expect(await membersOf("mt#105")).toHaveLength(3);
+      expect(await transfersOf("mt#105")).toHaveLength(1);
+      expect(await rowOf("mt#105")).toEqual({ status: "IN-PROGRESS", claimedBy: null });
+    });
+
+    test("R1: a member ref given twice writes one row at its first position (no PK violation)", async () => {
+      const out = await succeedWorkPackage(
+        db,
+        {
+          taskId: "mt#106",
+          spec: null,
+          members: [
+            { taskId: "mt#3", rationale: null, statusAtWrite: "TODO" },
+            { taskId: "mt#2", rationale: null, statusAtWrite: "READY" },
+            { taskId: "mt#3", rationale: "again", statusAtWrite: "TODO" },
+          ],
+          byConversation: CONV_ACTOR_A,
+          notes: "dup",
+          releaseClaim: false,
+        },
+        NOW
+      );
+      expect(out.ok).toBe(true);
+      if (!out.ok) throw new Error("unreachable");
+      expect(out.members).toEqual(["mt#3", "mt#2"]);
+      expect((await membersOf("mt#106")).map((m) => [m.taskId, m.rank])).toEqual([
+        ["mt#3", 1],
+        ["mt#2", 2],
+      ]);
     });
 
     test("releaseClaim false: succession recorded, ## Transfers lists it, package still held", async () => {

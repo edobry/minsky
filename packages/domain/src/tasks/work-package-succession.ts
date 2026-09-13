@@ -110,6 +110,19 @@ export function explainSuccessionRefusal(
       message: `Task ${taskId} is kind "${row.kind}", not a work package — nothing to succeed.`,
     };
   }
+  if (row.status === "IN-PROGRESS" && !row.claimedBy) {
+    // The status says held but no holder was recorded: there is no conversation
+    // whose act this could be, so it is refused rather than attributed to the caller.
+    return {
+      ok: false,
+      taskId,
+      reason: "not-claimed",
+      status: row.status,
+      message:
+        `Work package ${taskId} is IN-PROGRESS but records no holder, so there is no claim to ` +
+        `succeed. Release it (tasks release) and claim it, then succeed it.`,
+    };
+  }
   return {
     ok: false,
     taskId,
@@ -120,6 +133,34 @@ export function explainSuccessionRefusal(
       `is the act of the conversation that holds it (claim it first, or release/complete an ` +
       `unheld package through its own path).`,
   };
+}
+
+/**
+ * Whether the locked row is a package a conversation currently holds — the
+ * only state succession applies to. Pure; the transaction consults it and
+ * `explainSuccessionRefusal` names the way it failed.
+ */
+export function isSucceedableRow(row: ClaimDiagnosticRow | undefined): boolean {
+  return (
+    row !== undefined &&
+    row.kind === WORK_PACKAGE_KIND &&
+    row.status === "IN-PROGRESS" &&
+    Boolean(row.claimedBy)
+  );
+}
+
+/**
+ * First occurrence wins: the member table's key is (package, member), so a
+ * ref listed twice would fail the insert after the refusal checks passed.
+ * The parser and the command already dedupe; this is the write's own guard.
+ */
+export function dedupeMembers<T extends { taskId: string }>(members: T[]): T[] {
+  const seen = new Set<string>();
+  return members.filter((m) => {
+    if (seen.has(m.taskId)) return false;
+    seen.add(m.taskId);
+    return true;
+  });
 }
 
 export function emptyMembersRefusal(taskId: string): WorkPackageSuccessionOutcome {
@@ -220,7 +261,7 @@ export async function succeedWorkPackage(
       .limit(1)
       .for("update");
     const row = rows[0];
-    if (!row || row.kind !== WORK_PACKAGE_KIND || row.status !== "IN-PROGRESS") {
+    if (!isSucceedableRow(row)) {
       return explainSuccessionRefusal(taskId, row);
     }
 
@@ -235,7 +276,7 @@ export async function succeedWorkPackage(
     // A bare member list carries no rationale, so a member the package already
     // queued keeps the one its briefing gave it; a full briefing is authoritative.
     const priorRationale = new Map(currentMembers.map((m) => [m.taskId, m.rationale]));
-    const nextMembers = members?.map((m) => ({
+    const nextMembers = (members ? dedupeMembers(members) : null)?.map((m) => ({
       ...m,
       rationale: m.rationale ?? (spec === null ? (priorRationale.get(m.taskId) ?? null) : null),
     }));

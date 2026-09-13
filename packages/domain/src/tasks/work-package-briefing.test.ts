@@ -191,6 +191,28 @@ describe("parseMembersSection: emphasis-wrapped refs", () => {
       "**important** first",
     ]);
   });
+
+  test("a marker after the ref with no matching opener is rationale, not a closer (PR #3751 R1)", () => {
+    const parsed = parseWorkPackageBriefing(
+      "Origin: groomed\n\n## Members\n\n- mt#8 _italic lead_ then text\n- mt#9**bold lead** text\n- **mt#10** — closed\n"
+    );
+    expect(parsed.members.map((m) => m.rationale)).toEqual([
+      "_italic lead_ then text",
+      "**bold lead** text",
+      "closed",
+    ]);
+  });
+
+  test("a ref listed twice keeps its first position; ranks stay contiguous (PR #3751 R1)", () => {
+    const parsed = parseWorkPackageBriefing(
+      "Origin: groomed\n\n## Members\n\n1. mt#1 — first\n2. mt#2 — second\n3. mt#1 — again\n4. mt#3\n"
+    );
+    expect(parsed.members).toEqual([
+      { taskId: "mt#1", rank: 1, rationale: "first" },
+      { taskId: "mt#2", rank: 2, rationale: "second" },
+      { taskId: "mt#3", rank: 3, rationale: null },
+    ]);
+  });
 });
 
 describe("renderMembersSection", () => {
