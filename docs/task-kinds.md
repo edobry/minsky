@@ -266,7 +266,11 @@ taken; always the two-word form.
 - `groomed` — a curator bundles open tasks for any agent to pick up. Requires `## Members`
   (ordered task refs, per-member rationale) and `## Grouping rationale`.
 - `succession` — a finishing conversation packages its in-flight work; `/handoff`'s terminal
-  step writes one. Requires `## Situation`, `## Decisions`, `## Provenance`.
+  step writes one. Requires `## Situation`, `## Decisions`, `## Provenance`. A conversation
+  that already HOLDS a package does not mint another: `tasks package succeed` (mt#5133)
+  rewrites that package's members and briefing from the new succession briefing, appends a
+  `succession` transfer carrying the outcome, renders the transfer log into the spec's
+  `## Transfers` section, and releases the claim — the same row re-enters the pool.
 
 Create-time validation (domain-side, every surface) refuses a missing/illegal origin, missing
 per-origin sections, and any cited entity ref that does not resolve (mem#676 R5's

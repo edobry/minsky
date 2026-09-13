@@ -2680,6 +2680,45 @@
           "commandId": "tasks.release-conversation"
         },
         {
+          "name": "package",
+          "description": "package commands",
+          "subcommands": [
+            {
+              "name": "succeed",
+              "description": "Succeed the work package this conversation holds (ADR-046 mutate-plus-log): replace its member set and briefing, append a `succession` transfer carrying the outcome, render the transfer log into the spec's ## Transfers section, and release the claim so the SAME package returns to READY — no new package is minted. Refuses a package that is not IN-PROGRESS, a member ref that does not exist, and an empty resulting member set (close that package instead; the lifecycle sweep completes it).",
+              "options": [
+                {
+                  "flags": ["--notes"],
+                  "description": "The outcome, recorded on the succession transfer: what shipped, what remains, judgment that must survive the fold.",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--spec"],
+                  "description": "The full replacement briefing (Origin: succession; ## Situation, ## Decisions, ## Provenance; ## Members as an ordered list of task refs). Validated exactly as a create is; its ## Members becomes the member set. Mutually exclusive with --members.",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--members"],
+                  "description": "Comma-separated member task refs in queue order (e.g. \"mt#12,mt#34\"). Each must resolve. Rewrites only the briefing's ## Members section. Mutually exclusive with --spec.",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--release-claim"],
+                  "description": "Release the claim after the succession so the package returns to READY (default). Pass false to record the succession and keep holding the package."
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "taskId",
+                  "required": true,
+                  "description": "The work package THIS conversation holds (e.g. \"mt#5119\")."
+                }
+              ],
+              "commandId": "tasks.package.succeed"
+            }
+          ]
+        },
+        {
           "name": "pointings",
           "description": "pointings commands",
           "subcommands": [

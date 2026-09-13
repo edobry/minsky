@@ -245,6 +245,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksPackagesSweepCommand,
     createTasksReleaseConversationCommand,
   } = require("./work-package-lifecycle-commands");
+  const { createTasksPackageSucceedCommand } = require("./work-package-succession-command");
   const {
     createTasksPointingsDeclareCommand,
     createTasksPointingsListCommand,
@@ -336,6 +337,8 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksReleaseCommand(getPersistenceProvider),
     createTasksPackagesSweepCommand(getPersistenceProvider),
     createTasksReleaseConversationCommand(getPersistenceProvider),
+    // Succession (mt#5133): the container feeds the create seam's ref resolvers.
+    createTasksPackageSucceedCommand(getPersistenceProvider, container),
     createTasksPointingsDeclareCommand(getPersistenceProvider),
     createTasksPointingsListCommand(getPersistenceProvider),
     createTasksPointingsArchiveCommand(getPersistenceProvider),

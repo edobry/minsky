@@ -108,7 +108,13 @@ function parseMembersSection(spec: string): ParsedMember[] {
     if (!refMatch) continue;
     const ref = refMatch[0];
     const afterRef = line.slice(line.indexOf(ref) + ref.length);
-    const rationale = afterRef.replace(/^[\s—–:-]+/, "").trim() || null;
+    // A ref written as `**mt#N**` or `` `mt#N` `` closes its emphasis right after
+    // the ref; that marker is not the rationale's first word (seen on mt#5125).
+    const rationale =
+      afterRef
+        .replace(/^(?:\*\*|__|\*|_|`)/, "")
+        .replace(/^[\s—–:-]+/, "")
+        .trim() || null;
     members.push({ taskId: ref, rank: members.length + 1, rationale });
   }
   return members;
@@ -169,4 +175,98 @@ export function validateWorkPackageBriefing(parsed: ParsedBriefing): BriefingVal
 
 function titleCase(heading: string): string {
   return heading.charAt(0).toUpperCase() + heading.slice(1);
+}
+
+// ---------------------------------------------------------------------------
+// Rendering back INTO the briefing (mt#5133)
+// ---------------------------------------------------------------------------
+
+export const MEMBERS_HEADING = "## Members";
+export const TRANSFERS_HEADING = "## Transfers";
+
+/** One `work_package_transfers` row, as the renderer needs it. */
+export interface TransferLogEntry {
+  seq: number;
+  origin: string;
+  byConversation: string | null;
+  notes: string | null;
+  createdAt: Date | null;
+}
+
+const SECTION_SEPARATOR = " — ";
+
+/**
+ * Render the transfer log as the `## Transfers` section a succeeded package
+ * carries in its spec. The spec is the one surface a successor reads
+ * (`tasks_spec_get`, the cockpit task page) and nothing renders
+ * `work_package_transfers` directly, so the history has to live here to be
+ * seen. One list item per transfer in seq order — seq, origin, time, writer,
+ * notes — with the notes collapsed onto the line; the table stays the source
+ * of truth. Parser-inert: `parseWorkPackageBriefing` reads `Origin:` and
+ * `## Members` only, and validation ignores sections it does not require.
+ */
+export function renderTransferLog(transfers: TransferLogEntry[]): string {
+  const lines = [...transfers]
+    .sort((a, b) => a.seq - b.seq)
+    .map((t) => {
+      const when = t.createdAt ? t.createdAt.toISOString() : "time unrecorded";
+      const by = `by ${t.byConversation ?? "unrecorded"}`;
+      const notes = t.notes?.trim() ? `${SECTION_SEPARATOR}${collapseLines(t.notes)}` : "";
+      return `- #${t.seq} ${t.origin}${SECTION_SEPARATOR}${when}${SECTION_SEPARATOR}${by}${notes}`;
+    });
+  return [TRANSFERS_HEADING, "", ...(lines.length > 0 ? lines : ["- none recorded"])].join("\n");
+}
+
+/** Render a member set as the `## Members` section `parseMembersSection` reads back. */
+export function renderMembersSection(
+  members: Array<{ taskId: string; rationale: string | null }>
+): string {
+  const lines = members.map((m) =>
+    m.rationale?.trim()
+      ? `- ${m.taskId}${SECTION_SEPARATOR}${collapseLines(m.rationale)}`
+      : `- ${m.taskId}`
+  );
+  return [MEMBERS_HEADING, "", ...lines].join("\n");
+}
+
+/**
+ * Replace the section whose heading matches `section`'s first line, or append
+ * it when the briefing has none. A section runs from its heading to the next
+ * `##`-or-deeper heading — the same extent `parseMembersSection` reads — so a
+ * rewrite never swallows a neighbour. Pure.
+ */
+export function upsertBriefingSection(spec: string, section: string): string {
+  const rendered = `${section.trimEnd()}\n`;
+  const headingLine = rendered.split("\n")[0] ?? "";
+  const headingText = headingLine.replace(/^#{2,}\s+/, "").trim();
+  const range = findSectionRange(spec, headingText);
+  if (!range) {
+    const base = spec.trimEnd();
+    return base.length === 0 ? rendered : `${base}\n\n${rendered}`;
+  }
+  const after = spec.slice(range.end);
+  // eslint-disable-next-line custom/no-unsafe-string-truncation -- range.start is the index of a `#` at line start, never inside a surrogate pair
+  const before = spec.slice(0, range.start);
+  return `${before}${rendered}${after.length > 0 ? `\n${after}` : ""}`;
+}
+
+function findSectionRange(
+  spec: string,
+  headingText: string
+): { start: number; end: number } | null {
+  const headingRe = new RegExp(`^#{2,}\\s+${escapeRegExp(headingText)}\\s*$`, "im");
+  const match = headingRe.exec(spec);
+  if (!match) return null;
+  const start = match.index;
+  const afterHeading = start + match[0].length;
+  const next = /^#{2,}\s/m.exec(spec.slice(afterHeading));
+  return { start, end: next ? afterHeading + next.index : spec.length };
+}
+
+function collapseLines(text: string): string {
+  return text.replace(/\s*\n+\s*/g, " ").trim();
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
