@@ -10,8 +10,9 @@ the user with an `/mcp` click to reconnect.
 Minsky's staleness-exit mechanism (mt#1322) intentionally exits the inner server after
 detecting that its source tree has been updated since the server started. This is the
 correct design for keeping the agent's tool set coherent with the merged codebase, but
-it surfaces as a visible disconnect in Claude Code every time a PR touching `src/` is
-merged.
+it surfaces as a visible disconnect in Claude Code every time a PR touching one of the
+server's source roots — `src/` or any `packages/<pkg>/src/` (mt#5120; the root set is
+described in `docs/mcp-source-freshness.md §What counts as a source change`) — is merged.
 
 The root cause is structural: Claude Code's MCP reconnection logic
 (`useManageMCPConnections.ts:354–356` in the Claude Code source) does not have an

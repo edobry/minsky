@@ -51,8 +51,42 @@ into one field on a tool agents already call.
   TTL cache so repeated `systemInfo` calls do not re-spawn git).
 - `src/adapters/shared/commands/debug.ts` adds the field to the `systemInfo` payload.
 
+## What counts as a source change (the staleness exit's root set)
+
+`sourceFreshness` above REPORTS drift; the `staleness_exit` mechanism (mt#1322) ACTS on it.
+`StalenessDetector` (`src/mcp/staleness-detector.ts`) records `HEAD` at startup and, on each
+tool call (debounced to once a minute), checks whether `HEAD` moved AND whether the diff between
+the two commits touches any of the server's **source roots**:
+
+- `src/` — the entry tree. The daemon is spawned as `bun run src/cli.ts` (or the bundle built
+  from it), so a relative import from the entry resolves inside `src/`.
+- every `packages/<pkg>/src/` that exists — the `@minsky/*` workspace packages the entry
+  imports (`packages/domain`, `packages/shared` today).
+
+The packages roots are **discovered** by listing `packages/` at check time
+(`discoverSourceRoots`), never named in code. A hard-coded pair would drift from the real import
+closure the day a third package appeared, silently — the same defect one level up. A checkout
+without a `packages/` directory degrades to `src/` alone.
+
+**Why it is wider than `src/` (mt#5120).** Until 2026-09-13 the detector diffed `-- src/` only.
+That was the whole closure when all served code lived under `src/`; the `packages/domain/`
+extraction (mt#2108) moved most of it under `packages/*/src` without moving the pathspec, so a
+merge confined to `packages/**` left the tray-supervised daemon serving the OLD build until some
+unrelated `src/` change landed. Observed on PR #3741 (mt#5115): three `packages/domain/src/`
+files changed, no `staleness_exit` fired, and the daemon ran the pre-merge code for an hour until
+a manual `mcp_restart`. The cockpit daemon's tray watcher had the same defect twice — mt#4230
+(`packages/` half) and mt#5060 (`src/` half) — and `cockpit_backend_roots()` in
+`cockpit-tray/src-tauri/src/watcher_backend.rs` is the sibling list for that daemon; the two are
+kept in the same shape deliberately.
+
+Trees outside the closure — `docs/`, `.minsky/hooks/` (the hook tree is a separate module
+graph; `src/` does not import it, mt#4010), `services/*` (nothing under `src/` or `packages/`
+imports them) — do not trigger the exit. A change confined to one of them never invalidates the
+running server.
+
 ## Cross-references
 
+- mt#5120 — the root set widened from `src/` to `src/` + discovered `packages/*/src`.
 - mt#1740 — `cli-entry.ts` lazy bundle-rebuild-on-startup.
 - mt#1714 — stdio respawn proxy (absorbs `staleness_exit`, triggers the rebuild).
 - mt#1322 — daemon `staleness_exit` mechanism.
