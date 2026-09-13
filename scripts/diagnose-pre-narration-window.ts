@@ -31,6 +31,7 @@
  *   bun scripts/diagnose-pre-narration-window.ts --since 2026-08-13
  *   bun scripts/diagnose-pre-narration-window.ts --since 2026-08-09 --until 2026-08-19T03:20:00Z
  *   bun scripts/diagnose-pre-narration-window.ts --json
+ *   bun scripts/diagnose-pre-narration-window.ts --reasons --until <iso>   # mt#5109: per-reason paired replay over every record
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -38,13 +39,12 @@ import { join, resolve } from "node:path";
 import {
   OUTCOME_CATEGORIES,
   TRAILING_WINDOW_TURNS,
-  buildIdentityEvidence,
+  buildSuppressionEvidence,
   detectPreNarrationWithSuppression,
   elideMarkdownContexts,
   extractClaimedPrNumber,
   extractUniqueClaimedPrNumber,
   extractPrNumbersForTools,
-  extractWindowToolUseNames,
   windowSlice,
 } from "../.minsky/hooks/pre-narration-detector";
 import {
@@ -321,10 +321,14 @@ export function replayCurrentDetector(
   const prefix = lines.slice(0, fireIndex + 1);
   const turnLines = extractLastAssistantTurn(prefix);
   if (turnLines.length === 0) return { normalized: "unreproduced" };
+  // mt#5109: ONE builder, shared with `run()`, so every evidence input the
+  // detector reads — including the two added there — is what the replay reads.
+  const evidence = buildSuppressionEvidence(prefix, TRAILING_WINDOW_TURNS);
   const detection = detectPreNarrationWithSuppression(
     turnLines,
-    extractWindowToolUseNames(prefix, TRAILING_WINDOW_TURNS),
-    buildIdentityEvidence(prefix, TRAILING_WINDOW_TURNS)
+    evidence.windowToolNames,
+    evidence.evidencePrNumbers,
+    evidence
   );
   const hit = detection.matches.find((m) => m.category === category);
   if (hit) {
@@ -465,6 +469,120 @@ function boundaryDistanceToTool(
   return null;
 }
 
+/** One side of the `--reasons` paired replay. */
+export interface ReasonTally {
+  /** Records whose replay produced at least one LIVE (unsuppressed) match. */
+  unsuppressed: number;
+  /**
+   * Per-reason count over RECORDS with no live match — the record's reason
+   * set, as `buildPreNarrationRecord` writes `suppressionReasons`. Comparable
+   * to the log's own field, and NOT the invariant a suppression change is held
+   * to: a turn carrying a live `merged` match beside a same-turn-suppressed
+   * `review-approved` match reports NO reasons while the live one fires, and
+   * reports BOTH once a new source suppresses it — so an older reason's
+   * record-level count can rise by exactly the records a new source retires.
+   */
+  byReason: Record<string, number>;
+  /**
+   * Per-reason count over MATCHES, every record — the invariant: a new source
+   * ordered after the older ones cannot change which reason an older-backed
+   * match reports, so these counts must be EQUAL before and after.
+   */
+  byReasonMatches: Record<string, number>;
+  /** Records that could not be replayed (no transcript, unlocatable turn). */
+  unreplayable: number;
+  total: number;
+}
+
+/**
+ * Replay EVERY record in the window — suppressed ones included — through
+ * today's detector and tally the record-level outcome (mt#5109 AT3).
+ *
+ * The default mode above replays only the records the log says FIRED, because
+ * its question is "which fires are still fires". This mode answers the paired
+ * question a suppression change owes: did the OLDER sources keep their exact
+ * per-reason counts, with the new sources reaching only what was unsuppressed?
+ * Run it on the tree before and after a change; the older reasons' counts must
+ * be equal, and every movement must come out of `unsuppressed`.
+ *
+ * A record's reason set is derived the way `buildPreNarrationRecord` derives
+ * `suppressionReasons` — populated only when the pass has NO live match — so
+ * the tally is comparable to the log's own top-level field, which the console
+ * prints beside it as `log says`.
+ */
+export function tallyReasons(
+  records: CalibrationRecord[],
+  transcriptFor: (sessionId: string) => TranscriptLine[] | null
+): { replayed: ReasonTally; logged: ReasonTally } {
+  const empty = (): ReasonTally => ({
+    unsuppressed: 0,
+    byReason: {},
+    byReasonMatches: {},
+    unreplayable: 0,
+    total: 0,
+  });
+  const replayed = empty();
+  const logged = empty();
+  const bump = (into: Record<string, number>, reasons: string[]): void => {
+    for (const r of reasons) into[r] = (into[r] ?? 0) + 1;
+  };
+  for (const record of records) {
+    replayed.total++;
+    logged.total++;
+    const loggedReasons = record.suppressionReasons ?? [];
+    if (loggedReasons.length === 0) logged.unsuppressed++;
+    else bump(logged.byReason, loggedReasons);
+    // The log carries no per-match reason, only `hadMatchingTool`; the
+    // match-level side of the log tally is therefore unavailable and left empty.
+
+    const lines = transcriptFor(record.session_id ?? "");
+    const phrase = record.matches?.[0]?.phrase ?? "";
+    const fireIndex = lines === null ? null : locateJudgedTurnEnd(lines, record.timestamp, phrase);
+    if (lines === null || fireIndex === null) {
+      replayed.unreplayable++;
+      continue;
+    }
+    const prefix = lines.slice(0, fireIndex + 1);
+    const turnLines = extractLastAssistantTurn(prefix);
+    if (turnLines.length === 0) {
+      replayed.unreplayable++;
+      continue;
+    }
+    const evidence = buildSuppressionEvidence(prefix, TRAILING_WINDOW_TURNS);
+    const detection = detectPreNarrationWithSuppression(
+      turnLines,
+      evidence.windowToolNames,
+      evidence.evidencePrNumbers,
+      evidence
+    );
+    bump(
+      replayed.byReasonMatches,
+      detection.suppressed.map((s) => s.reason)
+    );
+    if (detection.matches.length > 0) replayed.unsuppressed++;
+    else bump(replayed.byReason, [...new Set(detection.suppressed.map((s) => s.reason))].sort());
+  }
+  return { replayed, logged };
+}
+
+function printReasons(into: Record<string, number>): void {
+  for (const [reason, count] of Object.entries(into).sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${String(count).padStart(4)}  ${reason}`);
+  }
+}
+
+function printTally(label: string, t: ReasonTally): void {
+  console.log(
+    `${label}: ${t.total} records, ${t.unsuppressed} unsuppressed, ${t.unreplayable} unreplayable`
+  );
+  console.log("  by RECORD (the record's reason set — comparable to the log):");
+  printReasons(t.byReason);
+  if (Object.keys(t.byReasonMatches).length > 0) {
+    console.log("  by MATCH (the invariant — older reasons must be equal before/after):");
+    printReasons(t.byReasonMatches);
+  }
+}
+
 function main(): void {
   const since = arg("--since") ?? "";
   // An UPPER bound, because this log is live and grows while you read it —
@@ -486,25 +604,43 @@ function main(): void {
     process.exit(0);
   }
 
-  const records: CalibrationRecord[] = readFileSync(logPath, "utf8")
+  const allInWindow: CalibrationRecord[] = readFileSync(logPath, "utf8")
     .split("\n")
     .filter((l) => l.trim().length > 0)
     .map((l) => JSON.parse(l) as CalibrationRecord)
-    .filter((r) => (r.suppressionReasons ?? []).length === 0)
     .filter((r) => (since ? r.timestamp >= since : true))
     .filter((r) => (until ? r.timestamp < until : true));
 
-  const byCategory = new Map(OUTCOME_CATEGORIES.map((c) => [c.key, c]));
-  const findings: Finding[] = [];
   const transcriptCache = new Map<string, TranscriptLine[] | null>();
-
-  for (const record of records) {
-    const sessionId = record.session_id ?? "";
+  const transcriptFor = (sessionId: string): TranscriptLine[] | null => {
     if (!transcriptCache.has(sessionId)) {
       const path = sessionId ? findTranscript(sessionId) : null;
       transcriptCache.set(sessionId, path ? parseTranscript(path) : null);
     }
-    const lines = transcriptCache.get(sessionId) ?? null;
+    return transcriptCache.get(sessionId) ?? null;
+  };
+
+  // mt#5109: the paired per-reason replay over EVERY record, suppressed ones
+  // included. See `tallyReasons`.
+  if (process.argv.includes("--reasons")) {
+    const { replayed, logged } = tallyReasons(allInWindow, transcriptFor);
+    if (asJson) {
+      console.log(JSON.stringify({ replayed, logged }, null, 2));
+      return;
+    }
+    printTally("log says", logged);
+    printTally("today's detector says", replayed);
+    return;
+  }
+
+  const records = allInWindow.filter((r) => (r.suppressionReasons ?? []).length === 0);
+
+  const byCategory = new Map(OUTCOME_CATEGORIES.map((c) => [c.key, c]));
+  const findings: Finding[] = [];
+
+  for (const record of records) {
+    const sessionId = record.session_id ?? "";
+    const lines = transcriptFor(sessionId);
 
     for (const match of record.matches ?? []) {
       const category = byCategory.get(match.category);

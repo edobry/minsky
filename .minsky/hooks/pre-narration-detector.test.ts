@@ -27,6 +27,13 @@ import {
   extractUniqueClaimedPrNumber,
   extractPrNumbersForTools,
   identityScopedToolNames,
+  SUPPRESSION_DATED_HISTORICAL,
+  SUPPRESSION_RELAYED_SUBAGENT_REPORT,
+  buildSuppressionEvidence,
+  conversationStartDay,
+  extractPrShapedNumbers,
+  extractReportedPrNumbers,
+  isDatedBeforeConversation,
 } from "./pre-narration-detector";
 import {
   extractDistinctPhrases,
@@ -1246,5 +1253,299 @@ describe("pre-narration: the claim's subject read from context (mt#4810)", () =>
     expect(detection.suppressed.map((s) => s.reason)).toEqual([
       SUPPRESSION_IDENTITY_SCOPED_TOOL_CALL,
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#5109 — a relayed subagent report, and a merged claim dated before the
+// conversation began
+// ---------------------------------------------------------------------------
+
+/** The envelope Claude Code wraps a background completion in; opener and closer. */
+const NOTIFICATION_OPEN = "<task-notification>";
+const NOTIFICATION_CLOSE = "</task-notification>";
+
+/** The exact PR #3723 relay from `f290bb69` (2026-09-11T04:12Z, unsuppressed record 10 of 12). */
+const RELAYED_PR_CLAIM = "PR #3723 is up for mt#4959 (12 new tests, negative control recorded).";
+
+/**
+ * The background-completion envelope as Claude Code wrote it into `f290bb69` at
+ * 2026-09-11T04:07:12Z — a STRING-CONTENT user line, not a `tool_result`. Pinned
+ * verbatim in shape (the ids are shortened) because the detector keys on the
+ * `<summary>Agent …` opener and the envelope is a harness artifact.
+ */
+function agentCompletionNotification(prNumber: number): string {
+  return [
+    NOTIFICATION_OPEN,
+    "<task-id>a6e6e30132f4c8b65</task-id>",
+    "<tool-use-id>toolu_01Lc3MYKmYJBmFFLPU35KcVi</tool-use-id>",
+    "<output-file>/private/tmp/claude-501/tasks/a6e6e30132f4c8b65.output</output-file>",
+    "<status>completed</status>",
+    '<summary>Agent "Implement mt#4959 redeploy retry script" finished</summary>',
+    "<note>A task-notification fires each time this agent stops with no live background children of its own.</note>",
+    `<result>PR created: **#${prNumber}** — https://github.com/edobry/minsky/pull/${prNumber}`,
+    "`headSha`: `8942ff19006cb587c6c93869342d664010d53f64`",
+    "",
+    'Per this dispatch\'s explicit instruction ("STOP at PR creation... Do not wait for review or merge"), I am not driving to convergence.</result>',
+    NOTIFICATION_CLOSE,
+  ].join("\n");
+}
+
+/** A backgrounded Bash completion naming the same number — the parent's OWN command, not a report. */
+function backgroundCommandNotification(prNumber: number): string {
+  return [
+    NOTIFICATION_OPEN,
+    "<task-id>b7e2c1</task-id>",
+    "<status>completed</status>",
+    `<summary>Background command "Wait for CI build on PR ${prNumber}" completed (exit code 0)</summary>`,
+    "<result>exit 0</result>",
+    NOTIFICATION_CLOSE,
+  ].join("\n");
+}
+
+function makeStringUserLine(text: string, timestamp?: string): TranscriptLine {
+  return {
+    type: "user",
+    message: { role: "user", content: text },
+    ...(timestamp === undefined ? {} : { timestamp }),
+  } as TranscriptLine;
+}
+
+function makeAgentToolCallWithResult(resultText: string): TranscriptLine[] {
+  return [
+    {
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "toolu_agent_1", name: "Agent", input: { prompt: "…" } }],
+      },
+    } as TranscriptLine,
+    {
+      type: "user",
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "toolu_agent_1", content: resultText }],
+      },
+    } as TranscriptLine,
+  ];
+}
+
+/** A claim turn preceded, in the window, by `reportLines` — and by NO required tool. */
+function linesWithReport(claim: string, reportLines: TranscriptLine[]): TranscriptLine[] {
+  return [makeUserLine(), ...reportLines, makeUserLine(), makeAssistantLine(claim), makeUserLine()];
+}
+
+function detectWithFullEvidence(lines: TranscriptLine[]) {
+  const turn = extractLastAssistantTurn(lines as never);
+  const evidence = buildSuppressionEvidence(lines as never, TRAILING_WINDOW_TURNS);
+  return detectPreNarrationWithSuppression(
+    turn,
+    evidence.windowToolNames,
+    evidence.evidencePrNumbers,
+    evidence
+  );
+}
+
+describe("mt#5109 — a relayed subagent report backs the claim it names", () => {
+  test("AT1: the background-completion envelope naming the claimed PR suppresses the relay", () => {
+    const detection = detectWithFullEvidence(
+      linesWithReport(RELAYED_PR_CLAIM, [makeStringUserLine(agentCompletionNotification(3723))])
+    );
+    expect(detection.matches).toEqual([]);
+    expect(detection.suppressed.map((s) => s.reason)).toEqual([
+      SUPPRESSION_RELAYED_SUBAGENT_REPORT,
+    ]);
+    expect(detection.suppressed[0]?.category).toBe("pr-created");
+  });
+
+  test("AT1 NEGATIVE CONTROL: a report naming the WRONG number is the pre-narration this detector is for", () => {
+    const detection = detectWithFullEvidence(
+      linesWithReport(RELAYED_PR_CLAIM, [makeStringUserLine(agentCompletionNotification(3724))])
+    );
+    expect(detection.suppressed).toEqual([]);
+    expect(detection.matches.map((m) => m.category)).toEqual(["pr-created"]);
+  });
+
+  test("AT1 NEGATIVE CONTROL: a Background-command notification is the parent's own command, not a report", () => {
+    const detection = detectWithFullEvidence(
+      linesWithReport(RELAYED_PR_CLAIM, [makeStringUserLine(backgroundCommandNotification(3723))])
+    );
+    expect(detection.suppressed).toEqual([]);
+    expect(detection.matches.map((m) => m.category)).toEqual(["pr-created"]);
+  });
+
+  test("AT1: the same report delivered as a foreground Agent tool_result suppresses under the same reason", () => {
+    const detection = detectWithFullEvidence(
+      linesWithReport(
+        RELAYED_PR_CLAIM,
+        makeAgentToolCallWithResult(
+          "PR created: **#3723** — https://github.com/edobry/minsky/pull/3723"
+        )
+      )
+    );
+    expect(detection.matches).toEqual([]);
+    expect(detection.suppressed.map((s) => s.reason)).toEqual([
+      SUPPRESSION_RELAYED_SUBAGENT_REPORT,
+    ]);
+  });
+
+  test("a relayed `merged` claim is suppressed too — the steelman shape from acd0c445", () => {
+    const report = [
+      NOTIFICATION_OPEN,
+      '<summary>Agent "Research the transcript gap" finished</summary>',
+      "<result>- **Activity volume**: 28 migrations, ~1,350 task ids, PR #2707 merged with a review round.</result>",
+      NOTIFICATION_CLOSE,
+    ].join("\n");
+    const detection = detectWithFullEvidence(
+      linesWithReport("Someone merged PR #2707 through a review round.", [
+        makeStringUserLine(report),
+      ])
+    );
+    expect(detection.matches).toEqual([]);
+    expect(detection.suppressed.map((s) => s.reason)).toEqual([
+      SUPPRESSION_RELAYED_SUBAGENT_REPORT,
+    ]);
+  });
+
+  test("the older sources keep their reasons: a same-turn tool call outranks a report", () => {
+    const lines = [
+      makeUserLine(),
+      makeStringUserLine(agentCompletionNotification(3723)),
+      makeUserLine(),
+      makeAssistantToolUseLine(PR_CREATE_TOOL),
+      makeToolResultLine(),
+      makeAssistantLine(RELAYED_PR_CLAIM),
+      makeUserLine(),
+    ];
+    const detection = detectWithFullEvidence(lines);
+    expect(detection.suppressed.map((s) => s.reason)).toEqual([SUPPRESSION_SAME_TURN_TOOL_CALL]);
+  });
+
+  test("a claim naming no PR is never report-backed", () => {
+    const detection = detectWithFullEvidence(
+      linesWithReport("Created the PR.", [makeStringUserLine(agentCompletionNotification(3723))])
+    );
+    expect(detection.matches.map((m) => m.category)).toEqual(["pr-created"]);
+  });
+
+  test("omitting the relay evidence disables both new sources (the safe direction)", () => {
+    const lines = linesWithReport(RELAYED_PR_CLAIM, [
+      makeStringUserLine(agentCompletionNotification(3723)),
+    ]);
+    const detection = detectPreNarrationWithSuppression(
+      extractLastAssistantTurn(lines as never),
+      extractWindowToolUseNames(lines as never, TRAILING_WINDOW_TURNS),
+      buildIdentityEvidence(lines as never, TRAILING_WINDOW_TURNS)
+    );
+    expect(detection.matches.map((m) => m.category)).toEqual(["pr-created"]);
+  });
+});
+
+describe("mt#5109 — report evidence helpers", () => {
+  test("extractPrShapedNumbers reads every PR spelling and no task or memory short id", () => {
+    expect(
+      [
+        ...extractPrShapedNumbers(
+          "PR #3492 is up; see PR 3500, pull/3501, changeset/3502 and #3503 — filed mt#4959, cites mem#1386 and ask#11976."
+        ),
+      ].sort()
+    ).toEqual([3492, 3500, 3501, 3502, 3503]);
+    expect(extractPrShapedNumbers("Ran 12 tests across 1 file. exit 0")).toEqual(new Set());
+  });
+
+  test("PR #3750 R1: an underscore is a word character too — `foo_#123` is not a PR", () => {
+    expect(extractPrShapedNumbers("see foo_#123 and bar9#456")).toEqual(new Set());
+    // …while a real separator still admits the lone `#N` form.
+    expect(extractPrShapedNumbers("see (#123) and foo #456")).toEqual(new Set([123, 456]));
+  });
+
+  test("extractReportedPrNumbers is window-scoped like the other evidence", () => {
+    const old = makeStringUserLine(agentCompletionNotification(1111));
+    const lines: TranscriptLine[] = [makeUserLine(), old];
+    for (let i = 0; i < TRAILING_WINDOW_TURNS + 1; i++) {
+      lines.push(makeUserLine(), makeAssistantLine("working"));
+    }
+    lines.push(makeStringUserLine(agentCompletionNotification(2222)), makeUserLine());
+    const reported = extractReportedPrNumbers(lines as never, TRAILING_WINDOW_TURNS);
+    expect(reported.has(2222)).toBe(true);
+    expect(reported.has(1111)).toBe(false);
+  });
+});
+
+describe("mt#5109 — a merged claim dated before the conversation began", () => {
+  const DATED_CLAIM = "PR #34861 merged **2026-07-21** — one second before the issue closed.";
+
+  function linesStartedOn(startTimestamp: string, claim: string): TranscriptLine[] {
+    return [
+      makeStringUserLine("first prompt", startTimestamp),
+      makeAssistantLine("ack"),
+      makeUserLine(),
+      makeAssistantLine(claim),
+      makeUserLine(),
+    ];
+  }
+
+  test("AT2: dated before the first turn → suppressed under dated-historical", () => {
+    const detection = detectWithFullEvidence(
+      linesStartedOn("2026-09-10T18:00:00.000Z", DATED_CLAIM)
+    );
+    expect(detection.matches).toEqual([]);
+    expect(detection.suppressed.map((s) => s.reason)).toEqual([SUPPRESSION_DATED_HISTORICAL]);
+    expect(detection.suppressed[0]?.category).toBe("merged");
+  });
+
+  test("AT2 NEGATIVE CONTROL: the same sentence with the date removed fires", () => {
+    const detection = detectWithFullEvidence(
+      linesStartedOn(
+        "2026-09-10T18:00:00.000Z",
+        "PR #34861 merged — one second before the issue closed."
+      )
+    );
+    expect(detection.suppressed).toEqual([]);
+    expect(detection.matches.map((m) => m.category)).toEqual(["merged"]);
+  });
+
+  test("AT2 NEGATIVE CONTROL: a date on or after the conversation's first day fires", () => {
+    // The clock-time signal mt#4256 rejected would have suppressed this; the
+    // conversation-anchored date does not.
+    const sameDay = detectWithFullEvidence(linesStartedOn("2026-07-21T01:00:00.000Z", DATED_CLAIM));
+    expect(sameDay.matches.map((m) => m.category)).toEqual(["merged"]);
+    const later = detectWithFullEvidence(
+      linesStartedOn("2026-07-01T01:00:00.000Z", "PR #3581 merged 2026-09-02T21:19:45Z.")
+    );
+    expect(later.matches.map((m) => m.category)).toEqual(["merged"]);
+  });
+
+  test("scoped to the merged family: a dated pr-created claim still fires", () => {
+    const detection = detectWithFullEvidence(
+      linesStartedOn("2026-09-10T18:00:00.000Z", "PR #251 was created 2026-04-01.")
+    );
+    expect(detection.matches.map((m) => m.category)).toEqual(["pr-created"]);
+  });
+
+  test("no timestamped line at all (a synthetic fixture) disables the exclusion", () => {
+    const lines = [makeUserLine(), makeAssistantLine(DATED_CLAIM), makeUserLine()];
+    expect(conversationStartDay(lines as never)).toBeNull();
+    expect(detectWithFullEvidence(lines).matches.map((m) => m.category)).toEqual(["merged"]);
+  });
+
+  test("helpers: conversationStartDay reads the first timestamped line; isDatedBeforeConversation compares days", () => {
+    expect(
+      conversationStartDay([
+        makeUserLine(),
+        makeStringUserLine("x", "2026-08-05T01:33:10.759Z"),
+        makeStringUserLine("y", "2026-08-06T01:00:00.000Z"),
+      ] as never)
+    ).toBe("2026-08-05");
+    expect(isDatedBeforeConversation("merged 2026-07-21", "2026-08-05")).toBe(true);
+    // The datetime form — `#3581 merged 2026-09-02T21:19:45Z` in a conversation
+    // opened 2026-09-03 — was the one of three measured claims a trailing `\b`
+    // could not see (the day is followed by `T`).
+    expect(isDatedBeforeConversation("PR #3581 merged 2026-09-02T21:19:45Z.", "2026-09-03")).toBe(
+      true
+    );
+    expect(isDatedBeforeConversation("merged 2026-08-05", "2026-08-05")).toBe(false);
+    expect(isDatedBeforeConversation("merged at 21:19:45Z", "2026-08-05")).toBe(false);
+    expect(isDatedBeforeConversation("merged 2026-07-21", null)).toBe(false);
   });
 });
