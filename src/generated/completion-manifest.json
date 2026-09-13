@@ -5728,7 +5728,7 @@
                 },
                 {
                   "flags": ["--window-key"],
-                  "description": "Recorded on the ask; does not affect routing (mt#4427). Only accepted alongside serviceStrategy='scheduled'.",
+                  "description": "Recorded on the ask; does not affect routing (mt#4427). Only ever meaningful with serviceStrategy='scheduled'; rejected when serviceStrategy is explicitly set to another value, accepted (and ignored) when serviceStrategy is omitted.",
                   "takesValue": true
                 },
                 {

@@ -400,8 +400,10 @@ export interface Ask {
    * Named service window this Ask targeted (e.g. `"ask-hours"`).
    *
    * Stored and ignored since mt#4427; no default sets it (mt#4421). Only ever
-   * meaningful alongside `serviceStrategy: "scheduled"`, which the create-path
-   * validation still enforces.
+   * meaningful alongside `serviceStrategy: "scheduled"`. The create-path
+   * validation rejects it with an EXPLICIT non-scheduled strategy and accepts
+   * it when the strategy is omitted (a legacy acceptance, kept rather than
+   * tightened — see `validateAsksCreateParams`).
    */
   windowKey?: string;
 

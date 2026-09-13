@@ -866,8 +866,9 @@ export const asksCreateParams = {
   windowKey: {
     schema: z.string().optional(),
     description:
-      "Recorded on the ask; does not affect routing (mt#4427). Only accepted alongside " +
-      "serviceStrategy='scheduled'.",
+      "Recorded on the ask; does not affect routing (mt#4427). Only ever meaningful with " +
+      "serviceStrategy='scheduled'; rejected when serviceStrategy is explicitly set to " +
+      "another value, accepted (and ignored) when serviceStrategy is omitted.",
     required: false,
   },
   forceImmediate: {
@@ -911,15 +912,18 @@ export const asksCreateParams = {
 /**
  * Cross-field coherence validation for `asks.create` MCP params.
  *
- * `windowKey` is only meaningful when `serviceStrategy='scheduled'`. Passing it
- * alongside an *explicitly* non-scheduled strategy is a caller error that should
- * be caught at the parameter boundary — not silently ignored later.
+ * `windowKey` only ever meant anything alongside `serviceStrategy='scheduled'`.
+ * Passing it with an *explicitly* non-scheduled strategy is a caller error caught
+ * at the parameter boundary — not silently ignored later.
  *
- * When `serviceStrategy` is *absent*, the validation passes. Per-kind defaults in
- * `createAsk` resolve the strategy (e.g., `direction.decide` → `scheduled`), so a
- * caller may legitimately omit `serviceStrategy` and supply a custom `windowKey` —
- * the kind's default resolves to `scheduled`, and the caller's `windowKey` overrides
- * the default window name.
+ * When `serviceStrategy` is *absent*, the validation passes. This used to be
+ * justified by the per-kind defaults: `direction.decide` resolved to `scheduled`,
+ * so a caller could omit the strategy and still name a window. **No default
+ * resolves to `scheduled` any more** (mt#4421), and since mt#4427 the router
+ * reads neither field — both are stored on the row and ignored. The absent-
+ * strategy acceptance is kept as-is rather than tightened: it is a legacy
+ * acceptance of a value that now does nothing, and turning it into a rejection
+ * would break callers for no behavioral gain.
  *
  * Only when `serviceStrategy` is *explicitly* set to a non-scheduled value does a
  * `windowKey` become incoherent: the caller has explicitly chosen a strategy that

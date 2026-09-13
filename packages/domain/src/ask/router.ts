@@ -116,8 +116,8 @@ export interface RoutedAsk extends Ask {
  * reaper could dispatch it later. The shape survives because `createAsk`
  * (src/adapters/shared/commands/asks.ts) reconciles its return value from the
  * persisted row, and for an operator-bound ask that row is `suspended` — the
- * inbox state (`advancement.ts`). Retiring it from `RouterResult` is a
- * follow-up with its own blast radius (advancement, createAsk, elicitation).
+ * inbox state (`advancement.ts`). Retiring it from `RouterResult` is mt#5134,
+ * with its own blast radius (advancement, createAsk, elicitation).
  */
 export interface SuspendedAsk extends Ask {
   state: "suspended";
