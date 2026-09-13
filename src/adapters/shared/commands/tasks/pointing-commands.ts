@@ -34,6 +34,11 @@ import {
   getPointing,
   listPointings,
 } from "@minsky/domain/tasks/pointings-store";
+import {
+  resurrectForPointing,
+  runRemainderSweep,
+} from "@minsky/domain/tasks/remainder-expiry-store";
+import { REMAINDER_AGE_DAYS } from "@minsky/domain/tasks/remainder-expiry";
 
 // ---------------------------------------------------------------------------
 // Shared plumbing
@@ -145,9 +150,26 @@ export function createTasksPointingsDeclareCommand(getPersistenceProvider: () =>
       if (!outcome.ok) {
         return { success: false, reason: outcome.reason, message: outcome.message };
       }
+      // A pointing declared AFTER a park brings its parked tasks back in the
+      // same call (mt#5131), not on the next sweep tick. Best-effort: a
+      // failure here leaves the pointing declared and is reported, never
+      // thrown — the next tick resurrects the same rows.
+      let resurrected: string[] = [];
+      let resurrectionError: string | undefined;
+      try {
+        resurrected = await resurrectForPointing(db, outcome.pointing);
+      } catch (err) {
+        resurrectionError = getLoggableErrorSummary(err);
+        log.warn("[tasks.pointings.declare] resurrection after declare failed", {
+          pointingId: outcome.pointing.id,
+          error: resurrectionError,
+        });
+      }
       return {
         success: true,
         pointing: outcome.pointing,
+        resurrected,
+        ...(resurrectionError ? { resurrectionError } : {}),
         message: `Pointing "${outcome.pointing.name}" declared (${outcome.pointing.id}).`,
       };
     },
@@ -251,6 +273,73 @@ export function createTasksPointingsCandidatesCommand(getPersistenceProvider: ()
       }
       const set = await computeCandidateSet(db, pointing, { cap: params.cap });
       return { success: true, ...set };
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// tasks.expire-remainder (mt#5131)
+// ---------------------------------------------------------------------------
+
+const expireRemainderParams = {
+  execute: {
+    schema: z.boolean().default(false),
+    defaultValue: false,
+    description:
+      "Apply the plan. Default is a dry-run that prints the park and resurrect id lists and " +
+      "writes nothing. The first --execute is a bulk shared-state mutation: run it under its " +
+      "wrapper task (mt#5138) after comparing the dry-run against the recorded count.",
+    required: false,
+  },
+  cap: {
+    schema: z.number().int().min(0).optional(),
+    description:
+      "Maximum parks this run (resurrection is never capped). Omitted = uncapped; the ops loop " +
+      "passes its own cap.",
+    required: false,
+  },
+} as const;
+
+export function createTasksExpireRemainderCommand(getPersistenceProvider: () => unknown) {
+  return defineCommand({
+    id: "tasks.expire-remainder",
+    category: CommandCategory.TASKS,
+    name: "expire-remainder",
+    description:
+      `The backlog remainder's disposition (RFC 3ae937f0 Phase 1, mt#5131): open tasks untouched ` +
+      `${REMAINDER_AGE_DAYS}+ days and matching NO live standing pointing are parked — CLOSED, tagged ` +
+      "auto-expired, spec annotated — and parked tasks a live pointing now matches are reopened " +
+      "(CLOSED -> TODO). Dry-run by default. With zero live pointings nothing is parked: the plan " +
+      "reports what WOULD park under parkingSuspended.",
+    parameters: expireRemainderParams,
+
+    async execute(params) {
+      const db = await getDb(getPersistenceProvider);
+      const projectScope = await resolveScope(db, "tasks.expire-remainder");
+      const result = await runRemainderSweep(db, {
+        projectScope,
+        execute: params.execute === true,
+        cap: params.cap,
+        via: "cli",
+      });
+      return {
+        success: true,
+        dryRun: result.dryRun,
+        parkingSuspended: result.plan.parkingSuspended,
+        pointingIds: result.plan.pointingIds,
+        counts: {
+          wouldPark: result.plan.wouldPark.length,
+          park: result.plan.park.length,
+          resurrect: result.plan.resurrect.length,
+          parked: result.applied.parked.length,
+          resurrected: result.applied.resurrected.length,
+        },
+        capped: result.plan.capped,
+        park: result.plan.park,
+        wouldPark: result.plan.wouldPark,
+        resurrect: result.plan.resurrect,
+        applied: result.applied,
+      };
     },
   });
 }

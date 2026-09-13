@@ -231,6 +231,17 @@ function touchedAtMs(updatedAt: Date | null, createdAt: Date | null, nowMs: numb
   return nowMs;
 }
 
+/** Every `parent` edge as child → parent; shared with the remainder sweep (mt#5131). */
+export async function loadParentOf(db: PostgresJsDatabase): Promise<Map<string, string>> {
+  const parentEdges = await db
+    .select({ child: taskRelationshipsTable.fromTaskId, parent: taskRelationshipsTable.toTaskId })
+    .from(taskRelationshipsTable)
+    .where(eq(taskRelationshipsTable.type, "parent"));
+  const parentOf = new Map<string, string>();
+  for (const e of parentEdges) parentOf.set(e.child, e.parent);
+  return parentOf;
+}
+
 /** The open, candidate-eligible backlog in scope, with parent edges resolved. */
 async function loadCandidateRows(
   db: PostgresJsDatabase,
@@ -254,12 +265,7 @@ async function loadCandidateRows(
     .leftJoin(taskSpecsTable, eq(taskSpecsTable.taskId, tasksTable.id))
     .where(scopeCondition);
 
-  const parentEdges = await db
-    .select({ child: taskRelationshipsTable.fromTaskId, parent: taskRelationshipsTable.toTaskId })
-    .from(taskRelationshipsTable)
-    .where(eq(taskRelationshipsTable.type, "parent"));
-  const parentOf = new Map<string, string>();
-  for (const e of parentEdges) parentOf.set(e.child, e.parent);
+  const parentOf = await loadParentOf(db);
 
   const rows: PointingTaskRow[] = [];
   for (const r of taskRows) {

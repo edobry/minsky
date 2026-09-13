@@ -246,6 +246,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksPointingsListCommand,
     createTasksPointingsArchiveCommand,
     createTasksPointingsCandidatesCommand,
+    createTasksExpireRemainderCommand,
   } = require("./pointing-commands");
 
   return [
@@ -333,5 +334,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksPointingsListCommand(getPersistenceProvider),
     createTasksPointingsArchiveCommand(getPersistenceProvider),
     createTasksPointingsCandidatesCommand(getPersistenceProvider),
+    // Remainder disposition (mt#5131): dry-run by default; the ops loop is its scheduled twin.
+    createTasksExpireRemainderCommand(getPersistenceProvider),
   ];
 }

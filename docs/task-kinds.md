@@ -553,6 +553,27 @@ Step 2 alone is enough if the task is not yet stranded.
 
 ---
 
+## Parked tasks: the `auto-expired` tag and the reopen path (mt#5131)
+
+`CLOSED` carries one more meaning than "abandoned or superseded by hand": the backlog
+remainder's disposition (RFC `3ae937f0` Phase 1). An open task that is untouched for 90+ days
+(`updated_at`), not owned by a session (`IN-PROGRESS` / `IN-REVIEW`), not a container or claim
+kind (`umbrella`, `work-package`), and matched by **no live standing pointing** is **parked**:
+`→ CLOSED`, tagged `auto-expired`, and its spec gains an `## Auto-expired (<date>)` section naming
+the pointing ids it was checked against. The tag plus the section are what distinguish a park from a
+hand-close; a hand-closed task is never touched.
+
+A parked task **comes back on its own**: when a live pointing's query matches it — on the daily
+sweep, or immediately inside `tasks pointings declare` for the new pointing's query — it takes the
+`CLOSED → TODO` reopen edge every kind carries, loses the tag, and gains a
+`## Resurrected (<date>) by pointing <id>` section.
+
+Two guards: with **zero live pointings nothing is parked** ("outside every live pointing" is vacuous
+then), and the scheduled sweep parks at most `REMAINDER_EXPIRY_TICK_CAP` (50) per tick. Where it
+runs and how to run it by hand: `docs/standing-pointings.md §The remainder`.
+
+---
+
 ## Cross-references
 
 - `mt#1812` — this feature's tracking task

@@ -238,6 +238,7 @@ const REGISTERED_TOOL_IDS: readonly string[] = [
   "tasks.embeddings-repair",
   "tasks.embeddings-status",
   "tasks.estimate",
+  "tasks.expire-remainder",
   "tasks.get",
   "tasks.index-embeddings",
   "tasks.list",

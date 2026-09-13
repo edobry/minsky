@@ -354,6 +354,7 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   "tasks.pointings.archive": "mutates",
   "tasks.pointings.list": "reads",
   "tasks.pointings.candidates": "reads",
+  "tasks.expire-remainder": "mutates",
   "tasks.available": "reads",
   "tasks.children": "reads",
   "tasks.claims.list": "reads",

@@ -2725,6 +2725,22 @@
               "commandId": "tasks.pointings.candidates"
             }
           ]
+        },
+        {
+          "name": "expire-remainder",
+          "description": "The backlog remainder's disposition (RFC 3ae937f0 Phase 1, mt#5131): open tasks untouched 90+ days and matching NO live standing pointing are parked — CLOSED, tagged auto-expired, spec annotated — and parked tasks a live pointing now matches are reopened (CLOSED -> TODO). Dry-run by default. With zero live pointings nothing is parked: the plan reports what WOULD park under parkingSuspended.",
+          "options": [
+            {
+              "flags": ["--execute"],
+              "description": "Apply the plan. Default is a dry-run that prints the park and resurrect id lists and writes nothing. The first --execute is a bulk shared-state mutation: run it under its wrapper task (mt#5138) after comparing the dry-run against the recorded count."
+            },
+            {
+              "flags": ["--cap"],
+              "description": "Maximum parks this run (resurrection is never capped). Omitted = uncapped; the ops loop passes its own cap.",
+              "takesValue": true
+            }
+          ],
+          "commandId": "tasks.expire-remainder"
         }
       ]
     },
