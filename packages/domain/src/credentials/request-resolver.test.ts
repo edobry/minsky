@@ -236,10 +236,13 @@ describe("createCredentialRequestResolverDeps — closing takes the legal path",
    *
    * The first version of this docblock justified that with "the router takes the
    * `asap` path and every credential request lands in `routed`", which is false —
-   * `createAsk` resolves the per-kind default onto the row before the router runs,
-   * and `authorization.approve` defaults to `deadline-bound`. Recorded rather than
-   * quietly replaced, because the conclusion (query both) was right while the
-   * reason attached to it was not, and that pairing survives review.
+   * an operator-bound ask is PERSISTED as `suspended` whatever the router says
+   * (`routeResultToOutcomeWrite`), and `routed` is reachable only as a stranded
+   * mid-walk state. (Its second version blamed the `deadline-bound` default
+   * instead; mt#4427 re-defaulted the kind to `asap` and the row still lands in
+   * `suspended`, which is what exposed that reason as wrong too.) Recorded rather
+   * than quietly replaced, because the conclusion (query both) was right while
+   * the reason attached to it was not, twice, and that pairing survives review.
    * See `./request-resolver.ts`'s CANDIDATE_STATES comment for the full path.
    */
   it("queries BOTH states — narrowing to either one is the regression", async () => {

@@ -478,12 +478,12 @@ separate `principal_notify` call for it** — that second remembered call is exa
 was dropped in both recorded occurrences, once three days after this rule shipped as
 always-loaded text with the text verbatim in context.
 
-Also pass `forceImmediate: true`, but understand it as a **separate, independent** setting: the
-two fields do different jobs and neither gates the other. `severity` controls whether the
-principal is NOTIFIED; `forceImmediate` controls whether the ask waits for the next service
-window before landing in the inbox. A severity ask without `forceImmediate` still notifies
-immediately — you just get an inbox entry that is queued when the principal goes looking for it.
-Set both: the notification should not lead to an ask that is not there yet.
+**`forceImmediate` is no longer part of this (mt#4427).** This paragraph used to say to pass
+`forceImmediate: true` as well, because it "controls whether the ask waits for the next service
+window before landing in the inbox". No ask waits any more: the router's suspend branches were
+retired along with the service-window runtime (mt#4410, mt#4421, mt#4427), so every ask lands in
+the inbox at creation and the flag is a stored no-op. `severity: "incident"` alone is the whole
+instruction. The param is still accepted, so an older call that passes it does not fail.
 
 **What the substrate guarantees**, so you neither repeat nor second-guess it: exactly one
 notification per ask (the claim is a conditional write, so a repeat create or a later edit cannot
@@ -512,9 +512,8 @@ walked-away case. Do not omit it merely because the principal spoke recently —
 recurrence the last message was 39 minutes earlier, which is the walked-away case, not an active
 exchange.
 
-An ask on default routing (`serviceStrategy: deadline-bound`, `transport: inbox`) is not an
-escalation — it lands in the chat log and the inbox, both of which the principal has to go look
-at. Originating incidents: mt#3433 and mem#779 — a correctly diagnosed, correctly filed,
+An ask on default routing (`transport: inbox`) is not an escalation — it lands in the chat log
+and the inbox, both of which the principal has to go look at. Originating incidents: mt#3433 and mem#779 — a correctly diagnosed, correctly filed,
 correctly severity-reported incident still cost ~4h of avoidable downtime because no
 notification was sent. Full detail:
 `docs/rules-rationale/communication-contract.md §Severity transport binding`.

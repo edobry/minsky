@@ -115,7 +115,9 @@ OpenAI-billing top-up). The agent diagnosed the failure from logs, filed the inc
 (mt#3433), created an ask (`cb89ecf1` / ask#6575) with the billing link and clear options, and
 reported the incident at full severity in chat per `§Severity pierces the register` above. Then
 it stopped. The ask ran on DEFAULT routing — `serviceStrategy: deadline-bound`,
-`transport: inbox`, suspended into the ask-hours window — and no page went out. The operator
+`transport: inbox`, suspended into the ask-hours window (as the record read at the time; mt#4427
+later established that the router's verdict never changed where an inbox-bound ask landed, and
+retired the suspend branches) — and no page went out. The operator
 found it roughly four hours later in chat scroll and said: "you should have messaged me on
 Telegram and really tried to get my attention." `mcp__minsky__principal_notify` — described in
 its own tool text as "send the principal a message on their configured channel (Telegram)" — sat
@@ -151,6 +153,13 @@ inbox/scroll. For a severity-triggered, operator-only blocker, both are required
 `forceImmediate: true` on the ask (skips the service-window suspension) PLUS a
 `principal_notify` page pointing at it (closes the discovery gap for a principal who has stepped
 away).
+
+**Both halves of that prescription have since been superseded, and the rule text reflects it.**
+mt#3595 folded the page into `severity: "incident"` on the ask itself (one notification, no
+separate `principal_notify` call). mt#4427 then retired the router's suspend branches — no ask is
+held for a window any more, so `forceImmediate` is a stored no-op and the rule no longer instructs
+agents to pass it. The `missing-force-immediate` form-lint check (below) keeps its trigger for
+calibration continuity but its message now names `severity` as the whole instruction.
 
 ### Dedupe carve-out
 

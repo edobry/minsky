@@ -34,30 +34,27 @@ export { CREDENTIAL_REQUEST_RESPONDER } from "./request";
  * not narrow it to whichever one you observe today.**
  *
  * `buildCredentialRequestAsk` sets no `serviceStrategy`, and it is tempting to
- * read `router.ts`'s `ask.serviceStrategy ?? "asap"` and conclude these are
- * always `routed`. They are not. The full path, with citations so the next
- * reader can check it rather than take it on trust:
+ * read the router's immediate dispatch and conclude these are always `routed`.
+ * They are not, and the reason is the PERSIST step rather than the router:
  *
- * 1. `createAsk` (`src/adapters/shared/commands/asks.ts:1329`) resolves
- *    `params.serviceStrategy ?? kindDefaults.serviceStrategy` at `:1343` and
- *    writes it onto the row at `:1367` — BEFORE the router runs.
- * 2. `SERVICE_WINDOW_DEFAULTS["authorization.approve"]`
- *    (`../ask/service-window-defaults.ts:115-117`) is `"deadline-bound"`, and
- *    that is this request's kind.
- * 3. `../ask/router.ts:479-510` therefore takes the deadline-bound branch, whose
- *    beyond-threshold case returns a `SuspendedAsk`.
+ * 1. `createAsk` (`src/adapters/shared/commands/asks.ts`) routes the ask, and
+ *    since mt#4427 the router returns a `routed` result for every strategy
+ *    (`SERVICE_WINDOW_DEFAULTS["authorization.approve"]` is now `"asap"`; it was
+ *    `"deadline-bound"`, whose beyond-threshold branch used to suspend).
+ * 2. `routeResultToOutcomeWrite` (`../ask/advancement.ts`) then persists an
+ *    operator-bound inbox result as `state: "suspended"` — `suspended` IS the
+ *    inbox state. So the row this request lands in is `suspended`, and the
+ *    router's verdict never changed that: before mt#4427 a suspended verdict
+ *    and a routed inbox verdict were written identically.
  *
- * So the router never sees an absent strategy: the `?? "asap"` is real and simply
- * never applies to this kind. Measured rather than traced — the real create path
- * against a fake repository returns `state: "suspended"`,
- * `serviceStrategy: "deadline-bound"`, `routingTarget: "operator"`.
- *
- * Which of the two a request lands in is also an OPEN QUESTION rather than a
- * fixed fact: **mt#4427** owns whether `deadline-bound` should keep suspending
- * at all now that the reaper which re-evaluated those deadlines was retired, and
- * two of its three candidate outcomes would put these asks back in `routed`.
- * A comment naming one state would be falsified by that decision; a set covering
- * both survives it either way.
+ * `routed` stays in the set because rows DO get stranded there: the state
+ * machine walks `detected → classified → routed → suspended` one transition at
+ * a time (`../ask/transports/elicitation.ts` `advanceToSuspended`, and the
+ * legacy per-transition walk before mt#2265), so a crash between the last two
+ * leaves a `routed` row — which is what PR #3264 R2 observed. An earlier
+ * version of this comment said two of mt#4427's candidate outcomes "would put
+ * these asks back in `routed`" — wrong for the reason in step 2, and recorded
+ * so the set is not narrowed on the strength of it.
  */
 const CANDIDATE_STATES: readonly AskState[] = ["routed", "suspended"];
 

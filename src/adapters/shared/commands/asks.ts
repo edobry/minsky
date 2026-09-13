@@ -852,25 +852,29 @@ export const asksCreateParams = {
     // Server-injected on the MCP path too (mt#4579).
     mcpHidden: true,
   },
-  // Service-window fields (mt#1411 spine — mt#1488)
+  // Service-window fields (mt#1411 spine — mt#1488). Stored, not routed on,
+  // since mt#4427 retired the router's suspend branches; the params stay
+  // accepted so existing callers keep validating.
   serviceStrategy: {
     schema: z.enum(["asap", "scheduled", "deadline-bound"] as const).optional(),
     description:
-      "Routing strategy: 'asap' (default) | 'scheduled' | 'deadline-bound'. " +
-      "When absent, per-kind defaults apply.",
+      "Recorded on the ask; does not affect routing (mt#4427 — every value dispatches " +
+      "immediately). Accepted values: 'asap' (the default for every kind) | 'scheduled' | " +
+      "'deadline-bound'.",
     required: false,
   },
   windowKey: {
     schema: z.string().optional(),
     description:
-      "Named service window (e.g. 'ask-hours'). Only used when serviceStrategy='scheduled'.",
+      "Recorded on the ask; does not affect routing (mt#4427). Only accepted alongside " +
+      "serviceStrategy='scheduled'.",
     required: false,
   },
   forceImmediate: {
     schema: z.boolean().optional(),
     description:
-      "When true, bypass the window check and route immediately. " +
-      "Use only for critical-path unblocking.",
+      "No-op since mt#4427: every ask already routes immediately, so there is nothing to " +
+      "bypass. Recorded on the ask. To page the principal, use severity='incident'.",
     required: false,
   },
   severity: {
@@ -1366,7 +1370,8 @@ export interface CreateAskParams {
  * Return shape (`RoutedAsk | SuspendedAsk | ElicitationClosedAsk`):
  *   - Policy coverage  → `state: "closed"` (RoutedAsk shape, transport=policy)
  *   - Async transport  → `state: "routed"` (RoutedAsk shape, transport=inbox/mesh/subagent/retriever)
- *   - Window-deferred  → `state: "suspended"` (SuspendedAsk, pending window open via reaper)
+ *   - Operator-bound   → `state: "suspended"` (SuspendedAsk shape, reconciled from the persisted
+ *                        row — the inbox state; the router itself no longer suspends, mt#4427)
  *   - Elicitation accept → `state: "closed"` (ElicitationClosedAsk, response populated)
  *   - Elicitation decline/cancel → `state: "cancelled"` (ElicitationClosedAsk, no response)
  *   - Elicitation dispatch error → `state: "suspended"` (ElicitationClosedAsk, no response)
@@ -1377,9 +1382,9 @@ export interface CreateAskParams {
  *   - For async transports: row stays at "detected"; downstream transport
  *     adapter (mt#1070 subagent, mt#454 inbox, etc.) walks the state
  *     machine. This matches Tree A's existing semantics in mt#1069/mt#1070.
- *   - For window-deferred asks: row is immediately walked to "suspended" via
- *     `advanceRoutedAskToSuspended`. The reaper (mt#1490) wakes it when the
- *     window opens by transitioning to "routed" and dispatching.
+ *   - For operator-bound asks (inbox / elicitation fallback): the row is
+ *     persisted as "suspended" — waiting on the operator, visible on the
+ *     cockpit /asks surface. Nothing wakes it but a response (mt#4427).
  *   - For elicitation: walks the state machine end-to-end. The repo state
  *     after this call always matches the returned object's state.
  *   - Per `Ask.response`'s contract in `types.ts`, `response` is only

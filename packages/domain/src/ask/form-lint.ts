@@ -61,6 +61,16 @@
  * own history) says a new check earns a blocking leg from measured fires,
  * not from an author's confidence at authoring time.
  *
+ * **`forceImmediate` became a no-op at mt#4427, and this check's TRIGGER was
+ * left alone on purpose.** The router's suspend branches are gone, so no ask
+ * is held for a window and the flag changes nothing. The check still keys on
+ * the flag's absence because re-keying it on `severity` IS the successor the
+ * paragraph above defers, and swapping the predicate would reset the
+ * calibration history the ladder needs. What changed is the MESSAGE: it no
+ * longer tells the author the flag prevents holding, and names `severity`
+ * as the whole instruction. The check's remaining value is that reminder;
+ * the re-key is queued as its own task.
+ *
  * **A seventh check, blocking from the start (mt#3477).**
  * `missing-decision-options` fires when a decision-shaped ask
  * (`direction.decide`) is created with no options — absent array or empty
@@ -842,12 +852,13 @@ export function computeFormLintMatches(input: FormLintInput): FormLintMatch[] {
     matches.push({
       check: "missing-force-immediate",
       message:
-        "question reads like an operator-only incident but forceImmediate is not set — " +
-        "pass forceImmediate: true so it is not held for the next service window, and " +
+        "question reads like an operator-only incident — pass " +
         'severity: "incident" so the substrate notifies the principal once (mt#3595). ' +
         "Do NOT also send a separate principal_notify — the ask carries its own " +
-        "notification now. Skip both only when the principal is already actively " +
-        "responding in-conversation (communication-contract.mdc §Severity transport binding)",
+        "notification. (This check keys on forceImmediate being unset; since mt#4427 " +
+        "that flag is a stored no-op, so setting it changes nothing — severity is the " +
+        "whole instruction.) Skip when the principal is already actively responding " +
+        "in-conversation (communication-contract.mdc §Severity transport binding)",
     });
   }
 
