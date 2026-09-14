@@ -437,7 +437,10 @@ Navigate to your main workspace and try again:
     const taskSpec = createTaskFromDescription(description);
     const createdTask = await deps.taskService.createTaskFromTitleAndSpec(
       taskSpec.title,
-      taskSpec.description
+      taskSpec.description,
+      // mt#5136: a session that mints its own task from `--description` is an
+      // agent channel — the same actor that starts the session files it.
+      { origin: "agent" }
     );
     taskId = createdTask.id;
     // Auto-created tasks skip planning and go straight to READY

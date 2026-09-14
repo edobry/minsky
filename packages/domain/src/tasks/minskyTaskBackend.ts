@@ -21,6 +21,7 @@ import type {
   StatusWriteOutcome,
 } from "./types";
 import type { TaskSpecContentResult } from "./taskService";
+import type { TaskOrigin } from "../provenance/types";
 import { isAllProjects } from "../project/scope";
 import { log } from "@minsky/shared/logger";
 import {
@@ -257,6 +258,7 @@ export class MinskyTaskBackend implements TaskBackend {
           kind,
           backend: this.name,
           tags,
+          origin: options?.origin ?? null,
           createdAt: insertedAt,
           updatedAt: insertedAt,
         };
@@ -315,6 +317,9 @@ export class MinskyTaskBackend implements TaskBackend {
           // a boot singleton. Without this seam a task whose subject belongs to
           // another project could only ever be stamped with the server's.
           projectId: options?.projectId ?? this.currentProjectId ?? null,
+          // Creation channel (mt#5136): whatever the filing code path stamped;
+          // an omission lands as NULL ("unknown"), never as a guessed value.
+          origin: options?.origin ?? null,
         })
         .onConflictDoNothing()
         .returning({ id: tasksTable.id });
@@ -380,6 +385,9 @@ export class MinskyTaskBackend implements TaskBackend {
           // a boot singleton. Without this seam a task whose subject belongs to
           // another project could only ever be stamped with the server's.
           projectId: options?.projectId ?? this.currentProjectId ?? null,
+          // Creation channel (mt#5136): whatever the filing code path stamped;
+          // an omission lands as NULL ("unknown"), never as a guessed value.
+          origin: options?.origin ?? null,
         })
         .onConflictDoNothing()
         .returning({ id: tasksTable.id });
@@ -416,6 +424,7 @@ export class MinskyTaskBackend implements TaskBackend {
       kind,
       backend: this.name,
       tags,
+      origin: options?.origin ?? null,
       createdAt: now,
       updatedAt: now,
     };
@@ -597,6 +606,7 @@ export class MinskyTaskBackend implements TaskBackend {
     createdAt?: Date | null;
     updatedAt?: Date | null;
     projectId?: string | null;
+    origin?: TaskOrigin | null;
   }): Task {
     let tags: string[] = [];
     if (row.tags) {
@@ -614,6 +624,7 @@ export class MinskyTaskBackend implements TaskBackend {
       backend: this.name,
       tags,
       projectId: row.projectId ?? null,
+      origin: row.origin ?? null,
       ...(row.createdAt ? { createdAt: row.createdAt } : {}),
       ...(row.updatedAt ? { updatedAt: row.updatedAt } : {}),
     };

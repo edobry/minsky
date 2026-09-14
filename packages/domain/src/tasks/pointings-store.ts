@@ -14,7 +14,7 @@ import { tasksTable, taskSpecsTable } from "../storage/schemas/task-embeddings";
 import { taskRelationshipsTable } from "../storage/schemas/task-relationships";
 import { pointingsTable, type PointingQuery } from "../storage/schemas/pointings-schema";
 import { ALL_PROJECTS, type ProjectScope } from "../project/scope";
-import { computeAutonomyClass } from "./autonomy-class";
+import { computeAutonomyClass, humanOriginFromChannel } from "./autonomy-class";
 import { loadAutonomySpecSignals } from "./autonomy-class-store";
 import { isTerminal } from "./workflows";
 import {
@@ -259,7 +259,10 @@ async function loadCandidateRows(
       tags: tasksTable.tags,
       updatedAt: tasksTable.updatedAt,
       createdAt: tasksTable.createdAt,
-      origin: sql<string | null>`substring(${taskSpecsTable.content} from 1 for 4000)`,
+      // The creation channel (mt#5136) — NOT the `Origin:` line, which is read
+      // from the spec head below.
+      origin: tasksTable.origin,
+      specHead: sql<string | null>`substring(${taskSpecsTable.content} from 1 for 4000)`,
     })
     .from(tasksTable)
     .leftJoin(taskSpecsTable, eq(taskSpecsTable.taskId, tasksTable.id))
@@ -279,7 +282,8 @@ async function loadCandidateRows(
       // Both default to now() on insert; a legacy NULL falls back to createdAt, then to
       // "touched now" rather than epoch zero, which would read as decades untouched.
       updatedAtMs: touchedAtMs(r.updatedAt, r.createdAt, nowMs),
-      originLine: originLineOf(r.origin),
+      originLine: originLineOf(r.specHead),
+      origin: r.origin ?? null,
     };
     if (isPointingCandidateRow(row)) rows.push(row);
   }
@@ -376,7 +380,7 @@ export async function computeCandidateSet(
       tags: row.tags,
       title: row.title,
       spec: specSignals.get(row.id),
-      humanOrigin: undefined,
+      humanOrigin: humanOriginFromChannel(row.origin),
     }).class;
   };
   const set = selectCandidates(matched, signals, { ...options, nowMs, classOf });

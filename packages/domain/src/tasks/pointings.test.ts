@@ -27,6 +27,7 @@ function row(id: string, over: Partial<PointingTaskRow> = {}): PointingTaskRow {
     parentId: null,
     updatedAtMs: NOW_MS - 3 * DAY_MS,
     originLine: null,
+    origin: null,
     ...over,
   };
 }

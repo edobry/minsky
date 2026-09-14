@@ -4,6 +4,7 @@
 import { z } from "zod";
 import { commonCommandOptionsSchema, taskIdSchema, flagSchema } from "./common";
 import { TASK_STATUS_VALUES } from "../tasks/taskConstants";
+import { TASK_ORIGIN_VALUES } from "../provenance/types";
 
 /**
  * Valid task statuses
@@ -228,6 +229,16 @@ export const taskCreateFromTitleAndSpecParamsSchema = z
       .uuid()
       .optional()
       .describe("Internal: project uuid resolved for this create (mt#4808)"),
+    // mt#5136: the channel filing the task, stamped by the CODE PATH that
+    // calls this (the shared `tasks.create` command → `agent`; a loop →
+    // `automated`). Same posture as `projectId` above — not a caller-facing
+    // parameter: `tasks.create`'s params map does not declare it, so an MCP
+    // caller passing `origin` is rejected as undeclared (mt#2778), and a
+    // producer can never claim `human` for itself.
+    origin: z
+      .enum(TASK_ORIGIN_VALUES)
+      .optional()
+      .describe("Internal: the channel creating the task (mt#5136)"),
   })
   .extend(commonCommandOptionsSchema.shape)
   .refine((data) => data.spec, {

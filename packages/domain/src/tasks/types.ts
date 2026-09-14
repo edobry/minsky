@@ -7,6 +7,7 @@
 import type { GitServiceInterface } from "../git/types";
 import type { FsLike } from "../interfaces/fs-like";
 import type { ProjectScope } from "../project/scope";
+import type { TaskOrigin } from "../provenance/types";
 
 /**
  * What a status write actually did, as reported by the backend's own store (mt#4457).
@@ -121,6 +122,13 @@ export interface Task {
    * `/api/projects` list (mt#4729) rather than a second join here.
    */
   projectId?: string | null;
+  /**
+   * The channel that created the task (mt#5136): `human`, `agent`, or
+   * `automated`, stamped by the creating code path. `null` for a row that
+   * predates the column (unknown, which the autonomy classifier reads as
+   * not-human); absent on backends that do not store it (GitHub Issues).
+   */
+  origin?: TaskOrigin | null;
   metadata?: Record<string, unknown>;
   spec?: string;
   tags?: string[];
@@ -212,6 +220,15 @@ export interface CreateTaskOptions {
    * task's project → filing context.
    */
   projectId?: string;
+  /**
+   * The channel creating the task (mt#5136). Set by the CODE PATH that files
+   * it — the shared `tasks.create` command stamps `agent`, a loop stamps
+   * `automated` — never forwarded from a caller's payload: the shared
+   * command declares no `origin` parameter, so the MCP boundary rejects one
+   * (mt#2778). Omitted → NULL on the row ("unknown"), which the autonomy
+   * classifier already treats as not-human, so a forgotten site fails safe.
+   */
+  origin?: TaskOrigin;
 }
 
 /**

@@ -24,6 +24,7 @@ import {
   LOCAL_APP_DEPLOY_SURFACE_PATTERNS,
 } from "../deployment/deploy-surface";
 import { POINTING_AUTONOMY_CLASSES } from "../storage/schemas/pointings-schema";
+import type { TaskOrigin } from "../provenance/types";
 
 export const TASK_AUTONOMY_CLASSES = [...POINTING_AUTONOMY_CLASSES, "unknown"] as const;
 export type TaskAutonomyClass = (typeof TASK_AUTONOMY_CLASSES)[number];
@@ -61,12 +62,26 @@ export interface AutonomyInput {
   title: string;
   spec: AutonomySpecSignals | undefined;
   /**
-   * Human-origin evidence. `undefined` means no evidence exists — today's
-   * production value, since nothing records a task's origin (mt#5136 adds
-   * it). Default-deny applies to the signal itself: only `true` can reach
-   * `contained`.
+   * Human-origin evidence, derived from the row's creation channel
+   * (`tasks.origin`, mt#5136) by `humanOriginFromChannel`. `undefined` means
+   * no evidence exists — a row that predates the column. Default-deny applies
+   * to the signal itself: only `true` can reach `contained`. No channel
+   * writes `human` yet (mt#5161), so the class stays empty until one does.
    */
   humanOrigin: boolean | undefined;
+}
+
+/**
+ * Map a task row's creation channel (`tasks.origin`) to the classifier's
+ * human-origin evidence. Only `human` is evidence FOR; `agent` and
+ * `automated` are evidence AGAINST; a NULL row (predates the column) is no
+ * evidence at all — which the classifier already treats as not-human, so the
+ * two non-`human` readings resolve the same way and differ only in the reason
+ * a reader sees. Kept as a function so the three call sites cannot drift.
+ */
+export function humanOriginFromChannel(origin: TaskOrigin | null | undefined): boolean | undefined {
+  if (origin == null) return undefined;
+  return origin === "human";
 }
 
 // ─── Signals ─────────────────────────────────────────────────────────────────

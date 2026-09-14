@@ -140,6 +140,9 @@ export async function fileProposal(
   const newTask = await deps.taskService.createTaskFromTitleAndSpec(title, spec, {
     status: "TODO",
     tags: [ENGPROD_PROPOSAL_TAG],
+    // mt#5136: the miner is a loop, not an agent in a conversation — the
+    // row records that it filed itself, and can never read as human-origin.
+    origin: "automated",
   });
   await deps.ledgerService.recordProposed(cluster, newTask.id);
   return { filed: true, taskId: newTask.id };
