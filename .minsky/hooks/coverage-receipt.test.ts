@@ -237,6 +237,38 @@ describe("readCalibrationEntries", () => {
     const entries = readCalibrationEntries(LOG_PATH, fs);
     expect(entries.length).toBe(1);
   });
+
+  // mt#4984 SC1: 17 of the 52 live logs stamp `ts`, not `timestamp`. Reading
+  // one spelling dropped every record of theirs at parse, before the window
+  // ran, and the check reported the healthy `[DORMANT]` for detectors firing
+  // thousands of times a week.
+  test("mt#4984 SC1: a `ts`-stamped entry parses to the same date as a `timestamp`-stamped one", () => {
+    const spelledTimestamp = liveEntry(1);
+    const { timestamp, ...rest } = spelledTimestamp;
+    const spelledTs = { ...rest, ts: timestamp };
+    const raw = `${JSON.stringify(spelledTimestamp)}\n${JSON.stringify(spelledTs)}\n`;
+    const fs = makeReadOnlyFs({ [LOG_PATH]: raw });
+    const entries = readCalibrationEntries(LOG_PATH, fs);
+    expect(entries.length).toBe(2);
+    expect(entries[0]?.timestamp).toBe(timestamp);
+    expect(entries[1]?.timestamp).toBe(timestamp);
+    expect(entries[1]?.timestamp).not.toBe("");
+    // Both spellings present: `timestamp` wins.
+    const both = { ...rest, timestamp, ts: "1999-01-01T00:00:00.000Z" };
+    const [entry] = readCalibrationEntries(
+      LOG_PATH,
+      makeReadOnlyFs({ [LOG_PATH]: `${JSON.stringify(both)}\n` })
+    );
+    expect(entry?.timestamp).toBe(timestamp);
+  });
+
+  test("mt#4984: a `ts`-stamped live fire inside the window is a coverage receipt, not DORMANT", () => {
+    const { timestamp, ...rest } = liveEntry(1);
+    const fs = makeReadOnlyFs({ [LOG_PATH]: `${JSON.stringify({ ...rest, ts: timestamp })}\n` });
+    const r = checkDetectorCoverage(DETECTOR, { logPath: LOG_PATH, fs, now: fixedNow });
+    expect(r.flagged).toBe(false);
+    expect(r.liveFireCount).toBe(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

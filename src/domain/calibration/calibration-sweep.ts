@@ -191,10 +191,13 @@ export interface CalibrationLogEntry {
    *     reason?} (mt#2292 `record-agent-dispatch.ts`, via the ADR-028 §D4
    *     dispatcher's `logCalibrationRecord`) — an outcome-status record, no
    *     `matches` array.
-   *   "chained-verification-commands" → {timestamp, session_id, outcome}
+   *   "chained-verification-commands" → {ts, sessionId, outcome}
    *     (mt#3910 `chained-verification-commands-detector.ts`, same D4 write
-   *     path) — an outcome-status record, no `matches` array.
-   *   "truncated-outcome-read"        → {timestamp, session_id, outcome,
+   *     path) — an outcome-status record, no `matches` array. This entry and
+   *     the next two used to read `{timestamp, session_id, …}`; measured
+   *     2026-09-14 (mt#4984), all three write `ts` + `sessionId`, and
+   *     `readRecordTimestamp` accepts either spelling.
+   *   "truncated-outcome-read"        → {ts, sessionId, outcome,
    *     mutatingCommand?, filter?} (mt#4096
    *     `truncated-outcome-read-detector.ts`, same D4 write path) — an
    *     outcome-status record, no `matches` array. The two extra fields carry
@@ -209,7 +212,7 @@ export interface CalibrationLogEntry {
    *     CLEAN records too, and is the only measurement of what the detector's
    *     deliberate silence rules cost — a relative path under `session_exec`, a
    *     path behind a `cd`, a glob, a variable. Read it when reviewing recall.
-   *   "duplicate-signature-scan"      → {timestamp, session_id, outcome,
+   *   "duplicate-signature-scan"      → {ts, sessionId, outcome,
    *     matches?: {taskId, status, token, rule, excerpt}[]} (mt#3722
    *     `duplicate-signature-scan.ts`, same D4 write path) — HAS a `matches`
    *     array, but its per-match keys (`taskId`/`token`/`rule`/`excerpt`) are
@@ -1702,6 +1705,26 @@ export const FINDINGS_FREE_CALIBRATION_LOGS: Record<string, string> = {
     "listed here so the verdict is declared rather than inferred from that path.",
 };
 
+/**
+ * The record's timestamp under EITHER spelling (mt#4984). ADR-028 §D4's shared
+ * schema names the field `timestamp`, and 35 of the 52 live logs write it;
+ * the other 17 — every log on the D4 dispatcher's outcome convention, plus
+ * `agent-dispatch-record` — write `ts`. Reading `timestamp` alone dated NONE of
+ * those logs' records: `firstRecordTimestamp` was `""` for all seventeen, so
+ * the three time-anchored review-due legs (`never-reviewed`, `time-stale`,
+ * `never-fired`) skipped them forever and `past-threshold` was the only way
+ * in — which `duplicate-signature-scan`, at 355 injected fires and one
+ * distinct phrase, could never take. mt#5048 taught ONE branch (the outcome
+ * convention) to read `ts`; this reads it everywhere a record is dated, so a
+ * `matches`-bearing fire in the shared fallback is dated the same as the clean
+ * record beside it. `timestamp` wins when both are present. The ~46,000 `ts`
+ * records already on disk are why the readers accept both rather than the
+ * writers being migrated first — that migration is its own task.
+ */
+export function readRecordTimestamp(raw: Record<string, unknown>): string {
+  return String(raw["timestamp"] ?? raw["ts"] ?? "");
+}
+
 function parseCalibrationRecordCore(
   raw: Record<string, unknown>,
   kind: CalibrationLogEntry["kind"]
@@ -1712,7 +1735,7 @@ function parseCalibrationRecordCore(
       //          transcript_excerpt? }
       if (!Array.isArray(raw["matchedPhrases"])) return null;
       return {
-        timestamp: String(raw["timestamp"] ?? ""),
+        timestamp: readRecordTimestamp(raw),
         session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
         matchedPhrases: (raw["matchedPhrases"] as unknown[]).map(String),
         hadSameTurnVerification: Boolean(raw["hadSameTurnVerification"]),
@@ -1759,7 +1782,7 @@ function parseCalibrationRecordCore(
           })
         : [];
       return {
-        timestamp: String(raw["timestamp"] ?? ""),
+        timestamp: readRecordTimestamp(raw),
         session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
         fired: Boolean(raw["fired"]),
         matches,
@@ -1780,7 +1803,7 @@ function parseCalibrationRecordCore(
           })
         : [];
       return {
-        timestamp: String(raw["timestamp"] ?? ""),
+        timestamp: readRecordTimestamp(raw),
         session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
         claims,
         hadSameTurnRead: Boolean(raw["hadSameTurnRead"]),
@@ -1806,7 +1829,7 @@ function parseCalibrationRecordCore(
           })
         : undefined;
       return {
-        timestamp: String(raw["timestamp"] ?? ""),
+        timestamp: readRecordTimestamp(raw),
         session_id: raw["sessionId"] !== undefined ? String(raw["sessionId"]) : undefined,
         toolName: raw["toolName"] !== undefined ? String(raw["toolName"]) : undefined,
         reason: raw["reason"],
@@ -1825,7 +1848,7 @@ function parseCalibrationRecordCore(
         return null;
       }
       return {
-        timestamp: String(raw["timestamp"] ?? ""),
+        timestamp: readRecordTimestamp(raw),
         session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
         gapMinutes: raw["gapMinutes"],
         toolCallCount: raw["toolCallCount"],
@@ -1845,7 +1868,7 @@ function parseCalibrationRecordCore(
       // appends (mt#2923). Same matched-phrase shape family as causal-premise.
       if (!Array.isArray(raw["matchedPhrases"])) return null;
       return {
-        timestamp: String(raw["timestamp"] ?? ""),
+        timestamp: readRecordTimestamp(raw),
         session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
         matchedPhrases: (raw["matchedPhrases"] as unknown[]).map(String),
         deploySurfaceFiles: Array.isArray(raw["deploySurfaceFiles"])
@@ -1863,7 +1886,7 @@ function parseCalibrationRecordCore(
         return null;
       }
       return {
-        timestamp: String(raw["timestamp"] ?? ""),
+        timestamp: readRecordTimestamp(raw),
         session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
         wordCount: raw["wordCount"],
         lineCount: typeof raw["lineCount"] === "number" ? raw["lineCount"] : 0,
@@ -1901,7 +1924,7 @@ function parseCalibrationRecordCore(
       // diversity axis (see extractDistinctPhrases).
       if (!Array.isArray(raw["loadedSkills"])) return null;
       return {
-        timestamp: String(raw["timestamp"] ?? ""),
+        timestamp: readRecordTimestamp(raw),
         session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
         detectionRung: String(raw["detectionRung"] ?? ""),
         researchTools: Array.isArray(raw["researchTools"])
@@ -1919,7 +1942,7 @@ function parseCalibrationRecordCore(
       // diversity axis (see extractDistinctPhrases).
       if (!Array.isArray(raw["targets"])) return null;
       return {
-        timestamp: String(raw["timestamp"] ?? ""),
+        timestamp: readRecordTimestamp(raw),
         session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
         targets: (raw["targets"] as unknown[]).map((t) => {
           const obj = t as Record<string, unknown>;
@@ -1965,7 +1988,7 @@ function parseCalibrationRecordCore(
     if (!Array.isArray(raw["matches"]) && typeof raw["outcome"] === "string") {
       const outcome = String(raw["outcome"]);
       const base = {
-        timestamp: String(raw["timestamp"] ?? raw["ts"] ?? ""),
+        timestamp: readRecordTimestamp(raw),
         // BOTH spellings, and camelCase is the one that actually matters here
         // (PR #3709 R1). Measured over the live logs: **zero** of the 15
         // outcome-convention logs write `session_id` — all 32,763 records use
@@ -2044,7 +2067,7 @@ function parseCalibrationRecordCore(
         })
       : [];
     return {
-      timestamp: String(raw["timestamp"] ?? ""),
+      timestamp: readRecordTimestamp(raw),
       // Both spellings, same reason as the outcome branch above (PR #3709 R1),
       // applied to the CLASS rather than the one instance the review named.
       // Measured: `duplicate-signature-scan` reaches this fallback with 284
