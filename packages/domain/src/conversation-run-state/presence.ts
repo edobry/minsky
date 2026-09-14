@@ -158,8 +158,9 @@ function mapNeedsInputReason(raw: string): NeedsInputReason {
  *
  * ## Why `ENDED` is never derived from silence alone
  *
- * `ended_hint_at` is a HINT: `/exit` and `/clear` do not fire `SessionEnd`
- * (ADR-017; Claude Code issues #17885, #6428), so its ABSENCE proves nothing.
+ * `ended_hint_at` is a HINT: a crash or SIGKILL never fires `SessionEnd` and
+ * `/exit` is unmeasured (`/clear` does fire it — ADR-017 as amended by
+ * mt#2313), so its ABSENCE proves nothing.
  * The symmetric point is what this function acts on — silence proves nothing
  * about ending EITHER. A conversation that finished a turn and went quiet for a
  * week is reported `IDLE · quiet 7d`, not `ENDED`: "last we observed, it had

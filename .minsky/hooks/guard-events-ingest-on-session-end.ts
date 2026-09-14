@@ -3,9 +3,10 @@
 // phase 3) so the guard/calibration exhaust becomes queryable promptly.
 //
 // THE SWEEP IS THE CORRECTNESS LAYER; THIS HOOK IS A LATENCY OPTIMIZATION
-// ONLY. Per ADR-017 and mt#2313, SessionEnd does not fire (or complete) on
-// `/exit`, `/clear`, or an async kill — so this hook covers only the subset
-// of turns that end cleanly. Completeness comes from the periodic cockpit
+// ONLY. Per ADR-017 as amended by mt#2313, SessionEnd never fires on a crash
+// or SIGKILL, can be killed mid-run by a tab-close SIGHUP, and is unmeasured
+// for `/exit` (it does fire on `/clear`) — so this hook covers only the
+// conversations whose end delivers the event. Completeness comes from the periodic cockpit
 // sweeper (`startGuardEventsSweepBackstop`, `src/cockpit/sweepers.ts`), which
 // calls the exact same `guard-events.ingest` command on a fixed cadence
 // regardless of whether any SessionEnd event ever fires. Mirrors

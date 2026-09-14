@@ -158,7 +158,7 @@ export const SETTINGS_REGISTERED_DESCRIPTIONS: readonly (readonly [
     "guard-events-ingest-on-session-end",
     {
       description:
-        "Runs one guard-events ingest tick at SessionEnd so the guard and calibration exhaust becomes queryable promptly. Latency only — SessionEnd does not fire on `/exit`, `/clear` or a kill, so the cockpit's periodic sweep is the layer that makes ingest complete.",
+        "Runs one guard-events ingest tick at SessionEnd so the guard and calibration exhaust becomes queryable promptly. Latency only — SessionEnd never fires on a crash or kill and is unmeasured for `/exit` (it does fire on `/clear`; mt#2313), so the cockpit's periodic sweep is the layer that makes ingest complete.",
       failureClasses: ["lost-signal"],
       provenance: [hook("guard-events-ingest-on-session-end")],
       stratum: "standalone",

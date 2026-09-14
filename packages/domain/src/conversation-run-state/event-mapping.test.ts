@@ -124,8 +124,9 @@ describe("mapHookEventToRunState", () => {
     expect(patch.endedHintAt).toEqual(AT);
     expect(patch.endedHintReason).toBe("clear");
     // Guard against a future edit promoting the hint into an activity claim:
-    // /exit and /clear do not fire SessionEnd at all (ADR-017), so anything
-    // derived from its presence would be wrong for the cleanest exits.
+    // a crash or SIGKILL never fires SessionEnd and /exit is unmeasured (ADR-017
+    // as amended by mt#2313), so anything derived from its presence would be
+    // wrong for the exits that never deliver it.
     expect(patch.activity).toBeUndefined();
   });
 

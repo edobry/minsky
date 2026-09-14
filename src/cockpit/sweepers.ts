@@ -2856,8 +2856,9 @@ async function buildRealGuardEventsSweepDeps(): Promise<GuardEventsSweepDeps | n
  *
  * THE CORRECTNESS LAYER for this ingest — per ADR-017/mt#2313, the SessionEnd
  * hook (`.minsky/hooks/guard-events-ingest-on-session-end.ts`) is a latency
- * optimization only, since SessionEnd does not fire (or complete) on
- * `/exit`, `/clear`, or an async kill. This sweep runs on a fixed cadence
+ * optimization only, since SessionEnd never fires on a crash or SIGKILL, can
+ * be killed mid-run by a tab-close SIGHUP, and is unmeasured for `/exit` (it
+ * does fire on `/clear`; mt#2313). This sweep runs on a fixed cadence
  * regardless of any SessionEnd event, so completeness does not depend on how
  * a conversation happened to end. Every stream's dedupe key makes a full
  * re-scan (a dropped/invalid HWM cursor) SAFE — the same property that makes

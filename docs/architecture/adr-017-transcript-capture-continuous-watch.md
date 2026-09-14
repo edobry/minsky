@@ -33,6 +33,19 @@ reasons grounded in how Claude Code actually behaves:
   toward clean exits would make capture _less_ reliable, not more. Any design that depends on
   user exit behavior is building on sand.
 
+  > **Amended 2026-09-14 (mt#2313) — half of the inverted finding was wrong.** `/clear` DOES
+  > fire SessionEnd, with `reason: "clear"`: measured 2026-09-13 in
+  > `conversation_run_state.ended_hint_reason` (written by `record-conversation-run-state.ts`
+  > on every delivery) — 340 `clear` rows between 2026-07-29 and 2026-09-13, beside `other`
+  > 369, `prompt_input_exit` 50, `logout` 1, `resume` 0; and the hooks reference
+  > (`https://code.claude.com/docs/en/hooks`) lists `clear` and `resume` among the `reason`
+  > values. The issues this paragraph cites described an older Claude Code. `/exit` remains
+  > UNMEASURED — no `reason` value distinguishes it (`other` may include it). The conclusion
+  > below is unchanged: the SessionEnd hook is the latency optimization and the watcher + sweep
+  > are the guarantee, because a crash, a SIGKILL, and a SIGHUP that kills the hook mid-ingest
+  > still deliver nothing — the point was never which polite exits fire, and the original
+  > overclaim and this counter-claim were both taken from issue threads rather than measured.
+
 **2. The transcript JSONL is written continuously, so the data is already on disk.**
 
 Per the official docs ("Sessions are saved continuously to local transcript files as you
@@ -169,7 +182,8 @@ mt#1418 single-writer guard remains the soft prerequisite for the overlap.
   runs inside; ADR-002 (persistence-provider architecture) — the single-owner-with-pluggable-
   backends shape this mirrors for capture mechanisms.
 - External: Claude Code hooks reference and sessions docs (continuous JSONL writes);
-  issues #17885 / #6428 (`/exit`, `/clear` don't fire SessionEnd), #41577 (async hooks killed
+  issues #17885 / #6428 (`/exit`, `/clear` don't fire SessionEnd — superseded for `/clear` by
+  the 2026-09-14 amendment above: it does, measured; `/exit` unmeasured), #41577 (async hooks killed
   before completion), #18880 (incomplete JSONL on mid-tool kill), #43058 (no active-session
   query API). Prior art: atuin daemon architecture, asciicast v3 format, OpenTelemetry
   shutdown-flush guidance.

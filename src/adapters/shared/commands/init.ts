@@ -123,6 +123,13 @@ export function parseRuleIds(value: string | string[] | undefined): string[] {
  * auto-generation) and prints `result.message` and nothing else. A `declinable`
  * array would reach the MCP tool result and be dropped on stdout. Both surfaces
  * are fed from here, so they cannot drift.
+ *
+ * This is the ONLY rendering of the declinable set (mt#5148). The domain's
+ * `describeScaffoldResult` used to print an id-only "installed N optional
+ * rule(s) you can turn off" line through `log.cli` as well, so a TTY run showed
+ * the same ids twice — once bare, once with descriptions. The sentence that
+ * line alone carried ("ask your agent to walk you through them" — the
+ * conversation is the primary selection path, ask#11288) now lives here.
  */
 export function formatInitMessage(declinable: readonly DeclinableRule[]): string {
   const headline = "Project initialized successfully.";
@@ -133,6 +140,7 @@ export function formatInitMessage(declinable: readonly DeclinableRule[]): string
     `${declinable.length} optional rule(s) were installed and can be turned off:`,
     ...declinable.map((rule) => `  - ${rule.id}: ${rule.description}`),
     "",
+    "Ask your agent to walk you through them.",
     "Decline any with `minsky rules disable --id <id>` then `minsky compile`.",
     "They stay until you remove them.",
   ].join("\n");
