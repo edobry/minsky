@@ -129,7 +129,7 @@ judged against the writer's own prefix (post-mt#5108), it was not one class:
 | runner spellings `TEST_RUN_COMMAND_RE` missed — `bun --cwd <dir> test …`, `bun scripts/run-related-tests.ts …`   | 11     | recognized; real runners, zero false-discharge risk, and `run-related-tests` now also feeds the ordering join's "last test run" |
 | a script-harness or probe RUN reporting failure in its own vocabulary (`exit=1`, `13/14`, `FAIL`, `✗`, `Error:`) | 11     | recognized — `failingHarnessRuns`, joined by the same subject/quoted/count joins                                                |
 | a typecheck-shaped control: a scratch module through `bunx tsgo --noEmit`, observed `error TS…`                  | 2      | recognized — `failingTypecheckRuns`, COMMAND invocations only                                                                   |
-| a read of a log the run wrote (`tail -30 …/related.log`, a saved CI job log)                                     | 6      | deliberately NOT recognized; see below                                                                                          |
+| a read of a log the run wrote (`tail -30 …/related.log`, a saved CI job log)                                     | 6      | left unrecognized by mt#4309; the in-transcript half recognized by mt#5140 — see the next subsection                            |
 
 **The load-bearing half is run-vs-read, and it was found by the failure it prevents.** The obvious
 widening — any command whose output carries a failure marker and names the subject — produced 45
@@ -149,10 +149,63 @@ runner 487 (unchanged) + runner-widened 11 + harness 11 + typecheck 2. Every one
 read, and none of the 22 read-shaped candidates moved. The residue (99) is mt#4306's vocabulary
 class (78), green runs (15), the two log reads, and four with nothing naming the subject.
 
-The log-read class stays a miss on purpose: the run was backgrounded or ran in CI and its output
-reached the transcript through a `tail`, which is indistinguishable in SHAPE from the 22 false
-candidates. Recognizing it needs a way to tell a run's log from any other file; recorded here so
-it is not re-proposed as a plain widening.
+The log-read class was left a miss here on purpose: the run was backgrounded or ran in CI and its
+output reached the transcript through a `tail`, which is indistinguishable in SHAPE from the 22
+false candidates when the read is judged alone. Recognizing it needs a way to tell a run's log
+from any other file — which the next subsection supplies for the half of the class a transcript
+can vouch for.
+
+#### A detached run, read back through its own log (mt#5140)
+
+A control that would outrun `session_exec`'s 120 s cap is run with its output redirected —
+`RUN_INTEGRATION_TESTS=1 bun test … > …/mt5131-negctl.log 2>&1; echo exit=$?` — and its
+failure vocabulary reaches the transcript through a LATER read of that file:
+`grep -E '^\(fail\)|…' …/mt5131-negctl.log | head -30`. Judged one call at a time neither is a
+red run. The invocation is a test-runner call, so it is judged by the runner's markers on ITS
+result — which is `exit=1` and nothing else, because stdout went to the file (and `exit=1` is a
+harness marker `isFailingHarnessRun` would accept, but that shape excludes runner invocations by
+design). The read is a `grep`, which the run-vs-read rule above excludes. The one undischarged
+real control of the post-mt#4306 window (mt#5116's read on mt#4306; calibration record
+`2026-09-13T11:52:51Z`, the mt#5131 PR body) was exactly this shape.
+
+**The join is the file path, exact and in order.** `logReadsOfRedirectedRuns` walks the
+transcript once: a run-shaped statement (`isRunShapedStatement`, the same rule as above) that
+redirects into a file — `> f`, `>> f`, `2> f`, `&> f`, `| tee f`, quotes stripped, `/dev/*`
+dropped — registers that path; a later READ-ONLY command (`cat`/`sed`/`grep`/`rg`/`tail`/
+`head`/`awk`/`less`/`more` naming the path as a whole operand) whose result carries failure in
+any of the three vocabularies pairs with the LATEST run into that path. A call that is itself
+run-shaped is never a read here — its own result already carries what it displayed, and parts
+1a/1b judge it as the run it is. A ROOTED path (`/…`, `~…`, `$VAR/…` — the variable text is the
+join) pairs on its text alone; a RELATIVE one pairs only between calls in one execution context
+— a `session_exec`'s `task`/`sessionId`, or `Bash` — and never through a call that `cd`s, since
+two workspaces' `./x.log` are two files and the transcript shows no cwd this module could
+resolve against (PR #3755 R1). `failingLogReads` then hands the joins a synthesized call: the
+read's result (that is where the failure is), with the run's command prepended to the read's
+so the subject join sees what was invoked — the same command-plus-result the joins see for a
+single-call run — and its provenance declared under `input.synthesizedFrom` (`{ shape:
+"log-read", path, runIndex, readIndex }`), so a consumer never has to infer from the embedded
+newline that the call is not a literal transcript entry. Every one of the 22 read-shaped false
+candidates fails the path join, since none displayed a file an in-transcript run had written; a
+read of a CI job log still fails it, correctly.
+
+Measured over the same window with the same script (`--days 21` on 2026-09-14, 440 transcripts,
+638 distinct claims): undischarged **90 → 85**, unadjudicable 47 → 46, `log-read` discharges 6,
+every other column unchanged (runner 480, runner-widened 11, harness 8, typecheck 2). All six
+read: two join on the read's OUTPUT (the mt#5131 test name plus its `4 pass / 2 fail`; a
+full-suite `1 fail / 16594 pass` count pair, a record with no backticked subject that had been
+unadjudicable), four join only on the run's COMMAND naming `scripts/run-tests-gated.ts`, which
+the record also names — the credit an in-call gated run already receives from `callNamesSubject`,
+and mt#4306's "credited to an adjacent red run" class rather than a new one. None is a
+fabricated record.
+
+Two corrections to the measurement script landed with it. A claim's outcome is now its BEST
+across every write that carried it, and an undischarged residue describes the FULLEST prefix
+that still failed: the first write's verdict used to stand for the claim, which mis-filed the
+live instance — its first `session_pr_create` replays a `bodyPath` re-read from disk, a body a
+later perl edit gave the control, against a prefix in which the control had not yet run. And
+the residue classifier's log-read test is now leading-program-plus-operand per statement: the
+old `[^;&|]*` gap could not cross the `|` inside a grep's own pattern argument, so the one
+live instance was filed under `runner-red-no-join`.
 
 Also closed here, from PR #3143's approving review: `extractQuotedFailures` now strips ANSI
 BEFORE testing a line against the quoted-line markers, so an anchored `FAIL` preceded by an

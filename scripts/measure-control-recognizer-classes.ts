@@ -14,17 +14,19 @@
  *     joins (a claim re-written across commit + PR create + PR edit counts once);
  *   - for each DISCHARGED claim, which recognizer shape produced the red run it
  *     joined against — test runner (`failingTestRuns`), script harness / probe
- *     (`failingHarnessRuns`), or typecheck-shaped (`failingTypecheckRuns`) — so a
- *     widening can be attributed rather than merely counted;
+ *     (`failingHarnessRuns`), typecheck-shaped (`failingTypecheckRuns`), or a
+ *     detached run read back through its own log (`failingLogReads`, mt#5140) —
+ *     so a widening can be attributed rather than merely counted;
  *   - for each undischarged claim, what the prefix holds instead, so the residue
  *     is classifiable: a runner went red but no join reaches it (mt#4306's
- *     vocabulary class), a read of a log the run wrote (deliberately unrecognized,
- *     see the table module), a green run, or nothing naming the subject.
+ *     vocabulary class), a read of a log no in-transcript run redirected into
+ *     (the CI-log half mt#5140 leaves unrecognized, or a paired read that joins
+ *     nothing), a green run, or nothing naming the subject.
  *
  * The planning baseline (2026-09-13, `--days 21`, pre-mt#4309 tree): 725 writes,
  * 955 records, 123 distinct undischarged claims. Run on a tree WITHOUT the
- * widened recognizers, the harness/typecheck attribution columns are zero by
- * construction, which is what makes before/after two runs of one script.
+ * widened recognizers, the harness/typecheck/log-read attribution columns are
+ * zero by construction, which is what makes before/after two runs of one script.
  *
  * USAGE
  *   bun scripts/measure-control-recognizer-classes.ts [--days N] [--list]
@@ -32,7 +34,8 @@
  *   --days N   window over transcript mtime (default 21)
  *   --list     print one line per discharged-by-new-shape and per undischarged
  *              claim (transcript prefix, record label, the discharging command's
- *              leading words) — the inspection SC2 asks for, without transcript text
+ *              leading words — for a log-read discharge, the RUN's and the READ's
+ *              separately) — the inspection SC2 asks for, without transcript text
  *
  * Emits aggregate counts and short per-claim labels only — never a transcript's
  * text, never a tool result. Transcripts are local harness state, so a missing
@@ -74,9 +77,20 @@ const failingHarnessRuns: (calls: readonly ToolCallWithResult[]) => ToolCallWith
   (table as Partial<typeof table>).failingHarnessRuns ?? noRuns;
 const failingTypecheckRuns: (calls: readonly ToolCallWithResult[]) => ToolCallWithResult[] =
   (table as Partial<typeof table>).failingTypecheckRuns ?? noRuns;
+// mt#5140's shape, read the same way so the pre-mt#5140 tree reports zero for it.
+const failingLogReads: (calls: readonly ToolCallWithResult[]) => ToolCallWithResult[] =
+  (table as Partial<typeof table>).failingLogReads ?? noRuns;
+const logReadsOfRedirectedRuns: (calls: readonly ToolCallWithResult[]) => table.LogReadPair[] =
+  (table as Partial<typeof table>).logReadsOfRedirectedRuns ?? (() => []);
 const leadingPrograms: (command: string) => string[] =
   (table as Partial<typeof table>).leadingPrograms ??
   ((command) => command.split(/\s+/).slice(0, 1));
+// The table's own statement splitter, so this script's residue classifier
+// splits a command exactly where the recognizers do (PR #3755 R1); the
+// fallback is that splitter's regex as it stood before it was exported.
+const splitShellStatements: (command: string) => string[] =
+  (table as Partial<typeof table>).splitShellStatements ??
+  ((command) => command.split(/\s*(?:&&|\|\||;|\n)\s*/));
 
 const REPLAYABLE = new Set([
   "mcp__minsky__session_commit",
@@ -86,8 +100,24 @@ const REPLAYABLE = new Set([
 
 /** A test runner's own failure vocabulary, for classifying the residue. */
 const RUNNER_RED_RE = /\(fail\)|\b[1-9]\d*\s+fail(?:ed|ing|ures?)?\b|\bFAIL\b|error:\s*expect\(/;
-/** A read whose target is a log file — the class the table module deliberately leaves unrecognized. */
-const LOG_READ_RE = /\b(?:tail|sed|cat|head|grep)\b[^;&|]*\.log\b/;
+/** The programs a log is read back through, and an operand that names a log file. */
+const LOG_READ_PROGRAM_RE = /^(?:tail|sed|cat|head|grep|rg|awk|less|more)$/;
+const LOG_OPERAND_RE = /(?:^|[\s"'])[^\s"']+\.log(?:[\s"']|$)/;
+
+/**
+ * A read whose operand is a log file. Judged per statement by LEADING PROGRAM
+ * plus operand, not by a single regex over the command: the mt#5131 instance is
+ * `grep -E '^\(fail\)|…' …/negctl.log | head -30`, and the `[^;&|]*` gap the
+ * previous pattern used could not cross the `|` inside the grep's own pattern
+ * argument, so the one live instance of this class was filed under
+ * `runner-red-no-join` (planning, 2026-09-14).
+ */
+function isLogReadCommand(command: string): boolean {
+  return splitShellStatements(command).some((statement) => {
+    const program = leadingPrograms(statement)[0] ?? "";
+    return LOG_READ_PROGRAM_RE.test(program) && LOG_OPERAND_RE.test(statement);
+  });
+}
 
 interface Options {
   days: number;
@@ -112,7 +142,7 @@ function parseArgs(argv: string[]): Options {
   return opts;
 }
 
-type DischargeShape = "runner" | "runner-widened" | "harness" | "typecheck";
+type DischargeShape = "runner" | "runner-widened" | "harness" | "typecheck" | "log-read";
 
 /**
  * The two runner spellings mt#4309 added to `TEST_RUN_COMMAND_RE`, as
@@ -137,7 +167,7 @@ function freshTally(): Tally {
     writes: 0,
     records: 0,
     claims: 0,
-    discharged: { runner: 0, "runner-widened": 0, harness: 0, typecheck: 0 },
+    discharged: { runner: 0, "runner-widened": 0, harness: 0, typecheck: 0, "log-read": 0 },
     undischarged: 0,
     residue: { "runner-red-no-join": 0, "log-read": 0, "runner-green": 0, nothing: 0 },
   };
@@ -171,7 +201,29 @@ function dischargeShape(record: string, prior: ToolCallWithResult[]): DischargeS
   }
   if (failingHarnessRuns(prior).some((c) => recordJoinsCall(record, c))) return "harness";
   if (failingTypecheckRuns(prior).some((c) => recordJoinsCall(record, c))) return "typecheck";
+  if (failingLogReads(prior).some((c) => recordJoinsCall(record, c))) return "log-read";
   return null;
+}
+
+/**
+ * For a log-read discharge, the pair behind the synthesized call: the run that
+ * redirected and the read that displayed, so `--list` can name both.
+ */
+function logReadPairFor(
+  record: string,
+  prior: ToolCallWithResult[]
+): table.LogReadPair | undefined {
+  const via = failingLogReads(prior).find((c) => recordJoinsCall(record, c));
+  if (!via) return undefined;
+  // The synthesized call declares its pair (`synthesizedFrom`); match on that
+  // rather than on the read's index alone, since one read can pair with runs
+  // into several paths.
+  const from = via.input["synthesizedFrom"] as { runIndex?: number; path?: string } | undefined;
+  return logReadsOfRedirectedRuns(prior).find(
+    (p) =>
+      p.read.index === via.index &&
+      (from === undefined || (p.run.index === from.runIndex && p.path === from.path))
+  );
 }
 
 /** What an UNDISCHARGED record's prefix holds, so the residue is classifiable. */
@@ -179,12 +231,14 @@ function residueOf(record: string, prior: ToolCallWithResult[]): Residue {
   const tokens = [...extractSubjectTokens(record), ...extractBareIdentifiers(record)];
   const names = (c: ToolCallWithResult) => callNamesSubject(c, tokens);
   // The most specific reason first: a log read naming the subject with a red
-  // runner line in it is the deliberately-unrecognized class, and it should not
-  // be hidden behind an unrelated red runner elsewhere in the prefix.
+  // runner line in it is the class mt#5140 recognizes only when an earlier run
+  // in the transcript redirected into that file — so what remains here is the
+  // CI-log half, or a paired read whose output joins nothing — and it should
+  // not be hidden behind an unrelated red runner elsewhere in the prefix.
   if (
     prior.some((c) => {
       const command = typeof c.input["command"] === "string" ? c.input["command"] : "";
-      return LOG_READ_RE.test(command) && RUNNER_RED_RE.test(c.resultText) && names(c);
+      return isLogReadCommand(command) && RUNNER_RED_RE.test(c.resultText) && names(c);
     })
   )
     return "log-read";
@@ -200,12 +254,31 @@ function commandHead(call: ToolCallWithResult | undefined): string {
   return `${leadingPrograms(command).slice(0, 3).join(" · ")} :: ${safeTruncate(command.replace(/\s+/g, " "), 80, "head")}`;
 }
 
+/**
+ * One distinct claim's outcome across every write that carried it. A claim is
+ * `discharged` if ANY of its writes is — the LAST write is judged against the
+ * fullest prefix, and this script measures whether the transcript holds a run
+ * the joins can see, not whether the first write pre-narrated it (that is the
+ * `pre-narration` detector's axis). Until mt#5140 the first write's verdict
+ * stood for the claim, which mis-filed the live mt#5131 instance: its first
+ * `session_pr_create` replays a `bodyPath` re-read from disk — a body that a
+ * later perl edit gave the control — against a prefix in which the control had
+ * not yet run, and the `session_pr_edit` that actually carried it was skipped
+ * as a duplicate.
+ */
+interface ClaimOutcome {
+  verdict: "discharged" | "undischarged" | "unadjudicable";
+  shape: DischargeShape | null;
+  residue: Residue | null;
+  /** The `--list` line, rendered when the outcome was decided. */
+  line: string;
+}
+
 function walk(
   lines: TranscriptLine[],
   label: string,
   tally: Tally,
-  seen: Set<string>,
-  opts: Options
+  claims: Map<string, ClaimOutcome>
 ): void {
   const calls = findToolCallsWithResults(lines);
   for (const c of calls) {
@@ -227,33 +300,43 @@ function walk(
       const record = records[i];
       if (!record) return;
       const key = `${label}|${record.label.slice(0, 80)}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      tally.claims++;
+      const previous = claims.get(key);
+      // A discharge is sticky. An undischarged claim is re-judged by every later
+      // write, so its residue describes the FULLEST prefix that still failed to
+      // discharge it — the first write's prefix may predate the read entirely.
+      if (previous && (previous.verdict !== "undischarged" || v.verdict === "unadjudicable"))
+        return;
       const full = `${record.label}\n${record.body}`;
       const short = safeTruncate(record.label.replace(/\s+/g, " "), 56, "head");
       if (v.verdict === "discharged") {
         const shape = dischargeShape(full, prior) ?? "runner";
-        tally.discharged[shape]++;
-        if (opts.list && shape !== "runner") {
+        let line = "";
+        if (shape === "log-read") {
+          const pair = logReadPairFor(full, prior);
+          line = `  discharged/${shape.padEnd(14)} ${label} :: ${short} :: run ${commandHead(pair?.run)} :: read ${commandHead(pair?.read)}\n`;
+        } else if (shape !== "runner") {
           const via =
             shape === "harness"
               ? failingHarnessRuns(prior).find((x) => recordJoinsCall(full, x))
               : shape === "typecheck"
                 ? failingTypecheckRuns(prior).find((x) => recordJoinsCall(full, x))
                 : failingTestRuns(prior).find((x) => recordJoinsCall(full, x));
-          process.stdout.write(
-            `  discharged/${shape.padEnd(14)} ${label} :: ${short} :: ${commandHead(via)}\n`
-          );
+          line = `  discharged/${shape.padEnd(14)} ${label} :: ${short} :: ${commandHead(via)}\n`;
         }
+        claims.set(key, { verdict: "discharged", shape, residue: null, line });
         return;
       }
-      if (v.verdict !== "undischarged") return;
-      tally.undischarged++;
+      if (v.verdict !== "undischarged") {
+        claims.set(key, { verdict: "unadjudicable", shape: null, residue: null, line: "" });
+        return;
+      }
       const residue = residueOf(full, prior);
-      tally.residue[residue]++;
-      if (opts.list)
-        process.stdout.write(`  undischarged/${residue.padEnd(18)} ${label} :: ${short}\n`);
+      claims.set(key, {
+        verdict: "undischarged",
+        shape: null,
+        residue,
+        line: `  undischarged/${residue.padEnd(18)} ${label} :: ${short}\n`,
+      });
     });
   }
 }
@@ -267,7 +350,7 @@ function main(): void {
   }
   const since = Date.now() - opts.days * 86_400_000;
   const tally = freshTally();
-  const seen = new Set<string>();
+  const claims = new Map<string, ClaimOutcome>();
   let transcripts = 0;
 
   for (const entry of readdirSync(projectDir)) {
@@ -275,7 +358,7 @@ function main(): void {
     const parentPath = join(projectDir, entry);
     if (statSync(parentPath).mtimeMs >= since) {
       transcripts++;
-      walk(parseTranscript(parentPath), entry.slice(0, 8), tally, seen, opts);
+      walk(parseTranscript(parentPath), entry.slice(0, 8), tally, claims);
     }
     const subagentsDir = join(projectDir, entry.slice(0, -".jsonl".length), "subagents");
     if (!existsSync(subagentsDir)) continue;
@@ -284,21 +367,26 @@ function main(): void {
       const agentPath = join(subagentsDir, file);
       if (statSync(agentPath).mtimeMs < since) continue;
       transcripts++;
-      walk(
-        parseTranscript(agentPath),
-        `${entry.slice(0, 8)}/${file.slice(6, 14)}`,
-        tally,
-        seen,
-        opts
-      );
+      walk(parseTranscript(agentPath), `${entry.slice(0, 8)}/${file.slice(6, 14)}`, tally, claims);
     }
+  }
+
+  // Tally once every write has had its say, so a claim's outcome is its best one.
+  for (const outcome of claims.values()) {
+    tally.claims++;
+    if (outcome.verdict === "discharged" && outcome.shape) tally.discharged[outcome.shape]++;
+    if (outcome.verdict === "undischarged" && outcome.residue) {
+      tally.undischarged++;
+      tally.residue[outcome.residue]++;
+    }
+    if (opts.list && outcome.line) process.stdout.write(outcome.line);
   }
 
   const d = tally.discharged;
   process.stdout.write(
     `window=${opts.days}d transcripts=${transcripts} writes-with-control=${tally.writes} ` +
       `records=${tally.records} distinct-claims=${tally.claims}\n` +
-      `  discharged: runner=${d.runner} runner-widened=${d["runner-widened"]} harness=${d.harness} typecheck=${d.typecheck}\n` +
+      `  discharged: runner=${d.runner} runner-widened=${d["runner-widened"]} harness=${d.harness} typecheck=${d.typecheck} log-read=${d["log-read"]}\n` +
       `  undischarged: ${tally.undischarged}` +
       ` (runner-red-no-join=${tally.residue["runner-red-no-join"]} log-read=${tally.residue["log-read"]}` +
       ` runner-green=${tally.residue["runner-green"]} nothing=${tally.residue.nothing})\n`
