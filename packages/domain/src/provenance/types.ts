@@ -30,6 +30,12 @@ export type InitiationMode = "dispatched" | "autonomous" | "interactive";
  * union AND the `task_origin` Postgres enum on `tasks.origin` (mt#5136), so
  * the PR-time provenance row and the task row share one vocabulary rather
  * than two enums that drift.
+ *
+ * Editing this tuple is a SCHEMA change: `taskOriginEnum` in
+ * `storage/schemas/task-embeddings.ts` is built from it, so a new value needs
+ * a deliberate `bun run db:generate:pg` migration (Postgres can add enum
+ * values but never remove one), and the Zod `origin` on the domain create
+ * schema reads it too. Keep the `as const` — `z.enum` requires the tuple.
  */
 export const TASK_ORIGIN_VALUES = ["human", "agent", "automated"] as const;
 

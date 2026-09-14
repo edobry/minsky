@@ -665,6 +665,26 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<typeof migrateBa
           continue;
         }
 
+        // 3b. Verify the creation channel survived the copy (mt#5136) — only
+        // when both sides can carry it: a backend that does not store `origin`
+        // (GitHub Issues) reads `undefined`, which is not a mismatch. NULL and
+        // undefined are the same "unknown" and compare equal here.
+        const sourceOrigin = sourceTask.origin ?? null;
+        const targetOrigin = targetTask.origin ?? null;
+        if (
+          sourceTask.origin !== undefined &&
+          targetTask.origin !== undefined &&
+          sourceOrigin !== targetOrigin
+        ) {
+          failed.push({
+            taskId: migratedTask.id,
+            targetTaskId,
+            reason: "ORIGIN_MISMATCH",
+            details: `Creation channel mismatch: source="${sourceOrigin}" vs target="${targetOrigin}"`,
+          });
+          continue;
+        }
+
         // 4. Verify spec content matches (if both backends support it)
         try {
           const sourceSpec = await sourceService.getTaskSpecContent(migratedTask.id);

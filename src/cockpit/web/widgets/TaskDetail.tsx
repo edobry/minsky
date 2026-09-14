@@ -424,7 +424,7 @@ function TaskDetailInner({ data, inPeek = false }: { data: TaskDetailPayload; in
         <span className="text-xs px-1.5 py-0.5 rounded border border-border text-muted-foreground">
           {task.kind}
         </span>
-        {task.origin && (
+        {task.origin != null && (
           <span
             className="text-xs px-1.5 py-0.5 rounded border border-border text-muted-foreground"
             title="Creation channel: who filed this task"
