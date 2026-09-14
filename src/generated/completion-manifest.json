@@ -8350,7 +8350,7 @@
         },
         {
           "flags": ["--client"],
-          "description": "MCP client / agent harness to set this project up for (cursor, claude-code, ...); required when nothing else resolves it",
+          "description": "MCP client / agent harness to set this project up for (cursor, claude-code, ...). Optional: detected from the environment or the MCP caller when possible; init refuses and names this flag when it cannot tell",
           "takesValue": true,
           "values": [
             "cursor",

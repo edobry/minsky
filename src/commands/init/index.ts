@@ -35,8 +35,9 @@ export function createInitCommand(): Command {
   // mt#5153: the explicit harness answer; same flag as `setup` and `mcp register`.
   cmd.option(
     "--client <string>",
-    "MCP client / agent harness to set this project up for (cursor, claude-code, ...); " +
-      "required when nothing else resolves it"
+    "MCP client / agent harness to set this project up for (cursor, claude-code, ...). " +
+      "Optional: detected from the environment or the MCP caller when possible; init refuses " +
+      "and names this flag when it cannot tell"
   );
   // mt#4872 SC4. These MUST be mirrored here as well as in the shared
   // definition: the INIT category is hidden from CLI auto-generation

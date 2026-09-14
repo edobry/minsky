@@ -281,12 +281,12 @@ const TASKS_DISPATCH_TOOL_NAME = "tasks.dispatch";
  * Tools the server injects the resolved caller `agentId` into as
  * `callerActorId` (mt#3121, extended mt#4408).
  *
- * Membership is EXACT-match on the canonical dotted name and its
- * Claude-Desktop underscore alias — never a substring — so a tool whose name
- * merely CONTAINS one of these cannot receive the param. Built once at module
- * load rather than per request.
+ * Membership is EXACT-match on the REGISTERED name — dotted for a namespaced
+ * command (`tasks.create`), plain for a top-level one (`init`, `setup`; PR #3759
+ * R1) — never a substring, so a tool whose name merely CONTAINS one of these
+ * cannot receive the param. Built once at module load rather than per request.
  *
- * Why a set rather than a second `if`: the injection is now nine tools wide and
+ * Why a set rather than a second `if`: the injection is now twelve tools wide and
  * the matching rule (exact match on the resolved name, server overwrites any
  * caller-supplied value) is the part that must not drift between them. One
  * membership test cannot disagree with itself.

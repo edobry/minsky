@@ -48,7 +48,12 @@ import {
 } from "./session/repository-backend-detection";
 import { performSetup } from "./setup";
 import { provisionObservabilityHooks } from "./setup/hook-provisioning";
-import type { HarnessSource, ManagedClient } from "./runtime/harness-detection";
+import {
+  HARNESS_SOURCES,
+  MANAGED_CLIENTS,
+  type HarnessSource,
+  type ManagedClient,
+} from "./runtime/harness-detection";
 import { log } from "./utils/logger";
 
 export type { ResolvedRepositoryConfig } from "./session/repository-backend-detection";
@@ -112,19 +117,10 @@ export const initializeProjectParamsSchema = z.object({
   // mt#5153: the adapter resolves the client (flag → MCP caller identity → CLI
   // env → the single installed client) and passes the answer in, with how it
   // was reached. The domain never guesses one.
-  client: z
-    .enum([
-      "cursor",
-      "claude-desktop",
-      "claude-code",
-      "vscode",
-      "windsurf",
-      "junie",
-      "codex",
-      "openhands",
-    ])
-    .optional(),
-  harnessSource: z.enum(["flag", "env", "mcp-client", "installed"]).optional(),
+  // Enumerated from the runtime lists (PR #3759 R1) so a new client or source
+  // is added in ONE place; `isManagedClient` and the schema cannot disagree.
+  client: z.enum(MANAGED_CLIENTS as [ManagedClient, ...ManagedClient[]]).optional(),
+  harnessSource: z.enum(HARNESS_SOURCES as [HarnessSource, ...HarnessSource[]]).optional(),
   repository: z
     .object({
       backend: z.enum(["github", "gitlab", "local"]),
@@ -307,8 +303,10 @@ export async function initializeProject(
   const initClient = client ?? deps.resolveClient?.();
   if (initClient === undefined) {
     throw new Error(
-      "initializeProject: no client resolved — the caller must pass `client` " +
-        "(see resolveInitClient in runtime/harness-detection.ts) or inject `resolveClient`."
+      "initializeProject: no client resolved — the caller must pass `client` in the options " +
+        "(the adapters resolve it with resolveClientForCommand, which wraps " +
+        "resolveInitClient in runtime/harness-detection.ts), or a test must inject " +
+        "`deps.resolveClient`."
     );
   }
   // === Phase 1: Project initialization ===
