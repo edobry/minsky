@@ -2,7 +2,7 @@
  * Unit tests for Layer 2 declared reader (ADR-006).
  */
 import { describe, test, expect } from "bun:test";
-import { readLayer2, AGENT_ID_META_KEY, type RequestExtras } from "./layer2";
+import { readLayer2, requestMetaOf, AGENT_ID_META_KEY, type RequestExtras } from "./layer2";
 
 // Shared test constants
 const VALID_AGENT_ID = "com.anthropic.claude-code:proc:a1b2c3d4e5f6g7h8";
@@ -72,5 +72,45 @@ describe("readLayer2", () => {
     for (const input of oddInputs) {
       expect(() => readLayer2(input as RequestExtras | undefined)).not.toThrow();
     }
+  });
+});
+
+describe("requestMetaOf — both SDK context shapes (mt#5160)", () => {
+  const VALID = "com.anthropic.claude-code:conv:1b2c3d4e-0000-4000-8000-00000000abcd";
+
+  test("reads the SDK v2 shape: ctx.mcpReq._meta", () => {
+    const extras: RequestExtras = { mcpReq: { _meta: { [AGENT_ID_META_KEY]: VALID } } };
+    expect(requestMetaOf(extras)?.[AGENT_ID_META_KEY]).toBe(VALID);
+    expect(readLayer2(extras)?.scope).toBe("conv");
+  });
+
+  test("still reads the SDK v1 flat shape: extra._meta", () => {
+    const extras: RequestExtras = { _meta: { [AGENT_ID_META_KEY]: VALID } };
+    expect(requestMetaOf(extras)?.[AGENT_ID_META_KEY]).toBe(VALID);
+    expect(readLayer2(extras)?.scope).toBe("conv");
+  });
+
+  test("v2 wins when both are present — the flat field on a v2 ctx can only be a fixture's", () => {
+    const extras: RequestExtras = {
+      mcpReq: { _meta: { [AGENT_ID_META_KEY]: VALID } },
+      _meta: { [AGENT_ID_META_KEY]: "unknown:conv:00000000-0000-4000-8000-000000000000" },
+    };
+    expect(requestMetaOf(extras)?.[AGENT_ID_META_KEY]).toBe(VALID);
+  });
+
+  test("a v2 ctx whose mcpReq carries no _meta falls through to the flat field, then to null", () => {
+    expect(requestMetaOf({ mcpReq: { id: 1, method: "tools/call" } })).toBeNull();
+    expect(
+      requestMetaOf({ mcpReq: { id: 1 }, _meta: { [AGENT_ID_META_KEY]: VALID } })?.[
+        AGENT_ID_META_KEY
+      ]
+    ).toBe(VALID);
+  });
+
+  test("non-object _meta in either position is ignored, never thrown on", () => {
+    expect(requestMetaOf({ mcpReq: { _meta: "string" } })).toBeNull();
+    expect(requestMetaOf({ mcpReq: { _meta: [1, 2] } })).toBeNull();
+    expect(requestMetaOf({ _meta: 42 })).toBeNull();
+    expect(requestMetaOf(undefined)).toBeNull();
   });
 });

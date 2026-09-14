@@ -30,7 +30,7 @@
 
 import { parseAgentId, type ParsedAgentId } from "./format";
 import { normalizeClientInfoNameToKind } from "./kinds";
-import { AGENT_ID_META_KEY, type RequestExtras, type RequestMeta } from "./layer2";
+import { AGENT_ID_META_KEY, requestMetaOf, type RequestExtras } from "./layer2";
 import { BAGGAGE_META_KEY, GEN_AI_CONVERSATION_ID_KEY, readBaggageEntry } from "./baggage";
 
 /**
@@ -113,13 +113,6 @@ export interface DeclaredIdentityHit {
   readonly key: string;
 }
 
-function readMeta(extras: RequestExtras | undefined): RequestMeta | null {
-  if (!extras) return null;
-  const meta = extras._meta;
-  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return null;
-  return meta as RequestMeta;
-}
-
 function synthesizeFromConversationId(
   conversationId: string,
   clientInfoName: string | undefined
@@ -143,7 +136,8 @@ export function readDeclaredIdentity(
   keys: readonly DeclaredIdentityKey[] = DEFAULT_DECLARED_IDENTITY_KEYS,
   clientInfoName?: string
 ): DeclaredIdentityHit | null {
-  const meta = readMeta(extras);
+  // Either SDK context shape — v2's `mcpReq._meta` or v1's flat `_meta` (mt#5160).
+  const meta = requestMetaOf(extras);
   if (!meta) return null;
 
   for (const candidate of keys) {
