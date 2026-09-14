@@ -32,6 +32,12 @@ export function createInitCommand(): Command {
   cmd.option("--mcp-transport <string>", "MCP transport type (stdio, sse, httpStream)");
   cmd.option("--mcp-port <string>", "Port for MCP network transports");
   cmd.option("--mcp-host <string>", "Host for MCP network transports");
+  // mt#5153: the explicit harness answer; same flag as `setup` and `mcp register`.
+  cmd.option(
+    "--client <string>",
+    "MCP client / agent harness to set this project up for (cursor, claude-code, ...); " +
+      "required when nothing else resolves it"
+  );
   // mt#4872 SC4. These MUST be mirrored here as well as in the shared
   // definition: the INIT category is hidden from CLI auto-generation
   // (`init-customizations.ts`) because this file registers `init` as a
@@ -77,6 +83,7 @@ export function createInitCommand(): Command {
           mcpHost: options.mcpHost,
           enable: options.enable,
           disable: options.disable,
+          client: options.client,
         },
         { interface: "cli" }
       );

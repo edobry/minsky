@@ -265,6 +265,19 @@ const TASKS_CREATE_TOOL_NAME = "tasks.create";
 const SESSION_START_TOOL_NAME = "session.start";
 
 /**
+ * `init`, `setup` and `tasks.dispatch` derive the caller's HARNESS from this id
+ * (mt#5153; closes mt#4510's detection half). The fourth reason in this set, and
+ * the one the daemon's own environment can never supply: `process.env` here is
+ * whatever spawned the daemon — nothing on 2026-08-24 / 09-03 (`standalone`
+ * for Claude Code callers), `CLAUDECODE=1` on 2026-09-14 from a tray relaunched
+ * out of an agent's Bash (`claude-code` for any caller). ADR-006 Layer 1 puts
+ * the client's kind on the id at `initialize`, so the id is the witness.
+ */
+const INIT_TOOL_NAME = "init";
+const SETUP_TOOL_NAME = "setup";
+const TASKS_DISPATCH_TOOL_NAME = "tasks.dispatch";
+
+/**
  * Tools the server injects the resolved caller `agentId` into as
  * `callerActorId` (mt#3121, extended mt#4408).
  *
@@ -310,6 +323,9 @@ const CALLER_ACTOR_ID_TOOL_NAMES: ReadonlySet<string> = new Set([
   WORK_PACKAGE_SUCCEED_TOOL_NAME,
   TASKS_CREATE_TOOL_NAME,
   SESSION_START_TOOL_NAME,
+  INIT_TOOL_NAME,
+  SETUP_TOOL_NAME,
+  TASKS_DISPATCH_TOOL_NAME,
 ]);
 
 const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([

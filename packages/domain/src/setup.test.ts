@@ -179,6 +179,37 @@ describe("performSetup — config.local.yaml schema round-trip (mt#1939)", () =>
   }
 });
 
+describe("performSetup — workspace.harnessSource (mt#5153)", () => {
+  test("records how the harness was chosen beside it, and the schema accepts the pair", async () => {
+    const mockFs = makeMockFs();
+    await performSetup(
+      { repoPath: REPO_PATH, client: "claude-code", harnessSource: "mcp-client", overwrite: true },
+      mockFs,
+      NO_DB_DEPS
+    );
+
+    const parsed = readLocalConfig(mockFs);
+    const workspace = parsed.workspace as Record<string, unknown>;
+    expect(workspace.harness).toBe("claude-code");
+    expect(workspace.harnessSource).toBe("mcp-client");
+    expect(workspaceConfigSchema.safeParse(workspace).success).toBe(true);
+  });
+
+  test("writes NO harnessSource key when the caller did not say — absent, not null", async () => {
+    // A file with no source predates the field; `config doctor` (mt#5154) reads
+    // absence as "unverified". A `null` would read as a fifth value.
+    const mockFs = makeMockFs();
+    await performSetup(
+      { repoPath: REPO_PATH, client: "cursor", overwrite: true },
+      mockFs,
+      NO_DB_DEPS
+    );
+
+    const workspace = readLocalConfig(mockFs).workspace as Record<string, unknown>;
+    expect(Object.keys(workspace)).not.toContain("harnessSource");
+  });
+});
+
 // ─── mcp section moved to the local overlay (mt#4699) ────────────────────────
 
 describe("performSetup — mcp lands in config.local.yaml, not config.yaml (mt#4699)", () => {

@@ -21,10 +21,28 @@ import {
 } from "./setup-db";
 import { provisionProjectRow, type ProvisionProjectRowDeps } from "./project/provision";
 import { log } from "@minsky/shared/logger";
+import type { HarnessSource } from "./runtime/harness-detection";
 
 export interface SetupOptions {
   repoPath: string;
-  client?: string;
+  /**
+   * The MCP client to register with and record as `workspace.harness`.
+   *
+   * Required (mt#5153). This used to default to `"cursor"`, which was the last
+   * of three silent-cursor defaults on the init/setup path: a caller that had
+   * not resolved a client got one anyway, and the file recorded a choice
+   * nobody made. Every caller resolves it first — `resolveInitClient` in
+   * `runtime/harness-detection.ts` — and says how, via `harnessSource`.
+   */
+  client: string;
+  /**
+   * How `client` was chosen (mt#5153); written beside it as
+   * `workspace.harnessSource`. Optional only so a caller that resolved the
+   * client some other way (a test seam) can still call this; production
+   * callers always pass it, and its absence in a file means "predates the
+   * field", which `config doctor` (mt#5154) reads as unverified.
+   */
+  harnessSource?: HarnessSource;
   overwrite?: boolean;
   /**
    * MCP transport settings for this machine (mt#4699).
@@ -151,7 +169,7 @@ export async function performSetup(
   provisionDeps: ProvisionProjectRowDeps = {},
   setupDeps: PerformSetupDeps = {}
 ): Promise<SetupResult> {
-  const { repoPath, client = "cursor", overwrite = true } = options;
+  const { repoPath, client, harnessSource, overwrite = true } = options;
 
   // 1. Check .minsky/config.yaml exists — error if not
   const configPath = path.join(repoPath, ".minsky", "config.yaml");
@@ -236,7 +254,14 @@ export async function performSetup(
     localMcpSection.host = mcpConfig.host;
   }
   const localConfigContent = yamlStringify({
-    workspace: { mainPath: repoPath, harness: client },
+    workspace: {
+      mainPath: repoPath,
+      harness: client,
+      // mt#5153: say how `harness` was chosen, so a defaulted value can be told
+      // from a chosen one later. Omitted (not `undefined`) when unknown, so the
+      // YAML carries no key rather than a null.
+      ...(harnessSource !== undefined ? { harnessSource } : {}),
+    },
     mcp: localMcpSection,
   });
 

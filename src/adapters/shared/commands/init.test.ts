@@ -80,6 +80,9 @@ describe("mt#5148 — the CLI renders the declinable list exactly once", () => {
         ruleFormat: "minsky",
         mcp: { enabled: false },
         overwrite: false,
+        // mt#5153: the domain no longer resolves a client itself.
+        client: "claude-code",
+        harnessSource: "flag",
       },
       createMockFs(),
       {
@@ -147,7 +150,12 @@ describe("mt#4872 — the CLI command and the shared definition must not drift",
         .filter((long): long is string => typeof long === "string")
     );
 
-    const missing = Object.keys(commandDef.parameters ?? {})
+    const parameters = commandDef.parameters ?? {};
+    const missing = Object.keys(parameters)
+      // A `cliHidden` parameter is server-injected (mt#5153: `callerActorId`)
+      // and has no CLI surface by design — mirroring it as a flag would
+      // advertise a value the operator must never hand-pass.
+      .filter((name) => (parameters[name] as { cliHidden?: boolean }).cliHidden !== true)
       .map((name) => `--${paramNameToFlag(name)}`)
       // `session` is a shared parameter with no CLI surface on this command.
       .filter((flag) => flag !== "--session")

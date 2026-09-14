@@ -96,7 +96,16 @@ async function main(): Promise<void> {
   console.log(
     `detectInstalledClients(): ${installed.length > 0 ? installed.join(", ") : "(none)"}`
   );
-  console.log(`resolveInitClient() (what \`minsky init\` would pick right now): ${resolved}`);
+  // mt#5153: the resolver no longer always answers — a no-signal run on a
+  // multi-client machine is `ambiguous`, and `init` asks or refuses rather than
+  // ranking. Report the shape, not just a client.
+  const resolvedText =
+    resolved.kind === "resolved"
+      ? `${resolved.client} (source: ${resolved.source})`
+      : resolved.kind === "ambiguous"
+        ? `AMBIGUOUS — no signal, ${resolved.installed.length} clients installed; init would ask or refuse`
+        : "NONE — no signal, nothing installed; init would refuse";
+  console.log(`resolveInitClient() (what \`minsky init\` would pick right now): ${resolvedText}`);
 
   const registrar = getRegistrar("claude-code");
   const configPath = registrar.configPath(process.cwd());

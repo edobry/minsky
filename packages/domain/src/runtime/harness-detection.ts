@@ -9,6 +9,8 @@
 import { existsSync } from "fs";
 import { homedir } from "os";
 import * as path from "path";
+import { parseAgentId } from "../agent-identity/format";
+import { KNOWN_KINDS } from "../agent-identity/kinds";
 
 export type AgentHarness = "claude-code" | "cursor" | "standalone";
 
@@ -35,6 +37,28 @@ export type ManagedClient =
   | "junie"
   | "codex"
   | "openhands";
+
+/**
+ * The `ManagedClient` union as a runtime list — the accepted values of
+ * `--client` on `init`, `setup` and `mcp register`, and what a refusal names
+ * when nothing resolved (mt#5153). Kept beside the type so the two cannot
+ * drift: `isManagedClient` is the only runtime check, and the CLI/MCP schemas
+ * enumerate from this list.
+ */
+export const MANAGED_CLIENTS: readonly ManagedClient[] = [
+  "cursor",
+  "claude-desktop",
+  "claude-code",
+  "vscode",
+  "windsurf",
+  "junie",
+  "codex",
+  "openhands",
+];
+
+export function isManagedClient(value: unknown): value is ManagedClient {
+  return typeof value === "string" && (MANAGED_CLIENTS as readonly string[]).includes(value);
+}
 
 /**
  * Detect the current agent harness from environment signals.
@@ -93,13 +117,210 @@ export function detectAgentHarness(): AgentHarness {
 }
 
 /**
- * Whether the current harness supports native subagent dispatch.
+ * Whether a harness supports native subagent dispatch.
  * When true, Minsky returns prompts for the harness to dispatch.
  * When false, Minsky would need its own agent loop (not yet implemented).
+ *
+ * Takes the harness as a parameter (mt#5153) so a caller that resolved it from
+ * the MCP client's identity (`resolveAgentHarness`) asks about THAT harness,
+ * not about the serving process's environment. The default keeps the CLI
+ * path's behaviour: a child of the harness reads its own environment.
  */
-export function hasNativeSubagentSupport(): boolean {
-  const harness = detectAgentHarness();
+export function hasNativeSubagentSupport(harness: AgentHarness = detectAgentHarness()): boolean {
   return harness === "claude-code"; // Cursor support TBD
+}
+
+/**
+ * Map an ADR-006 agent id to the `ManagedClient` it was issued by, or `null`
+ * when the id's kind names no client Minsky registers with (mt#5153).
+ *
+ * The kind is the reverse-domain prefix ADR-006 Layer 1 derives from the MCP
+ * `clientInfo.name` at `initialize` (`KNOWN_KINDS`), and Layer 3 carries the
+ * same kind on the conversation-scoped id the shim stamps. A native subagent
+ * (`minsky.native-subagent:run:…@<parent>`, `tasks.dispatch`) is dispatched by its parent's
+ * harness, so the walk continues into the parent id.
+ *
+ * Only kinds ADR-006 recorded are mapped. `com.anthropic.claude-code` is the
+ * one empirically captured (Claude Code 2.1.117); `com.cursor.cursor` and
+ * `com.openai.codex` are the documented conventions. Anything else — including
+ * the `unknown` kind an unrecognised `clientInfo.name` produces — is `null`,
+ * which callers treat as "no signal", never as a guess: an unverified name
+ * degrading to the honest no-signal path is the whole point of returning
+ * `null` here rather than a default.
+ */
+export function clientFromAgentId(agentId: string | null | undefined): ManagedClient | null {
+  let current = agentId ?? null;
+  // A parent chain is bounded in practice (one level: subagent → harness), but a
+  // malformed id could name itself; cap the walk so a bad input cannot loop.
+  for (let depth = 0; current !== null && depth < 4; depth += 1) {
+    const parsed = parseAgentId(current);
+    if (parsed === null) return null;
+    switch (parsed.kind) {
+      case KNOWN_KINDS.CLAUDE_CODE:
+        return "claude-code";
+      case KNOWN_KINDS.CURSOR:
+        return "cursor";
+      case KNOWN_KINDS.CODEX:
+        return "codex";
+      case KNOWN_KINDS.MINSKY_NATIVE_SUBAGENT:
+        current = parsed.parent ?? null;
+        continue;
+      default:
+        return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * The harness a caller is running under, for dispatch decisions (mt#5153,
+ * closing mt#4510's detection half).
+ *
+ * On the MCP path the caller's identity is the witness: a tool call executes
+ * inside the shared local daemon (ADR-038), whose `process.env` is whatever the
+ * daemon's SPAWNER had — nothing, on 2026-08-24 and 2026-09-03, which read as
+ * `standalone` for Claude Code callers; `CLAUDECODE=1`, on 2026-09-14, from a
+ * tray relaunched out of an agent's Bash, which would read as `claude-code` for
+ * a Cursor caller. `detectAgentHarness()` answers about the spawner there, so
+ * it is not consulted when a caller id is present. On the CLI path there is no
+ * caller id and the process IS the harness's child, so the environment is
+ * exactly right.
+ */
+export function resolveAgentHarness(input: { callerAgentId?: string | null } = {}): AgentHarness {
+  if (input.callerAgentId) {
+    const client = clientFromAgentId(input.callerAgentId);
+    if (client === "claude-code") return "claude-code";
+    if (client === "cursor") return "cursor";
+    return "standalone";
+  }
+  return detectAgentHarness();
+}
+
+/**
+ * How `init`/`setup` arrived at the harness they recorded (mt#5153), written
+ * beside `workspace.harness` in `.minsky/config.local.yaml` as
+ * `workspace.harnessSource` so `config doctor` (mt#5154) can tell a chosen
+ * value from a defaulted one. A file with no `harnessSource` predates this.
+ */
+export type HarnessSource = "flag" | "env" | "mcp-client" | "installed";
+
+export const HARNESS_SOURCES: readonly HarnessSource[] = ["flag", "env", "mcp-client", "installed"];
+
+/** Operator-facing phrase for each source, used in the notice `init` emits. */
+export function describeHarnessSource(source: HarnessSource): string {
+  switch (source) {
+    case "flag":
+      return "from --client";
+    case "env":
+      return "detected from this process's environment";
+    case "mcp-client":
+      return "from the MCP client that made this call";
+    case "installed":
+      return "the only MCP client installed on this machine";
+  }
+}
+
+export interface ResolveInitClientInput {
+  /** `--client` / the MCP `client` parameter. Outranks every detected signal. */
+  explicit?: ManagedClient;
+  /**
+   * The caller's server-injected ADR-006 agent id (`callerActorId`). Present
+   * on the MCP path only — its presence is what selects the identity witness
+   * over the environment one, so pass it whenever the server supplied it, even
+   * when its kind turns out to be unmapped.
+   */
+  callerAgentId?: string | null;
+  /** `detectAgentHarness()` — consulted on the CLI path only. */
+  harness?: AgentHarness;
+  /** `detectInstalledClients()` — the last resort, and only unambiguous alone. */
+  installedClients?: ManagedClient[];
+}
+
+export type InitClientResolution =
+  | { kind: "resolved"; client: ManagedClient; source: HarnessSource }
+  /** No signal, and more than one client installed — a ranked pick would be a guess. */
+  | { kind: "ambiguous"; installed: ManagedClient[] }
+  /** No signal, and nothing installed that Minsky can register with. */
+  | { kind: "none" };
+
+/**
+ * Resolve which MCP client `minsky init` / `minsky setup` should register with
+ * and record as this workspace's `harness` (mt#4676, redone in mt#5153).
+ *
+ * Three signal classes, in precedence order:
+ *
+ *   1. An explicit `--client`.
+ *   2. The caller's identity, on the MCP path (`callerAgentId` present) — see
+ *      `clientFromAgentId`. When the id is present but its kind is unmapped, the
+ *      environment is still NOT consulted: on this path it describes the
+ *      daemon's spawner, not the caller (`resolveAgentHarness`).
+ *   3. The environment, on the CLI path (no `callerAgentId`) — the process is a
+ *      child of the harness that ran it.
+ *
+ * Installed-ness is not a signal. With no signal and exactly ONE client
+ * installed, that client is the answer, as `setup` has always treated it. With
+ * two or more, the result is `ambiguous` and the caller prompts (TTY) or fails
+ * naming the accepted values (non-interactive); with none it is `none`. This
+ * function never picks by ranking: the previous version's
+ * `STANDALONE_CLIENT_PRIORITY` put `cursor` first "to preserve the pre-mt#4676
+ * default", and on a machine with five clients installed that wrote a silent
+ * `harness: cursor` for every no-signal run — the flowtato onboarding
+ * (mt#5152), twice. A default that always produces a value is how the
+ * no-signal case never surfaced.
+ *
+ * Every input defaults to the real detector so production callers pass only
+ * what they hold; tests pass all four to pin the precedence without touching
+ * `process.env` or the filesystem.
+ */
+export function resolveInitClient(input: ResolveInitClientInput = {}): InitClientResolution {
+  if (input.explicit !== undefined) {
+    return { kind: "resolved", client: input.explicit, source: "flag" };
+  }
+
+  if (input.callerAgentId) {
+    const fromCaller = clientFromAgentId(input.callerAgentId);
+    if (fromCaller !== null) return { kind: "resolved", client: fromCaller, source: "mcp-client" };
+  } else {
+    const harness = input.harness ?? detectAgentHarness();
+    if (harness === "claude-code")
+      return { kind: "resolved", client: "claude-code", source: "env" };
+    if (harness === "cursor") return { kind: "resolved", client: "cursor", source: "env" };
+  }
+
+  const installed = input.installedClients ?? detectInstalledClients();
+  const [only, second] = installed;
+  if (only !== undefined && second === undefined) {
+    return { kind: "resolved", client: only, source: "installed" };
+  }
+  if (only === undefined) return { kind: "none" };
+  return { kind: "ambiguous", installed: [...installed] };
+}
+
+/**
+ * The refusal an unresolved client produces on a non-interactive path — the
+ * one message `init` and `setup` share, so the two commands cannot drift on
+ * the question they used to answer differently (mt#5153).
+ *
+ * @param resolution An `ambiguous` or `none` result.
+ * @param flag The flag the caller accepts, e.g. `--client`.
+ */
+export function describeUnresolvedClient(
+  resolution: Exclude<InitClientResolution, { kind: "resolved" }>,
+  flag: string
+): string {
+  const accepted = `Accepted values: ${MANAGED_CLIENTS.join(", ")}.`;
+  if (resolution.kind === "ambiguous") {
+    return (
+      `Could not tell which agent harness this project is for: no harness signal in the ` +
+      `environment, and ${resolution.installed.length} MCP clients are installed ` +
+      `(${resolution.installed.join(", ")}). Pass ${flag} to choose one. ${accepted}`
+    );
+  }
+  return (
+    `Could not tell which agent harness this project is for: no harness signal in the ` +
+    `environment, and no known MCP client is installed on this machine. Pass ${flag} to ` +
+    `choose one. ${accepted}`
+  );
 }
 
 /**
@@ -180,76 +401,4 @@ export function detectInstalledClients(deps: DetectInstalledClientsDeps = {}): M
   // OpenHands is an agent framework, not typically installed as a user app.
 
   return clients;
-}
-
-/**
- * Declared priority order for `resolveInitClient()`'s standalone fallback —
- * which detected client wins when multiple are installed and the
- * environment gives no signal at all (PR #3423 R1).
- *
- * Deliberately decoupled from `detectInstalledClients()`'s internal probe
- * order: that order is an implementation detail of ITS OWN probes (cursor
- * first, then claude-code, then claude-desktop, ...), not a considered
- * ranking. Picking `installedClients[0]` would have made the fallback
- * silently follow whatever order a future edit to those probes happened to
- * use — reordering them for readability would silently change which client
- * `init` picks, with nothing to catch it. This list is the single place
- * that ranking is decided, and the tests below pin it directly (arrays
- * constructed in orders that do NOT match this list, to prove the resolver
- * uses the declared priority rather than array position).
- *
- * Order rationale:
- * - `cursor` first: this was `init`'s hardcoded client before mt#4676 —
- *   keeping it top-priority means an existing multi-client machine's
- *   standalone `init` behavior is unchanged by this task.
- * - `claude-code` second: the next most common Minsky-development harness,
- *   and the one this task adds support for.
- * - The remainder preserve `detectInstalledClients()`'s existing probe
- *   order, which carries no considered ranking beyond "already there";
- *   revisit if a real preference emerges.
- */
-export const STANDALONE_CLIENT_PRIORITY: readonly ManagedClient[] = [
-  "cursor",
-  "claude-code",
-  "claude-desktop",
-  "vscode",
-  "windsurf",
-  "junie",
-  "codex",
-];
-
-/**
- * Resolve which MCP client `minsky init` should register with and record as
- * this workspace's `harness` (mt#4676).
- *
- * Prefers the environment-reported harness (`detectAgentHarness()`) — the
- * running agent's own signal about what it currently IS — over filesystem
- * installed-ness (`detectInstalledClients()`), which only proves an
- * application is present on this machine, not that it is the one driving
- * `init` right now. `detectInstalledClients()` is consulted only as a
- * fallback, when the environment gives no signal at all (`standalone`) —
- * mirroring the interactive `setup` command's own multi-client fallback
- * (`src/adapters/shared/commands/setup.ts`), minus the interactive prompt.
- * The fallback picks the highest-priority detected client per
- * `STANDALONE_CLIENT_PRIORITY`, or `cursor` when none are detected
- * (preserving `init`'s pre-mt#4676 default).
- *
- * `harness` and `installedClients` are accepted as parameters — defaulting
- * to the real detectors — rather than read internally, so the exact
- * ambiguous case this function exists to resolve (an env signal AND a
- * filesystem signal both present, and disagreeing) is testable without
- * mutating `process.env` or the filesystem.
- */
-export function resolveInitClient(
-  harness: AgentHarness = detectAgentHarness(),
-  installedClients: ManagedClient[] = detectInstalledClients()
-): ManagedClient {
-  if (harness === "claude-code") return "claude-code";
-  if (harness === "cursor") return "cursor";
-
-  const installed = new Set(installedClients);
-  for (const candidate of STANDALONE_CLIENT_PRIORITY) {
-    if (installed.has(candidate)) return candidate;
-  }
-  return "cursor";
 }

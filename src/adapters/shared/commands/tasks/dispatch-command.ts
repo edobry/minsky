@@ -39,9 +39,10 @@ import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
 import {
-  detectAgentHarness,
   hasNativeSubagentSupport,
+  resolveAgentHarness,
 } from "@minsky/domain/runtime/harness-detection";
+import { CALLER_ACTOR_ID_PARAM } from "../client-resolution";
 import { log } from "@minsky/shared/logger";
 import { ValidationError } from "@minsky/domain/errors";
 import { isDispatchModelId, DISPATCH_MODELS } from "@minsky/domain/ai/dispatch-models";
@@ -183,6 +184,9 @@ const tasksDispatchParams = {
       "assertion that you would, the actual outcome.",
     required: true,
   },
+  // mt#5153 (mt#4510): the harness check below reads the CALLER's identity
+  // over MCP, not the daemon's environment. Server-injected for this tool.
+  callerActorId: CALLER_ACTOR_ID_PARAM,
 } satisfies CommandParameterMap;
 
 type DispatchParams = InferParams<typeof tasksDispatchParams>;
@@ -389,15 +393,27 @@ export function createTasksDispatchCommand(
       validateDispatchMode(p);
       const isExistingTaskMode = Boolean(p.taskId);
 
-      const harness = detectAgentHarness();
+      // mt#5153 (closes mt#4510 SC1-2): over MCP the caller's identity is the
+      // witness — this tool runs inside the shared daemon, whose environment is
+      // its spawner's, which is how a Claude Code caller read as `standalone`
+      // on 2026-08-24 and 2026-09-03. On the CLI path there is no caller id and
+      // the environment is the process's own.
+      const harness = resolveAgentHarness({
+        callerAgentId: typeof p.callerActorId === "string" ? p.callerActorId : null,
+      });
 
-      if (!hasNativeSubagentSupport()) {
+      if (!hasNativeSubagentSupport(harness)) {
+        const witness =
+          typeof p.callerActorId === "string"
+            ? `the MCP client identity ${p.callerActorId}`
+            : "this process's environment";
         return {
           success: false,
           error:
             `Standalone agent loop not yet available. ` +
-            `Detected harness: "${harness}". ` +
-            `This tool currently requires Claude Code for subagent dispatch.`,
+            `Detected harness: "${harness}" (from ${witness}). ` +
+            `Subagent dispatch needs Claude Code today; from another harness, ` +
+            `use session_start → session_generate_prompt and dispatch the prompt yourself.`,
           harness,
         };
       }

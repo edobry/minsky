@@ -18,7 +18,12 @@ import {
 import { enableRule, disableRule } from "@minsky/domain/rules/operations/config-operations";
 import { ensureLocalDaemonForSetup } from "../../../mcp/setup/ensure-local-daemon-for-setup";
 import { TaskBackend } from "@minsky/domain/configuration/backend-detection";
-import { resolveInitClient } from "@minsky/domain/runtime/harness-detection";
+import {
+  CALLER_ACTOR_ID_PARAM,
+  CLIENT_PARAM,
+  CLIENT_PROMPT_CANCELLED,
+  resolveClientForCommand,
+} from "./client-resolution";
 import { RULE_FORMAT_DESCRIPTION } from "../../../utils/option-descriptions";
 import { log } from "@minsky/shared/logger";
 import { ValidationError } from "@minsky/domain/errors/index";
@@ -91,6 +96,12 @@ const initParams = composeParams(
         "Rule ids to decline, comma-separated (non-interactive selection; base rules cannot be declined)",
       required: false,
     },
+    // mt#5153: the harness is a signal or an answer, never a ranked guess.
+    // `client` is the explicit answer (same name and enum as `setup` and
+    // `mcp register`); `callerActorId` is the MCP path's signal, injected by
+    // the server for this tool (`CALLER_ACTOR_ID_TOOL_NAMES`).
+    client: CLIENT_PARAM,
+    callerActorId: CALLER_ACTOR_ID_PARAM,
   }
 ) satisfies CommandParameterMap;
 
@@ -266,6 +277,25 @@ export function registerInitCommands() {
             }
           }
 
+          // mt#5153: resolve WHICH harness this project is for, once, before
+          // anything branches on it. Explicit `--client` wins; over MCP the
+          // caller's identity is the witness (the daemon's own environment is
+          // its spawner's); on the CLI the environment is. With no signal and
+          // one installed client, that client; with several, ask on a TTY and
+          // otherwise refuse naming the accepted values — `setup`'s posture,
+          // which `init` used to answer with a silent ranked pick instead.
+          const resolvedClient = await resolveClientForCommand({
+            explicit: params.client,
+            callerActorId: params.callerActorId,
+            flag: "--client",
+            promptMessage: "Which agent harness is this project for?",
+          });
+          if (resolvedClient === CLIENT_PROMPT_CANCELLED) {
+            cancel("Initialization cancelled.");
+            return { success: false, message: "Initialization cancelled by user." };
+          }
+          const initClient = resolvedClient.client;
+
           // Interactive rule format selection if not provided
           let ruleFormat = params.ruleFormat;
           if (!ruleFormat) {
@@ -281,8 +311,7 @@ export function registerInitCommands() {
             // is where the wrong default actually bit, but leaving the prompt
             // hardcoded to "cursor" made the two paths disagree about what a
             // Claude Code project should get.
-            const harnessDefaultRuleFormat =
-              resolveInitClient() === "claude-code" ? "minsky" : "cursor";
+            const harnessDefaultRuleFormat = initClient === "claude-code" ? "minsky" : "cursor";
 
             if (!isInteractive()) {
               ruleFormat = harnessDefaultRuleFormat;
@@ -458,6 +487,9 @@ export function registerInitCommands() {
               mcp,
               overwrite,
               repository,
+              // mt#5153: the one resolution above, and how it was reached.
+              client: initClient,
+              harnessSource: resolvedClient.source,
             },
             // mt#4707: `init` under CLAUDECODE=1 is the cold-machine first run —
             // the case where nothing has started a daemon yet, and the one the

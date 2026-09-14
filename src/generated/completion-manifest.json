@@ -8349,6 +8349,21 @@
           "takesValue": true
         },
         {
+          "flags": ["--client"],
+          "description": "MCP client / agent harness to set this project up for (cursor, claude-code, ...); required when nothing else resolves it",
+          "takesValue": true,
+          "values": [
+            "cursor",
+            "claude-desktop",
+            "claude-code",
+            "vscode",
+            "windsurf",
+            "junie",
+            "codex",
+            "openhands"
+          ]
+        },
+        {
           "flags": ["--enable"],
           "description": "Rule ids to enable, comma-separated (non-interactive selection; see `minsky rules list`)",
           "takesValue": true
@@ -8484,7 +8499,17 @@
         {
           "flags": ["--client"],
           "description": "MCP client to register with (e.g. cursor)",
-          "takesValue": true
+          "takesValue": true,
+          "values": [
+            "cursor",
+            "claude-desktop",
+            "claude-code",
+            "vscode",
+            "windsurf",
+            "junie",
+            "codex",
+            "openhands"
+          ]
         },
         {
           "flags": ["--overwrite"],
