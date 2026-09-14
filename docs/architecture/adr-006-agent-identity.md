@@ -138,6 +138,18 @@ Matches Langfuse's `_meta`-for-correlation pattern. Uses the namespaced-`_meta` 
 **Threats handled:** silence for cooperating callers.
 **Threats not handled:** forgery (no verification).
 
+**Where the server reads it (mt#5160, 2026-09-14).** The reader takes the SDK's handler
+context, and that context has had two shapes: v1's flat `extra._meta`, and — since the
+v2 migration (mt#4854, 2026-09-01) — `ctx.mcpReq._meta`, with the reserved
+`io.modelcontextprotocol/*` envelope keys lifted out. `requestMetaOf`
+(`packages/domain/src/agent-identity/layer2.ts`) reads both, v2 first. For the two weeks
+between those dates the reader consulted only the v1 field, so every declared identity
+reached the daemon and was never read: each connection fell to Layer 1, the daemon log
+carried zero `layerThatAnswered: 2` lines, and presence claims collapsed onto one `proc:`
+id per daemon (mt#4667's four failed verifications). The fixture that let this pass
+hand-built the v1 shape; the regression test now drives the real SDK `Server` over
+`InMemoryTransport` (`src/mcp/server-declared-identity-v2-ctx.test.ts`).
+
 ### Layer 1 — Ascribed
 
 Fallback when Layers 3 and 2 don't produce a value. Construct an ID from `clientInfo.name` (normalized to the reverse-domain `kind` table below) plus SHA-256 hash of `(hostname, user, pid, start-time)`. Stable per MCP connection, non-colliding across connections.

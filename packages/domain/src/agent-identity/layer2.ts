@@ -31,13 +31,49 @@ export interface RequestMeta {
 }
 
 /**
- * Shape of MCP RequestHandlerExtra as exposed by the SDK.
- * Typed conservatively — we only read `_meta`.
+ * The handler context the SDK hands a request handler, typed conservatively —
+ * we only read the request's `_meta` (and `sessionId`).
+ *
+ * TWO shapes, because the SDK changed under us (mt#5160):
+ *
+ * - **v1 `RequestHandlerExtra`** — flat: `extra._meta`. Hand-built fixtures in
+ *   this repo still use this shape, and the stdio path did until mt#4854.
+ * - **v2 `BaseContext`** (`@modelcontextprotocol/server` 2.0.0, in service since
+ *   mt#4854 merged 2026-09-01) — structured: the request's `_meta` sits at
+ *   `ctx.mcpReq._meta`, with the reserved `io.modelcontextprotocol/*` envelope
+ *   keys lifted out; `sessionId` stayed top-level. The SDK's own
+ *   `contextPropertyMap.ts` is the source of truth for the move.
+ *
+ * Reading only the v1 field against a v2 ctx does not throw — it reads
+ * `undefined`, so every declared identity silently fell through to Layer 1 for
+ * two weeks while the shim stamped correctly (mt#4667's four failed
+ * verifications; the daemon log's 93 `fell back to Layer 1` lines and zero
+ * `layerThatAnswered: 2`). `requestMetaOf` is the one place both shapes are
+ * read, so a reader cannot pick the wrong one again.
  */
 export interface RequestExtras {
   _meta?: RequestMeta | unknown;
+  mcpReq?: { _meta?: RequestMeta | unknown; [key: string]: unknown };
   sessionId?: string;
   [key: string]: unknown;
+}
+
+/**
+ * The request's `_meta` object from EITHER SDK context shape, or null when
+ * neither carries an object there.
+ *
+ * v2's `mcpReq._meta` is consulted first: it is the shape the SDK in service
+ * produces, and a flat `_meta` beside it on a v2 ctx could only be a fixture's.
+ * The flat field remains the fallback so a v1-shaped caller or hand-built
+ * fixture still reads. Never throws.
+ */
+export function requestMetaOf(extras: RequestExtras | undefined): RequestMeta | null {
+  if (!extras) return null;
+  const candidates: unknown[] = [extras.mcpReq?._meta, extras._meta];
+  for (const meta of candidates) {
+    if (meta && typeof meta === "object" && !Array.isArray(meta)) return meta as RequestMeta;
+  }
+  return null;
 }
 
 /**
@@ -48,13 +84,11 @@ export interface RequestExtras {
  * Returns null in all other cases (no _meta, wrong type, malformed format).
  */
 export function readLayer2(extras: RequestExtras | undefined): ParsedAgentId | null {
-  if (!extras) return null;
+  // Either SDK context shape (mt#5160) — may be absent or non-object
+  const meta = requestMetaOf(extras);
+  if (!meta) return null;
 
-  // Safely extract _meta — may be absent or non-object
-  const meta = extras._meta;
-  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return null;
-
-  const declared = (meta as RequestMeta)[AGENT_ID_META_KEY];
+  const declared = meta[AGENT_ID_META_KEY];
   if (typeof declared !== "string" || declared.length === 0) return null;
 
   // Delegate to format parser — returns null if malformed
