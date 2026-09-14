@@ -16,9 +16,16 @@
  * event (`clear` — the process and its claim persist; `resume` — the
  * conversation continues in a later process).
  *
+ * `packages refresh-transfers` (mt#5143) is the one-shot projection repair:
+ * every transfer writer re-renders the spec's `## Transfers` section itself,
+ * and this brings the packages written BEFORE that shipped (or whose
+ * best-effort re-render failed) back in line with their logs. Dry-run by
+ * default; the first production `--execute` runs under mt#5143.
+ *
  * Tools registered:
- *   tasks_packages_sweep         — plan (default) or apply the lifecycle sweep.
- *   tasks_release-conversation   — release a conversation's claims on SessionEnd.
+ *   tasks_packages_sweep              — plan (default) or apply the lifecycle sweep.
+ *   tasks_release-conversation        — release a conversation's claims on SessionEnd.
+ *   tasks_packages_refresh-transfers  — plan (default) or apply the `## Transfers` re-render.
  */
 
 import { z } from "zod";
@@ -30,6 +37,7 @@ import {
   runWorkPackageLifecycleSweep,
 } from "@minsky/domain/tasks/work-package-lifecycle-sweep";
 import { releaseClaimsForConversation } from "@minsky/domain/tasks/work-package-lifecycle";
+import { runTransfersRefresh } from "@minsky/domain/tasks/work-package-transfers-projection";
 
 /**
  * SessionEnd `reason` values under which a conversation's claims are LEFT
@@ -49,7 +57,9 @@ async function getDb(getPersistenceProvider: () => unknown) {
   }
   const db = await provider.getDatabaseConnection();
   if (!db) {
-    throw new ValidationError("Could not obtain a database connection for the lifecycle sweep.");
+    throw new ValidationError(
+      "Could not obtain a database connection for the work-package lifecycle command."
+    );
   }
   return db;
 }
@@ -197,6 +207,58 @@ export function createTasksReleaseConversationCommand(getPersistenceProvider: ()
           result.matched.length === 0
             ? `No IN-PROGRESS work package is claimed by conversation ${conversationId}.`
             : `Released ${result.released.length} of ${result.matched.length} package(s) claimed by ${conversationId}.`,
+      };
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// tasks.packages.refresh-transfers
+// ---------------------------------------------------------------------------
+
+const refreshTransfersParams = {
+  execute: {
+    schema: z.boolean().default(false),
+    description:
+      "Rewrite the `## Transfers` section of every package whose rendering is missing, behind " +
+      "or ahead of its transfer log. Default is a dry-run that lists them and writes nothing. " +
+      "The first --execute against production is a bulk spec mutation: compare the dry-run's " +
+      "count against the population recorded on mt#5143 before applying.",
+    required: false,
+    defaultValue: false,
+  },
+} as const;
+
+export function createTasksPackagesRefreshTransfersCommand(getPersistenceProvider: () => unknown) {
+  return defineCommand({
+    id: "tasks.packages.refresh-transfers",
+    category: CommandCategory.TASKS,
+    name: "refresh-transfers",
+    description:
+      "One-shot repair of the `## Transfers` projection (mt#5143): for every work package with a " +
+      "transfer log, re-render the spec section from the log when it is missing, behind or ahead. " +
+      "Every transfer writer re-renders on its own; this covers packages written before that " +
+      "shipped and any best-effort re-render that failed. Terminal packages included. Dry-run by " +
+      "default.",
+    parameters: refreshTransfersParams,
+
+    async execute(params) {
+      const db = await getDb(getPersistenceProvider);
+      const result = await runTransfersRefresh(db, { execute: params.execute === true });
+      const byState = { missing: 0, behind: 0, ahead: 0 };
+      for (const entry of result.plan.refresh) byState[entry.state as keyof typeof byState] += 1;
+      return {
+        success: true,
+        dryRun: result.dryRun,
+        counts: {
+          refresh: result.plan.refresh.length,
+          ...byState,
+          inSync: result.plan.inSync.length,
+          refreshed: result.applied.refreshed.length,
+          failed: result.applied.failed.length,
+        },
+        refresh: result.plan.refresh,
+        applied: result.applied,
       };
     },
   });

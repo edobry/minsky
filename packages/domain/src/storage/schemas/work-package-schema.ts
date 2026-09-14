@@ -39,6 +39,9 @@ import { tasksTable } from "./task-embeddings";
  * closed package is not re-offered, so `completed` is terminal in the log the
  * same way DONE is on the row.
  */
+/** The task kind a work package rides on (ADR-046 decision 2). */
+export const WORK_PACKAGE_KIND = "work-package";
+
 export const WORK_PACKAGE_TRANSFER_ORIGINS = [
   "groomed",
   "succession",

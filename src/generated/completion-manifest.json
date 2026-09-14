@@ -2657,6 +2657,17 @@
                 }
               ],
               "commandId": "tasks.packages.sweep"
+            },
+            {
+              "name": "refresh-transfers",
+              "description": "One-shot repair of the `## Transfers` projection (mt#5143): for every work package with a transfer log, re-render the spec section from the log when it is missing, behind or ahead. Every transfer writer re-renders on its own; this covers packages written before that shipped and any best-effort re-render that failed. Terminal packages included. Dry-run by default.",
+              "options": [
+                {
+                  "flags": ["--execute"],
+                  "description": "Rewrite the `## Transfers` section of every package whose rendering is missing, behind or ahead of its transfer log. Default is a dry-run that lists them and writes nothing. The first --execute against production is a bulk spec mutation: compare the dry-run's count against the population recorded on mt#5143 before applying."
+                }
+              ],
+              "commandId": "tasks.packages.refresh-transfers"
             }
           ]
         },

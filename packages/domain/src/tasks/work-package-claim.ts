@@ -1,7 +1,11 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { tasksTable } from "../storage/schemas/task-embeddings";
-import { workPackageTransfersTable } from "../storage/schemas/work-package-schema";
+import {
+  WORK_PACKAGE_KIND,
+  workPackageTransfersTable,
+} from "../storage/schemas/work-package-schema";
+import { refreshTransfersSectionAfterWrite } from "./work-package-transfers-projection";
 
 /**
  * Work-package claim/release (ADR-046, mt#2911).
@@ -21,7 +25,9 @@ import { workPackageTransfersTable } from "../storage/schemas/work-package-schem
  * while the task row records who currently holds it.
  */
 
-export const WORK_PACKAGE_KIND = "work-package";
+// The kind constant lives on the schema (mt#5143) so the transfers projection
+// can read it without importing this module, which imports the projection.
+export { WORK_PACKAGE_KIND };
 
 /** The subset of a task row the refusal diagnosis reads. */
 export interface ClaimDiagnosticRow {
@@ -284,13 +290,16 @@ export async function releaseWorkPackage(
   });
 
   if (outcome.ok) {
-    // After the transaction, so a rolled-back release never emits.
+    // After the transaction, so a rolled-back release never emits — and the
+    // spec's `## Transfers` projection is refreshed best-effort (mt#5143): a
+    // failed re-render is logged, never allowed to undo the release.
     await emitStatusChanged(db, {
       taskId,
       previousStatus: "IN-PROGRESS",
       newStatus: "READY",
       via: "work-package.release",
     });
+    await refreshTransfersSectionAfterWrite(db, taskId, "work-package.release", now);
   }
   return outcome;
 }
