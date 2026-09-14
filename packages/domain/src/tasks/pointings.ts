@@ -17,6 +17,7 @@
  */
 
 import type { TaskAutonomyClass } from "./autonomy-class";
+import type { TaskOrigin } from "../provenance/types";
 import { isTerminal } from "./workflows";
 import type { PointingQuery } from "../storage/schemas/pointings-schema";
 
@@ -69,6 +70,12 @@ export interface PointingTaskRow {
   updatedAtMs: number;
   /** The spec's `Origin:` line, when present — the incident-lineage source besides the tag. */
   originLine: string | null;
+  /**
+   * The row's creation channel (`tasks.origin`, mt#5136) — the classifier's
+   * human-origin evidence. Distinct from `originLine`, which is prose in the
+   * spec body. `null` for a row that predates the column.
+   */
+  origin: TaskOrigin | null;
 }
 
 /** Excluded from every candidate set: terminal, blocked, or a work package (ADR-046). */
