@@ -1,6 +1,6 @@
 import { asc, eq, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { tasksTable, taskSpecsTable } from "../storage/schemas/task-embeddings";
+import { tasksTable } from "../storage/schemas/task-embeddings";
 import {
   workPackageMembersTable,
   workPackageTransfersTable,
@@ -15,8 +15,8 @@ import {
   renderMembersSection,
   renderTransferLog,
   upsertBriefingSection,
-  type TransferLogEntry,
 } from "./work-package-briefing";
+import { readSpec, readTransferLog, writeSpec } from "./work-package-transfers-projection";
 
 /**
  * Work-package succession (ADR-046 decision 3, mt#5133).
@@ -176,64 +176,9 @@ export function emptyMembersRefusal(taskId: string): WorkPackageSuccessionOutcom
   };
 }
 
-type Tx = Parameters<Parameters<PostgresJsDatabase["transaction"]>[0]>[0];
-
-async function readTransferLog(
-  db: PostgresJsDatabase | Tx,
-  taskId: string
-): Promise<TransferLogEntry[]> {
-  return db
-    .select({
-      seq: workPackageTransfersTable.seq,
-      origin: workPackageTransfersTable.origin,
-      byConversation: workPackageTransfersTable.byConversation,
-      notes: workPackageTransfersTable.notes,
-      createdAt: workPackageTransfersTable.createdAt,
-    })
-    .from(workPackageTransfersTable)
-    .where(eq(workPackageTransfersTable.packageTaskId, taskId))
-    .orderBy(asc(workPackageTransfersTable.seq));
-}
-
-async function readSpec(db: PostgresJsDatabase | Tx, taskId: string): Promise<string> {
-  const rows = await db
-    .select({ content: taskSpecsTable.content })
-    .from(taskSpecsTable)
-    .where(eq(taskSpecsTable.taskId, taskId))
-    .limit(1);
-  return rows[0]?.content ?? "";
-}
-
-async function writeSpec(
-  db: PostgresJsDatabase | Tx,
-  taskId: string,
-  content: string,
-  now: Date
-): Promise<void> {
-  await db
-    .insert(taskSpecsTable)
-    .values({ taskId, content, createdAt: now, updatedAt: now })
-    .onConflictDoUpdate({
-      target: taskSpecsTable.taskId,
-      set: { content, updatedAt: now },
-    });
-}
-
-/**
- * Re-render `## Transfers` from the log into the current spec. Called at the
- * end of the succession transaction and again after the release, so the
- * section always names every transfer the table holds.
- */
-export async function refreshTransfersSection(
-  db: PostgresJsDatabase | Tx,
-  taskId: string,
-  now: Date = new Date()
-): Promise<string> {
-  const [spec, transfers] = await Promise.all([readSpec(db, taskId), readTransferLog(db, taskId)]);
-  const next = upsertBriefingSection(spec, renderTransferLog(transfers));
-  await writeSpec(db, taskId, next, now);
-  return next;
-}
+// readTransferLog, readSpec, writeSpec and refreshTransfersSection moved to
+// work-package-transfers-projection.ts (mt#5143), where every transfer writer
+// shares them; this module keeps the in-transaction render it always did.
 
 /**
  * Succeed a claimed work package: rewrite its member set and briefing, append
@@ -340,6 +285,7 @@ export async function succeedWorkPackage(
 
   if (!outcome.ok || !releaseClaim) return outcome;
 
+  // releaseWorkPackage re-renders `## Transfers` itself after its commit (mt#5143).
   const release = await releaseWorkPackage(
     db,
     {
@@ -349,8 +295,5 @@ export async function succeedWorkPackage(
     },
     now
   );
-  if (release.ok) {
-    await refreshTransfersSection(db, taskId, now);
-  }
   return { ...outcome, release, status: release.ok ? "READY" : "IN-PROGRESS" };
 }
