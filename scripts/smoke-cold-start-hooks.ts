@@ -99,7 +99,22 @@ try {
     // (developer-local setup), which `initializeProject` skips entirely when
     // MCP is explicitly disabled. Provisioning-under-MCP-disabled is a product
     // coupling decision (ask#6671), not a smoke concern.
-    [join(installDir, "minsky.js"), "init", "--repo", projectDir, "--backend", "minsky"],
+    //
+    // `--client cursor` (mt#5153): a CI runner has no harness in its
+    // environment and no MCP client installed, and `init` no longer guesses in
+    // that state — it refuses and names the flag. `cursor` is what this smoke
+    // silently got before, so the exercised path is unchanged; the harness is
+    // not this smoke's subject, hook provisioning is.
+    [
+      join(installDir, "minsky.js"),
+      "init",
+      "--repo",
+      projectDir,
+      "--backend",
+      "minsky",
+      "--client",
+      "cursor",
+    ],
     {
       cwd: projectDir,
       encoding: "utf8",
