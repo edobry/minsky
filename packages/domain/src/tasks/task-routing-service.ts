@@ -1,15 +1,13 @@
 import { injectable } from "tsyringe";
 import {
-  computeAutonomyClass,
   countExcluded,
   emptyExcludedByClass,
-  humanOriginFromChannel,
   isServableClass,
   type AutonomyClassResult,
   type ExcludedByClass,
   type TaskAutonomyClass,
 } from "./autonomy-class";
-import type { AutonomySignalSource } from "./autonomy-class-store";
+import { classifyTasks, type AutonomySignalSource } from "./autonomy-class-store";
 import type { TaskGraphService } from "./task-graph-service";
 import type { TaskServiceInterface } from "./taskService";
 import type { Task } from "./types";
@@ -86,27 +84,13 @@ export class TaskRoutingService {
     private signalSource?: AutonomySignalSource
   ) {}
 
-  /** Classify a batch of task rows with one bulk signal load. */
-  private async classify(tasks: readonly Task[]): Promise<Map<string, AutonomyClassResult>> {
-    const signals = this.signalSource
-      ? await this.signalSource.loadSpecSignals(tasks.map((t) => t.id))
-      : undefined;
-    const out = new Map<string, AutonomyClassResult>();
-    for (const task of tasks) {
-      out.set(
-        task.id,
-        computeAutonomyClass({
-          id: task.id,
-          kind: task.kind,
-          status: task.status,
-          tags: task.tags ?? [],
-          title: task.title ?? "",
-          spec: signals?.get(task.id),
-          humanOrigin: humanOriginFromChannel(task.origin),
-        })
-      );
-    }
-    return out;
+  /**
+   * Classify a batch of task rows with one bulk signal load — the shared
+   * `classifyTasks` (mt#5137), so this consumer and the unattended supervisor
+   * cannot disagree about a candidate's class.
+   */
+  private classify(tasks: readonly Task[]): Promise<Map<string, AutonomyClassResult>> {
+    return classifyTasks(tasks, this.signalSource);
   }
 
   /**

@@ -31,6 +31,7 @@ function report(overrides: Partial<SupervisionStatusReport> = {}): SupervisionSt
     stallThresholdHours: 8,
     inFlight: [],
     dispatches: [],
+    excludedByClass: [],
     ...overrides,
   };
 }
@@ -132,5 +133,37 @@ describe("formatSupervisionStatus — SC10: a failed child is visible without a 
 
   test("omits the settled section when nothing has settled", () => {
     expect(formatSupervisionStatus(report())).not.toContain("Settled (");
+  });
+});
+
+describe("formatSupervisionStatus — mt#5137 AT2: a child withheld on its autonomy class", () => {
+  test("lists the excluded child with the classifier's reason string", () => {
+    const text = formatSupervisionStatus(
+      report({
+        waitingOn: "all-candidates-gated-by-autonomy-class",
+        excludedByClass: [
+          { taskId: "mt#4557", class: "principal-gated", reasons: ["tag rfc"] },
+          {
+            taskId: "mt#4558",
+            class: "principal-gated",
+            reasons: [
+              "kind state-ops: a shared-state operation",
+              'principal-reserved marker "vendor"',
+            ],
+          },
+        ],
+      })
+    );
+
+    expect(text).toContain("waiting on: all-candidates-gated-by-autonomy-class");
+    expect(text).toContain("Withheld on autonomy class (2):");
+    expect(text).toContain("mt#4557  principal-gated: tag rfc");
+    expect(text).toContain(
+      'mt#4558  principal-gated: kind state-ops: a shared-state operation; principal-reserved marker "vendor"'
+    );
+  });
+
+  test("omits the withheld section when nothing was excluded", () => {
+    expect(formatSupervisionStatus(report())).not.toContain("Withheld on autonomy class");
   });
 });

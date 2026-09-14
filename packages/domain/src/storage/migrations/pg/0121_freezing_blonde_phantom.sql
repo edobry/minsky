@@ -1,0 +1,1 @@
+ALTER TABLE "task_supervisions" ADD COLUMN "last_excluded_by_class" jsonb;

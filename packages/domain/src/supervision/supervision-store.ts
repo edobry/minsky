@@ -22,6 +22,7 @@ import {
 import { systemEventsTable } from "../storage/schemas/system-events-schema";
 import type {
   DispatchView,
+  ExcludedCandidate,
   SettledBy,
   SupervisionDispatchStatus,
   SupervisionStore,
@@ -62,6 +63,7 @@ function toSupervisionView(row: TaskSupervisionRecord): SupervisionView {
     lastTickAt: row.lastTickAt,
     lastAdvanceAt: row.lastAdvanceAt,
     lastHoldReason: row.lastHoldReason,
+    lastExcludedByClass: (row.lastExcludedByClass as ExcludedCandidate[] | null) ?? null,
   };
 }
 
@@ -206,6 +208,7 @@ export class DrizzleSupervisionStore implements SupervisionStore {
     lastTickAt?: Date;
     lastAdvanceAt?: Date;
     lastHoldReason?: string | null;
+    lastExcludedByClass?: ExcludedCandidate[] | null;
     lastError?: string | null;
   }): Promise<void> {
     const patch: Partial<TaskSupervisionRecord> = { updatedAt: new Date() };
@@ -214,6 +217,9 @@ export class DrizzleSupervisionStore implements SupervisionStore {
     if (input.lastTickAt !== undefined) patch.lastTickAt = input.lastTickAt;
     if (input.lastAdvanceAt !== undefined) patch.lastAdvanceAt = input.lastAdvanceAt;
     if (input.lastHoldReason !== undefined) patch.lastHoldReason = input.lastHoldReason;
+    if (input.lastExcludedByClass !== undefined) {
+      patch.lastExcludedByClass = input.lastExcludedByClass;
+    }
     if (input.lastError !== undefined) patch.lastError = input.lastError;
     if (input.status === "completed" || input.status === "stopped") {
       patch.stoppedAt = input.lastTickAt ?? new Date();

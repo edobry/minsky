@@ -854,7 +854,9 @@ that walks it** — plus a usable completion signal, below.
 
 **The record.** `task_supervisions` (one row per supervised umbrella: explicit
 status filter, WIP limit, model, event watermark, `last_tick_at`,
-`last_advance_at`, `last_hold_reason`) and `task_supervision_dispatches` (one
+`last_advance_at`, `last_hold_reason`, and since mt#5137
+`last_excluded_by_class` — the children the last tick withheld on their
+autonomy class, each with the classifier's reasons) and `task_supervision_dispatches` (one
 row per child started, unique on `(supervision_id, task_id)`). A partial unique
 index on `umbrella_task_id WHERE status = 'active'` makes at-most-one-active a
 database guarantee rather than a check-then-insert two concurrent callers would
@@ -878,7 +880,20 @@ takes no lock and does nothing):
    `tasks.orchestrate` uses — extracted so the command an operator inspects an
    umbrella with and the supervisor that dispatches from it cannot disagree
    about whether a child is blocked.
-4. **Dispatch up to the free WIP slots** — `resolveTaskWorkspace` →
+4. **Admit on autonomy class** (mt#5137) — classify the not-yet-dispatched
+   frontier with `classifyTasks` (`packages/domain/src/tasks/autonomy-class-store.ts`,
+   the same classifier `tasks_available` consults) and keep only servable
+   classes (`pull-only`, `contained`). A `principal-gated` or `unknown` child
+   is recorded on `SupervisionAdvance.excludedByClass` and persisted to
+   `last_excluded_by_class`, never silently dropped; `tasks.supervision-status`
+   lists it under `Withheld on autonomy class (N)`. When every dispatchable
+   child is withheld the hold reason is `all-candidates-gated-by-autonomy-class`,
+   kept distinct from `all-children-blocked` so an umbrella whose remaining
+   work is the principal's does not read as a dependency stall. The check
+   sits here rather than inside `computeUmbrellaFrontier` on purpose:
+   `tasks.orchestrate` shares the frontier and answers an agent's own pull,
+   where the default-deny lands on the agent (`docs/autonomy-class.md`).
+5. **Dispatch up to the free WIP slots** — `resolveTaskWorkspace` →
    `startDrivenSession` → `sendDrivenSessionInput` with a prompt from
    `generateSubagentPrompt`. Note this does NOT call `tasks_dispatch`, which
    spawns nothing: it ends at prompt generation, gated on

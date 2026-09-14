@@ -122,7 +122,19 @@ classifier reads as incident lineage.
   lands on Phase 2's pull). Membership in a pointing never overrides the
   class.
 
-Not yet wired: the unattended supervisor's child admission (mt#5137).
+- **Unattended supervisor** (`tasks.supervise`, mt#4571; wired by mt#5137):
+  each tick classifies the frontier's dispatchable children with the same
+  `classifyTasks` the routing service uses and spawns only servable ones. A
+  withheld child is RECORDED rather than silently dropped — per tick on
+  `SupervisionAdvance.excludedByClass`, durably on
+  `task_supervisions.last_excluded_by_class`, and in `tasks.supervision-status`
+  under `Withheld on autonomy class (N)` with the classifier's reason strings.
+  When every dispatchable child is gated the hold reason is
+  `all-candidates-gated-by-autonomy-class`, distinct from
+  `all-children-blocked` (a dependency hold) so an umbrella whose remaining work is the principal's does
+  not read as a stall. The check lives in the tick, not in
+  `computeUmbrellaFrontier`: `tasks.orchestrate` shares the frontier and asks
+  on an agent's behalf, where the deny lands on the agent's own pull.
 
 ## EngProd proposals: the BLOCKED hack, retired
 

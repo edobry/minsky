@@ -14,6 +14,7 @@ import { describe, test, expect } from "bun:test";
 import {
   HOLD_ABANDONED,
   HOLD_ALL_BLOCKED,
+  HOLD_ALL_GATED,
   HOLD_FRONTIER_EMPTY,
   HOLD_LIVE_WRITER,
   HOLD_WIP_LIMIT,
@@ -28,6 +29,7 @@ import {
   type FakeTask,
 } from "./__fixtures__/fake-supervision-store";
 import { computeUmbrellaFrontier } from "../tasks/umbrella-frontier";
+import { classifyTasks } from "../tasks/autonomy-class-store";
 import type { SupervisionTickDeps } from "./types";
 
 /** The AT1/AT2 fixture: umbrella U with children A and B, where B depends on A. */
@@ -59,6 +61,15 @@ function buildDeps(
         listChildren: graph.listChildren,
         getDependsRelationships: graph.getDependsRelationships,
         getTasks: graph.getTasks,
+      }),
+    // The REAL classifier over the fake graph's rows (mt#5137), with a signal
+    // source that says every spec exists and carries no gating section — so an
+    // untagged implementation child is `pull-only` and an `rfc`-tagged or
+    // umbrella-kind child is `principal-gated` by the same code production runs.
+    classifyCandidates: async (taskIds) =>
+      classifyTasks(await graph.getTasks(taskIds), {
+        loadSpecSignals: async (ids) =>
+          new Map(ids.map((id) => [id, { scope: null, summary: null, origin: null }])),
       }),
     getTaskStatuses: graph.getTaskStatuses,
     drivenSessionLiveness: spawner.drivenSessionLiveness,
@@ -120,6 +131,119 @@ describe("runSupervisionTick — the DAG walk (AT1)", () => {
     expect(tick.advances[0]?.settled).toEqual([
       { taskId: "mt#901", status: "succeeded", settledBy: "pr.merged" },
     ]);
+  });
+});
+
+describe("runSupervisionTick — autonomy-class admission (mt#5137)", () => {
+  /**
+   * Umbrella with three children: a READY untagged implementation child
+   * (`pull-only`), a READY `rfc`-tagged child (`principal-gated`), and a TODO
+   * child that the `["READY"]` status filter removes before classification.
+   */
+  function gatedDag(): FakeTask[] {
+    return [
+      { id: "mt#910", title: "umbrella", status: "IN-PROGRESS", kind: "umbrella" },
+      { id: "mt#911", title: "implementation child", status: "READY", parent: "mt#910" },
+      {
+        id: "mt#912",
+        title: "decision child",
+        status: "READY",
+        parent: "mt#910",
+        tags: ["rfc"],
+      },
+      { id: "mt#913", title: "unplanned child", status: "TODO", parent: "mt#910" },
+    ];
+  }
+
+  test("spawns the pull-only child, withholds the principal-gated one, and records why (AT1)", async () => {
+    const store = new FakeSupervisionStore();
+    const graph = new FakeTaskGraph(gatedDag());
+    const spawner = new FakeSpawner();
+    const supervision = store.addSupervision({
+      umbrellaTaskId: "mt#910",
+      statusFilter: ["READY"],
+    });
+
+    const tick = await runSupervisionTick(buildDeps(store, graph, spawner));
+    expect(tick.ok).toBe(true);
+    const advance = tick.advances[0];
+
+    // Exactly one spawn. The rfc-tagged child never reaches the spawner, and
+    // the TODO child was filtered by status before the classifier saw it — so
+    // it is neither dispatched nor listed as excluded.
+    expect(advance?.dispatched).toEqual(["mt#911"]);
+    expect(spawner.calls.map((c) => c.taskId)).toEqual(["mt#911"]);
+    expect(advance?.excludedByClass).toEqual([
+      { taskId: "mt#912", class: "principal-gated", reasons: ["tag rfc"] },
+    ]);
+
+    // Something WAS dispatched this tick, so the tick is not held.
+    expect(advance?.holdReason).toBeNull();
+
+    // The exclusion is durable on the supervision row, which is what
+    // `tasks.supervision-status` renders (AT2).
+    expect(store.supervisions.get(supervision.id)?.lastExcludedByClass).toEqual([
+      { taskId: "mt#912", class: "principal-gated", reasons: ["tag rfc"] },
+    ]);
+  });
+
+  test("holds on the autonomy class when every dispatchable child is gated", async () => {
+    const store = new FakeSupervisionStore();
+    const graph = new FakeTaskGraph([
+      { id: "mt#920", title: "umbrella", status: "IN-PROGRESS", kind: "umbrella" },
+      {
+        id: "mt#921",
+        title: "RFC: a decision the principal reserves",
+        status: "READY",
+        parent: "mt#920",
+      },
+      {
+        id: "mt#922",
+        title: "shared-state operation",
+        status: "READY",
+        parent: "mt#920",
+        kind: "state-ops",
+      },
+    ]);
+    const spawner = new FakeSpawner();
+    const supervision = store.addSupervision({
+      umbrellaTaskId: "mt#920",
+      statusFilter: ["READY"],
+    });
+
+    const tick = await runSupervisionTick(buildDeps(store, graph, spawner));
+    const advance = tick.advances[0];
+
+    expect(spawner.calls).toHaveLength(0);
+    expect(advance?.dispatched).toEqual([]);
+    expect(advance?.holdReason).toBe(HOLD_ALL_GATED);
+    expect(advance?.excludedByClass.map((e) => [e.taskId, e.class])).toEqual([
+      ["mt#921", "principal-gated"],
+      ["mt#922", "principal-gated"],
+    ]);
+    // Distinct from HOLD_ALL_BLOCKED: the frontier had dispatchable children;
+    // the class check withheld them. The row says which.
+    expect(store.supervisions.get(supervision.id)?.lastHoldReason).toBe(HOLD_ALL_GATED);
+    expect(store.supervisions.get(supervision.id)?.lastExcludedByClass).toHaveLength(2);
+  });
+
+  test("clears the recorded exclusions on a tick that excludes nothing", async () => {
+    const store = new FakeSupervisionStore();
+    const graph = new FakeTaskGraph(gatedDag());
+    const spawner = new FakeSpawner();
+    const supervision = store.addSupervision({
+      umbrellaTaskId: "mt#910",
+      statusFilter: ["READY"],
+    });
+
+    await runSupervisionTick(buildDeps(store, graph, spawner));
+    expect(store.supervisions.get(supervision.id)?.lastExcludedByClass).toHaveLength(1);
+
+    // The gated child leaves the filter (an operator closed it, say). The next
+    // tick excludes nothing, and the row must not keep reporting a stale hold.
+    graph.setStatus("mt#912", "CLOSED");
+    await runSupervisionTick(buildDeps(store, graph, spawner));
+    expect(store.supervisions.get(supervision.id)?.lastExcludedByClass).toBeNull();
   });
 });
 

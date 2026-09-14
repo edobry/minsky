@@ -101,6 +101,12 @@ export interface SupervisionStatusReport {
   stalled: boolean;
   stallThresholdHours: number;
   inFlight: Array<{ taskId: string; drivenSessionLocalId: string | null; dispatchedAt: string }>;
+  /**
+   * Frontier children the LAST tick refused on their computed autonomy class
+   * (mt#5137) — unblocked, in the status filter, and not a machine's to start.
+   * Empty when the last tick withheld nothing.
+   */
+  excludedByClass: Array<{ taskId: string; class: string; reasons: string[] }>;
   /** Every dispatch this supervision made, newest first — SC10's visible record. */
   dispatches: Array<{
     taskId: string;
@@ -135,6 +141,11 @@ function toReport(
         drivenSessionLocalId: d.drivenSessionLocalId,
         dispatchedAt: d.dispatchedAt.toISOString(),
       })),
+    excludedByClass: (supervision.lastExcludedByClass ?? []).map((e) => ({
+      taskId: e.taskId,
+      class: e.class,
+      reasons: e.reasons,
+    })),
     dispatches: dispatches.map((d) => ({
       taskId: d.taskId,
       status: d.status,
@@ -164,6 +175,16 @@ export function formatSupervisionStatus(report: SupervisionStatusReport): string
     lines.push(
       `  STALLED — the tick is alive but nothing has advanced in over ${report.stallThresholdHours}h`
     );
+  }
+
+  if (report.excludedByClass.length > 0) {
+    // The children the supervisor will keep NOT starting, and why — the
+    // principal-gated work inside the umbrella is the principal's, not the
+    // machine's, and a status that hid it would read as a stall (mt#5137).
+    lines.push(`  Withheld on autonomy class (${report.excludedByClass.length}):`);
+    for (const e of report.excludedByClass) {
+      lines.push(`    ${e.taskId}  ${e.class}: ${e.reasons.join("; ")}`);
+    }
   }
 
   lines.push("");

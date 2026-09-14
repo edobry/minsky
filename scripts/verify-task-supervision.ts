@@ -274,11 +274,18 @@ async function main(): Promise<void> {
     // ---- 5. AT1 end-to-end, real store + real graph ----------------------
     const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
     const { TaskGraphService } = await import("@minsky/domain/tasks/task-graph-service");
+    const { classifyTasks, createDbAutonomySignalSource } = await import(
+      "@minsky/domain/tasks/autonomy-class-store"
+    );
     const taskService = await createConfiguredTaskService({
       workspacePath: process.cwd(),
       persistenceProvider: provider,
     });
     const graphService = new TaskGraphService(db);
+    // The real classifier over the real spec store (mt#5137). The fixture
+    // children are untagged implementation tasks, so they classify `pull-only`
+    // and the admission step passes them through unchanged.
+    const signalSource = createDbAutonomySignalSource(db);
 
     const frontierDeps = {
       listChildren: (parentTaskId: string) => graphService.listChildren(parentTaskId),
@@ -328,6 +335,8 @@ async function main(): Promise<void> {
         for (const t of tasks) if (t.status) out.set(t.id, t.status);
         return out;
       },
+      classifyCandidates: async (taskIds: readonly string[]) =>
+        classifyTasks(await taskService.getTasks([...taskIds]), signalSource),
       drivenSessionLiveness: () => "live" as const,
       // No driven session exists for the fixture children — the real reader is
       // `listNonTerminalDrivenSessions`, exercised by the daemon rather than
