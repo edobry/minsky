@@ -3,6 +3,7 @@ import { TaskStatus } from "../../tasks/taskConstants";
 import { enumSchemas } from "../../configuration/schemas/base";
 import { createEmbeddingsTable, EMBEDDINGS_CONFIGS } from "./embeddings-schema-factory";
 import { projectsTable } from "./projects-schema";
+import { TASK_ORIGIN_VALUES } from "../../provenance/types";
 
 // Enumerated task status using centralized TaskStatus enum — PLUS the retired
 // DDL orphan. 'COMPLETED' was added by 0037 (mt#1812) and collapsed to DONE by
@@ -19,6 +20,10 @@ export const taskStatusEnum = pgEnum("task_status", [
 // Enumerated backend type (reuse centralized backend type values)
 const BACKEND_VALUES = enumSchemas.backendType.options as [string, ...string[]];
 export const taskBackendEnum = pgEnum("task_backend", BACKEND_VALUES);
+
+// The channel that created a task (mt#5136): the same `TaskOrigin` vocabulary
+// PR-time provenance rows use (`provenance/types.ts`), so one enum serves both.
+export const taskOriginEnum = pgEnum("task_origin", [...TASK_ORIGIN_VALUES]);
 
 // Drizzle schema for tasks (metadata only - no spec content)
 export const tasksTable = pgTable(
@@ -37,6 +42,14 @@ export const tasksTable = pgTable(
     // other kind and for unclaimed packages.
     claimedBy: text("claimed_by"),
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    // The channel that created the row (mt#5136) — stamped by the creating
+    // code path, never taken from a caller's payload: the shared `tasks.create`
+    // command writes `agent`, a loop (the toil miner, the adoption sweeper)
+    // writes `automated`, and no channel writes `human` yet (mt#5161). NULL is
+    // a row that predates the column: "unknown", which the autonomy classifier
+    // reads as not-human. NOT the work-package transfer log's `origin`
+    // (groomed|succession|…, ADR-046) and not a spec body's `Origin:` line.
+    origin: taskOriginEnum("origin"),
     lastIndexedAt: timestamp("last_indexed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),

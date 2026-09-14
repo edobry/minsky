@@ -25,8 +25,16 @@ export type ParticipantRole = "director" | "implementer" | "reviewer" | "approve
 /** How the work was initiated. */
 export type InitiationMode = "dispatched" | "autonomous" | "interactive";
 
+/**
+ * Who created the originating task — the single source for the `TaskOrigin`
+ * union AND the `task_origin` Postgres enum on `tasks.origin` (mt#5136), so
+ * the PR-time provenance row and the task row share one vocabulary rather
+ * than two enums that drift.
+ */
+export const TASK_ORIGIN_VALUES = ["human", "agent", "automated"] as const;
+
 /** Who created the originating task. */
-export type TaskOrigin = "human" | "agent" | "automated";
+export type TaskOrigin = (typeof TASK_ORIGIN_VALUES)[number];
 
 /** Who authored the task spec. */
 export type SpecAuthorship = "human" | "agent" | "mixed";

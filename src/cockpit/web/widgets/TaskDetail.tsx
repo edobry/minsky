@@ -47,6 +47,13 @@ export interface TaskDetailPayload {
     status: string;
     kind: string;
     tags: string[];
+    /**
+     * The channel that created the task (mt#5136): `human` | `agent` |
+     * `automated`, or `null` for a row that predates the column. Optional so a
+     * server still serving the pre-mt#5136 shape validates; rendered only
+     * when it carries a value.
+     */
+    origin?: string | null;
   };
   spec: string | null;
   parent: TaskRef | null;
@@ -398,13 +405,7 @@ function LaunchActionButton({
   );
 }
 
-function TaskDetailInner({
-  data,
-  inPeek = false,
-}: {
-  data: TaskDetailPayload;
-  inPeek?: boolean;
-}) {
+function TaskDetailInner({ data, inPeek = false }: { data: TaskDetailPayload; inPeek?: boolean }) {
   const { task, spec, parent, children, deps, actions } = data;
 
   return (
@@ -423,6 +424,15 @@ function TaskDetailInner({
         <span className="text-xs px-1.5 py-0.5 rounded border border-border text-muted-foreground">
           {task.kind}
         </span>
+        {task.origin && (
+          <span
+            className="text-xs px-1.5 py-0.5 rounded border border-border text-muted-foreground"
+            title="Creation channel: who filed this task"
+            data-testid="task-origin"
+          >
+            {task.origin}-filed
+          </span>
+        )}
         {task.tags.map((tag) => (
           <span
             key={tag}

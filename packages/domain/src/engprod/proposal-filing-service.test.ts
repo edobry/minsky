@@ -124,6 +124,9 @@ describe("fileProposal", () => {
     expect(taskService.created).toHaveLength(1);
     expect(taskService.created[0]?.options.status).toBe("TODO");
     expect(taskService.created[0]?.options.tags).toEqual([ENGPROD_PROPOSAL_TAG]);
+    // mt#5136 AT1: the miner is a loop, so the row it files is stamped
+    // `automated` by this code path — never `human`, whatever the spec says.
+    expect(taskService.created[0]?.options.origin).toBe("automated");
     expect(ledgerService.proposed).toHaveLength(1);
     if (result.taskId === undefined) throw new Error("expected a filed task id");
     expect(ledgerService.proposed[0]?.taskId).toBe(result.taskId);

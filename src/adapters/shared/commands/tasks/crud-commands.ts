@@ -740,6 +740,13 @@ export class TasksCreateCommand extends BaseTaskCommand<typeof tasksCreateParams
           githubRepo: params.githubRepo,
           tags,
           kind: params.kind,
+          // mt#5136: this command IS the agent channel — MCP and CLI both
+          // land here, and an agent in a Bash tool runs the same CLI path the
+          // principal would, so the CLI cannot be read as human. `origin` is
+          // deliberately absent from `tasksCreateParams`: a caller passing it
+          // is rejected as undeclared (mt#2778). The `human` producer is
+          // mt#5161's question.
+          origin: "agent",
         },
         {
           persistenceProvider: this.getPersistenceProvider?.(),

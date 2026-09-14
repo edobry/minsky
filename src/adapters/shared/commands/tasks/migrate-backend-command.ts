@@ -347,6 +347,9 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<typeof migrateBa
             id: newTaskId,
             status: fullTask.status,
             tags: fullTask.tags,
+            // mt#5136: a migration copies a row, it does not create work — carry
+            // the source's creation channel rather than stamping the migrator's.
+            origin: fullTask.origin ?? undefined,
           });
 
           // Update session task associations if task ID changed

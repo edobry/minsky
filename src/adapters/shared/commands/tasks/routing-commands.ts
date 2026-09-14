@@ -7,6 +7,7 @@ import {
   computeAutonomyClass,
   countExcluded,
   emptyExcludedByClass,
+  humanOriginFromChannel,
   isServableClass,
   specSignalsFromContent,
   type AutonomySpecSignals,
@@ -214,7 +215,7 @@ export function createTasksAvailableCommand(
             tags: task.tags ?? [],
             title: task.title ?? "",
             spec,
-            humanOrigin: undefined,
+            humanOrigin: humanOriginFromChannel(task.origin),
           });
           if (isServableClass(cls)) classed.push({ task, cls });
           else countExcluded(excludedByClass, cls);

@@ -549,6 +549,9 @@ export async function createTaskFromTitleAndSpec(
     // Forward backend so the multi-backend service routes to the caller's requested backend
     // on this command-layer path too (not just createTaskFromParams) — mt#2572 Bug 4, R1.
     backend: validParams.backend,
+    // mt#5136: the creating channel, stamped by the adapter that called us —
+    // never exposed on the command's own params map.
+    origin: validParams.origin,
   });
 
   return task;

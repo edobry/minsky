@@ -786,7 +786,8 @@ export async function adoptionSweeperTick(
                 const newTask = await taskService.createTaskFromTitleAndSpec(
                   targetTitle,
                   followUpSpec,
-                  { status: "TODO" }
+                  // mt#5136: an ops loop filing a follow-up is an automated channel.
+                  { status: "TODO", origin: "automated" }
                 );
                 totalGapsFiled++;
                 log.info("adoption_sweeper.gap_filed", {

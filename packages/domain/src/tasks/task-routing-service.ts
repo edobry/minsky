@@ -3,6 +3,7 @@ import {
   computeAutonomyClass,
   countExcluded,
   emptyExcludedByClass,
+  humanOriginFromChannel,
   isServableClass,
   type AutonomyClassResult,
   type ExcludedByClass,
@@ -101,7 +102,7 @@ export class TaskRoutingService {
           tags: task.tags ?? [],
           title: task.title ?? "",
           spec: signals?.get(task.id),
-          humanOrigin: undefined,
+          humanOrigin: humanOriginFromChannel(task.origin),
         })
       );
     }
