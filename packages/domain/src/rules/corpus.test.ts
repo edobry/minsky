@@ -378,22 +378,30 @@ describe("scaffolding a project from the corpus", () => {
     expect(result.declinable.map((r) => r.id)).not.toContain(declined);
   });
 
-  it("mt#4872 SC6 — the run does not claim declinable rules were withheld", async () => {
+  it("mt#4872 SC6 / mt#5148 — the run neither claims declinable rules were withheld nor renders them", async () => {
     const fs = fakeFs({});
     const result = await scaffoldRulesFromCorpus(RULES_DIR, false, fs, CORPUS_DIR);
-    const { info } = describeScaffoldResult(result);
-    const text = info.join("\n");
+    const { info, warnings } = describeScaffoldResult(result);
+    const text = [...info, ...warnings].join("\n");
 
     // Pre-mt#4872 this block said the opposite, verbatim: "declinable rule(s)
     // ship with Minsky but were NOT installed … nothing writes them into your
     // project until you choose them." Under propose-then-decline that sentence
-    // is false, and it is the only thing that would have told the user there
-    // was something to act on.
+    // is false.
     expect(text).not.toContain("nothing writes them into your project");
-    expect(text).toContain("you can turn off");
-    expect(text).toContain("rules disable");
-    // The cost the principal accepted has to be stated, not implied.
-    expect(text).toContain("They stay until you remove them");
+
+    // mt#5148: the declinable set is DATA here (`result.declinable`), rendered
+    // once by the adapter's `formatInitMessage`, which the CLI prints and the
+    // MCP result carries. Until mt#5148 this function also emitted an id-only
+    // "installed N optional rule(s) you can turn off" line, so a TTY run showed
+    // the same ids twice. The positive assertions that used to sit here —
+    // "you can turn off", "rules disable", "They stay until you remove them" —
+    // now live beside the renderer in `src/adapters/shared/commands/init.test.ts`.
+    expect(result.declinable.length).toBeGreaterThan(0);
+    expect(text).not.toContain("optional rule(s)");
+    expect(text).not.toContain("you can turn off");
+    // The "wrote N rule(s)" count line is still the scaffold's own to report.
+    expect(text).toContain(`wrote ${result.outcomes.length} rule(s)`);
   });
 
   it("never touches an existing file without --overwrite", async () => {
