@@ -264,18 +264,23 @@ export async function runTaskSupervisionSweepTick(
     for (const excluded of advance.excludedByClass) {
       excludedByClass[excluded.class] = (excludedByClass[excluded.class] ?? 0) + 1;
     }
+    // The ids ride on both lines (PR #3762 R1): a tick that dispatched one
+    // child and withheld another must name the withheld one here, not only
+    // on the row.
+    const excluded = advance.excludedByClass.map((e) => `${e.taskId} (${e.class})`);
     if (advance.dispatched.length > 0 || advance.settled.length > 0) {
       log.info(`cockpit: supervision advanced ${advance.umbrellaTaskId}`, {
         dispatched: advance.dispatched,
         settled: advance.settled,
         completed: advance.completed,
         excludedByClass,
+        excluded,
       });
     } else if (advance.excludedByClass.length > 0) {
       log.info(`cockpit: supervision withheld on autonomy class ${advance.umbrellaTaskId}`, {
         holdReason: advance.holdReason,
         excludedByClass,
-        excluded: advance.excludedByClass.map((e) => `${e.taskId} (${e.class})`),
+        excluded,
       });
     }
   }
