@@ -33,8 +33,23 @@
  * a variable or a command substitution, it is a glob (which may legitimately match nothing), or its
  * base directory is unknown to us — which is the case for a relative path under
  * `mcp__minsky__session_exec` (whose cwd is the session workspace, resolved through an async domain
- * call) and for any relative path in a command that contains a `cd`. Absolute paths are checked on
- * every surface, because they mean the same thing from any cwd.
+ * call) and for any relative path after a `cd` whose target this guard cannot resolve. Absolute
+ * paths are checked on every surface, because they mean the same thing from any cwd.
+ *
+ * ## The filesystem is read BEFORE the command runs, so the command's own products are carried
+ *
+ * This is a `PreToolUse` guard: every `stat` sees the tree as it stands before the command. A
+ * command routinely creates the very file a later statement searches — `bun test … > /tmp/x.log
+ * 2>&1; grep -E fail /tmp/x.log` — and judged statement by statement that target "does not exist".
+ * Measured 2026-09-11 → 09-14: 24 of 42 fires named a `.log`/`.out`/`.txt`/`.err` file an earlier
+ * statement of the same command had redirected into (mt#5111). So `scanCommand` walks the
+ * statements IN ORDER carrying two things forward: the set of paths earlier statements PRODUCE (a
+ * redirect target, a `tee` operand, a `mkdir` directory — and anything under one) and the base a
+ * `cd` moved to. A search operand that resolves to a produced path is silent and counted under
+ * `producedCount`, beside `unresolvedCount`, so the rule's cost stays measurable. A `cd` to a
+ * literal directory re-bases what follows; a `cd` to something this guard cannot resolve (`"$T"`,
+ * `$(mktemp -d)`, `-`) makes every later relative operand unresolvable, which is the pre-mt#5111
+ * behaviour kept for exactly the case it was written for.
  *
  * ## Not governed by ADR-024
  *
@@ -129,6 +144,13 @@ export interface NonexistentSearchPathScanResult {
    * design rests on those rules being conservative in the right direction.
    */
   unresolvedCount: number;
+  /**
+   * Path arguments that resolved to a file or directory an EARLIER statement of the same command
+   * produces — a redirect target, a `tee` operand, a `mkdir` directory (mt#5111). Silent by design,
+   * and counted for the same reason `unresolvedCount` is: the rule can only be tuned against what
+   * it costs.
+   */
+  producedCount: number;
 }
 
 const CLEAN: NonexistentSearchPathScanResult = {
@@ -136,6 +158,7 @@ const CLEAN: NonexistentSearchPathScanResult = {
   binary: null,
   missing: [],
   unresolvedCount: 0,
+  producedCount: 0,
 };
 
 /** Filesystem surface, injectable so tests never touch the real disk (`no-real-fs-in-tests`). */
@@ -437,6 +460,69 @@ function hasCommandSubstitution(stage: string): boolean {
   return stage.includes("$(") || stage.includes("`");
 }
 
+/**
+ * Programs that move the working directory for every statement after them. `popd` is here so it
+ * NULLS the base (PR #3760 R1): without it a `pushd dir; popd; grep … rel` would keep resolving
+ * `rel` under `dir`. A directory stack is not modelled — the popped-to directory is simply one
+ * this guard cannot follow, which is the safe side.
+ */
+const CD_PROGRAMS = new Set(["cd", "pushd", "popd"]);
+
+/**
+ * Programs whose operands are paths the statement CREATES — a `tee` writes each operand, a
+ * `mkdir` makes each one a directory (mt#5111). Redirect targets are read off the tokens
+ * directly, see {@link producedTargets}.
+ */
+const PRODUCING_PROGRAMS: Readonly<Record<string, "file" | "dir">> = { tee: "file", mkdir: "dir" };
+
+/** A device or descriptor, which no later statement can search. */
+const NON_FILE_TARGET_RE = /^(?:\/dev\/|&\d)/;
+
+/**
+ * The file paths one stage writes: each output redirect's target (`> f`, `>> f`, `2> f`, `&> f`,
+ * attached or dangling) plus a `tee`'s operands. `mkdir`'s operands come back as directories.
+ * Tokens are as written — the caller resolves them against the base in force at that statement.
+ */
+export function producedTargets(tokens: readonly string[]): { files: string[]; dirs: string[] } {
+  const files: string[] = [];
+  const dirs: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i] ?? "";
+    // `>`, `>>`, `2>`, `&>`, dangling or attached. NOT the noclobber override `>|` (PR #3760 R1
+    // asked): `splitPipeline` cuts a stage at that `|` before tokens exist, so the target lands in a
+    // stage of its own and no regex here could see it — that is `command-shape.ts`'s splitter,
+    // out of this task's scope, and the form has zero occurrences in the measured window.
+    if (/^(?:\d*|&)>{1,2}$/.test(token)) {
+      const next = tokens[i + 1];
+      if (next !== undefined && !NON_FILE_TARGET_RE.test(next)) files.push(next);
+      i++;
+      continue;
+    }
+    const attached = /^(?:\d*|&)>{1,2}(.+)$/.exec(token);
+    if (attached) {
+      const target = attached[1] ?? "";
+      if (!NON_FILE_TARGET_RE.test(target)) files.push(target);
+    }
+  }
+  const program = tokens[0] ?? "";
+  const kind = PRODUCING_PROGRAMS[program];
+  if (kind !== undefined) {
+    const operands = tokens.slice(1).filter((t) => !t.startsWith("-") && !isRedirection(t));
+    (kind === "dir" ? dirs : files).push(...operands);
+  }
+  return { files, dirs };
+}
+
+/** True when `absolute` is one of `dirs` or lies under one. Iterates the set in place (PR #3760 R1). */
+function isUnderAny(absolute: string, dirs: ReadonlySet<string>): boolean {
+  for (const dir of dirs) {
+    if (absolute === dir || absolute.startsWith(dir.endsWith(sep) ? dir : `${dir}${sep}`)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function scanCommand(
   command: string,
   options: ScanOptions
@@ -447,20 +533,60 @@ export function scanCommand(
   // through the same quote-aware walker, so `grep 'a\nb'` is still one stage.
   const segments = splitStatements(command);
 
-  // A `cd` anywhere re-bases every relative path that follows it, and we do not track where to.
-  const hasCd = segments.some((segment) => tokenize(splitPipeline(segment)[0] ?? "")[0] === "cd");
-  const relativeBaseKnown = options.relativeBaseKnown && !hasCd;
+  // The directory relative operands resolve against AT THIS POINT of the command (mt#5111). Starts
+  // as the caller's cwd when that is known, moves with each `cd` to a literal directory, and becomes
+  // null — every later relative operand unresolvable — at a `cd` this guard cannot follow. Until
+  // mt#5111 one `cd` anywhere nulled the whole command, including the statements before it.
+  let base: string | null = options.relativeBaseKnown ? options.cwd : null;
+
+  // What the statements so far have created, as absolute paths (mt#5111). A search operand that
+  // resolves here is the command's own product, not a missing path.
+  const producedFiles = new Set<string>();
+  const producedDirs = new Set<string>();
+  const resolveProduced = (token: string): string | null =>
+    isUnresolvable(token) ? null : resolveTarget(token, base, base !== null);
 
   // Accumulated across every stage, INCLUDING the clean ones. This is the only measurement of what
   // the silence rules above cost, so returning a shared zero-valued CLEAN constant would discard it
   // on precisely the runs where it is the whole signal.
   let unresolvedCount = 0;
+  let producedCount = 0;
 
   for (const segment of segments) {
     for (const stage of splitPipeline(segment)) {
       const tokens = tokenize(stage);
       const binary = tokens[0];
-      if (!binary || !SEARCH_BINARIES.has(binary)) continue;
+      if (!binary) continue;
+
+      if (CD_PROGRAMS.has(binary)) {
+        // The first operand past any flags (`cd -P dir`). A bare `cd` (home), `cd -` (the previous
+        // directory) and a substituted target are all places this guard cannot follow.
+        const target = tokens.slice(1).find((t) => t === "-" || !t.startsWith("-"));
+        base =
+          binary === "popd" ||
+          target === undefined ||
+          target === "-" ||
+          hasCommandSubstitution(stage)
+            ? null
+            : resolveProduced(target);
+        continue;
+      }
+
+      if (!SEARCH_BINARIES.has(binary)) {
+        // A statement that is not a search may still PRODUCE what a later one searches.
+        if (!hasCommandSubstitution(stage)) {
+          const { files, dirs } = producedTargets(tokens);
+          for (const f of files) {
+            const absolute = resolveProduced(f);
+            if (absolute !== null) producedFiles.add(absolute);
+          }
+          for (const d of dirs) {
+            const absolute = resolveProduced(d);
+            if (absolute !== null) producedDirs.add(absolute);
+          }
+        }
+        continue;
+      }
 
       const paths = pathArgs(binary, tokens);
 
@@ -476,9 +602,13 @@ export function scanCommand(
           unresolvedCount++;
           continue;
         }
-        const absolute = resolveTarget(token, options.cwd, relativeBaseKnown);
+        const absolute = resolveTarget(token, base, base !== null);
         if (absolute === null) {
           unresolvedCount++;
+          continue;
+        }
+        if (producedFiles.has(absolute) || isUnderAny(absolute, producedDirs)) {
+          producedCount++;
           continue;
         }
         if (fs.existsSync(absolute)) continue;
@@ -486,12 +616,18 @@ export function scanCommand(
       }
 
       if (missing.length > 0) {
-        return { matched: true, binary, missing, unresolvedCount };
+        return { matched: true, binary, missing, unresolvedCount, producedCount };
+      }
+
+      // The search's own redirect (`grep … > hits.txt`) is a product too, for whatever follows.
+      for (const f of producedTargets(tokens).files) {
+        const absolute = resolveProduced(f);
+        if (absolute !== null) producedFiles.add(absolute);
       }
     }
   }
 
-  return { ...CLEAN, unresolvedCount };
+  return { ...CLEAN, unresolvedCount, producedCount };
 }
 
 function renderMissing(entry: MissingSearchPath): string {
@@ -548,6 +684,9 @@ export async function run(
     binary: result.binary,
     missingCount: result.missing.length,
     unresolvedCount: result.unresolvedCount,
+    // mt#5111: operands the command itself produces, silenced — written on CLEAN records too, like
+    // `unresolvedCount`, so the rule's cost is on the log rather than inferred from its absence.
+    producedCount: result.producedCount,
     // The sweep's diversity axis is the SHAPE — which binary, and how far the paths got — not the
     // raw command, which is near-unique and would satisfy a distinct-phrase gate by construction
     // (the mt#3781 defect).
@@ -591,5 +730,6 @@ export function renderWorstCase(): string {
     binary: "ripgrep",
     missing: [entry(1), entry(2), entry(3), entry(4), entry(5)],
     unresolvedCount: 0,
+    producedCount: 0,
   });
 }
