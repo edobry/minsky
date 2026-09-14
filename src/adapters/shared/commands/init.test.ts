@@ -14,6 +14,8 @@
 
 import { describe, it, expect } from "bun:test";
 
+import { initializeProject } from "@minsky/domain/init";
+import { createMockFs } from "@minsky/domain/interfaces/mock-fs";
 import { createInitCommand } from "../../../commands/init";
 import { sharedCommandRegistry } from "../command-registry";
 import { paramNameToFlag } from "../schema-bridge";
@@ -40,6 +42,9 @@ describe("mt#4872 SC2 — the declinable set reaches the operator", () => {
   it("states how to decline, and that not declining is a decision", () => {
     const message = formatInitMessage(DECLINABLE);
 
+    // The conversation is the primary selection path (ask#11288); the flags
+    // are the non-interactive one. Both have to be named, in that order.
+    expect(message).toContain("Ask your agent to walk you through them");
     expect(message).toContain("minsky rules disable --id <id>");
     expect(message).toContain("minsky compile");
     // SC6: the cost the principal accepted with "propose then decline"
@@ -52,6 +57,48 @@ describe("mt#4872 SC2 — the declinable set reaches the operator", () => {
     // not a failure. Emitting an empty "0 optional rules" block would train the
     // reader to skip the section in the case where it matters.
     expect(formatInitMessage([])).toBe("Project initialized successfully.");
+  });
+});
+
+describe("mt#5148 — the CLI renders the declinable list exactly once", () => {
+  /**
+   * The CLI's stdout is the domain's `info` lines (sunk through `log.cli`)
+   * followed by `result.message` (printed by `src/commands/init/index.ts`).
+   * mt#4872 added the list to BOTH — SC6 rewrote the domain line, SC2 folded
+   * it into the message — and every test asserted its own channel, so a fresh
+   * `minsky init` printed the thirteen ids twice, back to back (observed
+   * 2026-09-14). This is the test on the combined render that was missing:
+   * the same two channels, concatenated the way the CLI concatenates them.
+   */
+  it("mentions the optional-rule set once across the info lines and the message", async () => {
+    const info: string[] = [];
+    const warnings: string[] = [];
+    const result = await initializeProject(
+      {
+        repoPath: "/tmp/mt5148-once",
+        backend: "minsky",
+        ruleFormat: "minsky",
+        mcp: { enabled: false },
+        overwrite: false,
+      },
+      createMockFs(),
+      {
+        info: (line) => info.push(line),
+        warn: (line) => warnings.push(line),
+        compileForHarness: async () => ({ definitionsIncluded: [], definitionsSkipped: [] }),
+      }
+    );
+    const rendered = [...info, ...warnings, formatInitMessage(result.declinable)].join("\n");
+
+    // The list is real on this run, so "once" is not vacuous.
+    expect(result.declinable.length).toBeGreaterThan(0);
+    expect(rendered.match(/optional rule\(s\)/g)?.length).toBe(1);
+    // ...and it is the descriptive rendering that survives, not the bare ids.
+    for (const rule of result.declinable) {
+      expect(rendered).toContain(`  - ${rule.id}: ${rule.description}`);
+    }
+    // The count line is a different fact and still prints once.
+    expect(rendered.match(/wrote \d+ rule\(s\)/g)?.length).toBe(1);
   });
 });
 

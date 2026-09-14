@@ -303,21 +303,15 @@ export function describeScaffoldResult(result: ScaffoldResult): {
   if (refreshed > 0) {
     info.push(`minsky init: refreshed ${refreshed} rule(s) that still had shipped content.`);
   }
-  // mt#4872 SC6. This block said the OPPOSITE until "propose then decline"
-  // (ask#11764) — "were NOT installed … nothing writes them into your project
-  // until you choose them". Under the chosen shape they ARE installed, so the
-  // cost the principal accepted is that a project nobody asks keeps them. That
-  // makes saying so load-bearing rather than informational: this message and
-  // the conversation it points at are the entire mechanism by which the user
-  // finds out there is something to decline.
-  if (result.declinable.length > 0) {
-    info.push(
-      `minsky init: installed ${result.declinable.length} optional rule(s) you can turn off — ` +
-        `${result.declinable.map((r) => r.id).join(", ")}. Ask your agent to walk you through ` +
-        `them, or run \`minsky rules disable --id <id>\` for any you do not want, then ` +
-        `\`minsky compile\`. They stay until you remove them.`
-    );
-  }
+  // The declinable set is deliberately NOT rendered here (mt#5148). It is the
+  // adapter's `formatInitMessage` that renders it, on every path: the CLI
+  // prints `result.message`, and the MCP tool result carries both that message
+  // and the structured `declinable` array. Until mt#5148 this function ALSO
+  // emitted an id-only "installed N optional rule(s) you can turn off" line,
+  // so a TTY run printed the same thirteen ids twice, back to back — mt#4872
+  // SC2 added the adapter rendering and SC6 rewrote this line, each correct on
+  // its own channel, with no test on the combined render. `result.declinable`
+  // is the data; the sentence about it lives in one place.
   if (result.withheld.length > 0) {
     info.push(
       `minsky init: ${result.withheld.length} rule(s) ship with Minsky and were NOT installed — ` +
