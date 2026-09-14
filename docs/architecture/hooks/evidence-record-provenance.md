@@ -175,12 +175,18 @@ dropped — registers that path; a later READ-ONLY command (`cat`/`sed`/`grep`/`
 `head`/`awk`/`less`/`more` naming the path as a whole operand) whose result carries failure in
 any of the three vocabularies pairs with the LATEST run into that path. A call that is itself
 run-shaped is never a read here — its own result already carries what it displayed, and parts
-1a/1b judge it as the run it is. `failingLogReads` then hands the joins a synthesized call: the
+1a/1b judge it as the run it is. A ROOTED path (`/…`, `~…`, `$VAR/…` — the variable text is the
+join) pairs on its text alone; a RELATIVE one pairs only between calls in one execution context
+— a `session_exec`'s `task`/`sessionId`, or `Bash` — and never through a call that `cd`s, since
+two workspaces' `./x.log` are two files and the transcript shows no cwd this module could
+resolve against (PR #3755 R1). `failingLogReads` then hands the joins a synthesized call: the
 read's result (that is where the failure is), with the run's command prepended to the read's
 so the subject join sees what was invoked — the same command-plus-result the joins see for a
-single-call run. Every one of the 22 read-shaped false candidates fails the path join, since
-none displayed a file an in-transcript run had written; a read of a CI job log still fails it,
-correctly.
+single-call run — and its provenance declared under `input.synthesizedFrom` (`{ shape:
+"log-read", path, runIndex, readIndex }`), so a consumer never has to infer from the embedded
+newline that the call is not a literal transcript entry. Every one of the 22 read-shaped false
+candidates fails the path join, since none displayed a file an in-transcript run had written; a
+read of a CI job log still fails it, correctly.
 
 Measured over the same window with the same script (`--days 21` on 2026-09-14, 440 transcripts,
 638 distinct claims): undischarged **90 → 85**, unadjudicable 47 → 46, `log-read` discharges 6,

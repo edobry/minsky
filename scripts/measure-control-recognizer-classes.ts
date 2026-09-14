@@ -85,6 +85,12 @@ const logReadsOfRedirectedRuns: (calls: readonly ToolCallWithResult[]) => table.
 const leadingPrograms: (command: string) => string[] =
   (table as Partial<typeof table>).leadingPrograms ??
   ((command) => command.split(/\s+/).slice(0, 1));
+// The table's own statement splitter, so this script's residue classifier
+// splits a command exactly where the recognizers do (PR #3755 R1); the
+// fallback is that splitter's regex as it stood before it was exported.
+const splitShellStatements: (command: string) => string[] =
+  (table as Partial<typeof table>).splitShellStatements ??
+  ((command) => command.split(/\s*(?:&&|\|\||;|\n)\s*/));
 
 const REPLAYABLE = new Set([
   "mcp__minsky__session_commit",
@@ -107,7 +113,7 @@ const LOG_OPERAND_RE = /(?:^|[\s"'])[^\s"']+\.log(?:[\s"']|$)/;
  * `runner-red-no-join` (planning, 2026-09-14).
  */
 function isLogReadCommand(command: string): boolean {
-  return command.split(/\s*(?:&&|\|\||;|\n)\s*/).some((statement) => {
+  return splitShellStatements(command).some((statement) => {
     const program = leadingPrograms(statement)[0] ?? "";
     return LOG_READ_PROGRAM_RE.test(program) && LOG_OPERAND_RE.test(statement);
   });
@@ -209,7 +215,15 @@ function logReadPairFor(
 ): table.LogReadPair | undefined {
   const via = failingLogReads(prior).find((c) => recordJoinsCall(record, c));
   if (!via) return undefined;
-  return logReadsOfRedirectedRuns(prior).find((p) => p.read.index === via.index);
+  // The synthesized call declares its pair (`synthesizedFrom`); match on that
+  // rather than on the read's index alone, since one read can pair with runs
+  // into several paths.
+  const from = via.input["synthesizedFrom"] as { runIndex?: number; path?: string } | undefined;
+  return logReadsOfRedirectedRuns(prior).find(
+    (p) =>
+      p.read.index === via.index &&
+      (from === undefined || (p.run.index === from.runIndex && p.path === from.path))
+  );
 }
 
 /** What an UNDISCHARGED record's prefix holds, so the residue is classifiable. */

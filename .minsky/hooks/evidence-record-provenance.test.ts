@@ -132,7 +132,7 @@ function testRun(command: string, output: string): TranscriptLine[] {
       type: "assistant",
       message: {
         role: "assistant",
-        content: [{ type: "tool_use", id, name: "mcp__minsky__session_exec", input: { command } }],
+        content: [{ type: "tool_use", id, name: SESSION_EXEC, input: { command } }],
       },
     },
     {
@@ -149,6 +149,9 @@ function testRun(command: string, output: string): TranscriptLine[] {
 
 const TEST_CMD = "bun test --preload ./tests/dom-setup.ts --timeout=15000";
 
+/** The session command tool, as the transcript names it. */
+const SESSION_EXEC = "mcp__minsky__session_exec";
+
 function ctxWith(lines: TranscriptLine[]): DispatchContext {
   return { transcriptLines: lines } as unknown as DispatchContext;
 }
@@ -164,6 +167,19 @@ function commitInput(message: string): ToolHookInput {
 // ---------------------------------------------------------------------------
 // The subject join
 // ---------------------------------------------------------------------------
+
+describe("the fixture helpers produce results the reader can see (PR #3755 R1)", () => {
+  // `call()` wrote `{ resultText }` where the reader expects `text` until
+  // mt#5140, so every fixture it built carried an empty result and an
+  // assertion about the body passed for the wrong reason. Pin both helpers.
+  test("call() and testRun() results reach `resultText`", () => {
+    const [viaCall] = findToolCallsWithResults(call("Bash", { command: "x" }, "(fail) seen"));
+    expect(viaCall?.hasResult).toBe(true);
+    expect(viaCall?.resultText).toBe("(fail) seen");
+    const [viaTestRun] = findToolCallsWithResults(testRun(TEST_CMD, SUBJECT_FAILURE));
+    expect(viaTestRun?.resultText).toBe(SUBJECT_FAILURE);
+  });
+});
 
 describe("extractSubjectTokens", () => {
   test("splits a test-name span, because the runner interpolates into it", () => {
@@ -1352,6 +1368,70 @@ describe("a detached run read back through its own log (mt#5140)", () => {
     // A read redirected somewhere is not a run's output.
     expect(runOutputTargets("cat a.ts > /tmp/copy.log")).toEqual([]);
     expect(runOutputTargets("echo done > /tmp/marker.log; bun scripts/probe.ts")).toEqual([]);
+  });
+
+  test("R1: a RELATIVE target joins only within one execution context — two workspaces' `./x.log` are two files", () => {
+    const relativeRun =
+      "bun test tests/integration/remainder-expiry.testcontainer.integration.test.ts > ./x.log 2>&1";
+    const relativeRead = "grep -E '^\\(fail\\)|pass$|fail$' ./x.log";
+    // Same session: the workspace is the context, so the pair forms.
+    const sameWorkspace = findToolCallsWithResults([
+      ...call(SESSION_EXEC, { task: "mt#1", command: relativeRun }, "exit=1"),
+      ...call(SESSION_EXEC, { task: "mt#1", command: relativeRead }, LOG_OUTPUT),
+    ]);
+    expect(logReadsOfRedirectedRuns(sameWorkspace)).toHaveLength(1);
+    // A different session wrote ITS ./x.log; this session's read is of another file.
+    const otherWorkspace = findToolCallsWithResults([
+      ...call(SESSION_EXEC, { task: "mt#2", command: relativeRun }, "exit=1"),
+      ...call(SESSION_EXEC, { task: "mt#1", command: relativeRead }, LOG_OUTPUT),
+    ]);
+    expect(logReadsOfRedirectedRuns(otherWorkspace)).toHaveLength(0);
+    // `Bash` and `session_exec` are different contexts too.
+    const acrossTools = findToolCallsWithResults([
+      ...call("Bash", { command: relativeRun }, "exit=1"),
+      ...call(SESSION_EXEC, { task: "mt#1", command: relativeRead }, LOG_OUTPUT),
+    ]);
+    expect(logReadsOfRedirectedRuns(acrossTools)).toHaveLength(0);
+    // A call that `cd`s has left the context: its relative paths never join.
+    const changedDir = findToolCallsWithResults([
+      ...call("Bash", { command: `cd /tmp/scratch && ${relativeRun}` }, "exit=1"),
+      ...call("Bash", { command: relativeRead }, LOG_OUTPUT),
+    ]);
+    expect(logReadsOfRedirectedRuns(changedDir)).toHaveLength(0);
+    // A ROOTED path joins on its text regardless of tool or workspace.
+    const rooted = findToolCallsWithResults([
+      ...call(SESSION_EXEC, { task: "mt#2", command: RUN_CMD }, "exit=1"),
+      ...call("Bash", { command: READ_CMD }, LOG_OUTPUT),
+    ]);
+    expect(logReadsOfRedirectedRuns(rooted)).toHaveLength(1);
+  });
+
+  test("R1: the synthesized call declares its provenance under `synthesizedFrom`", () => {
+    const calls = findToolCallsWithResults([
+      ...testRun(RUN_CMD, "exit=1"),
+      ...call("Bash", { command: READ_CMD }, LOG_OUTPUT),
+    ]);
+    const [synthesized] = failingLogReads(calls);
+    const [pair] = logReadsOfRedirectedRuns(calls);
+    expect(synthesized?.input["synthesizedFrom"]).toEqual({
+      shape: "log-read",
+      path: "/tmp/x.log",
+      runIndex: pair?.run.index,
+      readIndex: pair?.read.index,
+    });
+    expect(synthesized?.index).toBe(pair?.read.index ?? -1);
+    // A literal transcript call never carries the key.
+    expect(calls.every((c) => !("synthesizedFrom" in c.input))).toBe(true);
+  });
+
+  test("R1: `tee` with several operands registers every one", () => {
+    expect(runOutputTargets("bun scripts/probe.ts 2>&1 | tee -a /tmp/a.log /tmp/b.log")).toEqual([
+      "/tmp/a.log",
+      "/tmp/b.log",
+    ]);
+    expect(
+      runOutputTargets('bun scripts/probe.ts | tee "/tmp/c d.log" /tmp/e.log | tail -3')
+    ).toEqual(["/tmp/c d.log", "/tmp/e.log"]);
   });
 
   test("isLogReadOf needs a log-read program AND the exact path as a whole operand", () => {

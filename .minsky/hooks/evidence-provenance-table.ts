@@ -735,6 +735,15 @@ const STATEMENT_PREFIX_RE =
 const STATEMENT_SPLIT_RE = /\s*(?:&&|\|\||;|\n)\s*/;
 
 /**
+ * A command's statements, split where {@link STATEMENT_SPLIT_RE} splits them.
+ * Exported so a consumer classifying commands beside this module (the
+ * measurement script) splits the same way it does (PR #3755 R1).
+ */
+export function splitShellStatements(command: string): string[] {
+  return command.split(STATEMENT_SPLIT_RE);
+}
+
+/**
  * Programs whose output is a DISPLAY of something, never a result of running
  * it. A command whose statements all start here is a read, whatever its output
  * says. `echo`/`printf` are here because an author's own banner is not a run.
@@ -945,30 +954,78 @@ export function failingTypecheckRuns(calls: readonly ToolCallWithResult[]): Tool
 // transcript redirected into. A read alone is never evidence.
 
 /**
- * A redirect or `tee` naming the file a statement's output lands in: `> f`,
- * `>> f`, `2> f`, `&> f`, `1>f`, `| tee f`, `| tee -a f`. Quotes are stripped
- * so `"$DIR/x.log"` joins to the bare `$DIR/x.log` a later read names — the
- * variable is never expanded on either side, so the exact text IS the join.
- * `2>&1` cannot match (the target class excludes `&`), and the device files
- * are dropped below.
+ * A redirect naming the file a statement's output lands in: `> f`, `>> f`,
+ * `2> f`, `&> f`, `1>f`. Quotes are stripped so `"$DIR/x.log"` joins to the
+ * bare `$DIR/x.log` a later read names — the variable is never expanded on
+ * either side, so the exact text IS the join. `2>&1` cannot match (the operand
+ * class excludes `&`), and the device files are dropped below.
  */
-const OUTPUT_TARGET_SRC = String.raw`(?:(?:^|\s)(?:[12&]?>>?)|\|\s*tee\s+(?:-[ai]+\s+)*)\s*(?:"([^"]+)"|'([^']+)'|([^\s"'|;&<>]+))`;
+const REDIRECT_TARGET_SRC = String.raw`(?:^|\s)(?:[12&]?>>?)\s*(?:"([^"]+)"|'([^']+)'|([^\s"'|;&<>]+))`;
+/**
+ * `| tee f`, `| tee -a f g …` — every operand after the flags is a target, so
+ * the operand run is captured whole and split below (PR #3755 R1: the single-
+ * operand form under-captured `tee a.log b.log`).
+ */
+const TEE_OPERANDS_SRC = String.raw`\|\s*tee\s+(?:-[ai]+\s+)*((?:(?:"[^"]+"|'[^']+'|[^\s"'|;&<>]+)\s*)+)`;
+const OPERAND_SRC = String.raw`"([^"]+)"|'([^']+)'|([^\s"'|;&<>]+)`;
 const DEVICE_TARGET_RE = /^\/dev\//;
 
 /** The files a run-shaped statement of `command` redirected its output into. */
 export function runOutputTargets(command: string): string[] {
   const out: string[] = [];
-  for (const raw of command.split(STATEMENT_SPLIT_RE)) {
+  const push = (target: string): void => {
+    if (target.length > 0 && !DEVICE_TARGET_RE.test(target) && !out.includes(target)) {
+      out.push(target);
+    }
+  };
+  for (const raw of splitShellStatements(command)) {
     const statement = isRunShapedStatement(raw);
     if (statement === null) continue;
-    for (const m of statement.matchAll(new RegExp(OUTPUT_TARGET_SRC, "g"))) {
-      const target = m[1] ?? m[2] ?? m[3] ?? "";
-      if (target.length > 0 && !DEVICE_TARGET_RE.test(target) && !out.includes(target)) {
-        out.push(target);
+    for (const m of statement.matchAll(new RegExp(REDIRECT_TARGET_SRC, "g"))) {
+      push(m[1] ?? m[2] ?? m[3] ?? "");
+    }
+    for (const tee of statement.matchAll(new RegExp(TEE_OPERANDS_SRC, "g"))) {
+      for (const m of (tee[1] ?? "").matchAll(new RegExp(OPERAND_SRC, "g"))) {
+        push(m[1] ?? m[2] ?? m[3] ?? "");
       }
     }
   }
   return out;
+}
+
+/**
+ * A path the shell resolves the same way wherever it runs: absolute, `~`, or
+ * variable-rooted (the variable text is the join, and `$CLAUDE_JOB_DIR` names
+ * one directory for a whole conversation). Everything else is relative to a
+ * working directory this module cannot see.
+ */
+function isRootedPath(path: string): boolean {
+  return /^[/~$]/.test(path);
+}
+
+/**
+ * The context a RELATIVE path resolves in, as far as a transcript shows it
+ * (PR #3755 R1). A `session_exec` runs in the workspace its `task` /
+ * `sessionId` names; a `Bash` runs in the harness's cwd. Two calls in
+ * different contexts can write and read the same `./x.log` and mean two files,
+ * so a relative target joins only within one context. A call that changes
+ * directory itself (`cd …`) has left even that behind: its relative paths are
+ * treated as unresolvable and never join.
+ */
+function relativePathContext(call: ToolCallWithResult, command: string): string | null {
+  if (/(?:^|[\s;&|(])cd\s/.test(command)) return null;
+  const tool = normalizeToolName(call.toolName);
+  if (tool === "session_exec") {
+    const scope = call.input["sessionId"] ?? call.input["task"];
+    return `session_exec:${typeof scope === "string" ? scope : ""}`;
+  }
+  return tool;
+}
+
+/** The map key a target joins under: the path alone when rooted, else path-in-context. */
+function targetKey(path: string, context: string | null): string | null {
+  if (isRootedPath(path)) return path;
+  return context === null ? null : `${context} :: ${path}`;
 }
 
 /** Programs a detached run's log is read back through. A subset of {@link READ_PROGRAMS}. */
@@ -1006,7 +1063,7 @@ function statementNamesPath(statement: string, path: string): boolean {
  * A pipe is one statement, so `cat f | grep fail` reads `f`.
  */
 export function isLogReadOf(command: string, path: string): boolean {
-  return command.split(STATEMENT_SPLIT_RE).some((raw) => {
+  return splitShellStatements(command).some((raw) => {
     const statement = stripStatementPrefixes(raw);
     const program = statement.split(/\s+/)[0] ?? "";
     return LOG_READ_PROGRAMS.has(program) && statementNamesPath(statement, path);
@@ -1027,24 +1084,33 @@ export interface LogReadPair {
  * file, a later read-only command displayed that file, and the read's result
  * reports failure in a runner's, a harness's, or the compiler's vocabulary.
  *
- * Two rules bound it. ORDER: the run must precede the read, and the LATEST run
- * into that path before the read is the one paired — a file rewritten by a
+ * Three rules bound it. ORDER: the run must precede the read, and the LATEST
+ * run into that path before the read is the one paired — a file rewritten by a
  * later run shows the later run's output. READ-ONLY: a call that is itself
  * run-shaped is never a read here; its own result already carries what it
- * displayed, and parts 1a/1b judge it as the run it is.
+ * displayed, and parts 1a/1b judge it as the run it is. CONTEXT: a rooted path
+ * (`/…`, `~…`, `$VAR/…`) joins on its text alone; a relative one joins only
+ * between calls in the same {@link relativePathContext}, and never through a
+ * call that `cd`s (PR #3755 R1).
  */
 export function logReadsOfRedirectedRuns(calls: readonly ToolCallWithResult[]): LogReadPair[] {
-  const latestRunByPath = new Map<string, ToolCallWithResult>();
+  const latestRunByKey = new Map<string, { run: ToolCallWithResult; path: string }>();
   const pairs: LogReadPair[] = [];
   for (const call of calls) {
     if (!COMMAND_TOOL_NAMES.includes(normalizeToolName(call.toolName))) continue;
     const command = typeof call.input["command"] === "string" ? call.input["command"] : "";
+    const context = relativePathContext(call, command);
     if (isRunShapedCommand(command)) {
-      for (const target of runOutputTargets(command)) latestRunByPath.set(target, call);
+      for (const path of runOutputTargets(command)) {
+        const key = targetKey(path, context);
+        if (key !== null) latestRunByKey.set(key, { run: call, path });
+      }
       continue;
     }
-    if (latestRunByPath.size === 0 || !resultReportsFailure(call.resultText)) continue;
-    for (const [path, run] of latestRunByPath) {
+    if (latestRunByKey.size === 0 || !resultReportsFailure(call.resultText)) continue;
+    for (const [key, { run, path }] of latestRunByKey) {
+      // The read must resolve the path under the SAME key the run registered.
+      if (targetKey(path, context) !== key) continue;
       if (isLogReadOf(command, path)) pairs.push({ run, read: call, path });
     }
   }
@@ -1061,17 +1127,52 @@ function resultReportsFailure(resultText: string): boolean {
 }
 
 /**
- * The pairs of {@link logReadsOfRedirectedRuns} as calls the joins can consume:
- * the READ's result (that is where the failure vocabulary is), with the RUN's
- * command prepended to the read's so the subject join sees what was invoked —
- * a control routinely names the test file the run took as its argument.
- * Index and id are the read's: that is the call the evidence appeared in.
+ * How a call {@link failingLogReads} synthesizes declares itself, under
+ * `input[SYNTHESIZED_FROM_KEY]`: the pair it was built from, by transcript
+ * index. A consumer that must not treat the call as a literal transcript entry
+ * branches on the key rather than on the shape of `command`.
+ */
+export const SYNTHESIZED_FROM_KEY = "synthesizedFrom";
+
+/** What `input[SYNTHESIZED_FROM_KEY]` carries on a synthesized log-read call. */
+export interface SynthesizedFrom {
+  shape: "log-read";
+  path: string;
+  runIndex: number;
+  readIndex: number;
+}
+
+/**
+ * The pairs of {@link logReadsOfRedirectedRuns} as calls the joins can consume.
+ *
+ * THESE ARE NOT LITERAL TRANSCRIPT CALLS. Each is the READ's call (index, id,
+ * result — the result is where the failure vocabulary is) with ONE change:
+ * `input.command` is the RUN's command, a newline, then the read's, so the
+ * subject join sees what was invoked — a control routinely names the test
+ * file the run took as its argument, and that is in the run's command, not
+ * the read's output. A consumer that splits statements sees the two commands
+ * as consecutive statements, which is what the newline is for. The
+ * provenance is declared under {@link SYNTHESIZED_FROM_KEY} so nothing has to
+ * infer it from the embedded newline.
  */
 export function failingLogReads(calls: readonly ToolCallWithResult[]): ToolCallWithResult[] {
-  return logReadsOfRedirectedRuns(calls).map(({ run, read }) => {
+  return logReadsOfRedirectedRuns(calls).map(({ run, read, path }) => {
     const runCommand = typeof run.input["command"] === "string" ? run.input["command"] : "";
     const readCommand = typeof read.input["command"] === "string" ? read.input["command"] : "";
-    return { ...read, input: { ...read.input, command: `${runCommand}\n${readCommand}` } };
+    const synthesizedFrom: SynthesizedFrom = {
+      shape: "log-read",
+      path,
+      runIndex: run.index,
+      readIndex: read.index,
+    };
+    return {
+      ...read,
+      input: {
+        ...read.input,
+        command: `${runCommand}\n${readCommand}`,
+        [SYNTHESIZED_FROM_KEY]: synthesizedFrom,
+      },
+    };
   });
 }
 
