@@ -12,8 +12,9 @@
  * (`.minsky/hooks/guard-events-ingest-on-session-end.ts`, via the
  * `guard-events.ingest` CLI/MCP command) and the cockpit daemon sweeper
  * (`startGuardEventsSweepBackstop`, `src/cockpit/sweepers.ts`) — but they run
- * the SAME function. Per ADR-017 and mt#2313, SessionEnd does not fire (or
- * complete) on `/exit`, `/clear`, or an async kill, so the SessionEnd push is
+ * the SAME function. Per ADR-017 as amended by mt#2313, SessionEnd never fires on a
+ * crash or SIGKILL, can be killed mid-run by a tab-close SIGHUP, and is
+ * unmeasured for `/exit` (it does fire on `/clear`), so the SessionEnd push is
  * a LATENCY optimization only; the periodic sweep alone must achieve
  * completeness. Every stream's dedupe key makes re-running this function over
  * an already-ingested span a no-op, which is what makes running it from BOTH

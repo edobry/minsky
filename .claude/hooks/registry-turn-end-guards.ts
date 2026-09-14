@@ -475,7 +475,8 @@ export const TURN_END_GUARDS: readonly GuardRegistration[] = [
   // SessionEnd has no guards wired through this registry — the repo's one
   // SessionEnd hook is wired directly in settings.json, outside the
   // calibration/canary/override plumbing this detector depends on — and per
-  // ADR-017 /exit and /clear do not fire SessionEnd at all. Full reasoning and
+  // ADR-017 (as amended by mt#2313) SessionEnd never fires on a crash and is
+  // unmeasured for /exit, so it is no end-of-conversation signal. Full reasoning and
   // the accepted residual (mt#3740): the guard module's header.
   // -------------------------------------------------------------------------
   {

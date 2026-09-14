@@ -100,8 +100,9 @@ Session grain invites a session-end seam, and `SessionEnd` was evaluated and rej
   hook (`transcript-ingest-on-session-end.ts`) is wired directly in `.claude/settings.json`,
   bypassing the calibration-log, canary, and override plumbing this detector depends on. Building
   a `SessionEnd` dispatcher entrypoint is a larger change than a detector re-grain.
-- Per ADR-017, `/exit` and `/clear` do not fire `SessionEnd` at all, so its absence proves
-  nothing — it is not a reliable end-of-session signal in this harness either way.
+- Per ADR-017 (as amended by mt#2313), `SessionEnd` never fires on a crash or SIGKILL and
+  `/exit` is unmeasured (`/clear` does fire it), so its absence proves nothing — it is not a
+  reliable end-of-session signal in this harness either way.
 - `Stop` already hosts five other guards on the same dispatcher, including a directly-analogous
   calibration-first, log-only sibling (`stop-at-decision-scan`, mt#3653), and firing once per
   turn means at least one invocation sees a killed session where `SessionEnd` would see none.

@@ -430,7 +430,7 @@
         ]
       },
       {
-        "_comment": "mt#4035 — guard/calibration exhaust ingest, latency-optimization half; the cockpit sweep is the correctness layer (SessionEnd does not reliably fire, per ADR-017/mt#2313).",
+        "_comment": "mt#4035 — guard/calibration exhaust ingest, latency-optimization half; the cockpit sweep is the correctness layer (SessionEnd never fires on a crash/SIGKILL and a tab-close SIGHUP can kill the hook mid-run, per ADR-017; it DOES fire on /clear — 340 measured, mt#2313).",
         "hooks": [
           {
             "type": "command",
@@ -441,7 +441,7 @@
         ]
       },
       {
-        "_comment": "mt#3161 run-state writer — records a SessionEnd HINT only. Per ADR-017, /exit and /clear do NOT fire SessionEnd, so its absence proves nothing; authoritative end/stall detection is the Phase 2 absence sweep.",
+        "_comment": "mt#3161 run-state writer — records a SessionEnd HINT only. SessionEnd never fires on a crash/SIGKILL and /exit is unmeasured (it DOES fire on /clear — 340 rows measured 2026-09-13, mt#2313 corrected ADR-017 on that point), so its absence proves nothing; authoritative end/stall detection is the Phase 2 absence sweep.",
         "hooks": [
           {
             "type": "command",

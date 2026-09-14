@@ -185,9 +185,10 @@ export function mapHookEventToRunState(
       return { lastCompactionEndedAt: observedAt };
 
     case "SessionEnd":
-      // A HINT, never authoritative — /exit and /clear do not fire SessionEnd
-      // (ADR-017; Claude Code issues #17885, #6428). Absence of this column
-      // proves nothing about whether the conversation ended.
+      // A HINT, never authoritative — a crash or SIGKILL never fires SessionEnd
+      // and /exit is unmeasured (/clear does fire it: ADR-017 as amended by
+      // mt#2313). Absence of this column proves nothing about whether the
+      // conversation ended.
       return {
         endedHintAt: observedAt,
         endedHintReason: str(payload, "reason") ?? null,

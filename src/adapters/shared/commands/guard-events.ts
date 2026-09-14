@@ -10,8 +10,9 @@
  *  - The cockpit daemon sweeper (`startGuardEventsSweepBackstop`,
  *    `src/cockpit/sweepers.ts`) calls the same underlying
  *    `runGuardEventsIngestSweep` on a periodic cadence — THE CORRECTNESS
- *    LAYER (ADR-017 / mt#2313: SessionEnd does not fire, or complete, on
- *    `/exit`, `/clear`, or an async kill).
+ *    LAYER (ADR-017 as amended by mt#2313: SessionEnd never fires on a crash
+ *    or SIGKILL, can be killed mid-run by a tab-close SIGHUP, and is
+ *    unmeasured for `/exit` — it does fire on `/clear`).
  *
  * DI pattern mirrors `transcripts.ts`: the persistence provider is resolved
  * from `context.container` at execute time, not at registration time.
@@ -56,7 +57,7 @@ export function registerGuardEventsCommands(
       "content since each stream's persisted high-water mark and batch-inserts into guard_events " +
       "(ON CONFLICT dedupe_key DO NOTHING). Incremental and idempotent — safe to re-run over an " +
       "already-ingested span. Called by the SessionEnd hook (latency) and the cockpit sweep " +
-      "(correctness — SessionEnd does not reliably fire, per ADR-017/mt#2313).",
+      "(correctness — SessionEnd never fires on a crash and can be killed mid-run, per ADR-017/mt#2313).",
     parameters: {
       maxRecordsPerStreamPerTick: {
         schema: z.number().int().positive(),

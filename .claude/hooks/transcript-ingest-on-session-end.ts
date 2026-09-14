@@ -35,12 +35,21 @@
 // and (on failure) stderr, so a failed ingest leaves a signal an operator can
 // find rather than being silently swallowed.
 //
-// Reliability boundary (Covers / Does NOT cover):
-//   Covers   — sessions that end normally (SessionEnd fires).
-//   Does NOT — sessions killed via SIGKILL / crash (SessionEnd never fires), and
-//              embedding backfill when the opt-in embed step is off or times out.
-//              Both are backstopped by the MCP boot sweep (mt#2051) and the
-//              cadence sweep (mt#2234).
+// Reliability boundary (Covers / Does NOT cover) — enumerated from MEASURED
+// SessionEnd deliveries, not from assumed exit semantics (mt#2313; ADR-017):
+//   Covers   — conversations whose SessionEnd fires: `/clear` (reason `clear` —
+//              340 deliveries measured in conversation_run_state 2026-07-29 →
+//              2026-09-13), `logout`, `prompt_input_exit`, and `other`. The
+//              hooks reference lists `clear` and `resume` as reason values.
+//   Does NOT — a crash / SIGKILL (the event never fires); a SIGHUP on tab close
+//              that kills this hook mid-ingest (the ingest can run up to 45s);
+//              `/exit`, which is UNMEASURED (no reason value distinguishes it —
+//              `other` may include it; Claude Code issues #17885/#6428 say it
+//              does not fire); and embedding backfill when the opt-in embed
+//              step is off or times out. All of these are backstopped by the
+//              MCP boot sweep (mt#2051) and the cadence sweep (mt#2234), which
+//              ADR-017 makes the coverage guarantee — this hook is the
+//              non-load-bearing latency optimization for the exits that do fire.
 //
 // Override: MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK=1|true|yes skips the hook with an
 // audit line to stdout. The hook ALWAYS exits 0 — SessionEnd is a
