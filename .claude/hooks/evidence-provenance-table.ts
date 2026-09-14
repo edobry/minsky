@@ -716,12 +716,14 @@ export function failingTestRuns(calls: readonly ToolCallWithResult[]): ToolCallW
 // than merely noisy. So a candidate must INVOKE something: an interpreter, a
 // script, a CLI. A read that displays a failure is not the failure.
 //
-// Deliberately NOT recognized, recorded so it is not re-proposed: a read of a
-// log the run wrote (`tail -30 /tmp/related.log`, a saved CI job log) — 6 of the
-// 123. The run was backgrounded or ran in CI and its output reached the
-// transcript through a read, which is indistinguishable in shape from the 22
-// false candidates above. It stays a miss until a recognizer can tell a run's
-// log from any other file.
+// Left unrecognized HERE, and recorded as such so it was not re-proposed as a
+// plain widening: a read of a log the run wrote (`tail -30 /tmp/related.log`, a
+// saved CI job log) — 6 of the 123. The run was backgrounded or ran in CI and
+// its output reached the transcript through a read, which is indistinguishable
+// in shape from the 22 false candidates above WHEN THE READ IS JUDGED ALONE.
+// Part 1c below recognizes the half of that class a transcript CAN vouch for —
+// the read of a file an earlier run in the same transcript redirected into —
+// and leaves the CI-log half a miss, correctly.
 
 /**
  * Shell-statement prefixes that carry no program of their own: `VAR=value`,
@@ -735,6 +737,15 @@ const STATEMENT_PREFIX_RE =
 
 /** Where one shell statement ends and the next begins. A pipe does NOT split — `bun test | tail` is one run. */
 const STATEMENT_SPLIT_RE = /\s*(?:&&|\|\||;|\n)\s*/;
+
+/**
+ * A command's statements, split where {@link STATEMENT_SPLIT_RE} splits them.
+ * Exported so a consumer classifying commands beside this module (the
+ * measurement script) splits the same way it does (PR #3755 R1).
+ */
+export function splitShellStatements(command: string): string[] {
+  return command.split(STATEMENT_SPLIT_RE);
+}
 
 /**
  * Programs whose output is a DISPLAY of something, never a result of running
@@ -821,16 +832,24 @@ function isHelpInvocation(statement: string): boolean {
  * not a run, whatever its output happens to contain.
  */
 export function isRunShapedCommand(command: string): boolean {
-  return command.split(STATEMENT_SPLIT_RE).some((rawStatement) => {
-    const statement = stripStatementPrefixes(rawStatement);
-    const program = statement.split(/\s+/)[0] ?? "";
-    return (
-      program.length > 0 &&
-      RUN_PROGRAM_RE.test(program) &&
-      !READ_PROGRAMS.has(program) &&
-      !isHelpInvocation(statement)
-    );
-  });
+  return command.split(STATEMENT_SPLIT_RE).some((raw) => isRunShapedStatement(raw) !== null);
+}
+
+/**
+ * One statement's prefix-stripped form when it INVOKES something, else null —
+ * the per-statement half of {@link isRunShapedCommand}, shared with part 1c
+ * below so "which statement's output landed in that file" is answered by the
+ * same rule that decides what a run is.
+ */
+function isRunShapedStatement(rawStatement: string): string | null {
+  const statement = stripStatementPrefixes(rawStatement);
+  const program = statement.split(/\s+/)[0] ?? "";
+  const runs =
+    program.length > 0 &&
+    RUN_PROGRAM_RE.test(program) &&
+    !READ_PROGRAMS.has(program) &&
+    !isHelpInvocation(statement);
+  return runs ? statement : null;
 }
 
 /**
@@ -913,19 +932,271 @@ export function failingTypecheckRuns(calls: readonly ToolCallWithResult[]): Tool
   return calls.filter(isFailingTypecheckRun);
 }
 
+// ---------------------------------------------------------------------------
+// Discharge, part 1c: a detached run, read back through its own log (mt#5140)
+// ---------------------------------------------------------------------------
+//
+// The half of part 1b's unrecognized class that a transcript CAN vouch for. A
+// control that would outrun `session_exec`'s 120 s cap is run with its output
+// redirected — `bun test … > …/mt5131-negctl.log 2>&1; echo exit=$?` — and its
+// failure vocabulary reaches the transcript through a LATER read of that file:
+// `grep -E '^\(fail\)|…' …/mt5131-negctl.log | head -30`. Judged one call at a
+// time neither is a red run: the invocation's own result is `exit=1` and
+// nothing else (stdout went to the file, and a runner invocation is judged by
+// the runner's markers, which never arrive), and the read is a `grep`, which
+// part 1b excludes on purpose. Judged as a transcript the pair is one run: the
+// file the read displays is the file the run wrote. THE JOIN IS THE FILE PATH,
+// exact and in order — a run-shaped statement redirected into it earlier, a
+// read program displayed it later — which none of the 22 read-shaped false
+// candidates could claim, since none displayed a file an in-transcript run had
+// written. The subject/quoted/count joins then run over the READ's output
+// with the RUN's command beside it, exactly as they would over a single call.
+//
+// Live instance: mt#5131's control (calibration 2026-09-13T11:52:51Z), the one
+// undischarged real control of the post-mt#4306 window. Still unrecognized,
+// and correctly: a read of a CI job log, or of any file no run in the
+// transcript redirected into. A read alone is never evidence.
+
+/**
+ * A redirect naming the file a statement's output lands in: `> f`, `>> f`,
+ * `2> f`, `&> f`, `1>f`. Quotes are stripped so `"$DIR/x.log"` joins to the
+ * bare `$DIR/x.log` a later read names — the variable is never expanded on
+ * either side, so the exact text IS the join. `2>&1` cannot match (the operand
+ * class excludes `&`), and the device files are dropped below.
+ */
+const REDIRECT_TARGET_SRC = String.raw`(?:^|\s)(?:[12&]?>>?)\s*(?:"([^"]+)"|'([^']+)'|([^\s"'|;&<>]+))`;
+/**
+ * `| tee f`, `| tee -a f g …` — every operand after the flags is a target, so
+ * the operand run is captured whole and split below (PR #3755 R1: the single-
+ * operand form under-captured `tee a.log b.log`).
+ */
+const TEE_OPERANDS_SRC = String.raw`\|\s*tee\s+(?:-[ai]+\s+)*((?:(?:"[^"]+"|'[^']+'|[^\s"'|;&<>]+)\s*)+)`;
+const OPERAND_SRC = String.raw`"([^"]+)"|'([^']+)'|([^\s"'|;&<>]+)`;
+const DEVICE_TARGET_RE = /^\/dev\//;
+
+/** The files a run-shaped statement of `command` redirected its output into. */
+export function runOutputTargets(command: string): string[] {
+  const out: string[] = [];
+  const push = (target: string): void => {
+    if (target.length > 0 && !DEVICE_TARGET_RE.test(target) && !out.includes(target)) {
+      out.push(target);
+    }
+  };
+  for (const raw of splitShellStatements(command)) {
+    const statement = isRunShapedStatement(raw);
+    if (statement === null) continue;
+    for (const m of statement.matchAll(new RegExp(REDIRECT_TARGET_SRC, "g"))) {
+      push(m[1] ?? m[2] ?? m[3] ?? "");
+    }
+    for (const tee of statement.matchAll(new RegExp(TEE_OPERANDS_SRC, "g"))) {
+      for (const m of (tee[1] ?? "").matchAll(new RegExp(OPERAND_SRC, "g"))) {
+        push(m[1] ?? m[2] ?? m[3] ?? "");
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * A path the shell resolves the same way wherever it runs: absolute, `~`, or
+ * variable-rooted (the variable text is the join, and `$CLAUDE_JOB_DIR` names
+ * one directory for a whole conversation). Everything else is relative to a
+ * working directory this module cannot see.
+ */
+function isRootedPath(path: string): boolean {
+  return /^[/~$]/.test(path);
+}
+
+/**
+ * The context a RELATIVE path resolves in, as far as a transcript shows it
+ * (PR #3755 R1). A `session_exec` runs in the workspace its `task` /
+ * `sessionId` names; a `Bash` runs in the harness's cwd. Two calls in
+ * different contexts can write and read the same `./x.log` and mean two files,
+ * so a relative target joins only within one context. A call that changes
+ * directory itself (`cd …`) has left even that behind: its relative paths are
+ * treated as unresolvable and never join.
+ */
+function relativePathContext(call: ToolCallWithResult, command: string): string | null {
+  if (/(?:^|[\s;&|(])cd\s/.test(command)) return null;
+  const tool = normalizeToolName(call.toolName);
+  if (tool === "session_exec") {
+    const scope = call.input["sessionId"] ?? call.input["task"];
+    return `session_exec:${typeof scope === "string" ? scope : ""}`;
+  }
+  return tool;
+}
+
+/** The map key a target joins under: the path alone when rooted, else path-in-context. */
+function targetKey(path: string, context: string | null): string | null {
+  if (isRootedPath(path)) return path;
+  return context === null ? null : `${context} :: ${path}`;
+}
+
+/** Programs a detached run's log is read back through. A subset of {@link READ_PROGRAMS}. */
+const LOG_READ_PROGRAMS: ReadonlySet<string> = new Set([
+  "cat",
+  "sed",
+  "grep",
+  "rg",
+  "head",
+  "tail",
+  "less",
+  "more",
+  "awk",
+]);
+
+/** Where an operand ends: whitespace, a quote, or a shell control character. */
+const OPERAND_BOUNDARY = /[\s"'|;&<>()]/;
+
+/** True when `path` appears in `statement` as a whole operand, quoted or bare. */
+function statementNamesPath(statement: string, path: string): boolean {
+  let from = 0;
+  for (;;) {
+    const at = statement.indexOf(path, from);
+    if (at === -1) return false;
+    const before = at === 0 ? " " : statement.charAt(at - 1);
+    const after = statement.charAt(at + path.length) || " ";
+    if (OPERAND_BOUNDARY.test(before) && OPERAND_BOUNDARY.test(after)) return true;
+    from = at + 1;
+  }
+}
+
+/**
+ * True when some statement of `command` DISPLAYS `path` through a log-read
+ * program — `cat`/`sed`/`grep`/`tail`/`head` … naming it as a whole operand.
+ * A pipe is one statement, so `cat f | grep fail` reads `f`.
+ */
+export function isLogReadOf(command: string, path: string): boolean {
+  return splitShellStatements(command).some((raw) => {
+    const statement = stripStatementPrefixes(raw);
+    const program = statement.split(/\s+/)[0] ?? "";
+    return LOG_READ_PROGRAMS.has(program) && statementNamesPath(statement, path);
+  });
+}
+
+/** One detached run and the later read that displayed its log. */
+export interface LogReadPair {
+  /** The run-shaped call that redirected into `path`. */
+  run: ToolCallWithResult;
+  /** The later read-only call whose result displays `path`, and reports failure. */
+  read: ToolCallWithResult;
+  path: string;
+}
+
+/**
+ * Every (run, read) pair in `calls` where the run redirected its output into a
+ * file, a later read-only command displayed that file, and the read's result
+ * reports failure in a runner's, a harness's, or the compiler's vocabulary.
+ *
+ * Three rules bound it. ORDER: the run must precede the read, and the LATEST
+ * run into that path before the read is the one paired — a file rewritten by a
+ * later run shows the later run's output. READ-ONLY: a call that is itself
+ * run-shaped is never a read here; its own result already carries what it
+ * displayed, and parts 1a/1b judge it as the run it is. CONTEXT: a rooted path
+ * (`/…`, `~…`, `$VAR/…`) joins on its text alone; a relative one joins only
+ * between calls in the same {@link relativePathContext}, and never through a
+ * call that `cd`s (PR #3755 R1).
+ */
+export function logReadsOfRedirectedRuns(calls: readonly ToolCallWithResult[]): LogReadPair[] {
+  const latestRunByKey = new Map<string, { run: ToolCallWithResult; path: string }>();
+  const pairs: LogReadPair[] = [];
+  for (const call of calls) {
+    if (!COMMAND_TOOL_NAMES.includes(normalizeToolName(call.toolName))) continue;
+    const command = typeof call.input["command"] === "string" ? call.input["command"] : "";
+    const context = relativePathContext(call, command);
+    if (isRunShapedCommand(command)) {
+      for (const path of runOutputTargets(command)) {
+        const key = targetKey(path, context);
+        if (key !== null) latestRunByKey.set(key, { run: call, path });
+      }
+      continue;
+    }
+    if (latestRunByKey.size === 0 || !resultReportsFailure(call.resultText)) continue;
+    for (const [key, { run, path }] of latestRunByKey) {
+      // The read must resolve the path under the SAME key the run registered.
+      if (targetKey(path, context) !== key) continue;
+      if (isLogReadOf(command, path)) pairs.push({ run, read: call, path });
+    }
+  }
+  return pairs;
+}
+
+/** Failure in any vocabulary the three run shapes above read. */
+function resultReportsFailure(resultText: string): boolean {
+  return (
+    FAILURE_MARKER_RE.test(resultText) ||
+    outputReportsHarnessFailure(resultText) ||
+    TYPECHECK_FAILURE_RE.test(resultText)
+  );
+}
+
+/**
+ * How a call {@link failingLogReads} synthesizes declares itself, under
+ * `input[SYNTHESIZED_FROM_KEY]`: the pair it was built from, by transcript
+ * index. A consumer that must not treat the call as a literal transcript entry
+ * branches on the key rather than on the shape of `command`.
+ */
+export const SYNTHESIZED_FROM_KEY = "synthesizedFrom";
+
+/** What `input[SYNTHESIZED_FROM_KEY]` carries on a synthesized log-read call. */
+export interface SynthesizedFrom {
+  shape: "log-read";
+  path: string;
+  runIndex: number;
+  readIndex: number;
+}
+
+/**
+ * The pairs of {@link logReadsOfRedirectedRuns} as calls the joins can consume.
+ *
+ * THESE ARE NOT LITERAL TRANSCRIPT CALLS. Each is the READ's call (index, id,
+ * result — the result is where the failure vocabulary is) with ONE change:
+ * `input.command` is the RUN's command, a newline, then the read's, so the
+ * subject join sees what was invoked — a control routinely names the test
+ * file the run took as its argument, and that is in the run's command, not
+ * the read's output. A consumer that splits statements sees the two commands
+ * as consecutive statements, which is what the newline is for. The
+ * provenance is declared under {@link SYNTHESIZED_FROM_KEY} so nothing has to
+ * infer it from the embedded newline.
+ */
+export function failingLogReads(calls: readonly ToolCallWithResult[]): ToolCallWithResult[] {
+  return logReadsOfRedirectedRuns(calls).map(({ run, read, path }) => {
+    const runCommand = typeof run.input["command"] === "string" ? run.input["command"] : "";
+    const readCommand = typeof read.input["command"] === "string" ? read.input["command"] : "";
+    const synthesizedFrom: SynthesizedFrom = {
+      shape: "log-read",
+      path,
+      runIndex: run.index,
+      readIndex: read.index,
+    };
+    return {
+      ...read,
+      input: {
+        ...read.input,
+        command: `${runCommand}\n${readCommand}`,
+        [SYNTHESIZED_FROM_KEY]: synthesizedFrom,
+      },
+    };
+  });
+}
+
 /**
  * Every run a negative control can join against: test runners observed red,
- * harness/probe runs reporting failure, and typecheck-shaped controls. This is
- * the set `judgeClaims` hands the joins; the three parts are exported separately
- * so the replay sweep can attribute a discharge to the shape that produced it.
+ * harness/probe runs reporting failure, typecheck-shaped controls, and a
+ * detached run read back through its own log. This is the set `judgeClaims`
+ * hands the joins; the four parts are exported separately so the replay sweep
+ * can attribute a discharge to the shape that produced it.
  */
 export function failingControlRuns(calls: readonly ToolCallWithResult[]): ToolCallWithResult[] {
-  return calls.filter(
-    (c) =>
-      (isTestRunningCall(c) && FAILURE_MARKER_RE.test(c.resultText)) ||
-      isFailingHarnessRun(c) ||
-      isFailingTypecheckRun(c)
-  );
+  return [
+    ...calls.filter(
+      (c) =>
+        (isTestRunningCall(c) && FAILURE_MARKER_RE.test(c.resultText)) ||
+        isFailingHarnessRun(c) ||
+        isFailingTypecheckRun(c)
+    ),
+    ...failingLogReads(calls),
+  ];
 }
 
 // ---------------------------------------------------------------------------
