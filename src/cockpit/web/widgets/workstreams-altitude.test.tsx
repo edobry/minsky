@@ -80,6 +80,13 @@ describe("Workstreams altitude parameterization (mt#2385)", () => {
   let queryClient: QueryClient;
 
   beforeEach(() => {
+    // mt#3575: ProjectProvider restores its selection from localStorage, a
+    // process-global that survives `cleanup` and crosses FILES. Without this the
+    // widget inherits a project another file selected and fetches
+    // `?project=<slug>`, so the bare-endpoint assertion below failed under any
+    // order that put such a file first. Establish the precondition; do not
+    // inherit it.
+    localStorage.clear();
     requestedUrls = [];
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, refetchInterval: false } },
@@ -204,6 +211,13 @@ describe("Workstreams count wording (mt#4775)", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
+    // mt#3575: ProjectProvider restores its selection from localStorage, a
+    // process-global that survives `cleanup` and crosses FILES. Without this the
+    // widget inherits a project another file selected and fetches
+    // `?project=<slug>`, so the bare-endpoint assertion below failed under any
+    // order that put such a file first. Establish the precondition; do not
+    // inherit it.
+    localStorage.clear();
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ asks: [] }), {
         status: 200,

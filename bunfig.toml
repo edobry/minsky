@@ -1,23 +1,25 @@
 [test]
 preload = ["./tests/setup.ts"]
-# TEMPORARY (mt#3561) — retirement tracked by mt#3575, escalate at 10 days.
+# Test order is RANDOMIZED (mt#3575 restored this; mt#3561 had set it false).
 #
-# This was `true`, but it was a NO-OP on Bun 1.2.21: that version prints no seed
-# and exposes neither `--seed` nor `--randomize`. The suite has been running in
-# declaration order the whole time while declaring otherwise. Bun 1.3.14 honours
-# the setting, which immediately surfaced ~9 clusters of order-dependent tests —
-# tests leaning on a predecessor's side effects (shared fixtures mutated in
-# sequence, module-globals reset only in `afterEach`, a spy leaked by reassigning
-# the handle its `afterEach` restores).
+# History worth keeping, because the fact is easy to get wrong: this key was
+# declared `true` for a long time while being a NO-OP, because test-order
+# randomization did not exist in Bun until **v1.2.21 → v1.2.23** — the feature
+# shipped in 1.2.23 (bun.com/blog/bun-v1.2.23), and the repo was pinned below
+# that. The suite ran in declaration order the whole time while declaring
+# otherwise. mt#3561's upgrade made the setting real, which surfaced a
+# population of order-dependent tests, and it was set `false` as an honest
+# temporary measure while mt#3575 fixed them.
 #
-# Setting it to `false` is therefore not a regression: it states honestly what
-# has actually been happening for months, and unblocks the upgrade's real prizes
-# (`bun test --changed`, and a ~40% faster suite). mt#3575 owns fixing the
-# population and restoring `true` — with a CI seed sweep so the next
-# order-dependence fails loudly instead of lying dormant.
+# THIS KEY IS THE ONLY SWITCH. Measured on 1.3.14 (mt#3575): `bun test --seed=N`
+# does nothing while this is `false`, and the `--randomize` CLI flag does NOT
+# override it. So a seed sweep run against `false` shuffles nothing and reports
+# a clean run every time — which is why `scripts/run-tests-seed-sweep.ts` reads
+# this key and REFUSES rather than reporting a green sweep it cannot back.
 #
-# Do NOT treat this as licence to write order-dependent tests.
-randomize = false
+# Do NOT set this back to `false` to make a failing test pass. A test that only
+# passes in declaration order is order-dependent; fix its precondition.
+randomize = true
 # CONCURRENCY (PR #3081 R1): the suite runs SERIALLY — files in order, tests
 # within a file in order. Nothing here or in scripts/*.ts or package.json passes
 # --concurrent, --parallel, --isolate or --shard, and the repo has zero
