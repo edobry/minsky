@@ -607,6 +607,9 @@ export function mountTaskRoutes(app: express.Express, opts: TaskRoutesOptions = 
           status: (task.status ?? "TODO").toUpperCase(),
           kind: task.kind ?? "implementation",
           tags: task.tags ?? [],
+          // The creation channel (mt#5136); null for a row that predates the
+          // column, so the widget can tell "unknown" from a real value.
+          origin: task.origin ?? null,
         },
         spec: specContent,
         parent,

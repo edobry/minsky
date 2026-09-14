@@ -548,6 +548,8 @@ export function createTasksDispatchCommand(
             title: p.title as string,
             spec: p.description || p.instructions,
             workspace: process.cwd(),
+            // mt#5136: a dispatch that mints its own task is an agent channel.
+            origin: "agent",
           },
           { persistenceProvider: getPersistenceProvider(), taskService: getTaskService() }
         );

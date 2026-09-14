@@ -19,7 +19,7 @@ mt#5130 (Phase 1c of mt#3483). Code: `packages/domain/src/tasks/autonomy-class.t
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
 | `principal-gated` | A decision the principal reserves: naming, architecture, product surface, vendor, shared or production state. **Dominates** — any one signal is enough. | Never                        |
 | `pull-only`       | Ordinary implementation work an agent or the principal must pull. The default.                                                                          | Yes                          |
-| `contained`       | Small blast radius **and** gate-passing human provenance. Unreachable today — see "Human origin".                                                       | Yes                          |
+| `contained`       | Small blast radius **and** gate-passing human provenance. Empty today: no channel writes `human` yet — see "Human origin".                              | Yes                          |
 | `unknown`         | The spec signals could not be loaded (no spec row, or no loader on this path). Never a default for a well-formed task.                                  | Never                        |
 
 ## The signals, in dominance order
@@ -69,11 +69,36 @@ identified; a test pins it.
 
 ### Human origin
 
-`contained` requires `humanOrigin === true`, and nothing records a task's
-origin today — `tasks` has no author column, and PR-time provenance rows are
-written only once a PR exists. Default-deny applied to the signal itself:
-absence of evidence is agent-authored, so every task resolves `pull-only` at
-best until mt#5136 adds an `origin` stamped by the creating channel.
+`contained` requires `humanOrigin === true`, derived from the row's creation
+channel: `tasks.origin` (`human` | `agent` | `automated`, mt#5136), mapped by
+`humanOriginFromChannel` — only `human` is evidence for; `agent` and
+`automated` are evidence against; a NULL row (one that predates the column, no
+backfill) is no evidence at all, and the classifier reads both non-`human`
+cases as `pull-only` with the reason "no human-origin evidence".
+
+The value is stamped by the code path that files the task, never taken from
+the caller: the shared `tasks.create` command (MCP and CLI — an agent in a
+Bash tool runs the same CLI path the principal would), `tasks.dispatch`'s
+new-task mode and `session_start --description` write `agent`; the EngProd
+toil miner and the ops adoption sweeper write `automated`; a backend-to-backend
+migration copies the source row's value. `tasks.create` declares no `origin`
+parameter, so a payload carrying one is rejected at the MCP boundary (mt#2778)
+— a producer cannot claim `human`. One known imprecision: the reviewer
+service's adoption sweeper files through `tasks_create` over MCP, so its rows
+read `agent` although it is a loop; the classifier asks only `=== "human"`,
+so the trust property is unaffected.
+
+**No channel writes `human` yet.** The cockpit has no task-creation form, the
+CLI cannot tell the principal at a terminal from an agent in a subprocess
+without a heuristic, and a GitHub issue never reaches the minsky task table —
+so `contained` is reachable and still empty. Which channel counts as human is
+the principal's call (a standing trust default; a cockpit form is product
+surface): mt#5161 owns it, ask#12169 carries the options.
+
+The column is one of three "origin"s and the only one that is a channel: the
+work-package transfer log's `origin` is the transfer kind (`groomed` |
+`succession` | …, ADR-046), and a spec body's `Origin:` line is prose the
+classifier reads as incident lineage.
 
 ## Where it is read
 

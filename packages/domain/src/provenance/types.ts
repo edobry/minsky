@@ -25,8 +25,22 @@ export type ParticipantRole = "director" | "implementer" | "reviewer" | "approve
 /** How the work was initiated. */
 export type InitiationMode = "dispatched" | "autonomous" | "interactive";
 
+/**
+ * Who created the originating task — the single source for the `TaskOrigin`
+ * union AND the `task_origin` Postgres enum on `tasks.origin` (mt#5136), so
+ * the PR-time provenance row and the task row share one vocabulary rather
+ * than two enums that drift.
+ *
+ * Editing this tuple is a SCHEMA change: `taskOriginEnum` in
+ * `storage/schemas/task-embeddings.ts` is built from it, so a new value needs
+ * a deliberate `bun run db:generate:pg` migration (Postgres can add enum
+ * values but never remove one), and the Zod `origin` on the domain create
+ * schema reads it too. Keep the `as const` — `z.enum` requires the tuple.
+ */
+export const TASK_ORIGIN_VALUES = ["human", "agent", "automated"] as const;
+
 /** Who created the originating task. */
-export type TaskOrigin = "human" | "agent" | "automated";
+export type TaskOrigin = (typeof TASK_ORIGIN_VALUES)[number];
 
 /** Who authored the task spec. */
 export type SpecAuthorship = "human" | "agent" | "mixed";
