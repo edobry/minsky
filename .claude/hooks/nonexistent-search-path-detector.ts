@@ -464,8 +464,13 @@ function hasCommandSubstitution(stage: string): boolean {
   return stage.includes("$(") || stage.includes("`");
 }
 
-/** Programs that move the working directory for every statement after them. */
-const CD_PROGRAMS = new Set(["cd", "pushd"]);
+/**
+ * Programs that move the working directory for every statement after them. `popd` is here so it
+ * NULLS the base (PR #3760 R1): without it a `pushd dir; popd; grep … rel` would keep resolving
+ * `rel` under `dir`. A directory stack is not modelled — the popped-to directory is simply one
+ * this guard cannot follow, which is the safe side.
+ */
+const CD_PROGRAMS = new Set(["cd", "pushd", "popd"]);
 
 /**
  * Programs whose operands are paths the statement CREATES — a `tee` writes each operand, a
@@ -487,6 +492,10 @@ export function producedTargets(tokens: readonly string[]): { files: string[]; d
   const dirs: string[] = [];
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i] ?? "";
+    // `>`, `>>`, `2>`, `&>`, dangling or attached. NOT the noclobber override `>|` (PR #3760 R1
+    // asked): `splitPipeline` cuts a stage at that `|` before tokens exist, so the target lands in a
+    // stage of its own and no regex here could see it — that is `command-shape.ts`'s splitter,
+    // out of this task's scope, and the form has zero occurrences in the measured window.
     if (/^(?:\d*|&)>{1,2}$/.test(token)) {
       const next = tokens[i + 1];
       if (next !== undefined && !NON_FILE_TARGET_RE.test(next)) files.push(next);
@@ -508,9 +517,14 @@ export function producedTargets(tokens: readonly string[]): { files: string[]; d
   return { files, dirs };
 }
 
-/** True when `absolute` is `dir` or lies under it. */
-function isUnder(absolute: string, dir: string): boolean {
-  return absolute === dir || absolute.startsWith(dir.endsWith(sep) ? dir : `${dir}${sep}`);
+/** True when `absolute` is one of `dirs` or lies under one. Iterates the set in place (PR #3760 R1). */
+function isUnderAny(absolute: string, dirs: ReadonlySet<string>): boolean {
+  for (const dir of dirs) {
+    if (absolute === dir || absolute.startsWith(dir.endsWith(sep) ? dir : `${dir}${sep}`)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function scanCommand(
@@ -553,7 +567,10 @@ export function scanCommand(
         // directory) and a substituted target are all places this guard cannot follow.
         const target = tokens.slice(1).find((t) => t === "-" || !t.startsWith("-"));
         base =
-          target === undefined || target === "-" || hasCommandSubstitution(stage)
+          binary === "popd" ||
+          target === undefined ||
+          target === "-" ||
+          hasCommandSubstitution(stage)
             ? null
             : resolveProduced(target);
         continue;
@@ -594,10 +611,7 @@ export function scanCommand(
           unresolvedCount++;
           continue;
         }
-        if (
-          producedFiles.has(absolute) ||
-          [...producedDirs].some((dir) => isUnder(absolute, dir))
-        ) {
+        if (producedFiles.has(absolute) || isUnderAny(absolute, producedDirs)) {
           producedCount++;
           continue;
         }

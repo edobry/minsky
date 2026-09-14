@@ -279,6 +279,12 @@ describe("AT5 — an unresolvable path argument is silence, never a guess", () =
       expect(r.matched).toBe(false);
       expect(r.unresolvedCount).toBe(1);
     }
+    // `popd` (PR #3760 R1): the stack is not modelled, so the popped-to directory is one this
+    // guard cannot follow — `cockpit` is NOT resolved under `/repo/src` any more, and not under
+    // `/repo` either (which would fire); it is unresolvable.
+    const popped = scan("pushd src; popd; grep -rn foo cockpit");
+    expect(popped.matched).toBe(false);
+    expect(popped.unresolvedCount).toBe(1);
     // The statement BEFORE the cd resolves against the caller's cwd, as it always did in the shell.
     expect(scan('grep -rn foo src/tray; cd "$T"').matched).toBe(true);
     // Absolutes are checked on either side of any cd.
