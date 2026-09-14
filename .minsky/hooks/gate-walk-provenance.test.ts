@@ -396,7 +396,7 @@ describe("buildCalibrationRecord", () => {
     const { timestamp, ...rest } = record as Record<string, unknown>;
     const legacy = evaluate([{ ...rest, ts: timestamp }]);
     expect(legacy.entries.length).toBe(1);
-    expect(legacy.entries[0]?.timestamp).toBe(timestamp);
+    expect(legacy.entries[0]?.timestamp).toBe(String(timestamp));
     expect(legacy.result.liveFireCount).toBe(1);
     expect(legacy.result.state).toBe("covered");
     // What the parser still drops: a record with NEITHER spelling.

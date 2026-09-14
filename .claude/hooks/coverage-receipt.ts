@@ -216,12 +216,14 @@ export function resolveDetectorsToCheck(
  * 22 Dormant lines on 2026-09-14, against logs holding 9 to 5,501 records in
  * the trailing 7 days. A probe that returns the same answer whether or not the
  * detector fires carries no information (mem#704). `timestamp` wins when both
- * are present; nothing else about the record is touched.
+ * are present; `ts` is dropped from the normalized entry so nothing downstream
+ * can read the wrong key by accident (PR #3757 R1); nothing else is touched.
+ * Module-private: `readCalibrationEntries` is the seam tests and callers use.
  */
-export function normalizeEntryTimestamp(item: unknown): CoverageCalibrationEntry | null {
+function normalizeEntryTimestamp(item: unknown): CoverageCalibrationEntry | null {
   if (!item || typeof item !== "object") return null;
-  const r = item as Record<string, unknown>;
-  const timestamp = typeof r.timestamp === "string" ? r.timestamp : r.ts;
+  const { ts, ...r } = item as Record<string, unknown>;
+  const timestamp = typeof r.timestamp === "string" ? r.timestamp : ts;
   if (typeof timestamp !== "string") return null;
   return { ...r, timestamp } as CoverageCalibrationEntry;
 }

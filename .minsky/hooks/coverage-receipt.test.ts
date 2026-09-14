@@ -253,13 +253,19 @@ describe("readCalibrationEntries", () => {
     expect(entries[0]?.timestamp).toBe(timestamp);
     expect(entries[1]?.timestamp).toBe(timestamp);
     expect(entries[1]?.timestamp).not.toBe("");
-    // Both spellings present: `timestamp` wins.
+    // Both spellings present: `timestamp` wins, and `ts` is not carried
+    // through — the normalized entry has one date under one key (PR #3757 R1).
     const both = { ...rest, timestamp, ts: "1999-01-01T00:00:00.000Z" };
     const [entry] = readCalibrationEntries(
       LOG_PATH,
       makeReadOnlyFs({ [LOG_PATH]: `${JSON.stringify(both)}\n` })
     );
     expect(entry?.timestamp).toBe(timestamp);
+    expect("ts" in (entry ?? {})).toBe(false);
+    expect("ts" in (entries[1] ?? {})).toBe(false);
+    // A non-string under either key is dropped, as it always was for `timestamp`.
+    const numeric = `${JSON.stringify({ ...rest, ts: 1694712345678 })}\n`;
+    expect(readCalibrationEntries(LOG_PATH, makeReadOnlyFs({ [LOG_PATH]: numeric }))).toEqual([]);
   });
 
   test("mt#4984: a `ts`-stamped live fire inside the window is a coverage receipt, not DORMANT", () => {

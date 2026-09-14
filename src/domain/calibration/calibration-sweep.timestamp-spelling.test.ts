@@ -31,6 +31,17 @@ describe("readRecordTimestamp (mt#4984)", () => {
     expect(readRecordTimestamp({ timestamp: ISO, ts: OLDER })).toBe(ISO);
     expect(readRecordTimestamp({})).toBe("");
   });
+
+  test("PR #3757 R1: a non-string under either key is undated, never stringified", () => {
+    // The sites this helper replaced wrote `String(raw["timestamp"] ?? "")`,
+    // which dated a record off `1694712345678` or `"[object Object]"` while
+    // the receipt check dropped the same record — the cross-reader split this
+    // task closes. Both readers now agree: strings only.
+    expect(readRecordTimestamp({ timestamp: 1694712345678 })).toBe("");
+    expect(readRecordTimestamp({ ts: { iso: ISO } })).toBe("");
+    expect(readRecordTimestamp({ timestamp: null, ts: ISO })).toBe(ISO);
+    expect(readRecordTimestamp({ timestamp: 42, ts: ISO })).toBe(ISO);
+  });
 });
 
 describe("parseCalibrationRecord dates a `ts`-stamped record in every branch (mt#4984 SC1)", () => {

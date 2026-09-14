@@ -1720,9 +1720,19 @@ export const FINDINGS_FREE_CALIBRATION_LOGS: Record<string, string> = {
  * record beside it. `timestamp` wins when both are present. The ~46,000 `ts`
  * records already on disk are why the readers accept both rather than the
  * writers being migrated first — that migration is its own task.
+ *
+ * STRINGS ONLY, the same guard `coverage-receipt.ts`'s `normalizeEntryTimestamp`
+ * applies (PR #3757 R1): the sites this replaced wrote `String(raw["timestamp"]
+ * ?? "")`, which would have dated a record off a number or an object
+ * (`"[object Object]"`) that the receipt check drops — two readers disagreeing
+ * on whether a record is dated is the class this task closes. A non-string is
+ * `""`, i.e. undated, in both. Measured over all 81,449 live records: zero
+ * carry a non-string under either key, so nothing on disk changes verdict.
  */
 export function readRecordTimestamp(raw: Record<string, unknown>): string {
-  return String(raw["timestamp"] ?? raw["ts"] ?? "");
+  if (typeof raw["timestamp"] === "string") return raw["timestamp"];
+  if (typeof raw["ts"] === "string") return raw["ts"];
+  return "";
 }
 
 function parseCalibrationRecordCore(
