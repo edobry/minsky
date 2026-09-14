@@ -57,7 +57,9 @@ async function getDb(getPersistenceProvider: () => unknown) {
   }
   const db = await provider.getDatabaseConnection();
   if (!db) {
-    throw new ValidationError("Could not obtain a database connection for the lifecycle sweep.");
+    throw new ValidationError(
+      "Could not obtain a database connection for the work-package lifecycle command."
+    );
   }
   return db;
 }

@@ -37,6 +37,11 @@ type Tx = Parameters<Parameters<PostgresJsDatabase["transaction"]>[0]>[0];
 export type ProjectionDb = PostgresJsDatabase | Tx;
 
 const RENDERED_ITEM_RE = /^- #\d+ /gm;
+// Built from the heading constant, so the constant is escaped rather than trusted (PR #3752 R1).
+const TRANSFERS_HEADING_LINE_RE = new RegExp(
+  `^${TRANSFERS_HEADING.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`,
+  "m"
+);
 
 export async function readTransferLog(
   db: ProjectionDb,
@@ -129,7 +134,7 @@ export type TransfersSectionState = "missing" | "behind" | "in-sync" | "ahead";
 
 /** How many transfer items a spec's `## Transfers` section renders, or null when it has none. */
 export function countRenderedTransfers(spec: string): number | null {
-  const at = spec.search(new RegExp(`^${TRANSFERS_HEADING}\\s*$`, "m"));
+  const at = spec.search(TRANSFERS_HEADING_LINE_RE);
   if (at === -1) return null;
   const rest = spec.slice(at + TRANSFERS_HEADING.length);
   const nextHeading = rest.search(/^#{2,}\s/m);
