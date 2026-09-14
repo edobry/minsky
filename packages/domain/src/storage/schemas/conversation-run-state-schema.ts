@@ -180,7 +180,8 @@ export const conversationRunStateTable = pgTable(
 
     /**
      * When `SessionEnd` fired, if it fired at all. A HINT: its absence proves
-     * nothing, because the cleanest exits (`/exit`, `/clear`) do not fire it.
+     * nothing — a crash or SIGKILL never fires it and `/exit` is unmeasured
+     * (`/clear` does fire it; see the header, mt#2313).
      * Authoritative end/stall determination is absence-detection over
      * {@link conversationRunStateTable.lastEventAt} (mt#3130 Phase 2).
      */

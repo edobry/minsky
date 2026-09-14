@@ -763,7 +763,7 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       interventions: [recordFramework],
       mechanism: "constant",
       role: "infrastructure",
-      note: "A LATENCY optimization, not a correctness layer: SessionEnd does not fire on `/exit`, `/clear`, or an async kill (ADR-017, mt#2313), so completeness comes from the cockpit's periodic sweep calling the same command. Dedupe keys make the double-run a no-op.",
+      note: "A LATENCY optimization, not a correctness layer: SessionEnd never fires on a crash or async kill and is unmeasured for `/exit` — it does fire on `/clear` (ADR-017 as amended by mt#2313) — so completeness comes from the cockpit's periodic sweep calling the same command. Dedupe keys make the double-run a no-op.",
     },
   ],
   [

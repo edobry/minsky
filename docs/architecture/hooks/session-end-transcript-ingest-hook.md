@@ -62,7 +62,8 @@ text said "covers sessions that end normally", which was never measured):
   ADR-017's original reading of Claude Code issues #17885/#6428 — `other` 369,
   `prompt_input_exit` 50, `logout` 1, `resume` 0. The hooks reference
   (`https://code.claude.com/docs/en/hooks`) lists `clear` and `resume` among the
-  `reason` values.
+  `reason` values; `resume` is listed there and never observed in those 760
+  rows, so treat it as a documented-but-unmeasured value, not as coverage.
 - **Does NOT cover** a crash / SIGKILL (the event never fires); a SIGHUP from
   closing the tab that kills the hook mid-ingest (#41577 — the synchronous
   ingest can run up to 45s, so even a delivered SessionEnd is not a completed
