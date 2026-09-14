@@ -70,7 +70,18 @@ export const commonSessionParams = {
  * Session list command parameters
  */
 export const sessionListCommandParams = {
-  repo: commonSessionParams.repo,
+  repo: {
+    schema: z.string(),
+    description:
+      "Project whose sessions to list: a repository path, or an owner/name slug (mt#5155). Defaults to the current directory's project.",
+    required: false,
+  },
+  workspace: {
+    schema: z.string(),
+    description:
+      "Workspace path whose project's sessions to list; outranks `repo` (mt#5155). Defaults to the current directory.",
+    required: false,
+  },
   json: commonSessionParams.json,
   task: {
     schema: z.string(),

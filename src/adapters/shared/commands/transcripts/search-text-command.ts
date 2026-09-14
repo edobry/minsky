@@ -148,6 +148,12 @@ export function registerTranscriptSearchTextCommand(
         required: false,
         defaultValue: false,
       },
+      workspace: {
+        schema: z.string().optional(),
+        description:
+          "Workspace path whose project scopes this read; defaults to the process cwd (mt#5155)",
+        required: false,
+      },
       projection: projectionParam(),
     },
 
@@ -210,7 +216,9 @@ export function registerTranscriptSearchTextCommand(
       // Scoped to the resolved current project unless allProjects is set —
       // matching transcripts.search / transcripts.similar. Until mt#3713 this
       // surface applied no project filter at all (mt#2417 Phase 1.4 gap).
-      const projectId = await resolveTranscriptProjectScope(allProjects, context);
+      const projectId = await resolveTranscriptProjectScope(allProjects, context, {
+        workspace: params.workspace as string | undefined,
+      });
 
       const results = await svc.searchText(query, {
         limit,

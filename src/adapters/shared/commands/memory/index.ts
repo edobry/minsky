@@ -101,6 +101,12 @@ const memorySearchParams = {
     required: false as const,
     defaultValue: false,
   },
+  workspace: {
+    schema: z.string().optional(),
+    description:
+      "Workspace path whose project scopes this read; defaults to the process cwd (mt#5155)",
+    required: false as const,
+  },
   allProjects: {
     schema: z.boolean().optional(),
     description:
@@ -225,6 +231,12 @@ const memoryListParams = {
     schema: z.string(),
     description:
       "Filter by association target ID (e.g., 'mt#2053'). Must be used together with associationType.",
+    required: false as const,
+  },
+  workspace: {
+    schema: z.string().optional(),
+    description:
+      "Workspace path whose project scopes this read; defaults to the process cwd (mt#5155)",
     required: false as const,
   },
   allProjects: {
@@ -502,6 +514,12 @@ const memorySimilarParams = {
     description: "Minimum similarity score threshold",
     required: false as const,
   },
+  workspace: {
+    schema: z.string().optional(),
+    description:
+      "Workspace path whose project scopes this read; defaults to the process cwd (mt#5155)",
+    required: false as const,
+  },
   allProjects: {
     schema: z.boolean().optional(),
     description:
@@ -770,7 +788,8 @@ export function foldUnreadOrColdAliases(params: UnreadOrColdAliasInput): {
  */
 async function resolveMemoryProjectScope(
   allProjects: boolean | undefined,
-  ctx: CommandExecutionContext
+  ctx: CommandExecutionContext,
+  workspace?: string
 ): Promise<string | undefined> {
   if (allProjects) return undefined;
 
@@ -786,11 +805,10 @@ async function resolveMemoryProjectScope(
   }
 
   try {
-    const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
-    const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
+    const { resolveReadScope, readScopeToProjectScope } = await import(
+      "@minsky/domain/project/read-scope"
+    );
     const { isAllProjects } = await import("@minsky/domain/project/scope");
-    const identity = resolveProjectIdentity({ repoPath: process.cwd() });
-    if (identity.kind !== "resolved") return undefined;
     const rawDb = await persistence.getDatabaseConnection();
     if (!rawDb) return undefined;
     // Pass the handle through UNCOPIED (mt#4509). This previously read
@@ -798,7 +816,11 @@ async function resolveMemoryProjectScope(
     // enumerable properties — drizzle defines `select` on the prototype, so every copy
     // arrived without it and every call threw `db.select is not a function`. The stripped
     // `type` key does not exist on the handle, so the destructuring bought nothing.
-    const scope = await resolveProjectScope(identity, rawDb, "memory");
+    //
+    // mt#5155: the caller's `workspace` outranks the process cwd (the shared daemon's
+    // cwd is the spawner's, ADR-038); an explicit workspace naming no project reads
+    // nothing rather than everything.
+    const scope = readScopeToProjectScope(await resolveReadScope({ workspace }, rawDb, "memory"));
     return isAllProjects(scope) ? undefined : scope;
   } catch (err: unknown) {
     log.debug("[memory] Project scope resolution failed; defaulting to all projects", {
@@ -898,7 +920,11 @@ export function registerMemoryCommands(
       const service = await resolveMemoryService(deps, ctx ?? {});
 
       // ADR-021 / mt#2416: resolve project scope for this query.
-      const projectScope = await resolveMemoryProjectScope(params.allProjects, ctx ?? {});
+      const projectScope = await resolveMemoryProjectScope(
+        params.allProjects,
+        ctx ?? {},
+        params.workspace
+      );
 
       try {
         const response = await service.search(params.query, {
@@ -996,7 +1022,11 @@ export function registerMemoryCommands(
       const service = await resolveMemoryService(deps, ctx ?? {});
 
       // ADR-021 / mt#2416: resolve project scope for this query.
-      const projectScope = await resolveMemoryProjectScope(params.allProjects, ctx ?? {});
+      const projectScope = await resolveMemoryProjectScope(
+        params.allProjects,
+        ctx ?? {},
+        params.workspace
+      );
 
       // mt#2817: since/until accept the same YYYY-MM-DD / 7d/24h/30m forms as
       // tasks_list's since/until — resolve to ISO strings before handing to
@@ -1321,7 +1351,11 @@ export function registerMemoryCommands(
       const service = await resolveMemoryService(deps, ctx ?? {});
 
       // ADR-021 / mt#2939: resolve project scope for this similarity query.
-      const projectScope = await resolveMemoryProjectScope(params.allProjects, ctx ?? {});
+      const projectScope = await resolveMemoryProjectScope(
+        params.allProjects,
+        ctx ?? {},
+        params.workspace
+      );
 
       const results: MemorySearchResult[] = await service.similar(id, {
         limit: params.limit ?? 10,

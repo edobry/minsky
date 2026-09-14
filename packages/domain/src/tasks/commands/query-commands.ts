@@ -44,8 +44,11 @@ import { resolveRepoPath, normalizeTaskIdInput } from "./shared-helpers";
 import type { BasePersistenceProvider } from "../../persistence/types";
 import { assertKnownKind } from "../workflows";
 import { ALL_PROJECTS, type ProjectScope } from "../../project/scope";
-import { resolveProjectIdentity } from "../../project/identity";
-import { resolveProjectScope } from "../../project/scope-resolver";
+import {
+  readScopeToProjectScope,
+  resolveReadScope,
+  type ReadScopeResolution,
+} from "../../project/read-scope";
 
 function requirePersistence(
   provider: BasePersistenceProvider | undefined
@@ -82,6 +85,12 @@ export async function listTasksFromParams(
     createConfiguredTaskService?: InjectedTaskServiceFactory;
     persistenceProvider?: BasePersistenceProvider;
     resolveMainWorkspacePath?: () => Promise<string>;
+    /**
+     * Receives the project-scope resolution this read ran under (mt#5155), so an
+     * adapter can report it — in particular an `unresolved` explicit argument's
+     * reason — without resolving a second time.
+     */
+    onScopeResolved?: (resolution: ReadScopeResolution) => void;
   }
 ): Promise<Task[]> {
   try {
@@ -116,21 +125,19 @@ export async function listTasksFromParams(
     }
 
     // Resolve project scope (ADR-021, mt#2416; ported from the former tasks.ts-only
-    // duplicate — mt#2783). allProjects=true skips the scope filter entirely;
-    // otherwise resolve per-process identity and fall back to ALL_PROJECTS on any
-    // resolution failure.
+    // duplicate — mt#2783; routed through the shared read-scope helper by mt#5155 so
+    // the caller's `workspace` / `repo` argument outranks the process cwd — on the
+    // shared daemon (ADR-038) the cwd is the spawner's, not the caller's).
     //
     // The persistenceProvider/getDatabaseConnection capability check is done
     // FIRST, before touching process.cwd() at all (PR #2281 R1): this function
     // is now reached by non-CLI-entry-point callers too (e.g.
     // index-embeddings-command.ts, via the taskCommands.ts barrel), for whom cwd
     // may be meaningless — they never pass a persistenceProvider, so with the
-    // check ordered this way they never invoke resolveProjectIdentity(cwd) at
-    // all. CLI/MCP behavior is unchanged: crud-commands.ts always injects a
-    // persistenceProvider (registry-setup.ts's getPersistenceProvider either
-    // returns one or throws before this function is even called), so the
-    // identity resolution still runs on that path exactly as it did in the
-    // former tasks.ts-only implementation.
+    // check ordered this way they never resolve an identity at all. CLI/MCP
+    // behavior is unchanged: crud-commands.ts always injects a persistenceProvider
+    // (registry-setup.ts's getPersistenceProvider either returns one or throws
+    // before this function is even called).
     let projectScope: ProjectScope = ALL_PROJECTS;
     if (!validParams.allProjects) {
       const persistenceProvider = deps?.persistenceProvider;
@@ -139,12 +146,15 @@ export async function listTasksFromParams(
       // the narrowed type.
       if (isSqlCapable(persistenceProvider)) {
         try {
-          const identity = resolveProjectIdentity({ repoPath: process.cwd() });
-          if (identity.kind === "resolved") {
-            const db = await persistenceProvider.getDatabaseConnection();
-            if (db) {
-              projectScope = await resolveProjectScope(identity, db, "tasks.list");
-            }
+          const db = await persistenceProvider.getDatabaseConnection();
+          if (db) {
+            const resolution = await resolveReadScope(
+              { workspace: validParams.workspace, repo: validParams.repo },
+              db,
+              "tasks.list"
+            );
+            deps?.onScopeResolved?.(resolution);
+            projectScope = readScopeToProjectScope(resolution);
           }
         } catch (err) {
           log.debug(

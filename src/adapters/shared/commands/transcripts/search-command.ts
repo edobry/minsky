@@ -131,6 +131,12 @@ export function registerTranscriptSearchCommand(
         required: false,
         defaultValue: false,
       },
+      workspace: {
+        schema: z.string().optional(),
+        description:
+          "Workspace path whose project scopes this read; defaults to the process cwd (mt#5155)",
+        required: false,
+      },
       projection: projectionParam(),
     },
 
@@ -196,7 +202,9 @@ export function registerTranscriptSearchCommand(
       const windowed = Object.keys(dateRange).length > 0 ? dateRange : undefined;
 
       // ADR-021 / mt#2417: resolve project scope for this query.
-      const projectId = await resolveTranscriptProjectScope(allProjects, context);
+      const projectId = await resolveTranscriptProjectScope(allProjects, context, {
+        workspace: params.workspace as string | undefined,
+      });
 
       const results = await svc.search(query, {
         limit,

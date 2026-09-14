@@ -2,8 +2,9 @@
  * Project scope resolution for `transcripts.search` / `transcripts.similar`.
  *
  * Mirrors `resolveMemoryProjectScope` in `../memory/index.ts` (ADR-021, mt#2416):
- * resolves the CLI/stdio-MCP process's current project from `process.cwd()` via
- * the mt#2414 slug resolver, then looks up the `projects.id` uuid. Never throws
+ * resolves the caller's `workspace` argument, else the process's current project
+ * from `process.cwd()`, through the shared read-scope helper (mt#5155) — the
+ * mt#2414 slug resolver, then a `projects.id` lookup. Never throws
  * — any resolution failure (unidentified project, no persistence, no matching
  * row) falls back to `undefined`, which callers treat as "no project filter"
  * (unscoped / all-projects), the same fail-open posture ADR-021 uses elsewhere.
@@ -18,6 +19,11 @@ export interface TranscriptProjectScopeContext {
   container?: AppContainerInterface;
 }
 
+export interface TranscriptProjectScopeInput {
+  /** The caller's `workspace` argument; outranks the process cwd (mt#5155). */
+  workspace?: string;
+}
+
 /**
  * Resolve a project uuid to scope a transcripts search/similar query, or
  * `undefined` for an unscoped (all-projects) read.
@@ -27,7 +33,8 @@ export interface TranscriptProjectScopeContext {
  */
 export async function resolveTranscriptProjectScope(
   allProjects: boolean | undefined,
-  context: TranscriptProjectScopeContext
+  context: TranscriptProjectScopeContext,
+  explicit: TranscriptProjectScopeInput = {}
 ): Promise<string | undefined> {
   if (allProjects) return undefined;
 
@@ -43,12 +50,10 @@ export async function resolveTranscriptProjectScope(
       return undefined;
     }
 
-    const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
-    const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
+    const { resolveReadScope, readScopeToProjectScope } = await import(
+      "@minsky/domain/project/read-scope"
+    );
     const { isAllProjects } = await import("@minsky/domain/project/scope");
-
-    const identity = resolveProjectIdentity({ repoPath: process.cwd() });
-    if (identity.kind !== "resolved") return undefined;
 
     const rawDb = await persistence.getDatabaseConnection();
     if (!rawDb) return undefined;
@@ -58,7 +63,10 @@ export async function resolveTranscriptProjectScope(
     // enumerable properties — drizzle defines `select` on the prototype, so every copy
     // arrived without it and every call threw `db.select is not a function`. The stripped
     // `type` key does not exist on the handle, so the destructuring bought nothing.
-    const scope = await resolveProjectScope(identity, rawDb, "transcripts");
+    //
+    // mt#5155: an explicit `workspace` outranks the process cwd (the shared daemon's
+    // cwd is the spawner's, ADR-038); one naming no project reads nothing, not all.
+    const scope = readScopeToProjectScope(await resolveReadScope(explicit, rawDb, "transcripts"));
     return isAllProjects(scope) ? undefined : scope;
   } catch (err: unknown) {
     log.debug("[transcripts] Project scope resolution failed; defaulting to all projects", {

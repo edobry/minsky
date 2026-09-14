@@ -6,8 +6,7 @@ import { tasksSimilarParams, tasksSearchParams } from "./task-parameters";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import { assertKnownKind } from "@minsky/domain/tasks/workflows";
 import { ALL_PROJECTS, type ProjectScope } from "@minsky/domain/project/scope";
-import { resolveProjectIdentity } from "@minsky/domain/project/identity";
-import { resolveProjectScope } from "@minsky/domain/project/scope-resolver";
+import { readScopeToProjectScope, resolveReadScope } from "@minsky/domain/project/read-scope";
 import { log } from "@minsky/shared/logger";
 
 /**
@@ -22,13 +21,13 @@ import { log } from "@minsky/shared/logger";
  */
 async function resolveTaskSimilarityProjectScope(
   allProjects: boolean | undefined,
-  persistenceProvider: import("@minsky/domain/persistence/types").PersistenceProvider
+  persistenceProvider: import("@minsky/domain/persistence/types").PersistenceProvider,
+  caller: "tasks.similar" | "tasks.search",
+  explicit: { workspace?: string; repo?: string } = {}
 ): Promise<ProjectScope> {
   if (allProjects) return ALL_PROJECTS;
 
   try {
-    const identity = resolveProjectIdentity({ repoPath: process.cwd() });
-    if (identity.kind !== "resolved") return ALL_PROJECTS;
     if (
       !persistenceProvider ||
       !persistenceProvider.capabilities.sql ||
@@ -45,9 +44,11 @@ async function resolveTaskSimilarityProjectScope(
       persistenceProvider as import("@minsky/domain/persistence/types").SqlCapablePersistenceProvider;
     const db = await sqlProvider.getDatabaseConnection();
     if (!db) return ALL_PROJECTS;
-    return await resolveProjectScope(identity, db, "tasks.similar");
+    // mt#5155: the caller's `workspace` / `repo` outranks the process cwd (the
+    // shared daemon's cwd is the spawner's, ADR-038).
+    return readScopeToProjectScope(await resolveReadScope(explicit, db, caller));
   } catch (err) {
-    log.debug("[tasks.similar] Project scope resolution failed; defaulting to ALL_PROJECTS", {
+    log.debug(`[${caller}] Project scope resolution failed; defaulting to ALL_PROJECTS`, {
       error: err instanceof Error ? err.message : String(err),
     });
     return ALL_PROJECTS;
@@ -178,7 +179,9 @@ export class TasksSimilarCommand extends BaseTaskCommand<typeof tasksSimilarPara
     // ADR-021 / mt#2939: resolve project scope for this similarity query.
     const projectScope = await resolveTaskSimilarityProjectScope(
       params.allProjects,
-      this.getPersistenceProvider()
+      this.getPersistenceProvider(),
+      "tasks.similar",
+      { workspace: params.workspace, repo: params.repo }
     );
 
     const service = await this.createService(this.getPersistenceProvider(), this.getTaskService());
@@ -377,7 +380,9 @@ export class TasksSearchCommand extends BaseTaskCommand<typeof tasksSearchParams
     // ADR-021 / mt#2939: resolve project scope for this search query.
     const projectScope = await resolveTaskSimilarityProjectScope(
       params.allProjects,
-      this.getPersistenceProvider()
+      this.getPersistenceProvider(),
+      "tasks.search",
+      { workspace: params.workspace, repo: params.repo }
     );
 
     const response = await service.searchByText(query, limit, threshold, filters, projectScope);

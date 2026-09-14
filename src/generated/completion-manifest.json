@@ -2738,6 +2738,11 @@
               "description": "Declare a standing pointing: a saved query (tags, parent subtrees, explicit ids — unioned) plus an autonomy class and a WIP limit. Pointings are the principal's to declare. Refuses an empty query.",
               "options": [
                 {
+                  "flags": ["--workspace"],
+                  "description": "Workspace path whose project this applies to; defaults to the process cwd (mt#5155)",
+                  "takesValue": true
+                },
+                {
                   "flags": ["--tags"],
                   "description": "Comma-separated tags; a task matches if it carries ANY of them",
                   "takesValue": true
@@ -2777,6 +2782,11 @@
               "name": "list",
               "description": "List the project's standing pointings (live by default).",
               "options": [
+                {
+                  "flags": ["--workspace"],
+                  "description": "Workspace path whose project this applies to; defaults to the process cwd (mt#5155)",
+                  "takesValue": true
+                },
                 {
                   "flags": ["--include-archived"],
                   "description": "Include archived pointings (hidden by default)"
@@ -2822,6 +2832,11 @@
           "description": "The backlog remainder's disposition (RFC 3ae937f0 Phase 1, mt#5131): open tasks untouched 90+ days and matching NO live standing pointing are parked — CLOSED, tagged auto-expired, spec annotated — and parked tasks a live pointing now matches are reopened (CLOSED -> TODO). Dry-run by default. With zero live pointings nothing is parked: the plan reports what WOULD park under parkingSuspended.",
           "options": [
             {
+              "flags": ["--workspace"],
+              "description": "Workspace path whose project this applies to; defaults to the process cwd (mt#5155)",
+              "takesValue": true
+            },
+            {
               "flags": ["--execute"],
               "description": "Apply the plan. Default is a dry-run that prints the park and resurrect id lists and writes nothing. The first --execute is a bulk shared-state mutation: run it under its wrapper task (mt#5138) after comparing the dry-run against the recorded count."
             },
@@ -2845,7 +2860,12 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path",
+              "description": "Project whose sessions to list: a repository path, or an owner/name slug (mt#5155). Defaults to the current directory's project.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path whose project's sessions to list; outranks `repo` (mt#5155). Defaults to the current directory.",
               "takesValue": true
             },
             {
@@ -5790,6 +5810,11 @@
                   "description": "Return asks from all projects (disable project-scope filtering; ADR-021, mt#2416)"
                 },
                 {
+                  "flags": ["--workspace"],
+                  "description": "Workspace path whose project scopes this read; defaults to the process cwd (mt#5155)",
+                  "takesValue": true
+                },
+                {
                   "flags": ["--summary"],
                   "description": "When true, return compact rows (id, kind, state, title, routingTarget, parentTaskId, createdAt, routedAt) with no question/options/contextRefs/metadata body (mt#2748). Default false preserves full ask records for back-compat — pass `summary: true` to browse/filter cheaply, or use `asks_get` to fetch one full record by id. The result echoes `summary` (mt#2748 R1 review) so callers can branch safely: `summary: true` on the result means `asks` is `AskSummaryRow[]`; absent/false means `asks` is the full `Ask[]`."
                 }
@@ -6605,6 +6630,11 @@
               "description": "When true, exclude superseded memories from results"
             },
             {
+              "flags": ["--workspace"],
+              "description": "Workspace path whose project scopes this read; defaults to the process cwd (mt#5155)",
+              "takesValue": true
+            },
+            {
               "flags": ["--all-projects"],
               "description": "Return memories from all projects (disable project-scope filtering; ADR-021, mt#2416)"
             }
@@ -6707,6 +6737,11 @@
             {
               "flags": ["--association-target"],
               "description": "Filter by association target ID (e.g., 'mt#2053'). Must be used together with associationType.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path whose project scopes this read; defaults to the process cwd (mt#5155)",
               "takesValue": true
             },
             {
@@ -6951,6 +6986,11 @@
             {
               "flags": ["--threshold"],
               "description": "Minimum similarity score threshold",
+              "takesValue": true
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path whose project scopes this read; defaults to the process cwd (mt#5155)",
               "takesValue": true
             },
             {
@@ -7248,6 +7288,11 @@
               "description": "Return results across all projects (default: scoped to the resolved current project, mt#2417)"
             },
             {
+              "flags": ["--workspace"],
+              "description": "Workspace path whose project scopes this read; defaults to the process cwd (mt#5155)",
+              "takesValue": true
+            },
+            {
               "flags": ["--projection"],
               "description": "How much of each matching turn to return. 'snippet' (the DEFAULT) returns the bounded excerpt plus the turn's coordinates (agentSessionId, turnIndex, role, timestamps, score) and OMITS the full userText/assistantText, reporting how many characters it dropped as `omittedTextChars`. 'full' additionally returns the complete turn text. Prefer the default: a transcript turn can run to hundreds of kilobytes, so a full-projection search of ~10 hits routinely exceeds the MCP response limit and spools to disk. To read one hit in full, call transcripts_get passing the hit's `agentSessionId` as its `conversationId` (the two name the same harness conversation — the result field and the parameter simply differ per ADR-022), with `turnRange` set to the hit's `turnIndex`.",
               "takesValue": true,
@@ -7290,6 +7335,11 @@
             {
               "flags": ["--all-projects"],
               "description": "Return results across all projects (default: scoped to the resolved current project, mt#2417)"
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path whose project scopes this read; defaults to the process cwd (mt#5155)",
+              "takesValue": true
             }
           ],
           "commandId": "transcripts.similar"
@@ -7364,6 +7414,11 @@
             {
               "flags": ["--all-projects"],
               "description": "Return results across all projects (default: scoped to the resolved current project, mt#2417)"
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path whose project scopes this read; defaults to the process cwd (mt#5155)",
+              "takesValue": true
             },
             {
               "flags": ["--projection"],

@@ -10,7 +10,12 @@ import { CommandCategory, defineCommand } from "../../command-registry";
 import { DefaultCredentialResolver } from "@minsky/domain/configuration/credential-resolver";
 import { log } from "@minsky/shared/logger";
 import { CommonParameters, ConfigParameters, composeParams } from "../../common-parameters";
-import { maskCredentials, maskCredentialsInEffectiveValues, gatherCredentialInfo } from "./helpers";
+import {
+  maskCredentials,
+  maskCredentialsInEffectiveValues,
+  gatherCredentialInfo,
+  getConfigProviderForWorkspace,
+} from "./helpers";
 
 /**
  * Shared parameters for config commands (eliminates duplication)
@@ -66,9 +71,8 @@ export const configListRegistration = defineCommand({
   parameters: configListParams,
   execute: async (params, _ctx) => {
     try {
-      // Use custom configuration system to get configuration
-      const { getConfigurationProvider } = await import("@minsky/domain/configuration/index");
-      const provider = getConfigurationProvider();
+      // The named workspace's provider, else the process-global one (mt#5155).
+      const provider = await getConfigProviderForWorkspace(params.workspace);
       const config = provider.getConfig();
       const metadata = provider.getMetadata();
       const effectiveValues = provider.getEffectiveValues();
@@ -120,9 +124,8 @@ export const configShowRegistration = defineCommand({
   parameters: configShowParams,
   execute: async (params, _ctx) => {
     try {
-      // Use custom configuration system to get resolved configuration
-      const { getConfigurationProvider } = await import("@minsky/domain/configuration/index");
-      const provider = getConfigurationProvider();
+      // The named workspace's provider, else the process-global one (mt#5155).
+      const provider = await getConfigProviderForWorkspace(params.workspace);
       const config = provider.getConfig();
       const metadata = provider.getMetadata();
       const effectiveValues = provider.getEffectiveValues();
