@@ -20,6 +20,7 @@ import {
   isUnresolvable,
   pathArgs,
   positionalArgs,
+  producedTargets,
   renderWorstCase,
   scanCommand,
   suppliesPattern,
@@ -258,9 +259,125 @@ describe("AT5 — an unresolvable path argument is silence, never a guess", () =
     expect(result.missing[0]?.raw).toBe("/repo/src/tray");
   });
 
-  test("a `cd` re-bases relative paths, so they go unchecked — absolutes still do not", () => {
-    expect(scan("cd packages && grep -rn foo src/tray").matched).toBe(false);
+  test("a `cd` to a LITERAL directory re-bases relative paths, which are then checked there (mt#5111)", () => {
+    // Until mt#5111 any `cd` silenced every relative operand in the command. A literal target is
+    // followed now: `src/tray` resolves under `/repo/packages`, which the fixture does not hold.
+    const rebased = scan("cd packages && grep -rn foo src/tray");
+    expect(rebased.matched).toBe(true);
+    expect(rebased.missing[0]?.raw).toBe("src/tray");
+    expect(rebased.missing[0]?.deepestExistingAncestor).toBeNull();
+    // `cd src && grep … cockpit` resolves to `/repo/src/cockpit`, which exists: silent.
+    expect(scan("cd src && grep -rn foo cockpit").matched).toBe(false);
+    // A `..` walks back up; an absolute operand ignores the base entirely.
+    expect(scan("cd src && grep -rn foo ../packages").matched).toBe(false);
     expect(scan("cd packages && grep -rn foo /repo/src/tray").matched).toBe(true);
+  });
+
+  test("a `cd` this guard cannot follow makes every LATER relative operand unresolvable — earlier ones are still checked (mt#5111)", () => {
+    for (const cd of ['cd "$T"', "cd $(mktemp -d)", "cd", "cd -", "pushd $D"]) {
+      const r = scan(`${cd} && grep -rn foo src/tray`);
+      expect(r.matched).toBe(false);
+      expect(r.unresolvedCount).toBe(1);
+    }
+    // The statement BEFORE the cd resolves against the caller's cwd, as it always did in the shell.
+    expect(scan('grep -rn foo src/tray; cd "$T"').matched).toBe(true);
+    // Absolutes are checked on either side of any cd.
+    expect(scan('cd "$T" && grep -rn foo /repo/src/tray').matched).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A path the command itself produces (mt#5111)
+// ---------------------------------------------------------------------------
+
+describe("a search target an EARLIER statement of the same command produces is silent (mt#5111)", () => {
+  // The live shape, 24 of 42 fires in the 2026-09-11 → 09-14 window: a run redirected into a log
+  // that a later statement greps. Every target here is absent from the fixture fs.
+  test("AT2: an absolute redirect target from a loop", () => {
+    const r = scan("for f in a b; do echo $f; done > /tmp/list.txt; grep -c a /tmp/list.txt");
+    expect(r.matched).toBe(false);
+    expect(r.producedCount).toBe(1);
+    expect(r.unresolvedCount).toBe(0);
+  });
+
+  test("the run-then-grep shape, with stderr merged and an echo between", () => {
+    const r = scan(
+      `bun run test:hooks > /tmp/hooks.log 2>&1; echo "exit=$?"; grep -E '^\\(fail\\)' /tmp/hooks.log | head -20`
+    );
+    expect(r.matched).toBe(false);
+    expect(r.producedCount).toBe(1);
+  });
+
+  test("a relative redirect target resolves against the base in force where it was written", () => {
+    // `hits.txt` is written under /repo and searched under /repo: the same file.
+    expect(scan("grep -rn foo src > hits.txt; grep -c foo hits.txt").producedCount).toBe(1);
+    // Written under /repo, then searched after a literal cd: a different path, still missing.
+    const moved = scan("echo x > hits.txt; cd src && grep -c x hits.txt");
+    expect(moved.matched).toBe(true);
+    expect(moved.missing[0]?.raw).toBe("hits.txt");
+  });
+
+  test("`tee` operands and `mkdir` directories are products too, and a path UNDER a made directory counts", () => {
+    expect(scan("bun scripts/x.ts 2>&1 | tee /tmp/t.log; grep -c fail /tmp/t.log").matched).toBe(
+      false
+    );
+    expect(
+      scan("bun scripts/x.ts | tee -a /tmp/a.log /tmp/b.log; grep -c x /tmp/b.log").matched
+    ).toBe(false);
+    const under = scan("mkdir -p /tmp/out/sub; grep -rn x /tmp/out/sub/report.txt");
+    expect(under.matched).toBe(false);
+    expect(under.producedCount).toBe(1);
+  });
+
+  test("AT1: a redirect into a directory the command made with mktemp, after a cd into it", () => {
+    // Silent twice over: the operand is produced AND its base is unresolvable.
+    expect(scan('A=$(mktemp -d); cd "$A" && echo x > out.txt; grep -n x out.txt').matched).toBe(
+      false
+    );
+    // Negative control for the produced-dir clause: no redirect, base still unresolvable → silent.
+    const noRedirect = scan('A=$(mktemp -d); cd "$A"; grep -n x out.txt');
+    expect(noRedirect.matched).toBe(false);
+    expect(noRedirect.unresolvedCount).toBe(1);
+    // Negative control for the rebase: a LITERAL cd and no redirect → fires, resolved under it.
+    // (No `mkdir` here: a directory the command makes is itself a product, and an operand under
+    // it is silent by the clause tested above.)
+    const literal = scan("cd /repo/scripts; grep -n x out.txt");
+    expect(literal.matched).toBe(true);
+    expect(literal.missing[0]?.raw).toBe("out.txt");
+    expect(literal.missing[0]?.deepestExistingAncestor).toBeNull();
+  });
+
+  test("negative controls: the redirect removed, a different file, or the redirect AFTER the grep — all fire", () => {
+    const removed = scan("for f in a b; do echo $f; done; grep -c a /tmp/list.txt");
+    expect(removed.matched).toBe(true);
+    expect(removed.missing[0]?.raw).toBe("/tmp/list.txt");
+    expect(scan("echo x > /tmp/x.log; grep -c x /tmp/y.log").matched).toBe(true);
+    expect(scan("grep -c x /tmp/z.log; echo x > /tmp/z.log").matched).toBe(true);
+  });
+
+  test("AT3: a path no statement produces still fires exactly as before", () => {
+    const r = scan("grep -rn x src/nonexistent");
+    expect(r.matched).toBe(true);
+    expect(r.missing[0]?.raw).toBe("src/nonexistent");
+    expect(r.producedCount).toBe(0);
+    // A real bad path on a second line still fires (mt#5076's shape), a product on the first
+    // line notwithstanding.
+    expect(scan("echo x > /tmp/first.log\ngrep -rn x src/tray").matched).toBe(true);
+  });
+
+  test("producedTargets reads every output-redirect form and never a device or a descriptor", () => {
+    expect(producedTargets(tokenize("bun test > /tmp/a.log 2>&1")).files).toEqual(["/tmp/a.log"]);
+    expect(producedTargets(tokenize("bun test >> ./b.log 2>/dev/null")).files).toEqual(["./b.log"]);
+    expect(producedTargets(tokenize("bun test &> /tmp/c.log")).files).toEqual(["/tmp/c.log"]);
+    expect(producedTargets(tokenize("bun test 2>&1 >/tmp/d.log")).files).toEqual(["/tmp/d.log"]);
+    expect(producedTargets(tokenize("bun test >&2")).files).toEqual([]);
+    expect(producedTargets(tokenize("tee -a /tmp/e.log /tmp/f.log")).files).toEqual([
+      "/tmp/e.log",
+      "/tmp/f.log",
+    ]);
+    expect(producedTargets(tokenize("mkdir -p a b/c")).dirs).toEqual(["a", "b/c"]);
+    // An INPUT redirect produces nothing.
+    expect(producedTargets(tokenize("wc -l < /tmp/in.txt")).files).toEqual([]);
   });
 });
 
