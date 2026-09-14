@@ -406,3 +406,15 @@ describe("resolveInitClient (mt#5153)", () => {
     });
   });
 });
+
+describe("describeUnresolvedClient names the witness that came back empty (mt#5153)", () => {
+  test("over MCP the refusal names the unrecognised client id, not the environment", () => {
+    const message = describeUnresolvedClient(
+      { kind: "ambiguous", installed: ["cursor", "claude-code"] },
+      "--client",
+      { kind: "mcp-client", agentId: "unknown:proc:0123456789abcdef" }
+    );
+    expect(message).toContain("the MCP client making this call (unknown:proc:0123456789abcdef)");
+    expect(message).not.toContain("no harness signal in the environment");
+  });
+});

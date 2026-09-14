@@ -57,7 +57,9 @@ export type ClientDecision =
 export function decideClient(
   resolution: InitClientResolution,
   interactive: boolean,
-  flag: string
+  flag: string,
+  /** Which empty signal the refusal names: the MCP caller (with its id) or the CLI env. */
+  witness: { kind: "env" } | { kind: "mcp-client"; agentId: string } = { kind: "env" }
 ): ClientDecision {
   if (resolution.kind === "resolved") {
     return { kind: "resolved", client: resolution.client, source: resolution.source };
@@ -65,7 +67,7 @@ export function decideClient(
   if (resolution.kind === "ambiguous" && interactive) {
     return { kind: "prompt", options: resolution.installed };
   }
-  return { kind: "refuse", message: describeUnresolvedClient(resolution, flag) };
+  return { kind: "refuse", message: describeUnresolvedClient(resolution, flag, witness) };
 }
 
 /**
@@ -140,11 +142,14 @@ export async function resolveClientForCommand(
     );
   }
   const resolve = input.resolve ?? resolveInitClient;
-  const resolution = resolve({
-    explicit,
-    callerAgentId: typeof callerActorId === "string" ? callerActorId : null,
-  });
-  const decision = decideClient(resolution, input.interactive ?? isInteractive(), flag);
+  const callerAgentId = typeof callerActorId === "string" ? callerActorId : null;
+  const resolution = resolve({ explicit, callerAgentId });
+  const decision = decideClient(
+    resolution,
+    input.interactive ?? isInteractive(),
+    flag,
+    callerAgentId ? { kind: "mcp-client", agentId: callerAgentId } : { kind: "env" }
+  );
 
   if (decision.kind === "resolved") return { client: decision.client, source: decision.source };
   if (decision.kind === "refuse") throw new ValidationError(decision.message);

@@ -303,23 +303,32 @@ export function resolveInitClient(input: ResolveInitClientInput = {}): InitClien
  *
  * @param resolution An `ambiguous` or `none` result.
  * @param flag The flag the caller accepts, e.g. `--client`.
+ * @param witness Which signal was consulted and came back empty — the MCP
+ *   caller's identity (`mcp-client`, with the id so the operator can see what
+ *   the daemon saw) or the CLI environment (`env`). The two are different
+ *   facts and the remedy differs: an unrecognised client is not a missing env
+ *   var.
  */
 export function describeUnresolvedClient(
   resolution: Exclude<InitClientResolution, { kind: "resolved" }>,
-  flag: string
+  flag: string,
+  witness: { kind: "env" } | { kind: "mcp-client"; agentId: string } = { kind: "env" }
 ): string {
   const accepted = `Accepted values: ${MANAGED_CLIENTS.join(", ")}.`;
+  const noSignal =
+    witness.kind === "mcp-client"
+      ? `the MCP client making this call (${witness.agentId}) is not one Minsky recognises`
+      : "no harness signal in the environment";
   if (resolution.kind === "ambiguous") {
     return (
-      `Could not tell which agent harness this project is for: no harness signal in the ` +
-      `environment, and ${resolution.installed.length} MCP clients are installed ` +
+      `Could not tell which agent harness this project is for: ${noSignal}, and ` +
+      `${resolution.installed.length} MCP clients are installed ` +
       `(${resolution.installed.join(", ")}). Pass ${flag} to choose one. ${accepted}`
     );
   }
   return (
-    `Could not tell which agent harness this project is for: no harness signal in the ` +
-    `environment, and no known MCP client is installed on this machine. Pass ${flag} to ` +
-    `choose one. ${accepted}`
+    `Could not tell which agent harness this project is for: ${noSignal}, and no known ` +
+    `MCP client is installed on this machine. Pass ${flag} to choose one. ${accepted}`
   );
 }
 
