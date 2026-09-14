@@ -51,13 +51,32 @@ logs DB-unavailable skips and errored-session runs at `warn` (was `debug`-only),
 and `start-command.ts`'s `.catch(() => {})` now logs the failure at `warn`. A
 failed ingest now leaves an operator-findable signal rather than vanishing.
 
-**Reliability boundary (Covers / Does NOT cover):**
+**Reliability boundary (Covers / Does NOT cover)** — enumerated from measured
+SessionEnd deliveries, not from assumed exit semantics (mt#2313; the original
+text said "covers sessions that end normally", which was never measured):
 
-- **Covers** sessions that end normally (the SessionEnd event fires).
-- **Does NOT cover** SIGKILL / crash-terminated sessions (the event never fires)
-  or the default semantic-embed backfill — both are backstopped by the MCP boot
-  sweep (mt#2051) and the cadence sweep (mt#2234, which owns the periodic sweep
-  in the cockpit daemon).
+- **Covers** conversations whose SessionEnd fires. Measured 2026-09-13 in
+  `conversation_run_state.ended_hint_reason` (written by
+  `record-conversation-run-state.ts` on every delivery, 760 rows since
+  2026-07-29): `clear` 340 — so **`/clear` DOES fire SessionEnd**, contrary to
+  ADR-017's original reading of Claude Code issues #17885/#6428 — `other` 369,
+  `prompt_input_exit` 50, `logout` 1, `resume` 0. The hooks reference
+  (`https://code.claude.com/docs/en/hooks`) lists `clear` and `resume` among the
+  `reason` values.
+- **Does NOT cover** a crash / SIGKILL (the event never fires); a SIGHUP from
+  closing the tab that kills the hook mid-ingest (#41577 — the synchronous
+  ingest can run up to 45s, so even a delivered SessionEnd is not a completed
+  ingest); **`/exit`, which is UNMEASURED** — no `reason` value distinguishes
+  it, `other` may include it, and the issues above say it does not fire; a
+  mid-tool kill, whose tail is a dangling `tool_use` with no `tool_result`
+  (#18880) that the ingest reads up to; and the default semantic-embed
+  backfill. All are backstopped by the MCP boot sweep (mt#2051) and the cadence
+  sweep (mt#2234, the periodic sweep in the cockpit daemon).
+
+Per ADR-017 the watcher + sweep are the coverage **guarantee**; this hook is the
+non-load-bearing **latency optimization** for the exits that do fire. Do not
+read a SessionEnd delivery as proof a conversation ended cleanly, nor its
+absence as proof it did not.
 
 **Always exits 0.** SessionEnd is a no-decision-control event; the hook must
 never block session teardown. Timeout 45s (settings.json).

@@ -34,12 +34,14 @@ import { projectsTable } from "./projects-schema";
  *    the process dies mid-tool-call — precisely the failure the umbrella's risk
  *    gate forbids.
  *  - `SessionEnd` is recorded as {@link conversationRunStateTable.endedHintAt},
- *    a HINT — never as an authoritative "ended". Per ADR-017 (and mt#2313,
- *    which tracks correcting the docs that still overclaim this), `/exit` and
- *    `/clear` do NOT fire `SessionEnd` (Claude Code issues #17885, #6428, both
- *    closed "not planned"), and a Cmd+W SIGHUP can kill the hook before it
- *    completes. Those are the CLEANEST ways to end a conversation. Treating
- *    this column as authoritative would leave every politely-exited
+ *    a HINT — never as an authoritative "ended". Per ADR-017 as amended by
+ *    mt#2313: `SessionEnd` never fires on a crash or SIGKILL, a Cmd+W SIGHUP
+ *    can kill the hook before it completes, and `/exit` is unmeasured (no
+ *    `reason` value distinguishes it; Claude Code issues #17885/#6428 say it
+ *    does not fire). `/clear` DOES fire it — 340 `clear` rows in this very
+ *    table's `ended_hint_reason`, measured 2026-09-13 — so the column is
+ *    populated for the commonest polite exit and silent for the ungraceful
+ *    ones. Treating it as authoritative would leave every crashed or killed
  *    conversation asserting a live-ish state forever.
  *
  * @see mt#3161 — this table (mt#3130 Phase 1)
