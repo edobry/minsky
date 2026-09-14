@@ -48,11 +48,7 @@ import {
 } from "./session/repository-backend-detection";
 import { performSetup } from "./setup";
 import { provisionObservabilityHooks } from "./setup/hook-provisioning";
-import {
-  describeHarnessSource,
-  type HarnessSource,
-  type ManagedClient,
-} from "./runtime/harness-detection";
+import type { HarnessSource, ManagedClient } from "./runtime/harness-detection";
 import { log } from "./utils/logger";
 
 export type { ResolvedRepositoryConfig } from "./session/repository-backend-detection";
@@ -679,17 +675,6 @@ export async function initializeProject(
       // first run, where nothing has started a daemon yet. Threading the seam
       // here is what makes that path get the step, not just `minsky setup`.
       { ensureLocalDaemon: deps.ensureLocalDaemon }
-    );
-
-    // mt#5153 SC5: say which harness was recorded and where the answer came
-    // from, on EVERY path — this is an `info` line, so it reaches the CLI's
-    // stdout and the MCP tool result's notices alike. The silent value was the
-    // damaging half of mt#5152: a quiet `harness: cursor` gated the Claude Code
-    // outputs off in `compile` and nothing said so.
-    info(
-      `minsky init: recorded harness "${initClient}"${
-        harnessSource !== undefined ? ` (${describeHarnessSource(harnessSource)})` : ""
-      } in .minsky/config.local.yaml.`
     );
 
     // Install the observability baseline so this project's conversations are

@@ -214,9 +214,11 @@ export function judgeClaims(
     const quoted = extractQuotedFailures(full);
     // Every run that can fail — a test runner observed red, a script harness or
     // probe reporting failure in its own vocabulary, a typecheck-shaped control
-    // (mt#4309). Widened from test runners alone because a control is an
-    // OBSERVATION, not a runner invocation, and 14 of 123 undischarged claims in
-    // a 21-day window were observed through something other than `bun test`.
+    // (mt#4309), and a detached run whose log a later read displayed (mt#5140:
+    // the read's output, joined to the run by the file path it redirected into).
+    // Widened from test runners alone because a control is an OBSERVATION, not
+    // a runner invocation, and 14 of 123 undischarged claims in a 21-day window
+    // were observed through something other than `bun test`.
     const reds = failingControlRuns(calls);
     // A THIRD discharge signal (mt#4306): the record states the red run's
     // summary counts as one phrase (`17 pass / 7 fail`) where the runner prints

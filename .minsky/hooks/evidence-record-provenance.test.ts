@@ -30,15 +30,19 @@ import {
   extractSubjectTokens,
   failingControlRuns,
   failingHarnessRuns,
+  failingLogReads,
   failingTypecheckRuns,
   fileWrites,
   isCheckRunningCall,
+  isLogReadOf,
   isRunShapedCommand,
   isTestRunningCall,
   isWorkspaceWrite,
   failingTestRuns,
   leadingPrograms,
+  logReadsOfRedirectedRuns,
   outputReportsHarnessFailure,
+  runOutputTargets,
 } from "./evidence-provenance-table";
 import type { WorkspaceScope } from "./evidence-provenance-table";
 import { judgeClaims, resolveArtifactText, run } from "./evidence-record-provenance";
@@ -93,7 +97,14 @@ const NEGATIVE_CONTROL = "negative-control";
 
 let nextId = 0;
 
-/** One tool call plus its correlated result, as two transcript lines. */
+/**
+ * One tool call plus its correlated result, as two transcript lines.
+ *
+ * The result block's key is `text` — what `extractToolResultText` reads. Until
+ * mt#5140 this wrote the shorthand `{ resultText }`, so every fixture built
+ * here carried an EMPTY result and the one assertion that depended on the body
+ * (the `validate_typecheck` noise case) passed for the wrong reason.
+ */
 function call(name: string, input: Record<string, unknown>, resultText: string): TranscriptLine[] {
   const id = `tu_${++nextId}`;
   return [
@@ -106,7 +117,7 @@ function call(name: string, input: Record<string, unknown>, resultText: string):
       message: {
         role: "user",
         content: [
-          { type: "tool_result", tool_use_id: id, content: [{ type: "text", resultText }] },
+          { type: "tool_result", tool_use_id: id, content: [{ type: "text", text: resultText }] },
         ],
       },
     },
@@ -121,7 +132,7 @@ function testRun(command: string, output: string): TranscriptLine[] {
       type: "assistant",
       message: {
         role: "assistant",
-        content: [{ type: "tool_use", id, name: "mcp__minsky__session_exec", input: { command } }],
+        content: [{ type: "tool_use", id, name: SESSION_EXEC, input: { command } }],
       },
     },
     {
@@ -138,6 +149,9 @@ function testRun(command: string, output: string): TranscriptLine[] {
 
 const TEST_CMD = "bun test --preload ./tests/dom-setup.ts --timeout=15000";
 
+/** The session command tool, as the transcript names it. */
+const SESSION_EXEC = "mcp__minsky__session_exec";
+
 function ctxWith(lines: TranscriptLine[]): DispatchContext {
   return { transcriptLines: lines } as unknown as DispatchContext;
 }
@@ -153,6 +167,19 @@ function commitInput(message: string): ToolHookInput {
 // ---------------------------------------------------------------------------
 // The subject join
 // ---------------------------------------------------------------------------
+
+describe("the fixture helpers produce results the reader can see (PR #3755 R1)", () => {
+  // `call()` wrote `{ resultText }` where the reader expects `text` until
+  // mt#5140, so every fixture it built carried an empty result and an
+  // assertion about the body passed for the wrong reason. Pin both helpers.
+  test("call() and testRun() results reach `resultText`", () => {
+    const [viaCall] = findToolCallsWithResults(call("Bash", { command: "x" }, "(fail) seen"));
+    expect(viaCall?.hasResult).toBe(true);
+    expect(viaCall?.resultText).toBe("(fail) seen");
+    const [viaTestRun] = findToolCallsWithResults(testRun(TEST_CMD, SUBJECT_FAILURE));
+    expect(viaTestRun?.resultText).toBe(SUBJECT_FAILURE);
+  });
+});
 
 describe("extractSubjectTokens", () => {
   test("splits a test-name span, because the runner interpolates into it", () => {
@@ -1211,6 +1238,209 @@ describe("a typecheck-shaped control (mt#4309)", () => {
     );
     expect(failingTypecheckRuns(calls)).toHaveLength(0);
     expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).toBe("undischarged");
+  });
+});
+
+describe("a detached run read back through its own log (mt#5140)", () => {
+  // The live instance, shape-for-shape: the PR body claims the run's counts
+  // and names the failing case; the run itself printed only its exit status
+  // because stdout went to the file; the grep of that file carries everything.
+  const record =
+    "Remainder disposition\n\nNegative control (R1 fixes): with the store reverted to `8bf081404` " +
+    "(`git stash` of `remainder-expiry-store.ts`) and the two new tests in place, the run was " +
+    "4 pass / 2 fail — `R1: a task with no spec row is annotated anyway` (`Expected: true, " +
+    "Received: false` on the spec row). Restored with `git stash pop`.\n";
+  const RUN_CMD =
+    "RUN_INTEGRATION_TESTS=1 bun test --preload ./tests/setup.ts --timeout=120000 " +
+    "tests/integration/remainder-expiry.testcontainer.integration.test.ts > /tmp/x.log 2>&1; echo exit=$?";
+  const READ_CMD =
+    "grep -E '^\\(fail\\)|^\\(pass\\)|^ *[0-9]+ (pass|fail)|^Ran |error:|Expected|Received' /tmp/x.log | head -30";
+  const LOG_OUTPUT =
+    "error: expect(received).toBe(expected)\nExpected: true\nReceived: false\n" +
+    "(fail) mt#5131 — remainder disposition against a real Postgres > R1: a task with no spec row is annotated anyway [2.10ms]\n" +
+    " 4 pass\n 2 fail\nRan 6 tests across 1 file.";
+
+  test("AT1: a redirected run, then a read of that file showing the failure, discharges", () => {
+    const calls = findToolCallsWithResults([
+      ...testRun("git stash push -- packages/domain/src/tasks/remainder-expiry-store.ts", "Saved"),
+      ...testRun(RUN_CMD, "exit=1"),
+      ...call("Bash", { command: READ_CMD }, LOG_OUTPUT),
+      ...testRun("git stash pop; git status --short", "On branch task/mt-5131"),
+    ]);
+    // Neither call is a red run on its own — that is the miss this closes.
+    expect(failingTestRuns(calls)).toHaveLength(0);
+    expect(failingHarnessRuns(calls)).toHaveLength(0);
+    const pairs = logReadsOfRedirectedRuns(calls);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]?.path).toBe("/tmp/x.log");
+    expect(pairs[0]?.run.index).toBeLessThan(pairs[0]?.read.index ?? -1);
+    expect(failingLogReads(calls)).toHaveLength(1);
+    expect(failingControlRuns(calls)).toHaveLength(1);
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).toBe("discharged");
+  });
+
+  test("AT1 negative control: the same read with no earlier redirect to that path stays undischarged", () => {
+    const calls = findToolCallsWithResults([
+      ...testRun(
+        "bun test --preload ./tests/setup.ts tests/integration/other.test.ts",
+        " 3 pass\n 0 fail"
+      ),
+      ...call("Bash", { command: READ_CMD }, LOG_OUTPUT),
+    ]);
+    expect(logReadsOfRedirectedRuns(calls)).toHaveLength(0);
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).toBe("undischarged");
+  });
+
+  test("AT1 negative control: a redirect to /tmp/x.log but a read of /tmp/y.log stays undischarged", () => {
+    const calls = findToolCallsWithResults([
+      ...testRun(RUN_CMD, "exit=1"),
+      ...call("Bash", { command: READ_CMD.replace("/tmp/x.log", "/tmp/y.log") }, LOG_OUTPUT),
+    ]);
+    expect(logReadsOfRedirectedRuns(calls)).toHaveLength(0);
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).toBe("undischarged");
+  });
+
+  test("order binds: a read BEFORE the redirect is a read of some other file's content", () => {
+    const calls = findToolCallsWithResults([
+      ...call("Bash", { command: READ_CMD }, LOG_OUTPUT),
+      ...testRun(RUN_CMD, "exit=1"),
+    ]);
+    expect(logReadsOfRedirectedRuns(calls)).toHaveLength(0);
+    expect(judgeClaims(record, calls, SCOPE)[0]?.verdict).toBe("undischarged");
+  });
+
+  test("a read whose result is green does not pair — the failure has to be in what was displayed", () => {
+    const calls = findToolCallsWithResults([
+      ...testRun(RUN_CMD, "exit=0"),
+      ...call("Bash", { command: READ_CMD }, " 6 pass\n 0 fail\nRan 6 tests across 1 file."),
+    ]);
+    expect(logReadsOfRedirectedRuns(calls)).toHaveLength(0);
+  });
+
+  test("the LATEST run into the path is the one paired; a read that is itself run-shaped is never a read", () => {
+    const first = testRun("bun scripts/verify.ts > /tmp/x.log 2>&1", "");
+    const second = testRun(RUN_CMD, "exit=1");
+    const calls = findToolCallsWithResults([
+      ...first,
+      ...second,
+      ...call("Bash", { command: READ_CMD }, LOG_OUTPUT),
+      // The one-command form: run and read in one call. Parts 1a/1b own it —
+      // its own result carries the grep — so it must not also pair as a read.
+      ...testRun(`${RUN_CMD}; ${READ_CMD}`, `exit=1\n${LOG_OUTPUT}`),
+    ]);
+    const pairs = logReadsOfRedirectedRuns(calls);
+    expect(pairs).toHaveLength(1);
+    const runCommand = pairs[0]?.run.input["command"];
+    expect(runCommand).toBe(RUN_CMD);
+    expect(failingTestRuns(calls)).toHaveLength(1);
+  });
+
+  test("the synthesized call carries the RUN's command beside the READ's output, so the subject join sees the invocation", () => {
+    const fileNamedOnlyByTheRun =
+      "fix: the integration\n\nNegative control — `tests/integration/remainder-expiry.testcontainer.integration.test.ts` " +
+      "against the reverted store: red.\n";
+    const calls = findToolCallsWithResults([
+      ...testRun(RUN_CMD, "exit=1"),
+      ...call("Bash", { command: READ_CMD }, LOG_OUTPUT),
+    ]);
+    const [synthesized] = failingLogReads(calls);
+    expect(String(synthesized?.input["command"])).toContain(RUN_CMD);
+    expect(String(synthesized?.input["command"])).toContain(READ_CMD);
+    expect(synthesized?.resultText).toBe(LOG_OUTPUT);
+    expect(judgeClaims(fileNamedOnlyByTheRun, calls, SCOPE)[0]?.verdict).toBe("discharged");
+  });
+
+  test("runOutputTargets reads every redirect form off run-shaped statements only, and never a device", () => {
+    expect(runOutputTargets(RUN_CMD)).toEqual(["/tmp/x.log"]);
+    expect(
+      runOutputTargets(
+        'bun test x > "$CLAUDE_JOB_DIR/tmp/mt5133-negctl.log" 2>&1; grep fail "$CLAUDE_JOB_DIR/tmp/mt5133-negctl.log"'
+      )
+    ).toEqual(["$CLAUDE_JOB_DIR/tmp/mt5133-negctl.log"]);
+    expect(runOutputTargets("nohup bun scripts/probe.ts >> ./probe.log 2>&1 &")).toEqual([
+      "./probe.log",
+    ]);
+    expect(runOutputTargets("bun scripts/probe.ts 2>&1 | tee -a /tmp/probe.log")).toEqual([
+      "/tmp/probe.log",
+    ]);
+    expect(runOutputTargets("bun scripts/probe.ts &> /tmp/both.log")).toEqual(["/tmp/both.log"]);
+    expect(runOutputTargets("bun scripts/probe.ts > /dev/null 2>&1")).toEqual([]);
+    // A read redirected somewhere is not a run's output.
+    expect(runOutputTargets("cat a.ts > /tmp/copy.log")).toEqual([]);
+    expect(runOutputTargets("echo done > /tmp/marker.log; bun scripts/probe.ts")).toEqual([]);
+  });
+
+  test("R1: a RELATIVE target joins only within one execution context — two workspaces' `./x.log` are two files", () => {
+    const relativeRun =
+      "bun test tests/integration/remainder-expiry.testcontainer.integration.test.ts > ./x.log 2>&1";
+    const relativeRead = "grep -E '^\\(fail\\)|pass$|fail$' ./x.log";
+    // Same session: the workspace is the context, so the pair forms.
+    const sameWorkspace = findToolCallsWithResults([
+      ...call(SESSION_EXEC, { task: "mt#1", command: relativeRun }, "exit=1"),
+      ...call(SESSION_EXEC, { task: "mt#1", command: relativeRead }, LOG_OUTPUT),
+    ]);
+    expect(logReadsOfRedirectedRuns(sameWorkspace)).toHaveLength(1);
+    // A different session wrote ITS ./x.log; this session's read is of another file.
+    const otherWorkspace = findToolCallsWithResults([
+      ...call(SESSION_EXEC, { task: "mt#2", command: relativeRun }, "exit=1"),
+      ...call(SESSION_EXEC, { task: "mt#1", command: relativeRead }, LOG_OUTPUT),
+    ]);
+    expect(logReadsOfRedirectedRuns(otherWorkspace)).toHaveLength(0);
+    // `Bash` and `session_exec` are different contexts too.
+    const acrossTools = findToolCallsWithResults([
+      ...call("Bash", { command: relativeRun }, "exit=1"),
+      ...call(SESSION_EXEC, { task: "mt#1", command: relativeRead }, LOG_OUTPUT),
+    ]);
+    expect(logReadsOfRedirectedRuns(acrossTools)).toHaveLength(0);
+    // A call that `cd`s has left the context: its relative paths never join.
+    const changedDir = findToolCallsWithResults([
+      ...call("Bash", { command: `cd /tmp/scratch && ${relativeRun}` }, "exit=1"),
+      ...call("Bash", { command: relativeRead }, LOG_OUTPUT),
+    ]);
+    expect(logReadsOfRedirectedRuns(changedDir)).toHaveLength(0);
+    // A ROOTED path joins on its text regardless of tool or workspace.
+    const rooted = findToolCallsWithResults([
+      ...call(SESSION_EXEC, { task: "mt#2", command: RUN_CMD }, "exit=1"),
+      ...call("Bash", { command: READ_CMD }, LOG_OUTPUT),
+    ]);
+    expect(logReadsOfRedirectedRuns(rooted)).toHaveLength(1);
+  });
+
+  test("R1: the synthesized call declares its provenance under `synthesizedFrom`", () => {
+    const calls = findToolCallsWithResults([
+      ...testRun(RUN_CMD, "exit=1"),
+      ...call("Bash", { command: READ_CMD }, LOG_OUTPUT),
+    ]);
+    const [synthesized] = failingLogReads(calls);
+    const [pair] = logReadsOfRedirectedRuns(calls);
+    expect(synthesized?.input["synthesizedFrom"]).toEqual({
+      shape: "log-read",
+      path: "/tmp/x.log",
+      runIndex: pair?.run.index,
+      readIndex: pair?.read.index,
+    });
+    expect(synthesized?.index).toBe(pair?.read.index ?? -1);
+    // A literal transcript call never carries the key.
+    expect(calls.every((c) => !("synthesizedFrom" in c.input))).toBe(true);
+  });
+
+  test("R1: `tee` with several operands registers every one", () => {
+    expect(runOutputTargets("bun scripts/probe.ts 2>&1 | tee -a /tmp/a.log /tmp/b.log")).toEqual([
+      "/tmp/a.log",
+      "/tmp/b.log",
+    ]);
+    expect(
+      runOutputTargets('bun scripts/probe.ts | tee "/tmp/c d.log" /tmp/e.log | tail -3')
+    ).toEqual(["/tmp/c d.log", "/tmp/e.log"]);
+  });
+
+  test("isLogReadOf needs a log-read program AND the exact path as a whole operand", () => {
+    expect(isLogReadOf(READ_CMD, "/tmp/x.log")).toBe(true);
+    expect(isLogReadOf('sed -n 1,20p "$D/tmp/a.log"', "$D/tmp/a.log")).toBe(true);
+    expect(isLogReadOf("cat /tmp/x.log | grep fail", "/tmp/x.log")).toBe(true);
+    expect(isLogReadOf("tail -30 /tmp/x.log.bak", "/tmp/x.log")).toBe(false);
+    expect(isLogReadOf("rm /tmp/x.log", "/tmp/x.log")).toBe(false);
+    expect(isLogReadOf("bun scripts/parse.ts /tmp/x.log", "/tmp/x.log")).toBe(false);
   });
 });
 

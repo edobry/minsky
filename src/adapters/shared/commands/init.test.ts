@@ -52,6 +52,20 @@ describe("mt#4872 SC2 — the declinable set reaches the operator", () => {
     expect(message).toContain("They stay until you remove them.");
   });
 
+  it("carries the plan summary — harness and provenance — so the MCP result sees it (mt#5153 SC5)", () => {
+    // `mcp__minsky__init` reads `message` and nothing else; stdout never
+    // reaches it. The harness line is the one an agent most needs, and it was
+    // the silent value in mt#5152.
+    const summary =
+      "Detected Claude Code (from the MCP client that made this call): rules compile to CLAUDE.md.";
+    const withRules = formatInitMessage(DECLINABLE, summary);
+    expect(withRules.startsWith(`Project initialized successfully.\n${summary}`)).toBe(true);
+    expect(withRules).toContain("2 optional rule(s)");
+
+    const withoutRules = formatInitMessage([], summary);
+    expect(withoutRules).toBe(`Project initialized successfully.\n${summary}`);
+  });
+
   it("says nothing extra when there is nothing to decline", () => {
     // A project that already declined everything declinable is a real state,
     // not a failure. Emitting an empty "0 optional rules" block would train the

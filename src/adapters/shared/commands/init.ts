@@ -24,6 +24,7 @@ import {
   CLIENT_PROMPT_CANCELLED,
   resolveClientForCommand,
 } from "./client-resolution";
+import { planInitDefaults } from "./init-defaults";
 import { RULE_FORMAT_DESCRIPTION } from "../../../utils/option-descriptions";
 import { log } from "@minsky/shared/logger";
 import { ValidationError } from "@minsky/domain/errors/index";
@@ -142,8 +143,21 @@ export function parseRuleIds(value: string | string[] | undefined): string[] {
  * line alone carried ("ask your agent to walk you through them" — the
  * conversation is the primary selection path, ask#11288) now lives here.
  */
-export function formatInitMessage(declinable: readonly DeclinableRule[]): string {
-  const headline = "Project initialized successfully.";
+export function formatInitMessage(
+  declinable: readonly DeclinableRule[],
+  /**
+   * The plan summary (mt#5149) — which harness, how it was chosen, what the
+   * rule format and MCP settings derived to. Carried in the message (mt#5153
+   * SC5) because the MCP tool result sees nothing that goes to stdout: an
+   * `mcp__minsky__init` caller reads this string and nothing else, and the
+   * harness it recorded is the one line it most needs.
+   */
+  summary?: string
+): string {
+  const headline =
+    summary === undefined
+      ? "Project initialized successfully."
+      : `Project initialized successfully.\n${summary}`;
   if (declinable.length === 0) return headline;
   return [
     headline,
@@ -296,133 +310,29 @@ export function registerInitCommands() {
           }
           const initClient = resolvedClient.client;
 
-          // Interactive rule format selection if not provided
-          let ruleFormat = params.ruleFormat;
-          if (!ruleFormat) {
-            // mt#4715: the default derives from the harness actually running
-            // init, not a fixed "cursor". Claude Code reads neither
-            // `.cursor/rules` nor `.ai/rules`; it reads `CLAUDE.md` and
-            // `.claude/rules`, which the compile pipeline emits FROM
-            // `.minsky/rules` sources. So a Claude Code project scaffolds
-            // sources in the canonical `minsky` location and
-            // `initializeProject` compiles them for that harness.
-            //
-            // Shared by BOTH branches (PR #3431 R1): the non-interactive path
-            // is where the wrong default actually bit, but leaving the prompt
-            // hardcoded to "cursor" made the two paths disagree about what a
-            // Claude Code project should get.
-            const harnessDefaultRuleFormat = initClient === "claude-code" ? "minsky" : "cursor";
-
-            if (!isInteractive()) {
-              ruleFormat = harnessDefaultRuleFormat;
-            } else {
-              const selectedFormat = await select({
-                message: "Select rule format:",
-                options: [
-                  { value: "cursor", label: "Cursor (.cursor/rules; for the Cursor editor)" },
-                  {
-                    value: "minsky",
-                    label: "Minsky (.minsky/rules sources; compiles to CLAUDE.md for Claude Code)",
-                  },
-                  { value: "generic", label: "Generic (.ai/rules; for other editors)" },
-                ],
-                initialValue: harnessDefaultRuleFormat,
-              });
-
-              if (isCancel(selectedFormat)) {
-                cancel("Initialization cancelled.");
-                return { success: false, message: "Initialization cancelled by user." };
-              }
-
-              ruleFormat = selectedFormat as string;
-            }
-          }
-
-          // Interactive MCP configuration if not provided
-          let mcp:
-            | {
-                enabled: boolean;
-                transport: "stdio" | "sse" | "httpStream";
-                port?: number;
-                host?: string;
-              }
-            | undefined = undefined;
-
-          if (params.mcp !== undefined || params.mcpTransport || params.mcpPort || params.mcpHost) {
-            // Use provided MCP parameters
-            mcp = {
-              enabled:
-                params.mcp === undefined ? true : params.mcp === true || params.mcp === "true",
-              transport: (params.mcpTransport as "stdio" | "sse" | "httpStream") || "stdio",
-              port: params.mcpPort ? Number(params.mcpPort) : undefined,
-              host: params.mcpHost,
-            };
-          } else if (isInteractive()) {
-            // Interactive MCP configuration
-            const enableMcp = await confirm({
-              message: "Enable MCP (Model Context Protocol) configuration?",
-              initialValue: true,
-            });
-
-            if (isCancel(enableMcp)) {
-              cancel("Initialization cancelled.");
-              return { success: false, message: "Initialization cancelled by user." };
-            }
-
-            if (enableMcp) {
-              const transport = await select({
-                message: "Select MCP transport type:",
-                options: [
-                  { value: "stdio", label: "STDIO (recommended)" },
-                  { value: "sse", label: "Server-Sent Events" },
-                  { value: "httpStream", label: "HTTP Stream" },
-                ],
-                initialValue: "stdio",
-              });
-
-              if (isCancel(transport)) {
-                cancel("Initialization cancelled.");
-                return { success: false, message: "Initialization cancelled by user." };
-              }
-
-              mcp = {
-                enabled: true,
-                transport: transport as "stdio" | "sse" | "httpStream",
-              };
-
-              // Ask for port and host if not stdio
-              if (transport !== "stdio") {
-                const portInput = await text({
-                  message: "Enter port number (optional):",
-                  placeholder: "e.g., 3000",
-                  validate: (value) => {
-                    if (value && isNaN(Number(value))) {
-                      return "Port must be a number";
-                    }
-                    return undefined;
-                  },
-                });
-
-                if (isCancel(portInput)) {
-                  cancel("Initialization cancelled.");
-                  return { success: false, message: "Initialization cancelled by user." };
-                }
-
-                const hostInput = await text({
-                  message: "Enter host (optional):",
-                  placeholder: "e.g., localhost",
-                });
-
-                if (isCancel(hostInput)) {
-                  cancel("Initialization cancelled.");
-                  return { success: false, message: "Initialization cancelled by user." };
-                }
-
-                if (portInput) mcp.port = Number(portInput);
-                if (hostInput) mcp.host = hostInput;
-              }
-            }
-          }
+          // mt#5149: derive what the harness already answers; ask only what it
+          // cannot. Three of the four historical prompts had one right answer —
+          // rule format (mt#4715 derives it), MCP enabled (declining skips
+          // `performSetup`, which no first-run user wants), and transport
+          // (`stdio`, ADR-038; `mcp start` never reads the key, mt#4699). The
+          // fourth — WHICH harness — is answered above (mt#5153), so nothing is
+          // left to ask here and the plan is a pure derivation
+          // (`init-defaults.test.ts`). Its summary names the harness and how it
+          // was chosen; it rides in the returned `message` rather than only on
+          // stdout so the MCP tool result carries it too (SC5).
+          const plan = planInitDefaults({
+            client: initClient,
+            source: resolvedClient.source,
+            params: {
+              ruleFormat: params.ruleFormat,
+              mcp: params.mcp,
+              mcpTransport: params.mcpTransport,
+              mcpPort: params.mcpPort,
+              mcpHost: params.mcpHost,
+            },
+          });
+          const ruleFormat = plan.ruleFormat;
+          const mcp = plan.mcp;
 
           // Detect repository backend from git remote
           let repository: ResolvedRepositoryConfig | undefined;
@@ -527,7 +437,7 @@ export function registerInitCommands() {
 
           return {
             success: true,
-            message: formatInitMessage(declinable),
+            message: formatInitMessage(declinable, plan.summary),
             declinable,
             withheld: initResult.withheld,
           };
