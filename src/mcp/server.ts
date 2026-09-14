@@ -265,15 +265,28 @@ const TASKS_CREATE_TOOL_NAME = "tasks.create";
 const SESSION_START_TOOL_NAME = "session.start";
 
 /**
+ * `init`, `setup` and `tasks.dispatch` derive the caller's HARNESS from this id
+ * (mt#5153; closes mt#4510's detection half). The fourth reason in this set, and
+ * the one the daemon's own environment can never supply: `process.env` here is
+ * whatever spawned the daemon — nothing on 2026-08-24 / 09-03 (`standalone`
+ * for Claude Code callers), `CLAUDECODE=1` on 2026-09-14 from a tray relaunched
+ * out of an agent's Bash (`claude-code` for any caller). ADR-006 Layer 1 puts
+ * the client's kind on the id at `initialize`, so the id is the witness.
+ */
+const INIT_TOOL_NAME = "init";
+const SETUP_TOOL_NAME = "setup";
+const TASKS_DISPATCH_TOOL_NAME = "tasks.dispatch";
+
+/**
  * Tools the server injects the resolved caller `agentId` into as
  * `callerActorId` (mt#3121, extended mt#4408).
  *
- * Membership is EXACT-match on the canonical dotted name and its
- * Claude-Desktop underscore alias — never a substring — so a tool whose name
- * merely CONTAINS one of these cannot receive the param. Built once at module
- * load rather than per request.
+ * Membership is EXACT-match on the REGISTERED name — dotted for a namespaced
+ * command (`tasks.create`), plain for a top-level one (`init`, `setup`; PR #3759
+ * R1) — never a substring, so a tool whose name merely CONTAINS one of these
+ * cannot receive the param. Built once at module load rather than per request.
  *
- * Why a set rather than a second `if`: the injection is now nine tools wide and
+ * Why a set rather than a second `if`: the injection is now twelve tools wide and
  * the matching rule (exact match on the resolved name, server overwrites any
  * caller-supplied value) is the part that must not drift between them. One
  * membership test cannot disagree with itself.
@@ -310,6 +323,9 @@ const CALLER_ACTOR_ID_TOOL_NAMES: ReadonlySet<string> = new Set([
   WORK_PACKAGE_SUCCEED_TOOL_NAME,
   TASKS_CREATE_TOOL_NAME,
   SESSION_START_TOOL_NAME,
+  INIT_TOOL_NAME,
+  SETUP_TOOL_NAME,
+  TASKS_DISPATCH_TOOL_NAME,
 ]);
 
 const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([

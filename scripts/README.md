@@ -47,49 +47,50 @@ required env vars (skip gracefully without them), and are run manually post-merg
 pasted into a PR body as execution evidence (mt#1399 / mt#1403 pattern). Each is scoped
 to one task; the task ID in the name or header is the primary cross-reference.
 
-| Script                                   | Verifies (task)                                                                                          |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `smoke-asks-wait.ts`                     | `asks_wait-for-response` end-to-end (mt#2266)                                                            |
-| `smoke-cli-outside-repo.ts`              | repo-orthogonal CLI commands from outside a repo (mt#1428)                                               |
-| `smoke-mcp-disconnect.ts`                | MCP disconnect tracking (mt#1645)                                                                        |
-| `smoke-mcp-discovery.ts`                 | MCP-bridge discovery loop (mt#2010)                                                                      |
-| `smoke-mcp-server-status.ts`             | hosted MCP-server status widget (mt#2077)                                                                |
-| `smoke-memory-domain-routing.ts`         | memory domain vector storage routing (mt#1605)                                                           |
-| `smoke-mt2401-cockpit-deploy-config.ts`  | cockpit-preview `deploy.config.ts` real Railway IDs (mt#2401)                                            |
-| `smoke-no-postgres-boot.ts`              | no-Postgres boot-tolerance contract (mt#2349)                                                            |
-| `smoke-post-deploy-health-monitor.ts`    | post-deploy health monitor check logic against live Railway (mt#1302)                                    |
-| `smoke-presence-claims.ts`               | presence-claims substrate upsert/list/reap lifecycle (mt#2562)                                           |
-| `smoke-prod-state-cache.ts`              | prod-state cache refresh producer (mt#2506)                                                              |
-| `smoke-projects-scoping-migration.ts`    | projects-scoping migration, both paths (mt#2415 / mt#2391)                                               |
-| `smoke-railway-metrics.ts`               | first-party Railway service-metrics + restart-count queries (mt#2296)                                    |
-| `smoke-retrigger-default-url.ts`         | drift guard for `reviewer.retrigger`'s default webhook URL (mt#2359)                                     |
-| `smoke-reviewer-watch.ts`                | local reviewer-bot watcher against live GitHub API (mt#1310)                                             |
-| `smoke-session-crud.ts`                  | `DrizzleSessionRepository` CRUD path (mt#2329)                                                           |
-| `smoke-setup-db.ts`                      | `minsky setup db` onboarding against a live Postgres (mt#2429)                                           |
-| `smoke-skill-staleness-hook.ts`          | skill-staleness-detector hook entrypoint (mt#1622)                                                       |
-| `smoke-staleness-drain.ts`               | staleness-exit drain window admits new requests but not into the exit gap (mt#2830)                      |
-| `smoke-tab-watcher.sh`                   | tab-watcher daemon foreground run + snapshot assertion                                                   |
-| `smoke-task-id-reuse.ts`                 | task-ID-reuse / orphaned-spec fix (mt#2205)                                                              |
-| `smoke-task-kinds.ts`                    | task kind system (mt#1812)                                                                               |
-| `smoke-transcript-ingest-hook.ts`        | SessionEnd transcript-ingest hook (mt#2192)                                                              |
-| `smoke-transcript-sweep.ts`              | cockpit-daemon transcript sweep backstop (mt#2321)                                                       |
-| `smoke-transcript-watcher.ts`            | cockpit-daemon transcript watcher (mt#2320)                                                              |
-| `smoke-validate-typecheck-workspaces.ts` | `validate.typecheck` multi-workspace coverage (mt#2256)                                                  |
-| `smoke-wrong-id-space.ts`                | cockpit wrong-id-space fail-loud surface (mt#2525 / mt#2420)                                             |
-| `live-verify-presence-write.ts`          | `writeTaskClaim` per-call repo fallback path (mt#2567)                                                   |
-| `test-provenance-e2e.ts`                 | `AuthorshipJudge` against a real Claude Code JSONL transcript via the Anthropic API (mt#1081)            |
-| `verify-cockpit-shell-scroll.ts`         | cockpit shell scroll/geometry invariants in a real browser (mt#3335 / mt#3338)                           |
-| `verify-conversation-footer-stack.ts`    | conversation bottom-edge controls stack without overlapping, in a real browser (mt#3843)                 |
-| `verify-conversation-live-tail.ts`       | conversation live-tail scroll behavior in a real browser (mt#3376 / mt#3445)                             |
-| `verify-conversation-orientation.ts`     | conversation scroll-driven reveal + position hold in a real browser (mt#3688)                            |
-| `verify-conversation-renderer.ts`        | conversation-element parser against a real session snapshot (mt#2374)                                    |
-| `verify-database-url-warning.ts`         | `DATABASE_URL` is ignored by config resolution and now warns; registered overrides stay silent (mt#4789) |
-| `verify-driven-session-scrollport.ts`    | driven page owns its scrollport, keeping the composer on screen, in a real browser (mt#3737)             |
-| `verify-mt1510-identity-routing.ts`      | `identity` parameter on `session_pr_review_submit` (mt#1510)                                             |
-| `verify-peek-pane-layout.ts`             | peek pane gutters, single scrollport and page column in a real browser (mt#4123)                         |
-| `verify-mt1721-detectors-mcp.ts`         | `registerDetectorsTools` MCP surface (mt#1721)                                                           |
-| `verify-session-film-panes.ts`           | film ribbon/stage drag + clamp and cockpit scrollbar chrome in a real browser (mt#3701)                  |
-| `verify-turn-write-skip-if-unchanged.ts` | turn upsert's skip-if-unchanged `setWhere` guard against real Postgres (mt#4345)                         |
+| Script                                   | Verifies (task)                                                                                                                                       |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `smoke-asks-wait.ts`                     | `asks_wait-for-response` end-to-end (mt#2266)                                                                                                         |
+| `smoke-cli-outside-repo.ts`              | repo-orthogonal CLI commands from outside a repo (mt#1428)                                                                                            |
+| `smoke-mcp-disconnect.ts`                | MCP disconnect tracking (mt#1645)                                                                                                                     |
+| `smoke-mcp-discovery.ts`                 | MCP-bridge discovery loop (mt#2010)                                                                                                                   |
+| `smoke-mcp-server-status.ts`             | hosted MCP-server status widget (mt#2077)                                                                                                             |
+| `smoke-memory-domain-routing.ts`         | memory domain vector storage routing (mt#1605)                                                                                                        |
+| `smoke-mt2401-cockpit-deploy-config.ts`  | cockpit-preview `deploy.config.ts` real Railway IDs (mt#2401)                                                                                         |
+| `smoke-no-postgres-boot.ts`              | no-Postgres boot-tolerance contract (mt#2349)                                                                                                         |
+| `smoke-post-deploy-health-monitor.ts`    | post-deploy health monitor check logic against live Railway (mt#1302)                                                                                 |
+| `smoke-presence-claims.ts`               | presence-claims substrate upsert/list/reap lifecycle (mt#2562)                                                                                        |
+| `smoke-prod-state-cache.ts`              | prod-state cache refresh producer (mt#2506)                                                                                                           |
+| `smoke-projects-scoping-migration.ts`    | projects-scoping migration, both paths (mt#2415 / mt#2391)                                                                                            |
+| `smoke-railway-metrics.ts`               | first-party Railway service-metrics + restart-count queries (mt#2296)                                                                                 |
+| `smoke-retrigger-default-url.ts`         | drift guard for `reviewer.retrigger`'s default webhook URL (mt#2359)                                                                                  |
+| `smoke-reviewer-watch.ts`                | local reviewer-bot watcher against live GitHub API (mt#1310)                                                                                          |
+| `smoke-session-crud.ts`                  | `DrizzleSessionRepository` CRUD path (mt#2329)                                                                                                        |
+| `smoke-setup-db.ts`                      | `minsky setup db` onboarding against a live Postgres (mt#2429)                                                                                        |
+| `smoke-skill-staleness-hook.ts`          | skill-staleness-detector hook entrypoint (mt#1622)                                                                                                    |
+| `smoke-staleness-drain.ts`               | staleness-exit drain window admits new requests but not into the exit gap (mt#2830)                                                                   |
+| `smoke-tab-watcher.sh`                   | tab-watcher daemon foreground run + snapshot assertion                                                                                                |
+| `smoke-task-id-reuse.ts`                 | task-ID-reuse / orphaned-spec fix (mt#2205)                                                                                                           |
+| `smoke-task-kinds.ts`                    | task kind system (mt#1812)                                                                                                                            |
+| `smoke-transcript-ingest-hook.ts`        | SessionEnd transcript-ingest hook (mt#2192)                                                                                                           |
+| `smoke-transcript-sweep.ts`              | cockpit-daemon transcript sweep backstop (mt#2321)                                                                                                    |
+| `smoke-transcript-watcher.ts`            | cockpit-daemon transcript watcher (mt#2320)                                                                                                           |
+| `smoke-validate-typecheck-workspaces.ts` | `validate.typecheck` multi-workspace coverage (mt#2256)                                                                                               |
+| `smoke-wrong-id-space.ts`                | cockpit wrong-id-space fail-loud surface (mt#2525 / mt#2420)                                                                                          |
+| `live-verify-presence-write.ts`          | `writeTaskClaim` per-call repo fallback path (mt#2567)                                                                                                |
+| `test-provenance-e2e.ts`                 | `AuthorshipJudge` against a real Claude Code JSONL transcript via the Anthropic API (mt#1081)                                                         |
+| `verify-cockpit-shell-scroll.ts`         | cockpit shell scroll/geometry invariants in a real browser (mt#3335 / mt#3338)                                                                        |
+| `verify-conversation-footer-stack.ts`    | conversation bottom-edge controls stack without overlapping, in a real browser (mt#3843)                                                              |
+| `verify-conversation-live-tail.ts`       | conversation live-tail scroll behavior in a real browser (mt#3376 / mt#3445)                                                                          |
+| `verify-conversation-orientation.ts`     | conversation scroll-driven reveal + position hold in a real browser (mt#3688)                                                                         |
+| `verify-conversation-renderer.ts`        | conversation-element parser against a real session snapshot (mt#2374)                                                                                 |
+| `verify-database-url-warning.ts`         | `DATABASE_URL` is ignored by config resolution and now warns; registered overrides stay silent (mt#4789)                                              |
+| `verify-driven-session-scrollport.ts`    | driven page owns its scrollport, keeping the composer on screen, in a real browser (mt#3737)                                                          |
+| `verify-init-harness-from-mcp-client.ts` | over MCP, `init` records the harness from the CALLER's `clientInfo`, not the daemon's env; three clients against one clean daemon (mt#5153 / mt#4510) |
+| `verify-mt1510-identity-routing.ts`      | `identity` parameter on `session_pr_review_submit` (mt#1510)                                                                                          |
+| `verify-peek-pane-layout.ts`             | peek pane gutters, single scrollport and page column in a real browser (mt#4123)                                                                      |
+| `verify-mt1721-detectors-mcp.ts`         | `registerDetectorsTools` MCP surface (mt#1721)                                                                                                        |
+| `verify-session-film-panes.ts`           | film ribbon/stage drag + clamp and cockpit scrollbar chrome in a real browser (mt#3701)                                                               |
+| `verify-turn-write-skip-if-unchanged.ts` | turn upsert's skip-if-unchanged `setWhere` guard against real Postgres (mt#4345)                                                                      |
 
 ### Pointing a script at a scratch database — `DATABASE_URL` will NOT do it (mt#4789)
 

@@ -19,10 +19,12 @@ import { enableRule, disableRule } from "@minsky/domain/rules/operations/config-
 import { ensureLocalDaemonForSetup } from "../../../mcp/setup/ensure-local-daemon-for-setup";
 import { TaskBackend } from "@minsky/domain/configuration/backend-detection";
 import {
-  detectAgentHarness,
-  detectInstalledClients,
-} from "@minsky/domain/runtime/harness-detection";
-import { planInitDefaults, ruleFormatForClient } from "./init-defaults";
+  CALLER_ACTOR_ID_PARAM,
+  CLIENT_PARAM,
+  CLIENT_PROMPT_CANCELLED,
+  resolveClientForCommand,
+} from "./client-resolution";
+import { planInitDefaults } from "./init-defaults";
 import { RULE_FORMAT_DESCRIPTION } from "../../../utils/option-descriptions";
 import { log } from "@minsky/shared/logger";
 import { ValidationError } from "@minsky/domain/errors/index";
@@ -95,6 +97,12 @@ const initParams = composeParams(
         "Rule ids to decline, comma-separated (non-interactive selection; base rules cannot be declined)",
       required: false,
     },
+    // mt#5153: the harness is a signal or an answer, never a ranked guess.
+    // `client` is the explicit answer (same name and enum as `setup` and
+    // `mcp register`); `callerActorId` is the MCP path's signal, injected by
+    // the server for this tool (`CALLER_ACTOR_ID_TOOL_NAMES`).
+    client: CLIENT_PARAM,
+    callerActorId: CALLER_ACTOR_ID_PARAM,
   }
 ) satisfies CommandParameterMap;
 
@@ -135,8 +143,21 @@ export function parseRuleIds(value: string | string[] | undefined): string[] {
  * line alone carried ("ask your agent to walk you through them" — the
  * conversation is the primary selection path, ask#11288) now lives here.
  */
-export function formatInitMessage(declinable: readonly DeclinableRule[]): string {
-  const headline = "Project initialized successfully.";
+export function formatInitMessage(
+  declinable: readonly DeclinableRule[],
+  /**
+   * The plan summary (mt#5149) — which harness, how it was chosen, what the
+   * rule format and MCP settings derived to. Carried in the message (mt#5153
+   * SC5) because the MCP tool result sees nothing that goes to stdout: an
+   * `mcp__minsky__init` caller reads this string and nothing else, and the
+   * harness it recorded is the one line it most needs.
+   */
+  summary?: string
+): string {
+  const headline =
+    summary === undefined
+      ? "Project initialized successfully."
+      : `Project initialized successfully.\n${summary}`;
   if (declinable.length === 0) return headline;
   return [
     headline,
@@ -270,17 +291,38 @@ export function registerInitCommands() {
             }
           }
 
+          // mt#5153: resolve WHICH harness this project is for, once, before
+          // anything branches on it. Explicit `--client` wins; over MCP the
+          // caller's identity is the witness (the daemon's own environment is
+          // its spawner's); on the CLI the environment is. With no signal and
+          // one installed client, that client; with several, ask on a TTY and
+          // otherwise refuse naming the accepted values — `setup`'s posture,
+          // which `init` used to answer with a silent ranked pick instead.
+          const resolvedClient = await resolveClientForCommand({
+            explicit: params.client,
+            callerActorId: params.callerActorId,
+            flag: "--client",
+            promptMessage: "Which agent harness is this project for?",
+          });
+          if (resolvedClient === CLIENT_PROMPT_CANCELLED) {
+            cancel("Initialization cancelled.");
+            return { success: false, message: "Initialization cancelled by user." };
+          }
+          const initClient = resolvedClient.client;
+
           // mt#5149: derive what the harness already answers; ask only what it
           // cannot. Three of the four historical prompts had one right answer —
           // rule format (mt#4715 derives it), MCP enabled (declining skips
           // `performSetup`, which no first-run user wants), and transport
           // (`stdio`, ADR-038; `mcp start` never reads the key, mt#4699). The
-          // decision is a pure function so the prompt-or-derive branch is
-          // assertable without driving `@clack` (`init-defaults.test.ts`).
+          // fourth — WHICH harness — is answered above (mt#5153), so nothing is
+          // left to ask here and the plan is a pure derivation
+          // (`init-defaults.test.ts`). Its summary names the harness and how it
+          // was chosen; it rides in the returned `message` rather than only on
+          // stdout so the MCP tool result carries it too (SC5).
           const plan = planInitDefaults({
-            interactive: isInteractive(),
-            harness: detectAgentHarness(),
-            installedClients: detectInstalledClients(),
+            client: initClient,
+            source: resolvedClient.source,
             params: {
               ruleFormat: params.ruleFormat,
               mcp: params.mcp,
@@ -289,34 +331,7 @@ export function registerInitCommands() {
               mcpHost: params.mcpHost,
             },
           });
-          log.cli(plan.summary);
-
-          let ruleFormat: string;
-          if (plan.ruleFormat !== "ask") {
-            ruleFormat = plan.ruleFormat;
-          } else {
-            // Nothing detected at all — the user genuinely holds this answer.
-            const selectedFormat = await select({
-              message: "Select rule format:",
-              options: [
-                { value: "cursor", label: "Cursor (.cursor/rules; for the Cursor editor)" },
-                {
-                  value: "minsky",
-                  label: "Minsky (.minsky/rules sources; compiles to CLAUDE.md for Claude Code)",
-                },
-                { value: "generic", label: "Generic (.ai/rules; for other editors)" },
-              ],
-              initialValue: ruleFormatForClient(plan.client),
-            });
-
-            if (isCancel(selectedFormat)) {
-              cancel("Initialization cancelled.");
-              return { success: false, message: "Initialization cancelled by user." };
-            }
-
-            ruleFormat = selectedFormat as string;
-          }
-
+          const ruleFormat = plan.ruleFormat;
           const mcp = plan.mcp;
 
           // Detect repository backend from git remote
@@ -382,6 +397,9 @@ export function registerInitCommands() {
               mcp,
               overwrite,
               repository,
+              // mt#5153: the one resolution above, and how it was reached.
+              client: initClient,
+              harnessSource: resolvedClient.source,
             },
             // mt#4707: `init` under CLAUDECODE=1 is the cold-machine first run —
             // the case where nothing has started a daemon yet, and the one the
@@ -419,7 +437,7 @@ export function registerInitCommands() {
 
           return {
             success: true,
-            message: formatInitMessage(declinable),
+            message: formatInitMessage(declinable, plan.summary),
             declinable,
             withheld: initResult.withheld,
           };

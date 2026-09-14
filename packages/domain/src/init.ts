@@ -48,7 +48,12 @@ import {
 } from "./session/repository-backend-detection";
 import { performSetup } from "./setup";
 import { provisionObservabilityHooks } from "./setup/hook-provisioning";
-import { resolveInitClient } from "./runtime/harness-detection";
+import {
+  HARNESS_SOURCES,
+  MANAGED_CLIENTS,
+  type HarnessSource,
+  type ManagedClient,
+} from "./runtime/harness-detection";
 import { log } from "./utils/logger";
 
 export type { ResolvedRepositoryConfig } from "./session/repository-backend-detection";
@@ -109,6 +114,13 @@ export const initializeProjectParamsSchema = z.object({
     })
     .optional(),
   overwrite: z.boolean().optional().default(false),
+  // mt#5153: the adapter resolves the client (flag → MCP caller identity → CLI
+  // env → the single installed client) and passes the answer in, with how it
+  // was reached. The domain never guesses one.
+  // Enumerated from the runtime lists (PR #3759 R1) so a new client or source
+  // is added in ONE place; `isManagedClient` and the schema cannot disagree.
+  client: z.enum(MANAGED_CLIENTS as [ManagedClient, ...ManagedClient[]]).optional(),
+  harnessSource: z.enum(HARNESS_SOURCES as [HarnessSource, ...HarnessSource[]]).optional(),
   repository: z
     .object({
       backend: z.enum(["github", "gitlab", "local"]),
@@ -157,6 +169,16 @@ export interface InitializeProjectOptions {
   };
   overwrite?: boolean;
   repository?: ResolvedRepositoryConfig;
+  /**
+   * The MCP client to scaffold for and register with (mt#5153), resolved by the
+   * adapter. When absent the `resolveClient` test seam supplies it; a caller
+   * that supplies neither is a programming error, and is refused rather than
+   * defaulted — a default here is exactly what wrote `harness: cursor` for
+   * every no-signal run (mt#5152).
+   */
+  client?: ManagedClient;
+  /** How `client` was chosen; recorded beside it in `config.local.yaml`. */
+  harnessSource?: HarnessSource;
 }
 
 /**
@@ -207,7 +229,12 @@ export interface InitializeProjectDeps {
    * `src/`, which this package may not import.
    */
   ensureLocalDaemon?: (repoPath: string) => Promise<LocalDaemonEnsureOutcome>;
-  /** Which MCP client / harness is running init. Defaults to real detection. */
+  /**
+   * Test seam for the client when the options carry none (mt#5153). Production
+   * callers pass `client` in the options instead; this no longer defaults to a
+   * real detector, because the detection belongs to the adapter, which is the
+   * only layer that can prompt or refuse when nothing resolves.
+   */
   resolveClient?: () => string;
   /**
    * Operator-facing INFORMATIONAL sink (mt#4974). Defaults to `log.cli`.
@@ -232,11 +259,19 @@ export interface InitializeProjectDeps {
 }
 
 export async function initializeProject(
-  { repoPath, backend, ruleFormat, mcp, overwrite = false, repository }: InitializeProjectOptions,
+  {
+    repoPath,
+    backend,
+    ruleFormat,
+    mcp,
+    overwrite = false,
+    repository,
+    client,
+    harnessSource,
+  }: InitializeProjectOptions,
   fileSystem: FsLike = createRealFs(),
   deps: InitializeProjectDeps = {}
 ): Promise<InitializeProjectResult> {
-  const resolveClient = deps.resolveClient ?? resolveInitClient;
   // Every operator-facing line is also COLLECTED (mt#4872 SC2), not only sunk.
   // The MCP path has no stdout, so the caller needs the lines as data; the
   // sinks stay exactly as they were for the CLI path.
@@ -259,10 +294,21 @@ export async function initializeProject(
   const compileForHarness =
     deps.compileForHarness ??
     (async (target: string, workspacePath: string) => runMinskyCompile({ target, workspacePath }));
-  // Resolved ONCE and reused: the rule-scaffolding step below and performSetup
-  // must agree about which harness is running, or a project could be scaffolded
-  // for one client and registered with another.
-  const initClient = resolveClient();
+  // Resolved ONCE, by the adapter, and reused: the rule-scaffolding step below
+  // and performSetup must agree about which harness is running, or a project
+  // could be scaffolded for one client and registered with another. There is
+  // no in-domain fallback (mt#5153): the adapter is the layer that can ask or
+  // refuse when nothing resolves, and a default here would silently answer
+  // the question it exists to surface.
+  const initClient = client ?? deps.resolveClient?.();
+  if (initClient === undefined) {
+    throw new Error(
+      "initializeProject: no client resolved — the caller must pass `client` in the options " +
+        "(the adapters resolve it with resolveClientForCommand, which wraps " +
+        "resolveInitClient in runtime/harness-detection.ts), or a test must inject " +
+        "`deps.resolveClient`."
+    );
+  }
   // === Phase 1: Project initialization ===
 
   // Create process/tasks directory structure
@@ -498,9 +544,10 @@ export async function initializeProject(
 
   // mt#573 SC3, second half: compile `.cursor/rules/` FROM the sources.
   //
-  // Fires for an explicit `--rule-format cursor` and for a Cursor harness,
-  // which is also what a project with no harness signal resolves to
-  // (`resolveInitClient` falls back to `cursor`). Before this, those projects
+  // Fires for an explicit `--rule-format cursor` and for a Cursor harness.
+  // (Until mt#5153 a project with no harness signal also landed here, because
+  // `resolveInitClient` fell back to `cursor`; it no longer resolves anything
+  // by default.) Before this, those projects
   // got their sources written straight into `.cursor/rules/` and nothing
   // upstream of it; now they get sources in `.minsky/rules/` and compiled
   // output here, which is what makes `rules disable` able to REMOVE a file
@@ -618,7 +665,7 @@ export async function initializeProject(
       // `initClient`, not a second resolveInitClient() call (mt#4715): rule
       // scaffolding above already branched on it, and two independent
       // resolutions could disagree.
-      { repoPath, client: initClient, overwrite, mcp: mcpForConfig },
+      { repoPath, client: initClient, harnessSource, overwrite, mcp: mcpForConfig },
       fileSystem,
       {},
       {},

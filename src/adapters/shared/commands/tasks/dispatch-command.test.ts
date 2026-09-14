@@ -482,3 +482,108 @@ describe("getTrackerForDispatch", () => {
     expect(result).toBeNull();
   });
 });
+
+/**
+ * mt#5153 (closes mt#4510 SC1-2): the harness check reads the CALLER's identity
+ * over MCP, not the serving process's environment. The dependencies are the
+ * throwing stubs from `makeCommand()`, so a run that gets PAST the harness
+ * check fails on the first dependency it touches — a distinguishable error
+ * from the refusal, which is exactly the assertion: "not refused as
+ * standalone", without needing the pipeline to complete.
+ */
+describe("tasks_dispatch harness check reads the MCP caller, not the daemon env (mt#5153)", () => {
+  const HARNESS_VARS = [
+    "CLAUDECODE",
+    "CLAUDE_CODE",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_SUBAGENT_MODEL",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_PROJECT_DIR",
+    "VSCODE_PID",
+    "CURSOR_SESSION_ID",
+    "CURSOR_TRACE_ID",
+  ];
+  let saved: Record<string, string | undefined>;
+
+  beforeEach(() => {
+    saved = {};
+    for (const v of HARNESS_VARS) {
+      saved[v] = process.env[v];
+      delete process.env[v];
+    }
+  });
+
+  afterEach(() => {
+    for (const v of HARNESS_VARS) {
+      if (saved[v] === undefined) delete process.env[v];
+      else process.env[v] = saved[v];
+    }
+  });
+
+  const STANDALONE_REFUSAL = /Detected harness: "standalone"/;
+
+  test("a Claude Code caller id under a bare environment is NOT refused as standalone", async () => {
+    const cmd = makeCommand();
+    let caught: unknown;
+    try {
+      await cmd.execute({
+        taskId: "mt#4510",
+        instructions: "i",
+        type: "implementation",
+        callerActorId: "com.anthropic.claude-code:conv:2f1c3b1a-9d6f-4e1b-8a0c-5b7d9e2f4a61",
+        ...validPremise,
+      } as never);
+    } catch (error) {
+      caught = error;
+    }
+    // Past the harness check the throwing stubs fire; before mt#5153 this
+    // returned the refusal instead (the 2026-08-24 / 09-03 observations).
+    expect(caught).toBeDefined();
+    expect((caught as Error).message).not.toMatch(STANDALONE_REFUSAL);
+  });
+
+  test("an unrecognised caller id is refused, naming the witness and the working path", async () => {
+    const cmd = makeCommand();
+    const result = (await cmd.execute({
+      taskId: "mt#4510",
+      instructions: "i",
+      type: "implementation",
+      callerActorId: "unknown:proc:0123456789abcdef",
+      ...validPremise,
+    } as never)) as { success: boolean; harness?: string; error?: string };
+    expect(result.success).toBe(false);
+    expect(result.harness).toBe("standalone");
+    expect(result.error).toMatch(STANDALONE_REFUSAL);
+    expect(result.error).toContain("from the MCP client identity unknown:proc:0123456789abcdef");
+    expect(result.error).toContain("session_generate_prompt");
+  });
+
+  test("with no caller id and a bare environment (the CLI case) the refusal names the environment", async () => {
+    const cmd = makeCommand();
+    const result = (await cmd.execute({
+      taskId: "mt#4510",
+      instructions: "i",
+      type: "implementation",
+      ...validPremise,
+    } as never)) as { success: boolean; error?: string };
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("from this process's environment");
+  });
+
+  test("a Cursor caller id wins even when the daemon's own env says Claude Code (the witness is the caller, not the env)", async () => {
+    // The inverse of the first test: CLAUDECODE=1 in the env (a tray-spawned
+    // daemon, 2026-09-14) must NOT make a Cursor caller look like Claude Code.
+    process.env.CLAUDECODE = "1";
+    const cmd = makeCommand();
+    const result = (await cmd.execute({
+      taskId: "mt#4510",
+      instructions: "i",
+      type: "implementation",
+      callerActorId: "com.cursor.cursor:proc:0123456789abcdef",
+      ...validPremise,
+    } as never)) as { success: boolean; harness?: string };
+    expect(result.success).toBe(false);
+    expect(result.harness).toBe("cursor");
+  });
+});

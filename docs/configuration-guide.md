@@ -277,6 +277,16 @@ reviewer:
 > the file, so a hand-set transport does not survive one. A project initialized before mt#4699
 > still has these keys in its committed `config.yaml`, and `setup` continues to honour them from
 > there, so nothing needs migrating.
+>
+> **`workspace.harness` and `workspace.harnessSource` live in the same local file (mt#5153).** > `harness` is the MCP client the project was set up for (`claude-code`, `cursor`, …); it gates
+> which compiled rule outputs a bare `minsky compile` writes (mt#4866). `harnessSource` says how
+> that value was chosen: `flag` (an explicit `--client`, or an answer at the prompt), `env` (the
+> CLI process's own harness environment, e.g. `CLAUDECODE=1`), `mcp-client` (the identity of the
+> MCP client that ran `init`/`setup` — over the shared daemon the process environment is the
+> daemon's, so it is not consulted), or `installed` (the only MCP client found on this machine).
+> A file with no `harnessSource` predates the field. `init` and `setup` never guess: with no
+> signal and several clients installed they ask on a TTY and otherwise refuse, naming the
+> accepted `--client` values — pass `--client <name>` to answer non-interactively.
 
 - `mcp.auth.token` — required for `reviewer.retrigger`'s direct endpoint path. Environment
   override: `MINSKY_MCP_AUTH_TOKEN` → `mcp.auth.token`.

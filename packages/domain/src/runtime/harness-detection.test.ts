@@ -9,8 +9,14 @@ import {
   hasNativeSubagentSupport,
   detectInstalledClients,
   resolveInitClient,
-  STANDALONE_CLIENT_PRIORITY,
+  clientFromAgentId,
+  resolveAgentHarness,
+  describeUnresolvedClient,
+  MANAGED_CLIENTS,
+  HARNESS_SOURCES,
+  isManagedClient,
 } from "./harness-detection";
+import { workspaceConfigSchema } from "../configuration/schemas/workspace";
 
 const CLAUDE_AND_CURSOR_ENV_VARS = [
   "CLAUDECODE",
@@ -45,6 +51,31 @@ function withCleanEnv(envVars: string[]) {
       }
     }
   });
+}
+
+/**
+ * Run `fn` with the harness env vars cleared and `overrides` applied, then
+ * restore every one of them — the per-test form of `withCleanEnv` for the
+ * `resolveAgentHarness` block, whose cases each need a different environment.
+ */
+function withEnv(overrides: Record<string, string | undefined>, fn: () => void): void {
+  const saved: Record<string, string | undefined> = {};
+  for (const v of CLAUDE_AND_CURSOR_ENV_VARS) {
+    saved[v] = process.env[v];
+    delete process.env[v];
+  }
+  for (const [k, v] of Object.entries(overrides)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    fn();
+  } finally {
+    for (const v of CLAUDE_AND_CURSOR_ENV_VARS) {
+      if (saved[v] === undefined) delete process.env[v];
+      else process.env[v] = saved[v];
+    }
+  }
 }
 
 describe("detectAgentHarness", () => {
@@ -191,80 +222,199 @@ describe("detectInstalledClients", () => {
   });
 });
 
-describe("resolveInitClient (mt#4676)", () => {
-  test("returns claude-code when the environment reports claude-code", () => {
-    expect(resolveInitClient("claude-code", [])).toBe("claude-code");
-  });
+/**
+ * mt#5153. `resolveInitClient` used to rank the installed clients when the
+ * environment was silent (`STANDALONE_CLIENT_PRIORITY`, cursor first), so on
+ * a multi-client machine every no-signal run wrote a silent `harness: cursor`.
+ * It now answers only from a signal — flag, MCP caller identity, CLI
+ * environment — or from the ONE installed client; otherwise it says so.
+ */
+describe("resolveInitClient (mt#5153)", () => {
+  const FIVE_INSTALLED = ["cursor", "claude-code", "claude-desktop", "vscode", "codex"] as const;
+  const CLAUDE_CONV = "com.anthropic.claude-code:conv:2f1c3b1a-9d6f-4e1b-8a0c-5b7d9e2f4a61";
+  const CLAUDE_PROC = "com.anthropic.claude-code:proc:f36a2fd77a664ba3";
+  const CURSOR_PROC = "com.cursor.cursor:proc:0123456789abcdef";
+  const UNKNOWN_PROC = "unknown:proc:0123456789abcdef";
 
-  test("returns cursor when the environment reports cursor", () => {
-    expect(resolveInitClient("cursor", [])).toBe("cursor");
-  });
-
-  // The exact ambiguous case from mt#4676's repro: CLAUDECODE=1 is live AND
-  // ~/.cursor/ exists on disk (a prior editor install). The environment
-  // signal must win -- filesystem installed-ness only proves an app is
-  // present, not that it is the one driving `init`.
-  test("ambiguous case: env says claude-code, filesystem also shows cursor installed -- claude-code wins", () => {
-    expect(resolveInitClient("claude-code", ["cursor", "claude-desktop"])).toBe("claude-code");
-  });
-
-  test("no regression: env says cursor even though claude-code is also installed -- cursor wins", () => {
-    expect(resolveInitClient("cursor", ["claude-code", "cursor"])).toBe("cursor");
-  });
-
-  test("standalone: falls back to the first installed client", () => {
-    expect(resolveInitClient("standalone", ["claude-desktop", "vscode"])).toBe("claude-desktop");
-  });
-
-  test("standalone with nothing installed: defaults to cursor (preserves init's pre-mt#4676 default)", () => {
-    expect(resolveInitClient("standalone", [])).toBe("cursor");
-  });
-
-  describe("standalone fallback uses the DECLARED priority order, not array position (PR #3423 R1)", () => {
-    test("STANDALONE_CLIENT_PRIORITY is the declared, documented order", () => {
-      expect(STANDALONE_CLIENT_PRIORITY).toEqual([
-        "cursor",
-        "claude-code",
-        "claude-desktop",
-        "vscode",
-        "windsurf",
-        "junie",
-        "codex",
-      ]);
+  describe("precedence", () => {
+    test("an explicit client outranks every detected signal", () => {
+      expect(
+        resolveInitClient({
+          explicit: "codex",
+          callerAgentId: CLAUDE_CONV,
+          harness: "cursor",
+          installedClients: [...FIVE_INSTALLED],
+        })
+      ).toEqual({ kind: "resolved", client: "codex", source: "flag" });
     });
 
-    test("cursor wins even when listed SECOND in the passed array", () => {
-      // If the resolver picked installedClients[0] (the pre-R1 behavior),
-      // this would return "vscode". The declared priority ranks cursor
-      // first regardless of where it sits in the passed array.
-      expect(resolveInitClient("standalone", ["vscode", "cursor"])).toBe("cursor");
+    test("over MCP the caller's identity wins, and the environment is NOT consulted", () => {
+      // The daemon's env is its spawner's — here it says cursor, the caller is
+      // Claude Code. The caller is right.
+      expect(
+        resolveInitClient({
+          callerAgentId: CLAUDE_CONV,
+          harness: "cursor",
+          installedClients: [...FIVE_INSTALLED],
+        })
+      ).toEqual({ kind: "resolved", client: "claude-code", source: "mcp-client" });
+      expect(resolveInitClient({ callerAgentId: CURSOR_PROC, harness: "claude-code" })).toEqual({
+        kind: "resolved",
+        client: "cursor",
+        source: "mcp-client",
+      });
     });
 
-    test("claude-code outranks claude-desktop and vscode even when listed last", () => {
-      expect(resolveInitClient("standalone", ["vscode", "claude-desktop", "claude-code"])).toBe(
-        "claude-code"
-      );
+    test("over MCP with an unmapped caller kind, the environment is STILL not consulted", () => {
+      // 2026-09-14's daemon carried CLAUDECODE=1 from a tray relaunched out of
+      // an agent's Bash; a Claude Desktop caller must not inherit that.
+      expect(
+        resolveInitClient({
+          callerAgentId: UNKNOWN_PROC,
+          harness: "claude-code",
+          installedClients: [...FIVE_INSTALLED],
+        })
+      ).toEqual({ kind: "ambiguous", installed: [...FIVE_INSTALLED] });
     });
 
-    test("falls through to a lower-priority client when higher-priority ones are absent", () => {
-      expect(resolveInitClient("standalone", ["codex", "junie"])).toBe("junie");
+    test("on the CLI path (no caller id) the environment decides", () => {
+      expect(
+        resolveInitClient({ harness: "claude-code", installedClients: [...FIVE_INSTALLED] })
+      ).toEqual({ kind: "resolved", client: "claude-code", source: "env" });
+      expect(resolveInitClient({ harness: "cursor", installedClients: ["claude-code"] })).toEqual({
+        kind: "resolved",
+        client: "cursor",
+        source: "env",
+      });
+    });
+  });
+
+  describe("installed-ness is not a signal", () => {
+    test("exactly one installed client is the answer, with source `installed`", () => {
+      expect(resolveInitClient({ harness: "standalone", installedClients: ["junie"] })).toEqual({
+        kind: "resolved",
+        client: "junie",
+        source: "installed",
+      });
     });
 
-    test("openhands is never picked by the standalone fallback (not in the priority list)", () => {
-      // openhands is deliberately excluded from detectInstalledClients()'s
-      // auto-detection (no reliable filesystem signature); confirm the
-      // priority list agrees and the fallback still resolves via cursor.
-      expect(STANDALONE_CLIENT_PRIORITY).not.toContain("openhands");
-      expect(resolveInitClient("standalone", ["openhands"])).toBe("cursor");
+    test("two or more installed with no signal is AMBIGUOUS — never a ranked pick", () => {
+      // The flowtato repro: five clients installed, cursor listed first. The old
+      // resolver returned "cursor"; this one refuses to choose.
+      const result = resolveInitClient({
+        harness: "standalone",
+        installedClients: [...FIVE_INSTALLED],
+      });
+      expect(result).toEqual({ kind: "ambiguous", installed: [...FIVE_INSTALLED] });
+      // Order of installation must not leak into an answer either way.
+      expect(
+        resolveInitClient({ harness: "standalone", installedClients: ["claude-code", "cursor"] })
+          .kind
+      ).toBe("ambiguous");
+    });
+
+    test("nothing installed with no signal is NONE — not cursor", () => {
+      expect(resolveInitClient({ harness: "standalone", installedClients: [] })).toEqual({
+        kind: "none",
+      });
     });
   });
 
   test("defaults to the real detectors when called with no arguments", () => {
-    // Doesn't assert a specific value (machine-dependent) -- just that it
-    // returns a valid ManagedClient without throwing, proving the default
-    // parameters wire up to the real detectAgentHarness()/detectInstalledClients().
+    // Machine-dependent value; assert the shape only.
     const result = resolveInitClient();
-    expect(typeof result).toBe("string");
-    expect(result.length).toBeGreaterThan(0);
+    expect(["resolved", "ambiguous", "none"]).toContain(result.kind);
+  });
+
+  describe("clientFromAgentId", () => {
+    test("maps the three recorded kinds, on conv- and proc-scoped ids alike", () => {
+      expect(clientFromAgentId(CLAUDE_CONV)).toBe("claude-code");
+      expect(clientFromAgentId(CLAUDE_PROC)).toBe("claude-code");
+      expect(clientFromAgentId(CURSOR_PROC)).toBe("cursor");
+      expect(clientFromAgentId("com.openai.codex:proc:0123456789abcdef")).toBe("codex");
+    });
+
+    test("walks a native subagent to its parent's harness", () => {
+      expect(clientFromAgentId(`minsky.native-subagent:run:task-mt123@${CLAUDE_PROC}`)).toBe(
+        "claude-code"
+      );
+    });
+
+    test("an unknown kind, a malformed id, or nothing is null — no signal, not a guess", () => {
+      expect(clientFromAgentId(UNKNOWN_PROC)).toBeNull();
+      expect(clientFromAgentId("app.zed.zed:proc:0123456789abcdef")).toBeNull();
+      expect(clientFromAgentId("not an agent id")).toBeNull();
+      expect(clientFromAgentId("minsky.native-subagent:run:task-mt1")).toBeNull();
+      expect(clientFromAgentId(null)).toBeNull();
+      expect(clientFromAgentId(undefined)).toBeNull();
+    });
+  });
+
+  describe("resolveAgentHarness (mt#4510)", () => {
+    test("over MCP a Claude Code caller is claude-code whatever the process env says", () => {
+      withEnv({ CLAUDECODE: undefined, VSCODE_PID: "1" }, () => {
+        expect(resolveAgentHarness({ callerAgentId: CLAUDE_CONV })).toBe("claude-code");
+      });
+    });
+
+    test("over MCP an unmapped caller is standalone even under CLAUDECODE=1", () => {
+      withEnv({ CLAUDECODE: "1" }, () => {
+        expect(resolveAgentHarness({ callerAgentId: UNKNOWN_PROC })).toBe("standalone");
+        expect(resolveAgentHarness({ callerAgentId: CURSOR_PROC })).toBe("cursor");
+      });
+    });
+
+    test("with no caller id it is the environment", () => {
+      withEnv({ CLAUDECODE: "1" }, () => {
+        expect(resolveAgentHarness()).toBe("claude-code");
+      });
+    });
+  });
+
+  describe("describeUnresolvedClient", () => {
+    test("names the installed clients, the flag, and every accepted value", () => {
+      const message = describeUnresolvedClient(
+        { kind: "ambiguous", installed: ["cursor", "claude-code"] },
+        "--client"
+      );
+      expect(message).toContain("2 MCP clients are installed (cursor, claude-code)");
+      expect(message).toContain("--client");
+      for (const client of MANAGED_CLIENTS) expect(message).toContain(client);
+    });
+
+    test("the none case says nothing is installed and still names the remedy", () => {
+      const message = describeUnresolvedClient({ kind: "none" }, "--client");
+      expect(message).toContain("no known MCP client is installed");
+      expect(message).toContain("--client");
+    });
+  });
+
+  describe("the runtime lists match the types they shadow", () => {
+    test("isManagedClient accepts exactly MANAGED_CLIENTS", () => {
+      for (const client of MANAGED_CLIENTS) expect(isManagedClient(client)).toBe(true);
+      expect(isManagedClient("claude")).toBe(false);
+      expect(isManagedClient(undefined)).toBe(false);
+    });
+
+    test("workspaceConfigSchema.harnessSource accepts exactly HARNESS_SOURCES", () => {
+      // The schema carries its own literal enum (the configuration package
+      // does not import the runtime module); this pins the two together.
+      for (const source of HARNESS_SOURCES) {
+        expect(workspaceConfigSchema.safeParse({ harnessSource: source }).success).toBe(true);
+      }
+      expect(workspaceConfigSchema.safeParse({ harnessSource: "ranked" }).success).toBe(false);
+    });
+  });
+});
+
+describe("describeUnresolvedClient names the witness that came back empty (mt#5153)", () => {
+  test("over MCP the refusal names the unrecognised client id, not the environment", () => {
+    const message = describeUnresolvedClient(
+      { kind: "ambiguous", installed: ["cursor", "claude-code"] },
+      "--client",
+      { kind: "mcp-client", agentId: "unknown:proc:0123456789abcdef" }
+    );
+    expect(message).toContain("the MCP client making this call (unknown:proc:0123456789abcdef)");
+    expect(message).not.toContain("no harness signal in the environment");
   });
 });

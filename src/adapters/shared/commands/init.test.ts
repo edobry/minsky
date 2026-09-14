@@ -52,6 +52,20 @@ describe("mt#4872 SC2 — the declinable set reaches the operator", () => {
     expect(message).toContain("They stay until you remove them.");
   });
 
+  it("carries the plan summary — harness and provenance — so the MCP result sees it (mt#5153 SC5)", () => {
+    // `mcp__minsky__init` reads `message` and nothing else; stdout never
+    // reaches it. The harness line is the one an agent most needs, and it was
+    // the silent value in mt#5152.
+    const summary =
+      "Detected Claude Code (from the MCP client that made this call): rules compile to CLAUDE.md.";
+    const withRules = formatInitMessage(DECLINABLE, summary);
+    expect(withRules.startsWith(`Project initialized successfully.\n${summary}`)).toBe(true);
+    expect(withRules).toContain("2 optional rule(s)");
+
+    const withoutRules = formatInitMessage([], summary);
+    expect(withoutRules).toBe(`Project initialized successfully.\n${summary}`);
+  });
+
   it("says nothing extra when there is nothing to decline", () => {
     // A project that already declined everything declinable is a real state,
     // not a failure. Emitting an empty "0 optional rules" block would train the
@@ -80,6 +94,9 @@ describe("mt#5148 — the CLI renders the declinable list exactly once", () => {
         ruleFormat: "minsky",
         mcp: { enabled: false },
         overwrite: false,
+        // mt#5153: the domain no longer resolves a client itself.
+        client: "claude-code",
+        harnessSource: "flag",
       },
       createMockFs(),
       {
@@ -147,7 +164,12 @@ describe("mt#4872 — the CLI command and the shared definition must not drift",
         .filter((long): long is string => typeof long === "string")
     );
 
-    const missing = Object.keys(commandDef.parameters ?? {})
+    const parameters = commandDef.parameters ?? {};
+    const missing = Object.keys(parameters)
+      // A `cliHidden` parameter is server-injected (mt#5153: `callerActorId`)
+      // and has no CLI surface by design — mirroring it as a flag would
+      // advertise a value the operator must never hand-pass.
+      .filter((name) => (parameters[name] as { cliHidden?: boolean }).cliHidden !== true)
       .map((name) => `--${paramNameToFlag(name)}`)
       // `session` is a shared parameter with no CLI surface on this command.
       .filter((flag) => flag !== "--session")

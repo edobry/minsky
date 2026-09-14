@@ -18,6 +18,16 @@ export const workspaceConfigSchema = z
      * across subsequent invocations.
      */
     harness: z.string().optional(),
+
+    /**
+     * How `harness` was chosen (mt#5153): `flag` (an explicit `--client`),
+     * `env` (the CLI process's own harness environment), `mcp-client` (the
+     * identity of the MCP client that ran `init`/`setup`), or `installed`
+     * (the only MCP client found on this machine). Absent on a file written
+     * before this field existed — which `config doctor` (mt#5154) reads as
+     * "unverified", not as any of the four.
+     */
+    harnessSource: z.enum(["flag", "env", "mcp-client", "installed"]).optional(),
   })
   .default({});
 

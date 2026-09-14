@@ -20,12 +20,14 @@
  * those the run still has to ask, so the decision is assertable without
  * driving `@clack` prompts (`testing-standards.mdc §Testable Design`).
  *
- * The one case the rule-format prompt survives in: no environment signal AND
- * no installed client. `resolveInitClient()` never returns "unknown" — with
- * nothing detected it falls back to `cursor` for back-compat
- * (`STANDALONE_CLIENT_PRIORITY`'s docblock) — so the resolver's answer alone
- * cannot tell "Cursor detected" from "nothing detected". The two detectors it
- * takes as parameters can, and that is the predicate used here.
+ * The rule-format prompt no longer survives anywhere (mt#5153). The CLIENT is
+ * resolved before this runs — `resolveClientForCommand` in
+ * `client-resolution.ts`: an explicit `--client`, the MCP caller's identity,
+ * the CLI environment, or the one installed client; otherwise it asks on a
+ * TTY or refuses naming the accepted values. So by the time the plan is made
+ * the harness is known, and the format is derived from it. What this module
+ * still decides is the derivation and the summary; it takes the resolved
+ * client and HOW it was resolved, so the summary can say so.
  *
  * Every derived value stays overridable by the flags that already exist
  * (`--rule-format`, `--mcp`, `--mcp-transport`, `--mcp-port`, `--mcp-host`),
@@ -33,8 +35,8 @@
  */
 
 import {
-  resolveInitClient,
-  type AgentHarness,
+  describeHarnessSource,
+  type HarnessSource,
   type ManagedClient,
 } from "@minsky/domain/runtime/harness-detection";
 import { RULE_FORMAT_OUTPUT_DIR, type RuleFormat } from "@minsky/domain/rules/types";
@@ -60,22 +62,18 @@ export interface InitDefaultsFlags {
 }
 
 export interface InitDefaultsInput {
-  /** `isInteractive()` — a TTY with prompts available. */
-  interactive: boolean;
-  /** `detectAgentHarness()` — the environment's own signal. */
-  harness: AgentHarness;
-  /** `detectInstalledClients()` — the filesystem fallback. */
-  installedClients: readonly ManagedClient[];
+  /** The client `resolveClientForCommand` settled on (mt#5153). */
+  client: ManagedClient;
+  /** How it was settled — the summary names it, so a defaulted value is visible. */
+  source: HarnessSource;
   params: InitDefaultsFlags;
 }
 
 export interface InitDefaultsPlan {
-  /** What `resolveInitClient()` resolved from the two signals. */
+  /** The client the plan was made for — as given. */
   client: ManagedClient;
-  /** Whether EITHER signal carried a client — false means `client` is the back-compat fallback. */
-  detected: boolean;
-  /** The format to use, or `"ask"` when the user genuinely holds the answer. */
-  ruleFormat: RuleFormat | "ask";
+  /** The format to use. Derived from `client` unless `--rule-format` said otherwise. */
+  ruleFormat: RuleFormat;
   /**
    * MCP settings to pass through. `undefined` is the non-interactive path's
    * long-standing value: `initializeProject` treats it as enabled, and
@@ -142,9 +140,7 @@ function describeMcp(mcp: InitMcpSettings | undefined, params: InitDefaultsFlags
  * parameter, so the prompt-or-derive branch is testable as a value.
  */
 export function planInitDefaults(input: InitDefaultsInput): InitDefaultsPlan {
-  const { interactive, harness, installedClients, params } = input;
-  const client = resolveInitClient(harness, [...installedClients]);
-  const detected = harness !== "standalone" || installedClients.length > 0;
+  const { client, source, params } = input;
 
   // MCP: explicit flags win; otherwise the non-interactive path's `undefined`
   // on EVERY path — that is the value an agent-driven init has always passed,
@@ -164,42 +160,43 @@ export function planInitDefaults(input: InitDefaultsInput): InitDefaultsPlan {
       }
     : undefined;
 
-  // Rule format: explicit flag wins; derived under any detected client; asked
-  // only when interactive AND nothing at all was detected.
-  let ruleFormat: RuleFormat | "ask";
-  let formatSource: "flag" | "derived" | "ask";
+  // Rule format: explicit flag wins; otherwise derived from the client, which
+  // is always known here (mt#5153 — the ask-or-refuse happened upstream).
+  let ruleFormat: RuleFormat;
+  let formatSource: "flag" | "derived";
   if (params.ruleFormat !== undefined) {
     ruleFormat = params.ruleFormat as RuleFormat;
     formatSource = "flag";
-  } else if (interactive && !detected) {
-    ruleFormat = "ask";
-    formatSource = "ask";
   } else {
     ruleFormat = ruleFormatForClient(client);
     formatSource = "derived";
   }
 
+  // The lead names the harness AND its provenance (mt#5153 SC5): "Detected"
+  // only when something actually detected it; "Using" when the operator or the
+  // machine's sole installed client answered.
+  const label = CLIENT_LABELS[client];
   const lead =
-    harness !== "standalone"
-      ? `Detected ${CLIENT_LABELS[client]}`
-      : detected
-        ? `No agent harness detected; using the installed ${CLIENT_LABELS[client]} client`
-        : "No agent harness or client detected";
+    source === "env" || source === "mcp-client"
+      ? `Detected ${label} (${describeHarnessSource(source)})`
+      : `Using ${label} (${describeHarnessSource(source)})`;
   const parts: string[] = [];
   if (formatSource === "flag") {
-    parts.push(`${describeRuleFormat(ruleFormat as RuleFormat)} (--rule-format)`);
-  } else if (formatSource === "derived") {
-    parts.push(describeRuleFormat(ruleFormat as RuleFormat));
+    parts.push(`${describeRuleFormat(ruleFormat)} (--rule-format)`);
+  } else {
+    parts.push(describeRuleFormat(ruleFormat));
   }
   parts.push(describeMcp(mcp, params));
+  // `--client` joins the override hint (mt#5153): the harness is now one of
+  // the things this line reports as decided, so it is one of the things the
+  // hint has to say can be overridden.
   const overrides =
-    formatSource === "flag" && mcpFlagsGiven
+    formatSource === "flag" && mcpFlagsGiven && source === "flag"
       ? ""
-      : " Override with --rule-format, --mcp, --mcp-transport.";
+      : " Override with --client, --rule-format, --mcp, --mcp-transport.";
 
   return {
     client,
-    detected,
     ruleFormat,
     mcp,
     summary: `${lead}: ${parts.join("; ")}.${overrides}`,

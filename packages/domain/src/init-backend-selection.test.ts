@@ -33,6 +33,8 @@ describe("Init System Backend Selection", () => {
       await initializeProject(
         {
           repoPath: testRepo,
+          // mt#5153: the domain no longer resolves a client; pin it so the test is machine-independent.
+          client: "claude-code",
           backend: backend,
           ruleFormat: "cursor",
           mcp: { enabled: false },
@@ -61,6 +63,8 @@ describe("Init System Backend Selection", () => {
     await initializeProject(
       {
         repoPath: testRepo,
+        // mt#5153: the domain no longer resolves a client; pin it so the test is machine-independent.
+        client: "claude-code",
         backend: "minsky",
         ruleFormat: "cursor",
         mcp: { enabled: true, transport: "stdio" },
@@ -90,6 +94,8 @@ describe("Init System Backend Selection", () => {
     await initializeProject(
       {
         repoPath: testRepo,
+        // mt#5153: the domain no longer resolves a client; pin it so the test is machine-independent.
+        client: "claude-code",
         backend: "minsky",
         ruleFormat: "cursor",
         mcp: { enabled: true, transport: "sse", port: 3000, host: "0.0.0.0" },
@@ -120,6 +126,8 @@ describe("Init System Backend Selection", () => {
     await initializeProject(
       {
         repoPath: testRepo,
+        // mt#5153: the domain no longer resolves a client; pin it so the test is machine-independent.
+        client: "claude-code",
         backend: "minsky",
         ruleFormat: "cursor",
         mcp: { enabled: false },
@@ -139,6 +147,8 @@ describe("Init System Backend Selection", () => {
     await initializeProject(
       {
         repoPath: testRepo,
+        // mt#5153: the domain no longer resolves a client; pin it so the test is machine-independent.
+        client: "claude-code",
         backend: "github-issues",
         ruleFormat: "cursor",
         mcp: { enabled: false },
@@ -165,6 +175,8 @@ describe("Init System Backend Selection", () => {
         initializeProject(
           {
             repoPath: testRepo,
+            // mt#5153: the domain no longer resolves a client; pin it so the test is machine-independent.
+            client: "claude-code",
             backend: backend as unknown as "minsky", // cast to satisfy TS; intentionally invalid
             ruleFormat: "cursor",
             mcp: { enabled: false },
@@ -558,6 +570,8 @@ describe("mt#4872 — init returns the declinable set as data, not only as outpu
     const result = await initializeProject(
       {
         repoPath: "/tmp/mt4872-declinable",
+        // mt#5153: the domain no longer resolves a client; pin it so the test is machine-independent.
+        client: "claude-code",
         backend: "minsky",
         ruleFormat: "minsky",
         mcp: { enabled: false },
@@ -591,6 +605,8 @@ describe("mt#4872 — init returns the declinable set as data, not only as outpu
     const result = await initializeProject(
       {
         repoPath,
+        // mt#5153: the domain no longer resolves a client; pin it so the test is machine-independent.
+        client: "claude-code",
         backend: "minsky",
         ruleFormat: "minsky",
         mcp: { enabled: false },
