@@ -384,14 +384,25 @@ describe("buildCalibrationRecord", () => {
     expect(current.result.liveFireCount).toBe(1);
     expect(current.result.state).toBe("covered");
 
-    // Negative control — the pre-mt#4390 shape, reconstructed by renaming the
-    // field back. It is dropped by the PARSER, so it never reaches the
-    // evaluator at all: `entries` is empty, not merely uncounted.
+    // The pre-mt#4390 shape, reconstructed by renaming the field back. Until
+    // mt#4984 this was the negative control: the parser dropped a `ts`-only
+    // record before the evaluator ever saw it (`entries` empty), which is how
+    // this guard's own records went uncounted. The reader now accepts either
+    // spelling (`normalizeEntryTimestamp`) — 17 live logs still write `ts` and
+    // ~46,000 such records are on disk — so the legacy record is counted too,
+    // under the canonical key. The writer-side fix mt#4390 made stands on its
+    // own merits (ADR-028 §D4's schema); it is no longer what keeps this guard
+    // counted.
     const { timestamp, ...rest } = record as Record<string, unknown>;
     const legacy = evaluate([{ ...rest, ts: timestamp }]);
-    expect(legacy.entries).toEqual([]);
-    expect(legacy.result.liveFireCount).toBe(0);
-    expect(legacy.result.state).toBe("no-liveness-evidence");
+    expect(legacy.entries.length).toBe(1);
+    expect(legacy.entries[0]?.timestamp).toBe(String(timestamp));
+    expect(legacy.result.liveFireCount).toBe(1);
+    expect(legacy.result.state).toBe("covered");
+    // What the parser still drops: a record with NEITHER spelling.
+    const undated = evaluate([rest]);
+    expect(undated.entries).toEqual([]);
+    expect(undated.result.state).toBe("no-liveness-evidence");
   });
 
   test("the calibration log is namespaced to this guard", () => {
