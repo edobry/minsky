@@ -245,6 +245,7 @@ const REGISTERED_TOOL_IDS: readonly string[] = [
   "tasks.migrate-backend",
   "tasks.orchestrate",
   "tasks.package.succeed",
+  "tasks.packages.refresh-transfers",
   "tasks.packages.sweep",
   "tasks.parent",
   "tasks.pointings.archive",

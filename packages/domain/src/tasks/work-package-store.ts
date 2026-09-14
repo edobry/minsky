@@ -6,6 +6,7 @@ import {
   workPackageTransfersTable,
 } from "../storage/schemas/work-package-schema";
 import type { ParsedMember, WorkPackageCreateOrigin } from "./work-package-briefing";
+import { refreshTransfersSectionAfterWrite } from "./work-package-transfers-projection";
 
 /**
  * Work-package row writes + fan-in lookup for the create seam (ADR-046, mt#2911).
@@ -96,4 +97,7 @@ export async function writeWorkPackageCreateRows(
       createdAt: now,
     });
   });
+  // The briefing was validated before the task existed; the section is appended
+  // to it afterwards, best-effort (mt#5143) — parser-inert, so nothing re-validates.
+  await refreshTransfersSectionAfterWrite(db, packageTaskId, "work-package.create", now);
 }

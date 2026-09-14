@@ -270,7 +270,11 @@ taken; always the two-word form.
   that already HOLDS a package does not mint another: `tasks package succeed` (mt#5133)
   rewrites that package's members and briefing from the new succession briefing, appends a
   `succession` transfer carrying the outcome, renders the transfer log into the spec's
-  `## Transfers` section, and releases the claim — the same row re-enters the pool.
+  `## Transfers` section, and releases the claim — the same row re-enters the pool. Every
+  transfer writer (create, release, complete, succession) re-renders that section after its
+  commit, best-effort (mt#5143): the log is the source of truth and the section is its
+  projection; `tasks packages refresh-transfers` is the one-shot that repairs a missing or
+  stale one.
 
 Create-time validation (domain-side, every surface) refuses a missing/illegal origin, missing
 per-origin sections, and any cited entity ref that does not resolve (mem#676 R5's

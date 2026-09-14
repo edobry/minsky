@@ -4,6 +4,7 @@ import { tasksTable } from "../storage/schemas/task-embeddings";
 import { workPackageTransfersTable } from "../storage/schemas/work-package-schema";
 import { emitStatusChanged, releaseWorkPackage, WORK_PACKAGE_KIND } from "./work-package-claim";
 import type { WorkPackageReleaseOutcome } from "./work-package-claim";
+import { refreshTransfersSectionAfterWrite } from "./work-package-transfers-projection";
 
 /**
  * Work-package lifecycle writes beyond claim/release (mt#5132): completion,
@@ -112,6 +113,8 @@ export async function completeWorkPackage(
       newStatus: "DONE",
       via: "work-package.complete",
     });
+    // Best-effort projection of the log into the spec (mt#5143); after the commit.
+    await refreshTransfersSectionAfterWrite(db, taskId, "work-package.complete", now);
   }
   return outcome;
 }

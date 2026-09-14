@@ -362,6 +362,8 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   // mt#5133: succession rewrites the held package's members/briefing, appends a
   // transfer, and (by default) releases it — the same class as tasks.release.
   "tasks.package.succeed": "mutates",
+  // mt#5143: one-shot `## Transfers` re-render (dry-run default; --execute rewrites specs).
+  "tasks.packages.refresh-transfers": "mutates",
   "tasks.available": "reads",
   "tasks.children": "reads",
   "tasks.claims.list": "reads",
