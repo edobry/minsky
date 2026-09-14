@@ -112,14 +112,29 @@ function describeRuleFormat(format: RuleFormat): string {
   return `rules compile to ${RULE_FORMAT_OUTPUT_DIR[format]}`;
 }
 
-function describeMcp(mcp: InitMcpSettings | undefined): string {
+/**
+ * The MCP half of the summary. When flags supplied the settings, the line
+ * names the flags that were actually given (PR #3756 R1) — `--mcp-port 4000`
+ * alone must not be attributed to `--mcp-transport` — and host/port are shown
+ * only for a network transport, since stdio has neither.
+ */
+function describeMcp(mcp: InitMcpSettings | undefined, params: InitDefaultsFlags): string {
   if (mcp === undefined) return "MCP registers over stdio";
   if (!mcp.enabled) return "MCP registration skipped (--mcp false)";
-  const where = [mcp.host, mcp.port !== undefined ? String(mcp.port) : undefined]
-    .filter((part): part is string => part !== undefined)
-    .join(":");
+  const given = [
+    params.mcp !== undefined ? "--mcp" : undefined,
+    params.mcpTransport ? "--mcp-transport" : undefined,
+    params.mcpPort ? "--mcp-port" : undefined,
+    params.mcpHost ? "--mcp-host" : undefined,
+  ].filter((flag): flag is string => flag !== undefined);
+  const where =
+    mcp.transport === "stdio"
+      ? ""
+      : [mcp.host, mcp.port !== undefined ? String(mcp.port) : undefined]
+          .filter((part): part is string => part !== undefined)
+          .join(":");
   const suffix = where.length > 0 ? ` on ${where}` : "";
-  return `MCP registers over ${mcp.transport}${suffix} (--mcp-transport)`;
+  return `MCP registers over ${mcp.transport}${suffix} (${given.join(", ")})`;
 }
 
 /**
@@ -176,7 +191,7 @@ export function planInitDefaults(input: InitDefaultsInput): InitDefaultsPlan {
   } else if (formatSource === "derived") {
     parts.push(describeRuleFormat(ruleFormat as RuleFormat));
   }
-  parts.push(describeMcp(mcp));
+  parts.push(describeMcp(mcp, params));
   const overrides =
     formatSource === "flag" && mcpFlagsGiven
       ? ""

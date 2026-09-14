@@ -150,7 +150,33 @@ describe("mt#5149 — explicit flags win over derivation on every path", () => {
     });
 
     expect(plan.mcp).toEqual({ enabled: true, transport: "sse", port: 4000, host: "localhost" });
-    expect(plan.summary).toContain("MCP registers over sse on localhost:4000 (--mcp-transport)");
+    expect(plan.summary).toContain(
+      "MCP registers over sse on localhost:4000 (--mcp-transport, --mcp-port, --mcp-host)"
+    );
+  });
+
+  it("names the flags actually given, and shows no host/port for stdio (PR #3756 R1)", () => {
+    // `--mcp-port 4000` alone: the transport stays stdio, which has no port to
+    // report, and the attribution must not name a flag the user never passed.
+    const plan = planInitDefaults({
+      interactive: true,
+      harness: "claude-code",
+      installedClients: [],
+      params: { mcpPort: "4000" },
+    });
+
+    expect(plan.mcp).toEqual({ enabled: true, transport: "stdio", port: 4000, host: undefined });
+    expect(plan.summary).toContain("MCP registers over stdio (--mcp-port)");
+    expect(plan.summary).not.toContain("on 4000");
+    expect(plan.summary).not.toContain("--mcp-transport)");
+
+    const explicitOn = planInitDefaults({
+      interactive: true,
+      harness: "claude-code",
+      installedClients: [],
+      params: { mcp: true },
+    });
+    expect(explicitOn.summary).toContain("MCP registers over stdio (--mcp)");
   });
 
   it("both flags given: the override hint is dropped, since nothing was derived", () => {
