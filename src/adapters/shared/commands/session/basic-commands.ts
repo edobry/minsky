@@ -91,22 +91,22 @@ export function createSessionListCommand(
         const sqlProvider = provider as SqlCapablePersistenceProvider | undefined;
         if (sqlProvider?.getDatabaseConnection) {
           try {
+            // Null handle included: the helper classifies it, so an explicit
+            // repo/workspace with no DB reads nothing rather than everything.
             const db = await sqlProvider.getDatabaseConnection();
-            if (db) {
-              const resolution = await resolveReadScope(
-                {
-                  workspace: params.workspace as string | undefined,
-                  repo: params.repo as string | undefined,
-                },
-                db,
-                "session.list"
-              );
-              scopeSummary = summarizeReadScope(resolution);
-              const scope = readScopeToProjectScope(resolution);
-              // Only pass a uuid scope; ALL_PROJECTS (sentinel) means no filter — omit it
-              if (!isAllProjects(scope)) {
-                projectScope = scope;
-              }
+            const resolution = await resolveReadScope(
+              {
+                workspace: params.workspace as string | undefined,
+                repo: params.repo as string | undefined,
+              },
+              db,
+              "session.list"
+            );
+            scopeSummary = summarizeReadScope(resolution);
+            const scope = readScopeToProjectScope(resolution);
+            // Only pass a uuid scope; ALL_PROJECTS (sentinel) means no filter — omit it
+            if (!isAllProjects(scope)) {
+              projectScope = scope;
             }
           } catch (err: unknown) {
             log.debug(

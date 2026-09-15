@@ -46,12 +46,16 @@ export const CWD_SCOPE_PATTERN =
  */
 export const CENSUS_ALLOWLIST: ReadonlyArray<{ file: string; reason: string }> = [];
 
-const SKIP_DIRS = new Set(["node_modules", "dist", ".minsky", "generated"]);
+/** Skipped by basename anywhere: dependency and build output, task-state dirs. */
+const SKIP_DIRS = new Set(["node_modules", "dist", ".minsky"]);
+/** Skipped by repo-relative path: the one generated tree, not any dir named so. */
+const SKIP_PATHS = new Set(["src/generated"]);
 
 function walk(dir: string, out: string[]): void {
   for (const entry of readdirSync(dir)) {
     if (SKIP_DIRS.has(entry)) continue;
     const full = join(dir, entry);
+    if (SKIP_PATHS.has(relative(REPO_ROOT, full).split("\\").join("/"))) continue;
     const stat = statSync(full);
     if (stat.isDirectory()) {
       walk(full, out);

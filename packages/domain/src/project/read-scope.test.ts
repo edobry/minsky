@@ -73,7 +73,6 @@ function identityFor(
 function deps(db: unknown, byPath: Record<string, string>): ReadScopeDeps {
   return {
     resolveIdentity: identityFor(db, byPath),
-    pathExists: (p) => p in byPath || p === UNIDENTIFIED_DIR,
     cwd: () => DAEMON_CWD,
   };
 }
@@ -192,6 +191,20 @@ describe("resolveReadScope — a named argument that resolves to nothing is `unr
     expect(r).toMatchObject({ kind: "all", source: "cwd-unscoped" });
   });
 
+  test("a NULL db handle (provider not ready) follows the same split (PR #3763 R1)", async () => {
+    // Sites hand the handle through unchecked so this classification is the
+    // helper's, not eight local `if (db)` guards that widened to ALL.
+    const explicit = await resolveReadScope(
+      { workspace: OTHER_WORKSPACE },
+      null,
+      "test",
+      deps({ __expectSlug() {} }, BY_PATH)
+    );
+    expect(explicit).toMatchObject({ kind: "unresolved", source: "workspace" });
+    const ambient = await resolveReadScope({}, null, "test", deps({ __expectSlug() {} }, BY_PATH));
+    expect(ambient).toMatchObject({ kind: "all", source: "cwd-unscoped" });
+  });
+
   test("an explicit workspace with a bad db handle is unresolved, not ALL", async () => {
     const r = await resolveReadScope(
       { workspace: OTHER_WORKSPACE },
@@ -218,19 +231,18 @@ describe("readScopeToProjectScope", () => {
 });
 
 describe("repo argument classification", () => {
-  test("absolute, dot-relative and tilde paths are paths without touching disk", () => {
-    const never = () => {
-      throw new Error("should not probe disk");
-    };
-    expect(repoLooksLikePath("/abs/path", never)).toBe(true);
-    expect(repoLooksLikePath("./rel", never)).toBe(true);
-    expect(repoLooksLikePath("../rel", never)).toBe(true);
-    expect(repoLooksLikePath("~/rel", never)).toBe(true);
+  test("absolute, dot-relative and tilde paths are paths", () => {
+    expect(repoLooksLikePath("/abs/path")).toBe(true);
+    expect(repoLooksLikePath("./rel")).toBe(true);
+    expect(repoLooksLikePath("../rel")).toBe(true);
+    expect(repoLooksLikePath("~/rel")).toBe(true);
   });
 
-  test("owner/name is a slug unless it exists on disk", () => {
-    expect(repoLooksLikePath("edobry/minsky", () => false)).toBe(false);
-    expect(repoLooksLikePath("edobry/minsky", () => true)).toBe(true);
+  test("a bare owner/name is always a slug, never probed as a relative directory", () => {
+    // PR #3763 R1: a relative directory under the DAEMON's cwd must not turn a
+    // caller's slug into a path; `./owner/name` is how a relative dir is spelled.
+    expect(repoLooksLikePath("edobry/minsky")).toBe(false);
+    expect(repoLooksLikePath("src/adapters")).toBe(false);
   });
 
   test("slugFromRepoArgument accepts bare slugs and remote URLs", () => {

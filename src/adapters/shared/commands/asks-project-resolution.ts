@@ -40,7 +40,8 @@ export async function resolveCurrentProjectScope(
     );
     const { isAllProjects } = await import("@minsky/domain/project/scope");
     const rawDb = await persistenceProvider.getDatabaseConnection();
-    if (!rawDb) return undefined;
+    // Null handle included (PR #3763 R1): the helper classifies it, so an
+    // explicit workspace with no DB reads nothing rather than everything.
     // `caller` is threaded through deliberately: `resolveProjectScope` defaults
     // it to "unknown", and mt#4509's scope-resolution failure classifications
     // are logged under it — so dropping it degrades every asks.list/asks.create

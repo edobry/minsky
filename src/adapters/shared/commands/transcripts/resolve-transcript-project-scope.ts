@@ -4,10 +4,13 @@
  * Mirrors `resolveMemoryProjectScope` in `../memory/index.ts` (ADR-021, mt#2416):
  * resolves the caller's `workspace` argument, else the process's current project
  * from `process.cwd()`, through the shared read-scope helper (mt#5155) — the
- * mt#2414 slug resolver, then a `projects.id` lookup. Never throws
- * — any resolution failure (unidentified project, no persistence, no matching
- * row) falls back to `undefined`, which callers treat as "no project filter"
- * (unscoped / all-projects), the same fail-open posture ADR-021 uses elsewhere.
+ * mt#2414 slug resolver, then a `projects.id` lookup. Never throws. With no
+ * `workspace`, a resolution failure (unidentified cwd, no persistence, no
+ * matching row) falls back to `undefined`, which callers treat as "no project
+ * filter" (unscoped / all-projects) — ADR-021's fail-open default. With an
+ * explicit `workspace` that names no project the read is scoped to the
+ * nil-uuid sentinel instead (mt#5155): it returns nothing, never another
+ * project's rows.
  *
  * @see mt#2417 — Phase 1.4 embeddings/transcript project scoping audit
  */
@@ -56,7 +59,8 @@ export async function resolveTranscriptProjectScope(
     const { isAllProjects } = await import("@minsky/domain/project/scope");
 
     const rawDb = await persistence.getDatabaseConnection();
-    if (!rawDb) return undefined;
+    // Null handle included (PR #3763 R1): the helper classifies it, so an
+    // explicit workspace with no DB reads nothing rather than everything.
 
     // Pass the handle through UNCOPIED (mt#4509). This previously read
     // `const { type: _t, ...db } = rawDb`, and an object rest-spread copies only own

@@ -71,13 +71,13 @@ export const commonSessionParams = {
  */
 export const sessionListCommandParams = {
   repo: {
-    schema: z.string(),
+    schema: z.string().optional(),
     description:
-      "Project whose sessions to list: a repository path, or an owner/name slug (mt#5155). Defaults to the current directory's project.",
+      "Project whose sessions to list: an absolute (or ~/ or ./) repository path, or an owner/name slug (mt#5155). Defaults to the current directory's project.",
     required: false,
   },
   workspace: {
-    schema: z.string(),
+    schema: z.string().optional(),
     description:
       "Workspace path whose project's sessions to list; outranks `repo` (mt#5155). Defaults to the current directory.",
     required: false,

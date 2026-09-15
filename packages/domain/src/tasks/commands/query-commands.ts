@@ -146,16 +146,19 @@ export async function listTasksFromParams(
       // the narrowed type.
       if (isSqlCapable(persistenceProvider)) {
         try {
+          // The handle goes through unchecked, null included (PR #3763 R1): the
+          // helper classifies a missing handle itself — an explicit workspace/repo
+          // becomes `unresolved` (the read returns nothing) rather than silently
+          // widening to ALL_PROJECTS; the argument-less cwd rung keeps ADR-021's
+          // fail-open default.
           const db = await persistenceProvider.getDatabaseConnection();
-          if (db) {
-            const resolution = await resolveReadScope(
-              { workspace: validParams.workspace, repo: validParams.repo },
-              db,
-              "tasks.list"
-            );
-            deps?.onScopeResolved?.(resolution);
-            projectScope = readScopeToProjectScope(resolution);
-          }
+          const resolution = await resolveReadScope(
+            { workspace: validParams.workspace, repo: validParams.repo },
+            db,
+            "tasks.list"
+          );
+          deps?.onScopeResolved?.(resolution);
+          projectScope = readScopeToProjectScope(resolution);
         } catch (err) {
           log.debug(
             "[listTasksFromParams] Project scope resolution failed; defaulting to ALL_PROJECTS",

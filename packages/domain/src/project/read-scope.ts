@@ -13,8 +13,8 @@
  *
  *   1. `allProjects` → every project (the opt-out ADR-021 names).
  *   2. `workspace` (a path) → that path's project.
- *   3. `repo` → a path resolves like `workspace`; an `owner/name` slug resolves
- *      through `projects.slug`.
+ *   3. `repo` → an absolute / `~` / dot-relative path resolves like `workspace`;
+ *      anything else is an `owner/name` slug resolved through `projects.slug`.
  *   4. Otherwise the process cwd — the CLI's own directory, or, on the shared
  *      daemon, the spawner's (mt#5168 supplies the caller's cwd on this rung).
  *
@@ -27,8 +27,7 @@
  * before that project had a row (mt#5152, 2026-09-14T20:44Z).
  */
 
-import { existsSync } from "fs";
-import { isAbsolute, resolve as resolvePath } from "path";
+import { isAbsolute } from "path";
 import { log } from "@minsky/shared/logger";
 import { resolveProjectIdentity, type ProjectIdentity } from "./identity";
 import { resolveScopeOutcome, scopeFromOutcome } from "./scope-resolver";
@@ -131,19 +130,22 @@ export function readScopeToProjectScope(resolution: ReadScopeResolution): Projec
   }
 }
 
-/** Whether a `repo` argument names a filesystem location rather than a slug. */
-export function repoLooksLikePath(
-  repo: string,
-  pathExists: (p: string) => boolean = existsSync
-): boolean {
-  if (isAbsolute(repo) || repo.startsWith(".") || repo.startsWith("~")) return true;
-  // `owner/name` is also a valid relative path; prefer the slug reading unless it exists on disk.
-  return pathExists(resolvePath(repo));
+/**
+ * Whether a `repo` argument names a filesystem location rather than a slug.
+ *
+ * A path is absolute, `~`-rooted, or dot-relative; anything else is read as a
+ * slug. A bare `owner/name` is NEVER probed on disk: on the shared daemon a
+ * relative path would resolve against the spawner's cwd, not the caller's, so
+ * a directory that happened to exist there would silently turn a valid slug
+ * into an unresolved path (PR #3763 R1). A caller who means a relative
+ * directory writes `./owner/name`.
+ */
+export function repoLooksLikePath(repo: string): boolean {
+  return isAbsolute(repo) || repo.startsWith(".") || repo.startsWith("~");
 }
 
 export interface ReadScopeDeps {
   resolveIdentity?: (repoPath: string) => ProjectIdentity;
-  pathExists?: (p: string) => boolean;
   cwd?: () => string;
 }
 
@@ -235,7 +237,6 @@ export async function resolveReadScope(
 ): Promise<ReadScopeResolution> {
   const fullDeps: Required<ReadScopeDeps> = {
     resolveIdentity: deps.resolveIdentity ?? ((repoPath) => resolveProjectIdentity({ repoPath })),
-    pathExists: deps.pathExists ?? existsSync,
     cwd: deps.cwd ?? (() => process.cwd()),
   };
 
@@ -246,7 +247,7 @@ export async function resolveReadScope(
 
   const repo = input.repo?.trim();
   if (repo) {
-    if (repoLooksLikePath(repo, fullDeps.pathExists)) {
+    if (repoLooksLikePath(repo)) {
       return scopeForPath(repo, "repo-path", db, caller, fullDeps);
     }
     return scopeForSlug(repo, db, caller);

@@ -810,7 +810,8 @@ async function resolveMemoryProjectScope(
     );
     const { isAllProjects } = await import("@minsky/domain/project/scope");
     const rawDb = await persistence.getDatabaseConnection();
-    if (!rawDb) return undefined;
+    // Null handle included (PR #3763 R1): the helper classifies it, so an
+    // explicit workspace with no DB reads nothing rather than everything.
     // Pass the handle through UNCOPIED (mt#4509). This previously read
     // `const { type: _t, ...db } = rawDb`, and an object rest-spread copies only own
     // enumerable properties — drizzle defines `select` on the prototype, so every copy

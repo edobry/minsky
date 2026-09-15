@@ -2154,6 +2154,9 @@ export class MinskyMCPServer {
     const subjectId = normalizeTaskSubjectId(taskId);
     if (!subjectId) return;
 
+    // `args` is passed so the stamp honours the tool call's own workspace/repo
+    // over the daemon's cwd (mt#5155) — on the shared daemon the cwd is the
+    // spawner's, not this caller's.
     const projectId = await this.resolveProjectIdBestEffort(args);
 
     await repo.upsertClaim({
@@ -2423,6 +2426,9 @@ export class MinskyMCPServer {
     const repo = await this.getPresenceClaimRepo();
     if (!repo) return;
 
+    // `args` is passed so the stamp honours the tool call's own workspace/repo
+    // over the daemon's cwd (mt#5155) — on the shared daemon the cwd is the
+    // spawner's, not this caller's.
     const projectId = await this.resolveProjectIdBestEffort(args);
 
     const ccConversationId = this.resolveCcConversationId(actorId);

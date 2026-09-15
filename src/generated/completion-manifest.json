@@ -2860,7 +2860,7 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Project whose sessions to list: a repository path, or an owner/name slug (mt#5155). Defaults to the current directory's project.",
+              "description": "Project whose sessions to list: an absolute (or ~/ or ./) repository path, or an owner/name slug (mt#5155). Defaults to the current directory's project.",
               "takesValue": true
             },
             {
