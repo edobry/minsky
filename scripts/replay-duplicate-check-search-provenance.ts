@@ -17,8 +17,9 @@
  *
  * The calibration log does NOT carry the record text for a `clean` outcome —
  * measured, a `jq keys` union over all 239 records yields exactly
- * `{ts, title, sessionId, reason, outcome}` (mt#4665 is the sibling finding
- * about that omission). So the record and the session's actual queries are both
+ * `{ts, title, sessionId, reason, outcome}` — `timestamp` in place of `ts` for
+ * records written after mt#5162 (mt#4665 is the sibling finding about that
+ * omission). So the record and the session's actual queries are both
  * recovered from the TRANSCRIPT: `sessionId` names the Claude Code JSONL, and
  * the `tasks_create` tool_use inside it carries the `spec` the guard saw.
  *
@@ -64,11 +65,27 @@ const GUARD = "duplicate-check-search-provenance";
 const TARGET_REASON = "search claim matched a call";
 
 interface CalibrationRecord {
-  ts: string;
+  /**
+   * ADR-028 §D4's `timestamp`. Records written before mt#5162 carry `ts` instead
+   * (~46,000 on disk, permanently), so {@link parseCalibrationRecord} reads
+   * either spelling — the same rule `readRecordTimestamp` applies in the sweep.
+   */
+  timestamp: string;
   sessionId: string | null;
   title: string | null;
   outcome: string;
   reason?: string;
+}
+
+function parseCalibrationRecord(line: string): CalibrationRecord {
+  const parsed = JSON.parse(line) as CalibrationRecord & { ts?: unknown };
+  const timestamp =
+    typeof parsed.timestamp === "string"
+      ? parsed.timestamp
+      : typeof parsed.ts === "string"
+        ? parsed.ts
+        : "";
+  return { ...parsed, timestamp };
 }
 
 /** Claude Code stores a project's transcripts under `~/.claude/projects/<cwd with / replaced by ->`. */
@@ -156,7 +173,7 @@ function main(): void {
     .trim()
     .split("\n")
     .filter(Boolean)
-    .map((l) => JSON.parse(l) as CalibrationRecord)
+    .map(parseCalibrationRecord)
     .filter((r) => r.reason === TARGET_REASON);
 
   if (records.length === 0) {
@@ -165,18 +182,18 @@ function main(): void {
   }
 
   const discharged: string[] = [];
-  const flagged: Array<{ ts: string; title: string; named: string[]; best: number }> = [];
+  const flagged: Array<{ timestamp: string; title: string; named: string[]; best: number }> = [];
   const presenceFallback: string[] = [];
   const unresolved: string[] = [];
 
   for (const rec of records) {
     if (!rec.sessionId) {
-      unresolved.push(`${rec.ts} (no sessionId)`);
+      unresolved.push(`${rec.timestamp} (no sessionId)`);
       continue;
     }
     const transcriptPath = join(transcriptDir, `${rec.sessionId}.jsonl`);
     if (!existsSync(transcriptPath)) {
-      unresolved.push(`${rec.ts} (transcript missing)`);
+      unresolved.push(`${rec.timestamp} (transcript missing)`);
       continue;
     }
     const lines = readTranscript(transcriptPath);
@@ -189,19 +206,19 @@ function main(): void {
     );
     const chosen = withRecord[withRecord.length - 1];
     if (!chosen) {
-      unresolved.push(`${rec.ts} (no create carrying a duplicate-check record)`);
+      unresolved.push(`${rec.timestamp} (no create carrying a duplicate-check record)`);
       continue;
     }
     const record = extractDuplicateCheckRecord(
       typeof chosen["spec"] === "string" ? chosen["spec"] : ""
     );
     if (!record) {
-      unresolved.push(`${rec.ts} (record vanished between filter and read)`);
+      unresolved.push(`${rec.timestamp} (record vanished between filter and read)`);
       continue;
     }
     const named = extractNamedQueries(record);
     if (named.length === 0) {
-      presenceFallback.push(rec.ts);
+      presenceFallback.push(rec.timestamp);
       continue;
     }
     // Reproduce the guard's ACTUAL view: at PreToolUse the transcript ends at
@@ -217,16 +234,16 @@ function main(): void {
     // line with no parseable timestamp is KEPT — dropping it would silently
     // shrink the evidence and bias the replay toward flagging.
     const asOfCreate = lines.filter(
-      (l) => typeof l.timestamp !== "string" || l.timestamp <= rec.ts
+      (l) => typeof l.timestamp !== "string" || l.timestamp <= rec.timestamp
     );
     const actual = sessionSearchQueries(asOfCreate);
     if (namedQueryWasRun(named, actual)) {
-      discharged.push(rec.ts);
+      discharged.push(rec.timestamp);
       continue;
     }
     let best = 0;
     for (const n of named) for (const a of actual) best = Math.max(best, queryTokenCoverage(n, a));
-    flagged.push({ ts: rec.ts, title: String(rec.title ?? ""), named, best });
+    flagged.push({ timestamp: rec.timestamp, title: String(rec.title ?? ""), named, best });
   }
 
   const withNamed = discharged.length + flagged.length;
@@ -242,7 +259,7 @@ function main(): void {
   if (flagged.length > 0) {
     console.log(`\nNewly flagged — each needs a spot-check verdict:`);
     for (const f of flagged) {
-      console.log(`\n  ${f.ts}  (best coverage ${f.best.toFixed(2)})`);
+      console.log(`\n  ${f.timestamp}  (best coverage ${f.best.toFixed(2)})`);
       console.log(`    title: ${f.title.slice(0, 90)}`);
       for (const n of f.named) console.log(`    named: "${n.slice(0, 100)}"`);
     }

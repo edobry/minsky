@@ -187,23 +187,28 @@ export interface CalibrationLogEntry {
    *     `turn-end-unescalated-incident-scan.ts`) — no `matches` array.
    *   "operator-instruction-trigger"  → written by `substrate-bypass-detector.ts`
    *     — no `matches` array.
-   *   "agent-dispatch-record"         → {ts/timestamp, sessionId, outcome,
+   *   "agent-dispatch-record"         → {timestamp, sessionId, outcome,
    *     reason?} (mt#2292 `record-agent-dispatch.ts`, via the ADR-028 §D4
    *     dispatcher's `logCalibrationRecord`) — an outcome-status record, no
    *     `matches` array.
-   *   "chained-verification-commands" → {ts, sessionId, outcome}
+   *   "chained-verification-commands" → {timestamp, sessionId, outcome}
    *     (mt#3910 `chained-verification-commands-detector.ts`, same D4 write
-   *     path) — an outcome-status record, no `matches` array. This entry and
-   *     the next two used to read `{timestamp, session_id, …}`; measured
-   *     2026-09-14 (mt#4984), all three write `ts` + `sessionId`, and
-   *     `readRecordTimestamp` accepts either spelling.
-   *   "truncated-outcome-read"        → {ts, sessionId, outcome,
+   *     path) — an outcome-status record, no `matches` array. This COMMENT used
+   *     to document this entry and the next two as `{timestamp, session_id, …}`;
+   *     that was never what the records carried. Measured 2026-09-14 (mt#4984),
+   *     all three wrote `ts` + `sessionId` (camelCase), and `readRecordTimestamp`
+   *     was taught either spelling. mt#5162 then moved every D4-path writer to
+   *     `timestamp` and made the sink promote a stray `ts`, so records from that
+   *     date on carry `timestamp`; the ~46,000 older ones keep `ts`, which is
+   *     why the reader keeps accepting both. The session-id half — `sessionId`
+   *     where D4 says `session_id` — is unchanged here and owned by mt#5175.
+   *   "truncated-outcome-read"        → {timestamp, sessionId, outcome,
    *     mutatingCommand?, filter?} (mt#4096
    *     `truncated-outcome-read-detector.ts`, same D4 write path) — an
    *     outcome-status record, no `matches` array. The two extra fields carry
    *     the violation SHAPE (which command, which truncator), which is the
    *     sweep's diversity axis for this kind.
-   *   "nonexistent-search-path"       → {ts, sessionId, toolName, outcome,
+   *   "nonexistent-search-path"       → {timestamp, sessionId, toolName, outcome,
    *     binary?, missingCount?, unresolvedCount?, phrase?} (mt#4215
    *     `nonexistent-search-path-detector.ts`, same D4 write path) — an
    *     outcome-status record, no `matches` array. `phrase` carries the
@@ -212,7 +217,7 @@ export interface CalibrationLogEntry {
    *     CLEAN records too, and is the only measurement of what the detector's
    *     deliberate silence rules cost — a relative path under `session_exec`, a
    *     path behind a `cd`, a glob, a variable. Read it when reviewing recall.
-   *   "duplicate-signature-scan"      → {ts, sessionId, outcome,
+   *   "duplicate-signature-scan"      → {timestamp, sessionId, outcome,
    *     matches?: {taskId, status, token, rule, excerpt}[]} (mt#3722
    *     `duplicate-signature-scan.ts`, same D4 write path) — HAS a `matches`
    *     array, but its per-match keys (`taskId`/`token`/`rule`/`excerpt`) are

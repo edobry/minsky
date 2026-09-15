@@ -227,7 +227,7 @@ export async function run(
     return {
       auditLines: [`[record-agent-dispatch] skipped: ${decision.reason}\n`],
       calibration: {
-        ts: new Date().toISOString(),
+        timestamp: new Date().toISOString(),
         sessionId: input.session_id ?? null,
         outcome: "skipped",
         reason: decision.reason,
@@ -243,7 +243,7 @@ export async function run(
   };
 
   const base = {
-    ts: new Date().toISOString(),
+    timestamp: new Date().toISOString(),
     sessionId: input.session_id ?? null,
     toolUseId: decision.stamp.parentToolUseId,
     agentType: decision.agentType,
