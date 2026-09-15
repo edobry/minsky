@@ -8,6 +8,7 @@ import { z } from "zod";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import { CommandCategory, defineCommand } from "../../command-registry";
 import { CommonParameters, ConfigParameters, composeParams } from "../../common-parameters";
+import { getConfigProviderForWorkspace } from "./helpers";
 
 /**
  * A single config.doctor diagnostic entry.
@@ -149,10 +150,9 @@ export const configValidateRegistration = defineCommand({
     },
   }),
   execute: async (params, _ctx) => {
-    const { getConfigurationProvider, validateConfiguration } = await import(
-      "@minsky/domain/configuration/index"
-    );
-    const provider = getConfigurationProvider();
+    const { validateConfiguration } = await import("@minsky/domain/configuration/index");
+    // The named workspace's provider, else the process-global one (mt#5155).
+    const provider = await getConfigProviderForWorkspace(params.workspace);
     const validationResult = validateConfiguration();
     const hasErrors = validationResult.errors.some(
       (e: { severity?: string }) => e.severity === "error"
@@ -202,15 +202,15 @@ export const configDoctorRegistration = defineCommand({
   execute: async (params, ctx) => {
     // Perform lightweight diagnostics without external calls
     const diagnostics: Array<{ check: string; status: string; message: string }> = [];
-    const { getConfigurationProvider, validateConfiguration } = await import(
-      "@minsky/domain/configuration/index"
-    );
+    const { validateConfiguration } = await import("@minsky/domain/configuration/index");
+    // One provider for every check below: the named workspace's, else the
+    // process-global one (mt#5155). mt#5154 builds its project-scope checks on this.
+    const provider = await getConfigProviderForWorkspace(params.workspace);
     const { getUserConfigDir } = await import("@minsky/domain/configuration/sources/user");
     const { existsSync, writeFileSync, unlinkSync } = await import("fs");
     const { join } = await import("path");
 
     try {
-      const provider = getConfigurationProvider();
       const config = provider.getConfig();
       if (config) {
         diagnostics.push({
@@ -256,7 +256,6 @@ export const configDoctorRegistration = defineCommand({
 
     // Reviewer retrigger reachability (mt#2660) + turnkey auto-fix (mt#2679).
     try {
-      const provider = getConfigurationProvider();
       const config = provider.getConfig();
       const reachability = checkReviewerRetriggerReachability(config.mcp?.auth?.token);
 
@@ -297,7 +296,6 @@ export const configDoctorRegistration = defineCommand({
     // best-effort: a fetch failure (network, revoked key) surfaces as its own
     // error diagnostic rather than silently skipping the check.
     try {
-      const provider = getConfigurationProvider();
       const config = provider.getConfig();
       const serviceAccount = config.github?.serviceAccount;
       if (serviceAccount) {
@@ -331,7 +329,6 @@ export const configDoctorRegistration = defineCommand({
       );
       const { DefaultModelCacheService } = await import("@minsky/domain/ai/model-cache/index");
 
-      const provider = getConfigurationProvider();
       const config = provider.getConfig();
 
       // Short-circuit when configuration is unavailable. The Configuration
@@ -404,7 +401,6 @@ export const configDoctorRegistration = defineCommand({
 
     // Embedding provider health probe
     try {
-      const provider = getConfigurationProvider();
       const config = provider.getConfig();
       const embProvider = config.embeddings?.provider || config.ai?.defaultProvider || "openai";
       const embModel = config.embeddings?.model || "text-embedding-3-small";

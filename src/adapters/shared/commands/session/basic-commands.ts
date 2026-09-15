@@ -26,6 +26,13 @@ import {
   annotateSessionWithAttachment,
 } from "./attachment-annotation";
 import { resolveInterfaceBinding } from "@minsky/domain/interface-binding/index";
+import {
+  readScopeToProjectScope,
+  resolveReadScope,
+  summarizeReadScope,
+  type ReadScopeSummary,
+} from "@minsky/domain/project/read-scope";
+import { isAllProjects } from "@minsky/domain/project/scope";
 import { resolveCallerActorId } from "@minsky/domain/agent-identity/index";
 
 export function createSessionListCommand(
@@ -71,26 +78,35 @@ export function createSessionListCommand(
       // exactly the divergence that broke the probe protocol during the
       // 2026-07-08 incident. A task-filtered query is already maximally
       // specific — project scoping adds no precision, only a false-negative risk.
+      //
+      // mt#5155: the scope comes from the caller's `workspace` / `repo` argument
+      // before the process cwd (the shared daemon's cwd is the spawner's, ADR-038).
+      // `repo` used to be accepted and then dropped by listSessionsImpl; it now
+      // selects the project — a path, or an owner/name slug.
       const hasTaskFilter = typeof params.task === "string" && params.task.length > 0;
       let projectScope: string | undefined;
+      let scopeSummary: ReadScopeSummary | undefined;
       if (!allProjects && !hasTaskFilter) {
         const provider = getPersistenceProvider?.();
         const sqlProvider = provider as SqlCapablePersistenceProvider | undefined;
         if (sqlProvider?.getDatabaseConnection) {
           try {
-            const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
-            const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
-            const identity = resolveProjectIdentity({ repoPath: process.cwd() });
-            if (identity.kind === "resolved") {
-              const db = await sqlProvider.getDatabaseConnection();
-              if (db) {
-                const scope = await resolveProjectScope(identity, db, "session.list");
-                // Only pass a uuid scope; ALL_PROJECTS (sentinel) means no filter — omit it
-                const { isAllProjects } = await import("@minsky/domain/project/scope");
-                if (!isAllProjects(scope)) {
-                  projectScope = scope;
-                }
-              }
+            // Null handle included: the helper classifies it, so an explicit
+            // repo/workspace with no DB reads nothing rather than everything.
+            const db = await sqlProvider.getDatabaseConnection();
+            const resolution = await resolveReadScope(
+              {
+                workspace: params.workspace as string | undefined,
+                repo: params.repo as string | undefined,
+              },
+              db,
+              "session.list"
+            );
+            scopeSummary = summarizeReadScope(resolution);
+            const scope = readScopeToProjectScope(resolution);
+            // Only pass a uuid scope; ALL_PROJECTS (sentinel) means no filter — omit it
+            if (!isAllProjects(scope)) {
+              projectScope = scope;
             }
           } catch (err: unknown) {
             log.debug(
@@ -135,7 +151,12 @@ export function createSessionListCommand(
         interfaceBinding: resolveInterfaceBinding(session),
       }));
 
-      return { success: true, sessions: boundSessions, verbose };
+      return {
+        success: true,
+        sessions: boundSessions,
+        verbose,
+        ...(scopeSummary && { projectScope: scopeSummary }),
+      };
     }),
   };
 }

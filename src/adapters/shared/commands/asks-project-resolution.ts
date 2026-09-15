@@ -28,25 +28,29 @@ import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/t
  */
 export async function resolveCurrentProjectScope(
   container: AppContainerInterface | undefined,
-  caller: string
+  caller: string,
+  explicit: { workspace?: string } = {}
 ): Promise<string | undefined> {
   if (!container?.has("persistence")) return undefined;
   try {
     const persistenceProvider = container.get("persistence") as SqlCapablePersistenceProvider;
     if (!persistenceProvider.getDatabaseConnection) return undefined;
-    const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
-    const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
+    const { resolveReadScope, readScopeToProjectScope } = await import(
+      "@minsky/domain/project/read-scope"
+    );
     const { isAllProjects } = await import("@minsky/domain/project/scope");
-    const identity = resolveProjectIdentity({ repoPath: process.cwd() });
-    if (identity.kind !== "resolved") return undefined;
     const rawDb = await persistenceProvider.getDatabaseConnection();
-    if (!rawDb) return undefined;
+    // Null handle included (PR #3763 R1): the helper classifies it, so an
+    // explicit workspace with no DB reads nothing rather than everything.
     // `caller` is threaded through deliberately: `resolveProjectScope` defaults
     // it to "unknown", and mt#4509's scope-resolution failure classifications
     // are logged under it — so dropping it degrades every asks.list/asks.create
     // diagnostic to an unattributable line. It is an optional parameter, so
     // nothing type-checks this; PR #3534 R1 caught exactly that omission.
-    const scope = await resolveProjectScope(identity, rawDb, caller);
+    //
+    // mt#5155: an explicit `workspace` outranks the process cwd (the shared
+    // daemon's cwd is the spawner's, ADR-038); the write side passes none.
+    const scope = readScopeToProjectScope(await resolveReadScope(explicit, rawDb, caller));
     return isAllProjects(scope) ? undefined : scope;
   } catch (err: unknown) {
     log.debug(`[${caller}] Project scope resolution failed; defaulting to unscoped`, {

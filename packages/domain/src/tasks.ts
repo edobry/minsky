@@ -51,6 +51,7 @@ import {
   getTaskStatusFromParams as getTaskStatusFromParamsValidated,
   getTaskSpecContentFromParams as getTaskSpecContentValidated,
 } from "./tasks/commands/query-commands";
+import type { ReadScopeResolution } from "./project/read-scope";
 
 // ---- Dependency injection types ----
 
@@ -62,6 +63,12 @@ export interface TaskServiceDeps {
    * parent-DONE guard (mt#1649; absorbed mt#2606's umbrella guard per mt#2311).
    */
   taskGraphService?: Pick<TaskGraphService, "listChildren">;
+  /**
+   * `listTasksFromParams` only: receives the project-scope resolution the read
+   * ran under (mt#5155), so an adapter can report an unresolved explicit
+   * `workspace` / `repo` without resolving a second time.
+   */
+  onScopeResolved?: (resolution: ReadScopeResolution) => void;
 }
 
 // Note: this file no longer constructs a TaskServiceInterface directly (every
@@ -119,6 +126,7 @@ export async function listTasksFromParams(params: Record<string, unknown>, deps?
   return listTasksValidated(params as TaskListParams, {
     taskService: deps?.taskService,
     persistenceProvider: deps?.persistenceProvider,
+    onScopeResolved: deps?.onScopeResolved,
   });
 }
 

@@ -90,6 +90,12 @@ export function registerTranscriptSimilarCommand(
         required: false,
         defaultValue: false,
       },
+      workspace: {
+        schema: z.string().optional(),
+        description:
+          "Workspace path whose project scopes this read; defaults to the process cwd (mt#5155)",
+        required: false,
+      },
     },
 
     async execute(params, context): Promise<TranscriptTurnResult[] | TranscriptSessionResult[]> {
@@ -154,7 +160,9 @@ export function registerTranscriptSimilarCommand(
       );
 
       // ADR-021 / mt#2417: resolve project scope for this query.
-      const projectId = await resolveTranscriptProjectScope(allProjects, context);
+      const projectId = await resolveTranscriptProjectScope(allProjects, context, {
+        workspace: params.workspace as string | undefined,
+      });
 
       if (turnId) {
         const results = await svc.findSimilarTurn(turnId, { limit, projectId });
