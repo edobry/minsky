@@ -206,3 +206,41 @@ export async function gatherCredentialInfo(
 
   return credentials;
 }
+
+/**
+ * The configuration provider a config command should read (mt#5155).
+ *
+ * `getConfigurationProvider()` is the process-global provider built at boot from
+ * the process cwd. On the shared local daemon (ADR-038) that cwd is whichever
+ * project spawned the daemon, so `config show --workspace <other project>` used
+ * to report the spawner's project config while the argument went unread — the
+ * mt#5152 onboarding session read minsky's `config.local.yaml` back as flotato's.
+ *
+ * With a `workspace`, this builds a provider rooted there through the same
+ * factory boot uses, so the project layer comes from that directory and the
+ * user / environment / defaults layers are identical. Without one, the global
+ * provider — the CLI's own cwd, unchanged. Each call with a workspace builds a
+ * fresh provider: config reads are not on a hot path, and caching per path
+ * would reintroduce the stale-singleton defect mt#1427 tracks for the global.
+ */
+export interface ConfigProviderForWorkspaceDeps {
+  /** Builds the per-workspace provider; defaults to `CustomConfigFactory`. */
+  factory?: import("@minsky/domain/configuration/index").ConfigurationFactory;
+  /** The process-global provider; defaults to `getConfigurationProvider()`. */
+  globalProvider?: () => import("@minsky/domain/configuration/index").ConfigurationProvider;
+}
+
+export async function getConfigProviderForWorkspace(
+  workspace: string | undefined,
+  deps: ConfigProviderForWorkspaceDeps = {}
+): Promise<import("@minsky/domain/configuration/index").ConfigurationProvider> {
+  const trimmed = workspace?.trim();
+  if (!trimmed) {
+    if (deps.globalProvider) return deps.globalProvider();
+    const { getConfigurationProvider } = await import("@minsky/domain/configuration/index");
+    return getConfigurationProvider();
+  }
+  const factory =
+    deps.factory ?? new (await import("@minsky/domain/configuration/index")).CustomConfigFactory();
+  return factory.createProvider({ workingDirectory: trimmed });
+}

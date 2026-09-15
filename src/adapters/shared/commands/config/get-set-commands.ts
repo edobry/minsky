@@ -9,7 +9,7 @@ import { getErrorMessage } from "@minsky/domain/errors/index";
 import { CommandCategory, defineCommand } from "../../command-registry";
 import { createConfigWriter } from "@minsky/domain/configuration/config-writer";
 import { CommonParameters, ConfigParameters, composeParams } from "../../common-parameters";
-import { parseConfigValue, maskValueForPath } from "./helpers";
+import { parseConfigValue, maskValueForPath, getConfigProviderForWorkspace } from "./helpers";
 
 /**
  * Shared parameters for config commands (eliminates duplication)
@@ -53,8 +53,8 @@ export const configGetRegistration = defineCommand({
   }),
   execute: async (params, _ctx) => {
     try {
-      const { getConfigurationProvider } = await import("@minsky/domain/configuration/index");
-      const provider = getConfigurationProvider();
+      // The named workspace's provider, else the process-global one (mt#5155).
+      const provider = await getConfigProviderForWorkspace(params.workspace);
 
       const exists = provider.has(params.key);
       if (!exists) {

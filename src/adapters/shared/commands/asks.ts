@@ -350,6 +350,12 @@ const asksListParams = {
       "Return asks from all projects (disable project-scope filtering; ADR-021, mt#2416)",
     required: false,
   },
+  workspace: {
+    schema: z.string().optional(),
+    description:
+      "Workspace path whose project scopes this read; defaults to the process cwd (mt#5155)",
+    required: false,
+  },
   summary: {
     schema: z.boolean().optional(),
     description:
@@ -2138,7 +2144,9 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         // read filter and the write stamp agree on the same project_id.
         const projectScope = allProjects
           ? undefined
-          : await resolveCurrentProjectScope(container, "asks.list");
+          : await resolveCurrentProjectScope(container, "asks.list", {
+              workspace: params.workspace as string | undefined,
+            });
 
         // mt#2965: id resolution (uuid / 8-char hex prefix / ask#N short id)
         // is delegated to resolveAskIdInput — the SAME generalized resolver

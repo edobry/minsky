@@ -29,6 +29,7 @@ import type { AskKind } from "@minsky/domain/ask/types";
 import { log } from "@minsky/shared/logger";
 import { autoIndexTaskEmbedding } from "./auto-index-embedding";
 import { applyListCap } from "@minsky/domain/utils/list-pagination";
+import { summarizeReadScope, type ReadScopeSummary } from "@minsky/domain/project/read-scope";
 import { isTerminal } from "@minsky/domain/tasks/workflows";
 
 /** Shape of the blockingAsk field returned in tasks_list (JSON) and tasks_get. */
@@ -84,6 +85,10 @@ export class TasksListCommand extends BaseTaskCommand<typeof tasksListParams> {
     // happens below, after the since/until filter, so `total` reflects the
     // true count of everything matching the caller's filters (not just a
     // pre-time-filter count) and so the cap is never silent.
+    // The scope this read ran under (mt#5155): reported so a caller whose explicit
+    // `workspace` / `repo` named no project can see WHY the list is empty, instead
+    // of reading an empty list as "no tasks".
+    let projectScope: ReadScopeSummary | undefined;
     let tasks = await listTasksFromParams(
       {
         ...this.createTaskParams(params),
@@ -94,7 +99,13 @@ export class TasksListCommand extends BaseTaskCommand<typeof tasksListParams> {
         allProjects: params.allProjects,
         kind: params.kind,
       },
-      { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
+      {
+        persistenceProvider: this.getPersistenceProvider?.(),
+        taskService: this.getTaskService?.(),
+        onScopeResolved: (resolution) => {
+          projectScope = summarizeReadScope(resolution);
+        },
+      }
     );
 
     // Apply shared filters for backend/time at adapter level (until domain exposes them)
@@ -306,6 +317,7 @@ export class TasksListCommand extends BaseTaskCommand<typeof tasksListParams> {
       return {
         tasks: enrichedTasks,
         ...truncation,
+        ...(projectScope && { projectScope }),
       };
     }
 
@@ -341,6 +353,7 @@ export class TasksListCommand extends BaseTaskCommand<typeof tasksListParams> {
         count: tasks.length,
         output: lines.join("\n"),
         ...truncation,
+        ...(projectScope && { projectScope }),
       };
     }
 
@@ -365,8 +378,11 @@ export class TasksListCommand extends BaseTaskCommand<typeof tasksListParams> {
         tasks: displayTasks,
         message: truncation.truncated
           ? `Found ${truncation.total} tasks; showing ${tasks.length} (truncated — pass a higher limit for more)`
-          : `Found ${tasks.length} tasks`,
+          : projectScope?.kind === "unresolved"
+            ? `Found 0 tasks: ${projectScope.reason}`
+            : `Found ${tasks.length} tasks`,
         ...truncation,
+        ...(projectScope && { projectScope }),
       },
       false
     );

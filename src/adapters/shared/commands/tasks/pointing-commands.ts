@@ -23,8 +23,7 @@ import { defineCommand, CommandCategory } from "../../command-registry";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 import { ValidationError, getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import { log } from "@minsky/shared/logger";
-import { resolveProjectIdentity } from "@minsky/domain/project/identity";
-import { resolveProjectScope } from "@minsky/domain/project/scope-resolver";
+import { readScopeToProjectScope, resolveReadScope } from "@minsky/domain/project/read-scope";
 import { ALL_PROJECTS, type ProjectScope } from "@minsky/domain/project/scope";
 import { POINTING_AUTONOMY_CLASSES, CANDIDATE_CAP_MAX } from "@minsky/domain/tasks/pointings";
 import {
@@ -56,12 +55,17 @@ async function getDb(getPersistenceProvider: () => unknown) {
   return db;
 }
 
-/** Same fail-open resolution as tasks.similar: an unresolved identity widens to ALL_PROJECTS. */
-async function resolveScope(db: unknown, caller: string): Promise<ProjectScope> {
+/**
+ * Same resolution as tasks.similar: an explicit `workspace` outranks the process cwd
+ * (mt#5155); with none, an unresolved cwd identity widens to ALL_PROJECTS.
+ */
+async function resolveScope(
+  db: unknown,
+  caller: string,
+  workspace: string | undefined
+): Promise<ProjectScope> {
   try {
-    const identity = resolveProjectIdentity({ repoPath: process.cwd() });
-    if (identity.kind !== "resolved") return ALL_PROJECTS;
-    return await resolveProjectScope(identity, db, caller);
+    return readScopeToProjectScope(await resolveReadScope({ workspace }, db, caller));
   } catch (err) {
     log.debug(`[${caller}] Project scope resolution failed; defaulting to ALL_PROJECTS`, {
       error: getLoggableErrorSummary(err),
@@ -89,6 +93,12 @@ const pointingIdParam = {
 // ---------------------------------------------------------------------------
 
 const declareParams = {
+  workspace: {
+    schema: z.string().optional(),
+    description:
+      "Workspace path whose project this applies to; defaults to the process cwd (mt#5155)",
+    required: false,
+  },
   name: {
     schema: z.string().min(1),
     description: "Short name for the pointing; unique among live pointings in the project",
@@ -135,7 +145,7 @@ export function createTasksPointingsDeclareCommand(getPersistenceProvider: () =>
 
     async execute(params) {
       const db = await getDb(getPersistenceProvider);
-      const projectScope = await resolveScope(db, "tasks.pointings.declare");
+      const projectScope = await resolveScope(db, "tasks.pointings.declare", params.workspace);
       const outcome = await declarePointing(db, {
         name: params.name,
         query: {
@@ -181,6 +191,12 @@ export function createTasksPointingsDeclareCommand(getPersistenceProvider: () =>
 // ---------------------------------------------------------------------------
 
 const listParams = {
+  workspace: {
+    schema: z.string().optional(),
+    description:
+      "Workspace path whose project this applies to; defaults to the process cwd (mt#5155)",
+    required: false,
+  },
   includeArchived: {
     schema: z.boolean().optional(),
     description: "Include archived pointings (hidden by default)",
@@ -198,7 +214,7 @@ export function createTasksPointingsListCommand(getPersistenceProvider: () => un
 
     async execute(params) {
       const db = await getDb(getPersistenceProvider);
-      const projectScope = await resolveScope(db, "tasks.pointings.list");
+      const projectScope = await resolveScope(db, "tasks.pointings.list", params.workspace);
       const pointings = await listPointings(db, {
         projectScope,
         includeArchived: params.includeArchived ?? false,
@@ -282,6 +298,12 @@ export function createTasksPointingsCandidatesCommand(getPersistenceProvider: ()
 // ---------------------------------------------------------------------------
 
 const expireRemainderParams = {
+  workspace: {
+    schema: z.string().optional(),
+    description:
+      "Workspace path whose project this applies to; defaults to the process cwd (mt#5155)",
+    required: false,
+  },
   execute: {
     schema: z.boolean().default(false),
     defaultValue: false,
@@ -315,7 +337,7 @@ export function createTasksExpireRemainderCommand(getPersistenceProvider: () => 
 
     async execute(params) {
       const db = await getDb(getPersistenceProvider);
-      const projectScope = await resolveScope(db, "tasks.expire-remainder");
+      const projectScope = await resolveScope(db, "tasks.expire-remainder", params.workspace);
       const result = await runRemainderSweep(db, {
         projectScope,
         execute: params.execute === true,

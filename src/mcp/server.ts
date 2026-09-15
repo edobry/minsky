@@ -2154,7 +2154,10 @@ export class MinskyMCPServer {
     const subjectId = normalizeTaskSubjectId(taskId);
     if (!subjectId) return;
 
-    const projectId = await this.resolveProjectIdBestEffort();
+    // `args` is passed so the stamp honours the tool call's own workspace/repo
+    // over the daemon's cwd (mt#5155) — on the shared daemon the cwd is the
+    // spawner's, not this caller's.
+    const projectId = await this.resolveProjectIdBestEffort(args);
 
     await repo.upsertClaim({
       subjectKind: "task",
@@ -2337,34 +2340,41 @@ export class MinskyMCPServer {
    * mt#2284: resolve the caller's project scope, best-effort (shared by
    * writeTaskClaim and writeSessionAttachment). Fails silently — project
    * scope is informational for presence, never a hard requirement.
+   *
+   * mt#5155: the tool call's own `workspace` / `repo` argument outranks the
+   * daemon's cwd — on the shared daemon (ADR-038) that cwd is the spawner's, so
+   * a flotato conversation's claims were stamped with minsky's project. An
+   * explicit argument that names no project stamps NOTHING (undefined), never
+   * the spawner's project and never the read side's nil-uuid sentinel — a
+   * presence row is a write, and an unknown project is the honest value.
    */
-  private async resolveProjectIdBestEffort(): Promise<string | undefined> {
+  private async resolveProjectIdBestEffort(
+    args: Record<string, unknown> = {}
+  ): Promise<string | undefined> {
     try {
-      const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
-      const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
-      const identity = resolveProjectIdentity({ repoPath: process.cwd() });
-      if (identity.kind === "resolved" && this.container?.has("persistence")) {
-        const persistence = this.container.get("persistence") as {
-          getDatabaseConnection?: () => Promise<unknown>;
-        };
-        if (persistence.getDatabaseConnection) {
-          const rawDb = await persistence.getDatabaseConnection();
-          // No cast, and no shape check HERE (mt#4509; PR #3288 R1). `resolveProjectScope`
-          // takes `unknown` and validates the handle itself, so a bad one is classified and
-          // logged as `invalid-db-handle` in one place. Narrowing at this call site instead
-          // would SUPPRESS that log — the handle would silently fail the `if` and vanish,
-          // which is the failure mode this task exists to end.
-          // A null handle stays silent: persistence not being ready is not a defect.
-          if (rawDb) {
-            const scope = await resolveProjectScope(identity, rawDb, "mcp.presence");
-            const { isAllProjects } = await import("@minsky/domain/project/scope");
-            // ProjectScope = string | AllProjects; narrow to string branch = the project UUID
-            if (!isAllProjects(scope)) {
-              return scope;
-            }
-          }
-        }
-      }
+      if (!this.container?.has("persistence")) return undefined;
+      const { resolveReadScope } = await import("@minsky/domain/project/read-scope");
+      const persistence = this.container.get("persistence") as {
+        getDatabaseConnection?: () => Promise<unknown>;
+      };
+      if (!persistence.getDatabaseConnection) return undefined;
+      const rawDb = await persistence.getDatabaseConnection();
+      // No cast, and no shape check HERE (mt#4509; PR #3288 R1). The resolver takes
+      // `unknown` and validates the handle itself, so a bad one is classified and
+      // logged as `invalid-db-handle` in one place. Narrowing at this call site instead
+      // would SUPPRESS that log — the handle would silently fail the `if` and vanish,
+      // which is the failure mode this task exists to end.
+      // A null handle stays silent: persistence not being ready is not a defect.
+      if (!rawDb) return undefined;
+      const resolution = await resolveReadScope(
+        {
+          workspace: typeof args.workspace === "string" ? args.workspace : undefined,
+          repo: typeof args.repo === "string" ? args.repo : undefined,
+        },
+        rawDb,
+        "mcp.presence"
+      );
+      return resolution.kind === "scoped" ? resolution.scope : undefined;
     } catch {
       // Fail silently — project scope is informational for presence
     }
@@ -2416,7 +2426,10 @@ export class MinskyMCPServer {
     const repo = await this.getPresenceClaimRepo();
     if (!repo) return;
 
-    const projectId = await this.resolveProjectIdBestEffort();
+    // `args` is passed so the stamp honours the tool call's own workspace/repo
+    // over the daemon's cwd (mt#5155) — on the shared daemon the cwd is the
+    // spawner's, not this caller's.
+    const projectId = await this.resolveProjectIdBestEffort(args);
 
     const ccConversationId = this.resolveCcConversationId(actorId);
     // "Where" context — env bag of only-the-keys-present (emulator-agnostic;

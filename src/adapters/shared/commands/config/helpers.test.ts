@@ -6,7 +6,16 @@
  * and case-insensitive path matching.
  */
 import { describe, test, expect } from "bun:test";
-import { maskCredentials, maskCredentialsInEffectiveValues, maskValueForPath } from "./helpers";
+import {
+  getConfigProviderForWorkspace,
+  maskCredentials,
+  maskCredentialsInEffectiveValues,
+  maskValueForPath,
+} from "./helpers";
+import type {
+  ConfigurationFactory,
+  ConfigurationProvider,
+} from "@minsky/domain/configuration/index";
 
 // Shared path constants — reused across tests to satisfy no-magic-string-duplication
 const PATH_AI_OPENAI_APIKEY = "ai.providers.OpenAI.apiKEY";
@@ -329,5 +338,59 @@ describe("config command registrations expose showSecrets (mt#1262 wiring)", () 
       .showSecrets;
     expect(showParam?.defaultValue).toBe(false);
     expect(listParam?.defaultValue).toBe(false);
+  });
+});
+
+describe("getConfigProviderForWorkspace (mt#5155)", () => {
+  /** Two distinguishable provider stand-ins; only identity is asserted. */
+  const GLOBAL = { tag: "global" } as unknown as ConfigurationProvider;
+  const SCOPED = { tag: "scoped" } as unknown as ConfigurationProvider;
+
+  function fakeFactory(calls: Array<Record<string, unknown> | undefined>): ConfigurationFactory {
+    return {
+      createProvider: async (options) => {
+        calls.push(options);
+        return SCOPED;
+      },
+    };
+  }
+
+  test("a workspace builds a provider rooted at that directory, not the global one", async () => {
+    const calls: Array<Record<string, unknown> | undefined> = [];
+    const provider = await getConfigProviderForWorkspace("/caller/flotato", {
+      factory: fakeFactory(calls),
+      globalProvider: () => GLOBAL,
+    });
+    expect(provider).toBe(SCOPED);
+    expect(calls).toEqual([{ workingDirectory: "/caller/flotato" }]);
+  });
+
+  test("no workspace returns the process-global provider and builds nothing", async () => {
+    const calls: Array<Record<string, unknown> | undefined> = [];
+    const provider = await getConfigProviderForWorkspace(undefined, {
+      factory: fakeFactory(calls),
+      globalProvider: () => GLOBAL,
+    });
+    expect(provider).toBe(GLOBAL);
+    expect(calls).toEqual([]);
+  });
+
+  test("a blank workspace is no workspace", async () => {
+    const calls: Array<Record<string, unknown> | undefined> = [];
+    const provider = await getConfigProviderForWorkspace("   ", {
+      factory: fakeFactory(calls),
+      globalProvider: () => GLOBAL,
+    });
+    expect(provider).toBe(GLOBAL);
+    expect(calls).toEqual([]);
+  });
+
+  test("surrounding whitespace is trimmed before the directory is used", async () => {
+    const calls: Array<Record<string, unknown> | undefined> = [];
+    await getConfigProviderForWorkspace("  /caller/flotato\n", {
+      factory: fakeFactory(calls),
+      globalProvider: () => GLOBAL,
+    });
+    expect(calls).toEqual([{ workingDirectory: "/caller/flotato" }]);
   });
 });
