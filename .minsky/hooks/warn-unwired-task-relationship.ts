@@ -803,7 +803,7 @@ export async function run(
   _ctx: DispatchContext
 ): Promise<GuardOutcome | null> {
   const base = {
-    ts: new Date().toISOString(),
+    timestamp: new Date().toISOString(),
     sessionId: input.session_id ?? null,
     toolName: input.tool_name ?? null,
   };

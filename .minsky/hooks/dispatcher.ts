@@ -399,11 +399,46 @@ export function calibrationLogPath(
 }
 
 /**
+ * ADR-028 §D4 names the record's date field `timestamp`. Seventeen writers on the
+ * dispatcher's `outcome.calibration` path stamped `ts` instead, and both shared
+ * readers (`readRecordTimestamp` in the sweep, `normalizeEntryTimestamp` in the
+ * coverage receipt — mt#4984) had to learn the second spelling after each had
+ * silently dropped all seventeen logs. This is the writer-side half (mt#5162):
+ * a record that arrives with `ts` and no string `timestamp` is persisted with
+ * `timestamp` as well, so the sink — the ONE site every dispatcher-routed writer
+ * passes through — guarantees the D4 spelling on disk regardless of what the
+ * writer built. A record already carrying a string `timestamp` is returned as
+ * is, in the writer's own key order; when the promotion runs, `timestamp` is
+ * placed first, where the schema lists it. The caller's object is never mutated.
+ *
+ * Strings only, matching the readers' guard (`readRecordTimestamp`,
+ * `normalizeEntryTimestamp`): a non-string `ts` is not promoted, because a
+ * reader would refuse it under either key — and a non-string `timestamp` sitting
+ * beside a string `ts` is REPLACED by the promotion rather than kept, since it
+ * would otherwise win the spread and leave the record undated (PR #3764 R1).
+ *
+ * Exported for its unit test; `logCalibrationRecord` is its only production
+ * caller.
+ */
+export function withCanonicalTimestamp(record: Record<string, unknown>): Record<string, unknown> {
+  if (typeof record["timestamp"] === "string") return record;
+  const ts = record["ts"];
+  if (typeof ts !== "string") return record;
+  // `rest` omits any non-string `timestamp`, so the promoted string cannot be
+  // overwritten by the spread.
+  const { timestamp: _nonStringTimestamp, ...rest } = record;
+  return { timestamp: ts, ...rest };
+}
+
+/**
  * Append one calibration record for `calibrationLogName` — the D4 framework
  * service that replaces the 6+ hand-rolled `appendCalibrationRecord()`
  * implementations. Best-effort: any fs failure is swallowed (calibration
  * logging must never break a guard's actual decision, mirroring every
  * existing calibration-writer's try/catch posture).
+ *
+ * The persisted line always carries D4's `timestamp` when the writer supplied a
+ * string date under either spelling — see {@link withCanonicalTimestamp}.
  */
 export function logCalibrationRecord(
   calibrationLogName: string,
@@ -418,7 +453,7 @@ export function logCalibrationRecord(
     });
     const dir = dirname(logPath);
     if (!deps.existsSync(dir)) deps.mkdirSync(dir, { recursive: true });
-    deps.appendFileSync(logPath, `${JSON.stringify(record)}\n`);
+    deps.appendFileSync(logPath, `${JSON.stringify(withCanonicalTimestamp(record))}\n`);
   } catch {
     // best-effort — calibration logging must never break a guard's decision
   }

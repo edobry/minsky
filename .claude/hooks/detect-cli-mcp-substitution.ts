@@ -563,7 +563,7 @@ export async function run(
   const result = scanCommand(command, manifest);
 
   const base = {
-    ts: new Date().toISOString(),
+    timestamp: new Date().toISOString(),
     sessionId: input.session_id ?? null,
     toolName: input.tool_name ?? null,
     commandId: result.commandId,

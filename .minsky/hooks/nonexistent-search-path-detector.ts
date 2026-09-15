@@ -678,7 +678,7 @@ export async function run(
   });
 
   const base = {
-    ts: new Date().toISOString(),
+    timestamp: new Date().toISOString(),
     sessionId: input.session_id ?? null,
     toolName: input.tool_name ?? null,
     binary: result.binary,
