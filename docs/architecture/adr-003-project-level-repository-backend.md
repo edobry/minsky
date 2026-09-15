@@ -4,6 +4,23 @@
 
 **ACCEPTED** - Documented 2026-04-03
 
+**Amended 2026-09-15 (mt#5159):** "set once at `minsky init`" holds — the backend
+stays a project property `init` writes — but the value is now VALIDATED against
+`git remote get-url origin` at use time and any disagreement is reported, rather
+than silently trusted forever. mt#5152 (2026-09-14) hit the failure this closes:
+`init` ran before the remote existed, froze `repository.backend: local`, and
+nothing re-derived it. Two additions, no change to the set-once model: (1) one
+resolver, `resolveRepositoryIdentity` (`packages/domain/src/project/repository-identity.ts`),
+composes the recorded config with `origin` via `compareRepositoryIdentity`
+(mt#5154) and returns a drift report; `workspace_info` surfaces it (`repositoryDrift`).
+(2) The BACKEND precedence — project `repository.backend` → user
+`repository.default_repo_backend` → the backend `origin` derives to — is stated
+once in `resolveBackend` (same module, with a test) and both `getRepositoryBackendFromConfig`
+and `workspace_info` resolve through it, so session start and workspace info can
+no longer read different keys in disagreement. This did NOT move to
+read-from-git-at-use-time (the rejected arm of mt#5159 SC1); config remains the
+recorded source and `origin` the check.
+
 ## Context
 
 ### Problem: Per-Session URL Pattern Matching Conflates Three Concepts

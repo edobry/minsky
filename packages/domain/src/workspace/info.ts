@@ -31,6 +31,14 @@ export interface WorkspaceInfo {
   tasksBackend?: string;
   /** Active repository backend name (e.g. "github", "local") */
   repoBackend?: string;
+  /**
+   * A one-line drift report when the recorded repository identity disagrees
+   * with `git remote get-url origin`, or there is no origin to check against
+   * (mt#5159). Absent when they match. The value that froze wrong at `init`
+   * (e.g. flowtato's `repository.backend: local`, written before the remote
+   * existed) surfaces here instead of being silently trusted.
+   */
+  repositoryDrift?: string;
 }
 
 /**
@@ -47,6 +55,12 @@ export interface WorkspaceInfoDeps {
     existsSync: (path: string) => boolean;
     readFileSync: (path: string, encoding: BufferEncoding) => string;
   };
+  /**
+   * Read the workspace's `git remote get-url origin`, or null when there is
+   * none (mt#5159). Injected so the drift check stays testable without a git
+   * subprocess; production defaults to `deriveRemoteUrl`.
+   */
+  readOriginUrl?: (cwd: string) => string | null;
 }
 
 /**
@@ -96,6 +110,8 @@ function readBackendsFromConfig(
 ): {
   tasksBackend?: string;
   repoBackend?: string;
+  /** The recorded identity mt#5159's resolver validates against origin. */
+  recorded?: import("../project/repository-identity").RecordedRepositoryConfig;
 } {
   try {
     const content = read(configPath, "utf8");
@@ -106,13 +122,22 @@ function readBackendsFromConfig(
 
     const tasks = parsed.tasks as Record<string, unknown> | undefined;
     const repository = parsed.repository as Record<string, unknown> | undefined;
+    const project = parsed.project as Record<string, unknown> | undefined;
 
     const tasksBackend =
       (tasks?.backend as string | undefined) || (parsed.backend as string | undefined) || undefined;
 
     const repoBackend = (repository?.backend as string | undefined) || undefined;
 
-    return { tasksBackend, repoBackend };
+    const recorded: import("../project/repository-identity").RecordedRepositoryConfig = {
+      projectBackend: repository?.backend as string | undefined,
+      userDefaultBackend: repository?.default_repo_backend as string | undefined,
+      url: repository?.url as string | undefined,
+      github: repository?.github as { owner?: string; repo?: string } | undefined,
+      slug: project?.slug as string | undefined,
+    };
+
+    return { tasksBackend, repoBackend, recorded };
   } catch (err) {
     log.debug("workspace.info: failed to read backends from config", {
       configPath,
@@ -151,6 +176,34 @@ export async function getWorkspaceInfo(
   // --- Backends ---
   const backends = configExists ? readBackendsFromConfig(configPath, fs.readFileSync) : {};
 
+  // --- Repository-identity drift (mt#5159) ---
+  // Validate the recorded identity against `origin` so a value frozen wrong at
+  // `init` (flowtato's `backend: local`, written before the remote existed) is
+  // reported rather than silently trusted. Best-effort: no origin reader, no
+  // recorded config, or a read failure all leave `repositoryDrift` absent.
+  let repositoryDrift: string | undefined;
+  if (configExists && backends.recorded) {
+    try {
+      const { resolveRepositoryIdentity, describeRepositoryDrift } = await import(
+        "../project/repository-identity"
+      );
+      let readOrigin = deps?.readOriginUrl;
+      if (!readOrigin) {
+        const { deriveRemoteUrl } = await import("../project/slug");
+        readOrigin = (dir: string) => deriveRemoteUrl(dir);
+      }
+      const resolution = resolveRepositoryIdentity({
+        recorded: backends.recorded,
+        originUrl: readOrigin(resolvedCwd),
+      });
+      repositoryDrift = describeRepositoryDrift(resolution.drift) ?? undefined;
+    } catch (err) {
+      log.debug("workspace.info: repository-drift check skipped", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   // --- Task ID (only relevant for session workspaces) ---
   let taskId: string | undefined;
   if (isSession && sessionId) {
@@ -170,6 +223,7 @@ export async function getWorkspaceInfo(
     ...(configExists && { configPath }),
     ...(backends.tasksBackend !== undefined && { tasksBackend: backends.tasksBackend }),
     ...(backends.repoBackend !== undefined && { repoBackend: backends.repoBackend }),
+    ...(repositoryDrift !== undefined && { repositoryDrift }),
   };
 }
 

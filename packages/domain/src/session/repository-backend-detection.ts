@@ -433,6 +433,18 @@ export interface RepositoryBackendInfo {
  *
  * Falls back to `resolveRepositoryAndBackend()` detection behavior if `repository.backend`
  * is not configured — backward-compat for projects that haven't re-run init.
+ *
+ * **Backend precedence (mt#5159 SC3), the single documented statement:**
+ * project `repository.backend` → user `repository.default_repo_backend` → the
+ * backend `origin` derives to. This function reads `repository.backend` first
+ * and, when it is unset, delegates to `resolveRepositoryAndBackend`, which reads
+ * `repository.default_repo_backend` then detects from `origin` — so the two keys
+ * compose in that order rather than being read in disagreement. The canonical
+ * precedence is `resolveBackend` in `packages/domain/src/project/repository-identity.ts`
+ * (with its test); `workspace_info` resolves the SAME way through
+ * `resolveRepositoryIdentity`, which also validates the recorded identity against
+ * `origin` and reports drift. Keep the two agreeing: a change to which key is
+ * read here or there must go through `resolveBackend`.
  */
 export async function getRepositoryBackendFromConfig(
   deps: RepositoryBackendDetectionDeps = defaultDeps
