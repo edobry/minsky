@@ -180,13 +180,13 @@ describe("runProjectDoctorChecks — individual branches", () => {
     expect(byCheck(diags)[PROJECT_CHECKS.harness]?.message).toContain("set explicitly");
   });
 
-  test("harness: nothing recorded is an error with a setup remedy", async () => {
+  test("harness: nothing recorded is a WARNING with a setup remedy (unset is normal pre-mt#5153; AT3)", async () => {
     const diags = await runProjectDoctorChecks(
       { workspacePath: WS, config: { ...HEALTHY_CONFIG, workspace: {} } },
       healthyDeps()
     );
     const h = byCheck(diags)[PROJECT_CHECKS.harness];
-    expect(h).toMatchObject({ status: "error" });
+    expect(h).toMatchObject({ status: "warning" });
     expect((h as { suggestion?: string }).suggestion).toContain(
       "minsky setup --client claude-code"
     );

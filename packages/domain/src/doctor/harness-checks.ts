@@ -42,14 +42,19 @@ export function harnessCheck(
   const check = PROJECT_CHECKS.harness;
 
   if (!recorded) {
+    // A WARNING, not an error: an unset `workspace.harness` is the normal state
+    // for any project onboarded before mt#5153 added the field — including the
+    // Minsky repo itself (mt#5154 AT3). An error here would fail the doctor for
+    // every such project. A recorded harness that DISAGREES with the caller is
+    // the real fault, and that stays an error below.
     return {
       callerHarness,
       diagnostic: {
         check,
-        status: "error",
+        status: "warning",
         scope: "project",
         message: "No harness is recorded for this project (`workspace.harness` is unset).",
-        suggestion: `Run \`minsky setup --client ${callerHarness && callerHarness !== "standalone" ? callerHarness : "<claude-code|cursor>"}\` in the project.`,
+        suggestion: `Run \`minsky setup --client ${callerHarness && callerHarness !== "standalone" ? callerHarness : "<claude-code|cursor>"}\` in the project to record it.`,
       },
     };
   }
