@@ -247,3 +247,37 @@ export async function checkAppRoleCoverage(
   }
   return results;
 }
+
+/**
+ * The App roles this installation actually has configured, with the display
+ * slug and installation id each operator-facing surface needs.
+ *
+ * The installation id comes from CONFIG rather than from the token provider,
+ * which holds it on a private field — the same source mt#4695 uses for the
+ * deep link in the CLI message. Lived in the `setup` adapter until mt#5154
+ * moved it here so `config doctor` runs the same coverage check `setup` does.
+ */
+export function describeConfiguredAppRoles(cfg: {
+  github?: {
+    serviceAccount?: { installationId?: number };
+    reviewer?: { serviceAccount?: { installationId?: number } };
+  };
+}): AppRoleDescriptor[] {
+  const roles: AppRoleDescriptor[] = [];
+  const implementerId = cfg.github?.serviceAccount?.installationId;
+  roles.push({
+    role: "implementer",
+    slug: "minsky-ai",
+    ...(implementerId === undefined ? {} : { installationId: implementerId }),
+  });
+
+  const reviewerId = cfg.github?.reviewer?.serviceAccount?.installationId;
+  if (cfg.github?.reviewer?.serviceAccount) {
+    roles.push({
+      role: "reviewer",
+      slug: "minsky-reviewer",
+      ...(reviewerId === undefined ? {} : { installationId: reviewerId }),
+    });
+  }
+  return roles;
+}

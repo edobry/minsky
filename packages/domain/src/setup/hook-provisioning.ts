@@ -215,6 +215,49 @@ function isMinskyOwnedGroup(group: unknown, installDir: string): boolean {
   );
 }
 
+/** One baseline command the settings file does not register (mt#5154). */
+export interface MissingBaselineRegistration {
+  event: string;
+  command: string;
+}
+
+/**
+ * Which baseline commands `currentHooks` (a settings file's `hooks` value)
+ * does NOT register, per event — the read-only inverse of
+ * {@link mergeHookRegistration}, for `config doctor` (mt#5154). A command is
+ * registered when any group under that event carries it; matcher differences
+ * are not drift (the baseline's matcher is `*`, and a narrower one is the
+ * operator's choice).
+ */
+export function findMissingBaselineRegistration(
+  currentHooks: unknown,
+  registration: Record<string, HookGroup[]>
+): MissingBaselineRegistration[] {
+  const missing: MissingBaselineRegistration[] = [];
+  const hooksByEvent =
+    typeof currentHooks === "object" && currentHooks !== null
+      ? (currentHooks as Record<string, unknown>)
+      : {};
+  for (const [event, ourGroups] of Object.entries(registration)) {
+    const existing = Array.isArray(hooksByEvent[event]) ? (hooksByEvent[event] as unknown[]) : [];
+    const registered = new Set<string>();
+    for (const group of existing) {
+      const hooks = (group as { hooks?: unknown } | null)?.hooks;
+      if (!Array.isArray(hooks)) continue;
+      for (const h of hooks) {
+        const command = (h as { command?: unknown } | null)?.command;
+        if (typeof command === "string") registered.add(command);
+      }
+    }
+    for (const group of ourGroups) {
+      for (const h of group.hooks) {
+        if (!registered.has(h.command)) missing.push({ event, command: h.command });
+      }
+    }
+  }
+  return missing;
+}
+
 /**
  * Merge `registration` into an existing settings object.
  *

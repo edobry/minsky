@@ -43,8 +43,13 @@ const DOCTOR_EXEC_PARAMS = {
   json: false,
   sources: false,
   verbose: false,
+  // Server-injected over MCP (mt#5154); absent on the CLI path, so the harness
+  // check falls back to env detection here.
+  callerActorId: "",
   fix: false,
 };
+
+const REAL_TOKEN = "real-token-value";
 
 /** Restores (or clears) MINSKY_MCP_AUTH_TOKEN to its pre-test value. */
 function restoreMcpAuthToken(saved: string | undefined): void {
@@ -206,7 +211,7 @@ describe("config.doctor execute — reviewer retrigger reachability (production 
       await initializeConfiguration(new CustomConfigFactory(), {
         overrides: {
           reviewer: { url: "https://example-reviewer.example.com" },
-          mcp: { auth: { token: "real-token-value" } },
+          mcp: { auth: { token: REAL_TOKEN } },
         },
         skipValidation: true,
       });
@@ -221,12 +226,53 @@ describe("config.doctor execute — reviewer retrigger reachability (production 
     });
   });
 
+  test("every diagnostic carries a scope and the summary is split; healthy needs both (mt#5154)", async () => {
+    await withIsolatedUserConfig(async () => {
+      await initializeConfiguration(new CustomConfigFactory(), {
+        overrides: {
+          reviewer: { url: "https://example-reviewer.example.com" },
+          mcp: { auth: { token: REAL_TOKEN } },
+        },
+        skipValidation: true,
+      });
+
+      const result = (await configDoctorRegistration.execute(DOCTOR_EXEC_PARAMS, {})) as {
+        diagnostics: Array<{ check: string; status: string; scope?: string }>;
+        summary: {
+          total: number;
+          errors: number;
+          user: { total: number; errors: number };
+          project: { total: number; errors: number };
+        };
+        healthy: boolean;
+        workspace: string;
+      };
+
+      expect(result.diagnostics.every((d) => d.scope === "user" || d.scope === "project")).toBe(
+        true
+      );
+      const user = result.diagnostics.filter((d) => d.scope === "user");
+      const project = result.diagnostics.filter((d) => d.scope === "project");
+      // The pre-mt#5154 checks are all user-scope, and the project pass adds its own rows.
+      expect(user.map((d) => d.check)).toContain("Configuration Loading");
+      expect(project.map((d) => d.check)).toContain("Project Harness");
+      expect(project.map((d) => d.check)).toContain("Repository Identity");
+      expect(result.summary.user.total).toBe(user.length);
+      expect(result.summary.project.total).toBe(project.length);
+      expect(result.summary.total).toBe(user.length + project.length);
+      expect(result.healthy).toBe(
+        result.summary.user.errors === 0 && result.summary.project.errors === 0
+      );
+      expect(typeof result.workspace).toBe("string");
+    });
+  });
+
   test("no github.serviceAccount configured → GitHub App Permissions diagnostic is pass (mt#3218)", async () => {
     await withIsolatedUserConfig(async () => {
       await initializeConfiguration(new CustomConfigFactory(), {
         overrides: {
           reviewer: { url: "https://example-reviewer.example.com" },
-          mcp: { auth: { token: "real-token-value" } },
+          mcp: { auth: { token: REAL_TOKEN } },
         },
         skipValidation: true,
       });

@@ -17,6 +17,7 @@ import {
   OBSERVABILITY_BASELINE_HOOKS,
   PROJECT_LOCAL_SETTINGS_FILENAME,
   buildBaselineRegistration,
+  findMissingBaselineRegistration,
   mergeHookRegistration,
   provisionObservabilityHooks,
   resolveHookInstallDir,
@@ -104,6 +105,43 @@ describe("baseline registration", () => {
     );
     expect(timeouts.length).toBeGreaterThan(0);
     expect(new Set(timeouts)).toEqual(new Set([BASELINE_HOOK_TIMEOUT_SECONDS]));
+  });
+});
+
+describe("findMissingBaselineRegistration (mt#5154)", () => {
+  const INGEST_HOOK = "transcript-ingest-on-session-end.ts";
+
+  test("a freshly merged settings file is missing nothing", () => {
+    const registration = buildBaselineRegistration(INSTALL_DIR);
+    const merged = mergeHookRegistration({}, registration, INSTALL_DIR);
+    expect(findMissingBaselineRegistration(merged["hooks"], registration)).toEqual([]);
+  });
+
+  test("an empty or absent hooks value is missing every baseline command", () => {
+    const registration = buildBaselineRegistration(INSTALL_DIR);
+    const expectedCount = Object.values(registration).reduce(
+      (n, groups) => n + groups.reduce((m, g) => m + g.hooks.length, 0),
+      0
+    );
+    expect(findMissingBaselineRegistration(undefined, registration)).toHaveLength(expectedCount);
+    expect(findMissingBaselineRegistration({}, registration)).toHaveLength(expectedCount);
+  });
+
+  test("names the event and command of each gap, and ignores matcher differences", () => {
+    const registration = buildBaselineRegistration(INSTALL_DIR);
+    const merged = mergeHookRegistration({}, registration, INSTALL_DIR);
+    const hooks = merged["hooks"] as Record<string, Array<{ matcher?: string; hooks: unknown[] }>>;
+    // Drop the ingest hook from SessionEnd; narrow PreToolUse's matcher.
+    hooks["SessionEnd"] = (hooks["SessionEnd"] ?? []).filter(
+      (g) => !JSON.stringify(g).includes(INGEST_HOOK)
+    );
+    hooks["PreToolUse"] = (hooks["PreToolUse"] ?? []).map((g) => ({ ...g, matcher: "Edit" }));
+    expect(findMissingBaselineRegistration(hooks, registration)).toEqual([
+      {
+        event: "SessionEnd",
+        command: path.join(INSTALL_DIR, INGEST_HOOK),
+      },
+    ]);
   });
 });
 

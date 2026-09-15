@@ -8,16 +8,41 @@ import { z } from "zod";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import { CommandCategory, defineCommand } from "../../command-registry";
 import { CommonParameters, ConfigParameters, composeParams } from "../../common-parameters";
+import { CALLER_ACTOR_ID_PARAM } from "../client-resolution";
 import { getConfigProviderForWorkspace } from "./helpers";
 
 /**
  * A single config.doctor diagnostic entry.
+ *
+ * `scope` (mt#5154) says what the check is ABOUT: `user` — this machine's
+ * configuration, the same answer from any project; `project` — the workspace
+ * the doctor was pointed at. Optional on the type so the pre-mt#5154 producers
+ * (`doctor-fixes.ts`, the pure check functions below) still type; the doctor
+ * stamps `user` on every diagnostic it collects before the project pass.
  */
 export interface DoctorDiagnostic {
   check: string;
   status: "pass" | "warning" | "error";
   message: string;
   suggestion?: string;
+  scope?: "user" | "project";
+}
+
+/** Counts for one scope, and for the whole run. */
+export interface DoctorSummary {
+  total: number;
+  passed: number;
+  warnings: number;
+  errors: number;
+}
+
+export function summarizeDiagnostics(diagnostics: readonly DoctorDiagnostic[]): DoctorSummary {
+  return {
+    total: diagnostics.length,
+    passed: diagnostics.filter((d) => d.status === "pass").length,
+    warnings: diagnostics.filter((d) => d.status === "warning").length,
+    errors: diagnostics.filter((d) => d.status === "error").length,
+  };
 }
 
 /**
@@ -191,6 +216,10 @@ export const configDoctorRegistration = defineCommand({
       required: false as const,
       defaultValue: false,
     },
+    // Hidden; the MCP server injects the caller's ADR-006 agent id (mt#5153's
+    // pattern for `init`/`setup`), so the harness check compares against the
+    // CALLER rather than the daemon's spawner (mt#5154).
+    callerActorId: CALLER_ACTOR_ID_PARAM,
     fix: {
       schema: z.boolean(),
       description:
@@ -201,7 +230,7 @@ export const configDoctorRegistration = defineCommand({
   }),
   execute: async (params, ctx) => {
     // Perform lightweight diagnostics without external calls
-    const diagnostics: Array<{ check: string; status: string; message: string }> = [];
+    const diagnostics: DoctorDiagnostic[] = [];
     const { validateConfiguration } = await import("@minsky/domain/configuration/index");
     // One provider for every check below: the named workspace's, else the
     // process-global one (mt#5155). mt#5154 builds its project-scope checks on this.
@@ -480,20 +509,47 @@ export const configDoctorRegistration = defineCommand({
       // Index coverage is best-effort — skip if DB not available
     }
 
-    const errors = diagnostics.filter((d) => d.status === "error");
-    const warnings = diagnostics.filter((d) => d.status === "warning");
+    // Everything above is about THIS MACHINE — the same answer from any
+    // project. Stamp it so the two scopes are told apart (mt#5154).
+    const userDiagnostics: DoctorDiagnostic[] = diagnostics.map((d) => ({ ...d, scope: "user" }));
+
+    // Project scope (mt#5154): what the doctor was POINTED AT. `workspace`
+    // names it; otherwise the process cwd — the CLI's own directory, or on the
+    // shared daemon the spawner's until mt#5168 supplies the caller's.
+    const projectDiagnostics: DoctorDiagnostic[] = [];
+    const workspacePath = params.workspace?.trim() || process.cwd();
+    try {
+      const { runProjectDoctorChecks } = await import("@minsky/domain/doctor/project-checks");
+      const config =
+        provider.getConfig() as import("@minsky/domain/doctor/project-checks").ProjectDoctorConfig;
+      projectDiagnostics.push(
+        ...(await runProjectDoctorChecks({
+          workspacePath,
+          config,
+          callerAgentId: params.callerActorId,
+        }))
+      );
+    } catch (e) {
+      projectDiagnostics.push({
+        check: "Project Checks",
+        status: "error",
+        scope: "project",
+        message: `Project-scope checks could not run: ${getErrorMessage(e)}`,
+      });
+    }
+
+    const all = [...userDiagnostics, ...projectDiagnostics];
+    const user = summarizeDiagnostics(userDiagnostics);
+    const project = summarizeDiagnostics(projectDiagnostics);
+    const healthy = user.errors === 0 && project.errors === 0;
 
     return {
-      success: errors.length === 0,
+      success: healthy,
       json: params.json || false,
-      summary: {
-        total: diagnostics.length,
-        passed: diagnostics.filter((d) => d.status === "pass").length,
-        warnings: warnings.length,
-        errors: errors.length,
-      },
-      diagnostics,
-      healthy: errors.length === 0,
+      workspace: workspacePath,
+      summary: { ...summarizeDiagnostics(all), user, project },
+      diagnostics: all,
+      healthy,
       verbose: params.verbose || false,
     };
   },

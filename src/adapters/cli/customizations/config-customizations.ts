@@ -231,11 +231,49 @@ export function renderConfigDoctorResult(result: Record<string, unknown>): strin
     return `${headline}\n\nAll checks passed.`;
   }
 
-  const body = shown.map(formatDiagnosticEntry).join("\n\n");
+  // Two scopes, two groups (mt#5154): what is true of this machine, and what
+  // is true of the project the doctor was pointed at. A run whose diagnostics
+  // carry no `scope` (a producer predating mt#5154) renders as before.
+  const scoped = diagnostics.some((d) => d.scope !== undefined);
+  const body = scoped
+    ? renderScopedGroups(shown, diagnostics, result.workspace)
+    : shown.map(formatDiagnosticEntry).join("\n\n");
   const hint = verbose
     ? ""
     : "\n\nRun with --verbose to see all checks, or --json for the full payload.";
   return `${headline}\n\n${body}${hint}`;
+}
+
+/** The `User scope` / `Project scope` groups, each with its own count line. */
+function renderScopedGroups(
+  shown: DoctorDiagnostic[],
+  all: DoctorDiagnostic[],
+  workspace: unknown
+): string {
+  const groups: Array<{ label: string; scope: "user" | "project" }> = [
+    { label: "User scope (this machine)", scope: "user" },
+    {
+      label: `Project scope${typeof workspace === "string" ? ` (${workspace})` : ""}`,
+      scope: "project",
+    },
+  ];
+  const sections: string[] = [];
+  for (const group of groups) {
+    const inScope = all.filter((d) => d.scope === group.scope);
+    if (inScope.length === 0) continue;
+    const visible = shown.filter((d) => d.scope === group.scope);
+    const errors = countBy(inScope, (d) => d.status === "error");
+    const warnings = countBy(inScope, (d) => d.status === "warning");
+    const header =
+      `${group.label}: ${inScope.length} check${inScope.length === 1 ? "" : "s"}, ` +
+      `${errors} error${errors === 1 ? "" : "s"}, ${warnings} warning${warnings === 1 ? "" : "s"}`;
+    const entries =
+      visible.length === 0
+        ? `${INDENT}All checks passed.`
+        : visible.map(formatDiagnosticEntry).join("\n\n");
+    sections.push(`${header}\n\n${entries}`);
+  }
+  return sections.join("\n\n");
 }
 
 /**
