@@ -276,6 +276,12 @@ const SESSION_START_TOOL_NAME = "session.start";
 const INIT_TOOL_NAME = "init";
 const SETUP_TOOL_NAME = "setup";
 const TASKS_DISPATCH_TOOL_NAME = "tasks.dispatch";
+/**
+ * `config.doctor`'s project-scope harness check (mt#5154) compares the recorded
+ * `workspace.harness` against the CALLER's harness — the same witness `init`
+ * and `setup` use to write it, for the same reason.
+ */
+const CONFIG_DOCTOR_TOOL_NAME = "config.doctor";
 
 /**
  * Tools the server injects the resolved caller `agentId` into as
@@ -326,6 +332,7 @@ const CALLER_ACTOR_ID_TOOL_NAMES: ReadonlySet<string> = new Set([
   INIT_TOOL_NAME,
   SETUP_TOOL_NAME,
   TASKS_DISPATCH_TOOL_NAME,
+  CONFIG_DOCTOR_TOOL_NAME,
 ]);
 
 const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([

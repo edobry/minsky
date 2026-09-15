@@ -150,6 +150,9 @@ describe("config CLI customizations — pure renderers (mt#1794)", () => {
 
 describe("config doctor / validate renderers (mt#3478)", () => {
   const CHECK_LOADING = "Configuration Loading";
+  const CHECK_DIRECTORY = "Configuration Directory";
+  const CHECK_MODELS = "Configured Model Validity";
+  const ALL_PASSED = "All checks passed.";
 
   const doctorResult = (overrides: Record<string, unknown> = {}) => ({
     success: true,
@@ -158,23 +161,90 @@ describe("config doctor / validate renderers (mt#3478)", () => {
     diagnostics: [
       { check: CHECK_LOADING, status: "pass", message: "Configuration loaded" },
       {
-        check: "Configured Model Validity",
+        check: CHECK_MODELS,
         status: "warning",
         message: "Configured default model not found: anthropic -> 'retired-model-id'",
         suggestion: "Set the provider's model to an id the listing returns",
       },
-      { check: "Configuration Directory", status: "pass", message: "Directory exists" },
+      { check: CHECK_DIRECTORY, status: "pass", message: "Directory exists" },
     ],
     healthy: true,
     verbose: false,
     ...overrides,
   });
 
+  describe("renderConfigDoctorResult — scoped groups (mt#5154)", () => {
+    const scopedResult = (overrides: Record<string, unknown> = {}) => ({
+      success: false,
+      json: false,
+      workspace: "/ws/flotato",
+      summary: {
+        total: 4,
+        passed: 2,
+        warnings: 0,
+        errors: 2,
+        user: { total: 2, passed: 2, warnings: 0, errors: 0 },
+        project: { total: 2, passed: 0, warnings: 0, errors: 2 },
+      },
+      diagnostics: [
+        { check: CHECK_LOADING, status: "pass", message: "Configuration loaded", scope: "user" },
+        {
+          check: CHECK_DIRECTORY,
+          status: "pass",
+          message: "Directory exists",
+          scope: "user",
+        },
+        {
+          check: "Project Harness",
+          status: "error",
+          message: 'Recorded harness is "cursor" but this call runs under "claude-code"',
+          suggestion: "Run `minsky setup --client claude-code` in the project",
+          scope: "project",
+        },
+        {
+          check: "Repository Identity",
+          status: "error",
+          message: 'repository.backend is "local", origin says "github"',
+          scope: "project",
+        },
+      ],
+      healthy: false,
+      verbose: false,
+      ...overrides,
+    });
+
+    test("renders a User scope group and a Project scope group naming the workspace", () => {
+      const out = renderConfigDoctorResult(scopedResult());
+      expect(out).toContain("User scope (this machine): 2 checks, 0 errors, 0 warnings");
+      expect(out).toContain("Project scope (/ws/flotato): 2 checks, 2 errors, 0 warnings");
+      expect(out.indexOf("User scope")).toBeLessThan(out.indexOf("Project scope"));
+    });
+
+    test("a group with nothing to show says all checks passed instead of vanishing", () => {
+      const out = renderConfigDoctorResult(scopedResult());
+      expect(out).toContain(ALL_PASSED);
+      expect(out).toContain("Project Harness");
+      expect(out).toContain("Run `minsky setup --client claude-code`");
+    });
+
+    test("verbose lists the passing user checks under their group", () => {
+      const out = renderConfigDoctorResult(scopedResult({ verbose: true }));
+      expect(out).toContain(CHECK_LOADING);
+      expect(out).not.toContain(ALL_PASSED);
+    });
+
+    test("a result whose diagnostics carry no scope renders the flat pre-mt#5154 form", () => {
+      const out = renderConfigDoctorResult(doctorResult());
+      expect(out).not.toContain("User scope");
+      expect(out).toContain(CHECK_MODELS);
+    });
+  });
+
   describe("renderConfigDoctorResult", () => {
     // AT1: a warning's check name AND message appear in default output.
     test("shows a warning check's name and message by default", () => {
       const out = renderConfigDoctorResult(doctorResult());
-      expect(out).toContain("Configured Model Validity");
+      expect(out).toContain(CHECK_MODELS);
       expect(out).toContain("Configured default model not found");
     });
 
@@ -201,7 +271,7 @@ describe("config doctor / validate renderers (mt#3478)", () => {
 
       expect(quiet).not.toContain(CHECK_LOADING);
       expect(loud).toContain(CHECK_LOADING);
-      expect(loud).toContain("Configuration Directory");
+      expect(loud).toContain(CHECK_DIRECTORY);
       expect(loud.length).toBeGreaterThan(quiet.length);
     });
 
@@ -214,7 +284,7 @@ describe("config doctor / validate renderers (mt#3478)", () => {
         verbose: false,
       });
       expect(out).toContain("1 check — 1 passed");
-      expect(out).toContain("All checks passed.");
+      expect(out).toContain(ALL_PASSED);
     });
 
     // AT3: --json passes the payload straight through, unchanged.

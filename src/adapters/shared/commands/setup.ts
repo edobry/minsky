@@ -38,9 +38,9 @@ import { GitHubAppTokenProvider } from "@minsky/domain/auth/github-app-token-pro
 import { extractOwnerRepo } from "@minsky/domain/project/slug";
 import {
   checkAppRoleCoverage,
+  describeConfiguredAppRoles,
   formatAppCoverage,
   type AppRoleCoverage,
-  type AppRoleDescriptor,
 } from "@minsky/domain/setup/app-coverage";
 import {
   buildAppGrantRequestAsk,
@@ -150,39 +150,6 @@ export function renderCoverageLines(
   }
 
   return lines;
-}
-
-/**
- * The App roles this installation actually has configured, with the display
- * slug and installation id each operator-facing surface needs.
- *
- * The installation id comes from CONFIG rather than from the token provider,
- * which holds it on a private field — the same source mt#4695 uses for the
- * deep link in the CLI message.
- */
-function describeConfiguredAppRoles(cfg: {
-  github?: {
-    serviceAccount?: { installationId?: number };
-    reviewer?: { serviceAccount?: { installationId?: number } };
-  };
-}): AppRoleDescriptor[] {
-  const roles: AppRoleDescriptor[] = [];
-  const implementerId = cfg.github?.serviceAccount?.installationId;
-  roles.push({
-    role: "implementer",
-    slug: "minsky-ai",
-    ...(implementerId === undefined ? {} : { installationId: implementerId }),
-  });
-
-  const reviewerId = cfg.github?.reviewer?.serviceAccount?.installationId;
-  if (cfg.github?.reviewer?.serviceAccount) {
-    roles.push({
-      role: "reviewer",
-      slug: "minsky-reviewer",
-      ...(reviewerId === undefined ? {} : { installationId: reviewerId }),
-    });
-  }
-  return roles;
 }
 
 /**
