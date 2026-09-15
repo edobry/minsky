@@ -241,7 +241,7 @@ export function run(
   );
 
   const base = {
-    ts: new Date().toISOString(),
+    timestamp: new Date().toISOString(),
     sessionId: input.session_id ?? null,
     title: typeof input.tool_input?.["title"] === "string" ? input.tool_input["title"] : null,
     // Which agent filed the task, and which transcript the verdict rests on —

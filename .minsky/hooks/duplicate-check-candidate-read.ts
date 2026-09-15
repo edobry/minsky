@@ -190,7 +190,7 @@ export function run(input: ToolHookInput, ctx: DispatchContext): GuardOutcome | 
   const record = extractDuplicateCheckRecord(typeof spec === "string" ? spec : undefined);
 
   const base = {
-    ts: new Date().toISOString(),
+    timestamp: new Date().toISOString(),
     sessionId: input.session_id ?? null,
     title: typeof input.tool_input?.["title"] === "string" ? input.tool_input["title"] : null,
     guardOutcome: "decided" as const,

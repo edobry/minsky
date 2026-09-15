@@ -479,7 +479,7 @@ export async function run(
   if (process.env[CANARY_MODE_ENV] === "1") {
     return {
       calibration: {
-        ts: new Date().toISOString(),
+        timestamp: new Date().toISOString(),
         sessionId: input.session_id ?? null,
         title,
         tokensTried: [],
@@ -493,7 +493,7 @@ export async function run(
   const result = await scanForSignatureMatches(title, spec);
 
   const base = {
-    ts: new Date().toISOString(),
+    timestamp: new Date().toISOString(),
     sessionId: input.session_id ?? null,
     title,
     tokensTried: result.tokensTried.map((t) => `${t.rule}:${t.text}`),

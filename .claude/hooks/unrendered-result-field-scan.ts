@@ -102,7 +102,7 @@ export async function run(
 ): Promise<GuardOutcome | null> {
   if (isOverridden()) return null;
 
-  const base = { ts: new Date().toISOString(), sessionId: input.session_id ?? null };
+  const base = { timestamp: new Date().toISOString(), sessionId: input.session_id ?? null };
 
   // Canary isolation (mt#3824 R2): a canary must never depend on the state of a
   // real working tree, and whether the canary process has one is environment

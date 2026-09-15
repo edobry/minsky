@@ -639,6 +639,8 @@ describe("logCalibrationRecord", () => {
       logCalibrationRecord("x", { a: 1 }, { projectDir: "/repo", deps: throwing })
     ).not.toThrow();
   });
+  // mt#5162's `timestamp` promotion is covered in `dispatcher-canonical-timestamp.test.ts`
+  // — this file sits at the max-lines ceiling.
 });
 
 // ---------------------------------------------------------------------------

@@ -362,7 +362,7 @@ export function decide(
 /** The fields every calibration record carries, whatever the outcome. */
 function recordBase(input: ToolHookInput, invocation: BulkMutationInvocation) {
   return {
-    ts: new Date().toISOString(),
+    timestamp: new Date().toISOString(),
     sessionId: input.session_id ?? null,
     toolName: input.tool_name ?? null,
     scriptPath: invocation.scriptPath,

@@ -87,7 +87,7 @@ Flipping to enforcing is an operator decision (mt#3769), routed via `/calibratio
 
 ```json
 {
-  "ts": "…",
+  "timestamp": "…",
   "sessionId": "…",
   "toolName": "Bash",
   "mutatingCommand": "minsky session commit --task 'mt#1' 'msg' 2>&1",
@@ -96,6 +96,9 @@ Flipping to enforcing is an operator decision (mt#3769), routed via `/calibratio
   "outcome": "matched"
 }
 ```
+
+`timestamp` is ADR-028 §D4's spelling; records written before mt#5162 carry `ts` instead, and
+both shared readers accept either.
 
 `phrase` carries the violation SHAPE rather than the raw command, because a raw command is
 near-unique and would satisfy the sweep's distinct-phrase gate by construction, rendering it inert

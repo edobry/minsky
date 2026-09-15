@@ -403,11 +403,36 @@ export function calibrationLogPath(
 }
 
 /**
+ * ADR-028 §D4 names the record's date field `timestamp`. Seventeen writers on the
+ * dispatcher's `outcome.calibration` path stamped `ts` instead, and both shared
+ * readers (`readRecordTimestamp` in the sweep, `normalizeEntryTimestamp` in the
+ * coverage receipt — mt#4984) had to learn the second spelling after each had
+ * silently dropped all seventeen logs. This is the writer-side half (mt#5162):
+ * a record that arrives with `ts` and no string `timestamp` is persisted with
+ * `timestamp` as well, so the sink — the ONE site every dispatcher-routed writer
+ * passes through — guarantees the D4 spelling on disk regardless of what the
+ * writer built. `timestamp` wins when both are present and is placed first,
+ * where the schema lists it. The caller's object is never mutated.
+ *
+ * Strings only, matching the readers' guard: a non-string `ts` is not promoted,
+ * because a reader would refuse it under either key.
+ */
+export function withCanonicalTimestamp(record: Record<string, unknown>): Record<string, unknown> {
+  if (typeof record["timestamp"] === "string") return record;
+  const ts = record["ts"];
+  if (typeof ts !== "string") return record;
+  return { timestamp: ts, ...record };
+}
+
+/**
  * Append one calibration record for `calibrationLogName` — the D4 framework
  * service that replaces the 6+ hand-rolled `appendCalibrationRecord()`
  * implementations. Best-effort: any fs failure is swallowed (calibration
  * logging must never break a guard's actual decision, mirroring every
  * existing calibration-writer's try/catch posture).
+ *
+ * The persisted line always carries D4's `timestamp` when the writer supplied a
+ * string date under either spelling — see {@link withCanonicalTimestamp}.
  */
 export function logCalibrationRecord(
   calibrationLogName: string,
@@ -422,7 +447,7 @@ export function logCalibrationRecord(
     });
     const dir = dirname(logPath);
     if (!deps.existsSync(dir)) deps.mkdirSync(dir, { recursive: true });
-    deps.appendFileSync(logPath, `${JSON.stringify(record)}\n`);
+    deps.appendFileSync(logPath, `${JSON.stringify(withCanonicalTimestamp(record))}\n`);
   } catch {
     // best-effort — calibration logging must never break a guard's decision
   }
