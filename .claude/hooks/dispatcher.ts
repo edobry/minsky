@@ -411,17 +411,27 @@ export function calibrationLogPath(
  * a record that arrives with `ts` and no string `timestamp` is persisted with
  * `timestamp` as well, so the sink — the ONE site every dispatcher-routed writer
  * passes through — guarantees the D4 spelling on disk regardless of what the
- * writer built. `timestamp` wins when both are present and is placed first,
- * where the schema lists it. The caller's object is never mutated.
+ * writer built. A record already carrying a string `timestamp` is returned as
+ * is, in the writer's own key order; when the promotion runs, `timestamp` is
+ * placed first, where the schema lists it. The caller's object is never mutated.
  *
- * Strings only, matching the readers' guard: a non-string `ts` is not promoted,
- * because a reader would refuse it under either key.
+ * Strings only, matching the readers' guard (`readRecordTimestamp`,
+ * `normalizeEntryTimestamp`): a non-string `ts` is not promoted, because a
+ * reader would refuse it under either key — and a non-string `timestamp` sitting
+ * beside a string `ts` is REPLACED by the promotion rather than kept, since it
+ * would otherwise win the spread and leave the record undated (PR #3764 R1).
+ *
+ * Exported for its unit test; `logCalibrationRecord` is its only production
+ * caller.
  */
 export function withCanonicalTimestamp(record: Record<string, unknown>): Record<string, unknown> {
   if (typeof record["timestamp"] === "string") return record;
   const ts = record["ts"];
   if (typeof ts !== "string") return record;
-  return { timestamp: ts, ...record };
+  // `rest` omits any non-string `timestamp`, so the promoted string cannot be
+  // overwritten by the spread.
+  const { timestamp: _nonStringTimestamp, ...rest } = record;
+  return { timestamp: ts, ...rest };
 }
 
 /**

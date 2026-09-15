@@ -193,13 +193,15 @@ export interface CalibrationLogEntry {
    *     `matches` array.
    *   "chained-verification-commands" → {timestamp, sessionId, outcome}
    *     (mt#3910 `chained-verification-commands-detector.ts`, same D4 write
-   *     path) — an outcome-status record, no `matches` array. This entry and
-   *     the next two used to read `{timestamp, session_id, …}`; measured
-   *     2026-09-14 (mt#4984), all three wrote `ts` + `sessionId`, and
-   *     `readRecordTimestamp` accepts either spelling. mt#5162 then moved every
-   *     D4-path writer to `timestamp` and made the sink promote a stray `ts`,
-   *     so records from that date on carry `timestamp`; the ~46,000 older ones
-   *     keep `ts`, which is why the reader keeps accepting both.
+   *     path) — an outcome-status record, no `matches` array. This COMMENT used
+   *     to document this entry and the next two as `{timestamp, session_id, …}`;
+   *     that was never what the records carried. Measured 2026-09-14 (mt#4984),
+   *     all three wrote `ts` + `sessionId` (camelCase), and `readRecordTimestamp`
+   *     was taught either spelling. mt#5162 then moved every D4-path writer to
+   *     `timestamp` and made the sink promote a stray `ts`, so records from that
+   *     date on carry `timestamp`; the ~46,000 older ones keep `ts`, which is
+   *     why the reader keeps accepting both. The session-id half — `sessionId`
+   *     where D4 says `session_id` — is unchanged here and owned by mt#5175.
    *   "truncated-outcome-read"        → {timestamp, sessionId, outcome,
    *     mutatingCommand?, filter?} (mt#4096
    *     `truncated-outcome-read-detector.ts`, same D4 write path) — an

@@ -72,4 +72,31 @@ describe("logCalibrationRecord — ADR-028 §D4 timestamp promotion (mt#5162)", 
     expect(withCanonicalTimestamp({ ts: 1_700_000_000_000 })).toEqual({ ts: 1_700_000_000_000 });
     expect(withCanonicalTimestamp({ a: 1 })).toEqual({ a: 1 });
   });
+
+  // PR #3764 R1 (BLOCKING): a non-string `timestamp` beside a string `ts` used to
+  // win the spread and leave the persisted record undated under both keys.
+  test("a non-string timestamp beside a string ts is replaced by the promotion", () => {
+    expect(withCanonicalTimestamp({ timestamp: 123, ts: "A" })).toEqual({
+      timestamp: "A",
+      ts: "A",
+    });
+    expect(withCanonicalTimestamp({ timestamp: null, ts: "A", x: 1 })).toEqual({
+      timestamp: "A",
+      ts: "A",
+      x: 1,
+    });
+  });
+
+  test("the mixed-type case end to end: the persisted line is dated as a reader would date it", () => {
+    const deps = makeFakeDeps();
+    logCalibrationRecord(
+      "truncated-outcome-read",
+      { timestamp: 1_700_000_000_000, ts: "2026-09-14T23:00:00.000Z", outcome: "matched" },
+      { projectDir: "/repo", deps }
+    );
+    const line = (deps.files.get(calibrationPath("/repo", "truncated-outcome-read")) ?? "").trim();
+    const persisted = JSON.parse(line) as Record<string, unknown>;
+    expect(persisted["timestamp"]).toBe("2026-09-14T23:00:00.000Z");
+    expect(Object.keys(persisted)[0]).toBe("timestamp");
+  });
 });
