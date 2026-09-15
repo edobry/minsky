@@ -210,6 +210,48 @@ describe("getWorkspaceInfo", () => {
     expect(info.tasksBackend).toBe("minsky");
     expect(info.repoBackend).toBe("github");
   });
+
+  it("reports repositoryDrift when the recorded backend disagrees with origin (mt#5159)", async () => {
+    // The 20:30Z flowtato state: config froze `backend: local` before the
+    // remote existed; origin now points at GitHub.
+    const projectDir = "/mock/projects/flotato";
+    const configPath = `${projectDir}/.minsky/config.yaml`;
+    const info = await getWorkspaceInfo(projectDir, {
+      fileSystem: makeFakeFileSystem({
+        [configPath]: "tasks:\n  backend: minsky\nrepository:\n  backend: local\n",
+      }),
+      readOriginUrl: () => "https://github.com/edobry/flotato.git",
+    });
+    expect(info.repoBackend).toBe("local");
+    expect(info.repositoryDrift).toBeDefined();
+    expect(info.repositoryDrift).toContain('repository.backend is "local"');
+    expect(info.repositoryDrift).toContain("minsky init --overwrite");
+  });
+
+  it("no repositoryDrift when the recorded identity matches origin (mt#5159)", async () => {
+    const projectDir = "/mock/projects/ok";
+    const configPath = `${projectDir}/.minsky/config.yaml`;
+    const info = await getWorkspaceInfo(projectDir, {
+      fileSystem: makeFakeFileSystem({
+        [configPath]:
+          "repository:\n  backend: github\n  url: https://github.com/edobry/minsky.git\nproject:\n  slug: edobry/minsky\n",
+      }),
+      readOriginUrl: () => "https://github.com/edobry/minsky.git",
+    });
+    expect(info.repositoryDrift).toBeUndefined();
+  });
+
+  it("reports the no-origin case rather than silently trusting config (mt#5159)", async () => {
+    const projectDir = "/mock/projects/noremote";
+    const configPath = `${projectDir}/.minsky/config.yaml`;
+    const info = await getWorkspaceInfo(projectDir, {
+      fileSystem: makeFakeFileSystem({
+        [configPath]: "repository:\n  backend: local\n",
+      }),
+      readOriginUrl: () => null,
+    });
+    expect(info.repositoryDrift).toContain("no `origin` remote");
+  });
 });
 
 // ---------------------------------------------------------------------------

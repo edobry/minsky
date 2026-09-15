@@ -426,6 +426,31 @@ export interface RepositoryBackendInfo {
   repoUrl: string;
   backendType: RepositoryBackendType;
   github?: { owner: string; repo: string };
+  /**
+   * A one-line drift report (mt#5159) when the recorded identity disagrees with
+   * `git remote get-url origin`, or there is no origin to validate against.
+   * Absent when they match. Surfaced, not fatal — a session still starts, but
+   * the frozen-wrong value is no longer silently trusted.
+   */
+  repositoryDrift?: string;
+}
+
+/**
+ * Read `git remote get-url origin` as argv (never a shell string, mt#5015),
+ * or null when there is no remote / not a git tree. Used to validate the
+ * recorded identity against origin (mt#5159 SC1).
+ */
+function readOriginUrlViaGit(cwd: string, deps: RepositoryBackendDetectionDeps): string | null {
+  try {
+    const url = deps
+      .execGit(GIT_REMOTE_GET_URL_ORIGIN, { cwd, encoding: "utf8", stdio: "pipe" })
+      .toString()
+      .trim();
+    return url.length > 0 ? url : null;
+  } catch {
+    // intentional-swallow: no origin is a valid state; the drift report says so.
+    return null;
+  }
 }
 
 /**
@@ -433,6 +458,18 @@ export interface RepositoryBackendInfo {
  *
  * Falls back to `resolveRepositoryAndBackend()` detection behavior if `repository.backend`
  * is not configured — backward-compat for projects that haven't re-run init.
+ *
+ * **Backend precedence (mt#5159 SC3), the single documented statement:**
+ * project `repository.backend` → user `repository.default_repo_backend` → the
+ * backend `origin` derives to. This function reads `repository.backend` first
+ * and, when it is unset, delegates to `resolveRepositoryAndBackend`, which reads
+ * `repository.default_repo_backend` then detects from `origin` — so the two keys
+ * compose in that order rather than being read in disagreement. The canonical
+ * precedence is `resolveBackend` in `packages/domain/src/project/repository-identity.ts`
+ * (with its test); `workspace_info` resolves the SAME way through
+ * `resolveRepositoryIdentity`, which also validates the recorded identity against
+ * `origin` and reports drift. Keep the two agreeing: a change to which key is
+ * read here or there must go through `resolveBackend`.
  */
 export async function getRepositoryBackendFromConfig(
   deps: RepositoryBackendDetectionDeps = defaultDeps
@@ -448,37 +485,72 @@ export async function getRepositoryBackendFromConfig(
     const cfg = getConfiguration() as {
       repository?: {
         backend?: "github" | "gitlab" | "local";
+        default_repo_backend?: string;
         url?: string;
         github?: { owner: string; repo: string };
       };
+      project?: { slug?: string };
     };
 
     const repo = cfg.repository;
-    if (repo?.backend) {
-      if (repo.backend !== "github") {
+    if (repo?.backend || repo?.default_repo_backend) {
+      // SC2: the backend DECISION goes through the one shared precedence
+      // (`resolveBackend`), not a bespoke read of `repository.backend` here — so
+      // session start and `workspace_info` cannot resolve from different keys.
+      // origin is read only here (in the config branch), best-effort, to
+      // VALIDATE identity — the backend itself is still config-determined.
+      const { resolveRepositoryIdentity, describeRepositoryDrift } = await import(
+        "../project/repository-identity"
+      );
+      const originUrl = readOriginUrlViaGit(process.cwd(), deps);
+      const resolution = resolveRepositoryIdentity({
+        recorded: {
+          projectBackend: repo.backend,
+          userDefaultBackend: repo.default_repo_backend,
+          url: repo.url,
+          github: repo.github,
+          slug: cfg.project?.slug,
+        },
+        originUrl,
+      });
+      if (resolution.backend !== "github") {
         throw new Error(
-          `Unsupported repository backend in config: "${repo.backend}". Only "github" is supported.`
+          `Unsupported repository backend in config: "${resolution.backend}" ` +
+            `(source: ${resolution.backendSource}). Only "github" is supported.`
         );
       }
-      const backendType = RepositoryBackendType.GITHUB;
-
-      const repoUrl = repo.url || "";
-      const result: {
-        repoUrl: string;
-        backendType: RepositoryBackendType;
-        github?: { owner: string; repo: string };
-      } = {
-        repoUrl,
-        backendType,
-      };
-
-      if (repo.github) {
-        result.github = repo.github;
+      // SC1: validate the recorded identity against origin and surface drift —
+      // a session still starts (drift is not fatal), but the frozen-wrong value
+      // is no longer silently trusted. Logged AND returned so callers can show it.
+      const repositoryDrift = describeRepositoryDrift(resolution.drift) ?? undefined;
+      if (repositoryDrift) {
+        log.warn("Repository identity drift detected (mt#5159)", { drift: repositoryDrift });
       }
 
+      // repoUrl from config, else the live origin (mt#5159) — strictly better
+      // than the old `repo.url || ""`, which returned empty when init recorded
+      // no url. github likewise falls back to parsing the resolved url.
+      const repoUrl = repo.url || originUrl || "";
+      const result: RepositoryBackendInfo = {
+        repoUrl,
+        backendType: RepositoryBackendType.GITHUB,
+      };
+      const github = repo.github || (repoUrl ? extractGitHubInfoFromUrl(repoUrl) : null);
+      if (github) {
+        result.github = github;
+      }
+      if (repositoryDrift) {
+        result.repositoryDrift = repositoryDrift;
+      }
       return result;
     }
-  } catch (_err) {
+  } catch (err) {
+    // A genuine unsupported-backend error must surface, not be swallowed as
+    // "config unavailable". Only fall through to auto-detection when nothing
+    // usable was configured.
+    if (err instanceof Error && err.message.startsWith("Unsupported repository backend")) {
+      throw err;
+    }
     // Config unavailable — fall through to auto-detection
   }
 
