@@ -16,9 +16,13 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { taskSpecsTable } from "../storage/schemas/task-embeddings";
 import {
   SPEC_ORIGIN_PATTERN,
+  computeAutonomyClass,
+  humanOriginFromChannel,
   specSectionPattern,
+  type AutonomyClassResult,
   type AutonomySpecSignals,
 } from "./autonomy-class";
+import type { TaskOrigin } from "../provenance/types";
 
 /** What a consumer needs from the DB to classify: spec sections by task id. */
 export interface AutonomySignalSource {
@@ -70,4 +74,52 @@ export async function loadAutonomySpecSignals(
 
 export function createDbAutonomySignalSource(db: PostgresJsDatabase): AutonomySignalSource {
   return { loadSpecSignals: (ids) => loadAutonomySpecSignals(db, ids) };
+}
+
+/** The row fields the classifier reads — the subset of `Task` every consumer already has. */
+export interface ClassifiableTask {
+  id: string;
+  kind?: string | null;
+  status: string;
+  tags?: readonly string[];
+  title?: string;
+  origin?: TaskOrigin | null;
+}
+
+/**
+ * Classify a batch of task rows with ONE bulk signal load — the shape every
+ * auto-selecting consumer runs (mt#5137).
+ *
+ * Extracted from `TaskRoutingService`'s private `classify` so the unattended
+ * supervisor is not a third hand-rolled copy of "load the sections, then call
+ * `computeAutonomyClass` with `humanOriginFromChannel`" — a consumer that
+ * classified differently from `tasks_available` would dispatch what the other
+ * withholds, which is the drift `umbrella-frontier.ts` names as the failure
+ * this family exists to prevent. Without a `signalSource` every candidate not
+ * gated by its row alone resolves `unknown` and is excluded: the RFC's
+ * default-deny, applied to the signal itself.
+ */
+export async function classifyTasks(
+  tasks: readonly ClassifiableTask[],
+  signalSource: AutonomySignalSource | undefined
+): Promise<Map<string, AutonomyClassResult>> {
+  const signals = signalSource
+    ? await signalSource.loadSpecSignals(tasks.map((t) => t.id))
+    : undefined;
+  const out = new Map<string, AutonomyClassResult>();
+  for (const task of tasks) {
+    out.set(
+      task.id,
+      computeAutonomyClass({
+        id: task.id,
+        kind: task.kind,
+        status: task.status,
+        tags: task.tags ?? [],
+        title: task.title ?? "",
+        spec: signals?.get(task.id),
+        humanOrigin: humanOriginFromChannel(task.origin),
+      })
+    );
+  }
+  return out;
 }

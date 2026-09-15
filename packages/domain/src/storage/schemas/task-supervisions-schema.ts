@@ -28,7 +28,16 @@
  *   which this consumes rather than reimplements
  */
 import { sql } from "drizzle-orm";
-import { pgTable, uuid, text, integer, timestamp, index, uniqueIndex } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  uuid,
+  text,
+  integer,
+  timestamp,
+  jsonb,
+  index,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 
 /**
  * Supervision lifecycle.
@@ -136,6 +145,21 @@ export const taskSupervisionsTable = pgTable(
 
     /** Why the last tick dispatched nothing (e.g. "wip-limit", "frontier-empty"). */
     lastHoldReason: text("last_hold_reason"),
+
+    /**
+     * Frontier children the last tick REFUSED on their computed autonomy class
+     * (mt#5137): `[{ taskId, class, reasons }]`, or null when none were. The
+     * supervisor is an auto-selecting consumer, so the RFC's default-deny
+     * applies to it exactly as to `tasks_available` — a `principal-gated` or
+     * `unknown` child is never spawned on, and "refused" must be a visible
+     * record rather than a silently smaller frontier. Snapshot of the LAST tick,
+     * like `last_hold_reason`; the dispatches table records what was started,
+     * this records what was withheld.
+     */
+    lastExcludedByClass:
+      jsonb("last_excluded_by_class").$type<
+        Array<{ taskId: string; class: string; reasons: string[] }>
+      >(),
 
     /** Error from a tick that could not run for this supervision (status = "failed"). */
     lastError: text("last_error"),

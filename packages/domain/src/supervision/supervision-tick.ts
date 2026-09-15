@@ -37,6 +37,7 @@
  * @see mt#2750 / mt#3038 — the spawn host and its persistence, consumed via `dispatchChild`
  */
 import { isTerminal } from "../tasks/workflows";
+import { isServableClass, type AutonomyClassResult } from "../tasks/autonomy-class";
 import type {
   DispatchView,
   SettledBy,
@@ -82,6 +83,18 @@ export const HOLD_ALREADY_DISPATCHED = "frontier-already-dispatched";
 export const HOLD_LIVE_WRITER = "live-writer-on-every-candidate";
 /** The tick was abandoned past `tickTimeoutMs` and stopped spawning (mt#4335). */
 export const HOLD_ABANDONED = "tick-abandoned";
+/**
+ * Every undispatched frontier child was withheld on its computed autonomy class
+ * (mt#5137) — the work is there and unblocked, and a machine may not start it.
+ * The per-child record is `SupervisionAdvance.excludedByClass`.
+ */
+export const HOLD_ALL_GATED = "all-candidates-gated-by-autonomy-class";
+
+/** What a candidate the classifier did not return resolves to: `unknown`, never served. */
+const UNCLASSIFIED: AutonomyClassResult = {
+  class: "unknown",
+  reasons: ["classifier returned no verdict for this task"],
+};
 
 /** True when a supervision has gone longer than the threshold without advancing. */
 export function isSupervisionStalled(
@@ -117,6 +130,7 @@ export async function runSupervisionPass(
     lockAcquired: true,
     dispatched: [],
     settled: [],
+    excludedByClass: [],
     holdReason: null,
     completed: false,
     error: null,
@@ -195,7 +209,36 @@ export async function runSupervisionPass(
   // ---- 3. Recompute the frontier -----------------------------------------
   const frontier = await deps.computeFrontier(supervision.umbrellaTaskId, supervision.statusFilter);
   const alreadyDispatched = await store.listDispatchedTaskIds(supervision.id);
-  const candidates = frontier.dispatchable.filter((c) => !alreadyDispatched.has(c.taskId));
+  const undispatched = frontier.dispatchable.filter((c) => !alreadyDispatched.has(c.taskId));
+
+  // ---- 3b. Admit by computed autonomy class (mt#5137) ---------------------
+  // The supervisor is an auto-selecting consumer, so the RFC's default-deny
+  // binds here exactly as it does in `tasks_available`: `principal-gated`
+  // dominates, `unknown` is never served, and membership in the supervised
+  // umbrella "never overrides this". The frontier answers "which children are
+  // unblocked?"; this answers "which of those may a machine start unattended?"
+  // — kept out of `computeUmbrellaFrontier` because `tasks.orchestrate` shares
+  // that module and asks on an agent's behalf, where the deny lands on the
+  // agent's own pull rather than here. A refusal is RECORDED, not a silently
+  // smaller frontier: an rfc-tagged child that the supervisor keeps not
+  // spawning must be distinguishable from one it never saw.
+  const classes =
+    undispatched.length > 0
+      ? await deps.classifyCandidates(undispatched.map((c) => c.taskId))
+      : new Map<string, AutonomyClassResult>();
+  const candidates: typeof undispatched = [];
+  for (const candidate of undispatched) {
+    const verdict = classes.get(candidate.taskId) ?? UNCLASSIFIED;
+    if (isServableClass(verdict.class)) {
+      candidates.push(candidate);
+    } else {
+      advance.excludedByClass.push({
+        taskId: candidate.taskId,
+        class: verdict.class,
+        reasons: verdict.reasons,
+      });
+    }
+  }
 
   // ---- 4. Dispatch up to the free WIP slots -------------------------------
   const stillInFlight = unsettled.size;
@@ -207,7 +250,9 @@ export async function runSupervisionPass(
         ? HOLD_FRONTIER_EMPTY
         : frontier.dispatchable.length === 0
           ? HOLD_ALL_BLOCKED
-          : HOLD_ALREADY_DISPATCHED;
+          : advance.excludedByClass.length > 0 && undispatched.length > 0
+            ? HOLD_ALL_GATED
+            : HOLD_ALREADY_DISPATCHED;
   } else if (freeSlots <= 0) {
     // Refuse with the reason stated rather than queue (mt#4571 SC7). A queue
     // would need its own durability and its own draining, and the frontier is
@@ -291,6 +336,10 @@ export async function runSupervisionPass(
     lastTickAt: now,
     ...(movedSomething ? { lastAdvanceAt: now } : {}),
     lastHoldReason: advance.holdReason,
+    // The last tick's refusals, or null when it withheld nothing — written every
+    // tick like `lastHoldReason`, so a stale list from an earlier tick cannot
+    // outlive the child it named.
+    lastExcludedByClass: advance.excludedByClass.length > 0 ? advance.excludedByClass : null,
   });
 
   return advance;
@@ -343,6 +392,7 @@ export async function runSupervisionTick(
           lockAcquired: false,
           dispatched: [],
           settled: [],
+          excludedByClass: [],
           holdReason: "lock-held-elsewhere",
           completed: false,
           error: null,
@@ -369,6 +419,7 @@ export async function runSupervisionTick(
         lockAcquired: true,
         dispatched: [],
         settled: [],
+        excludedByClass: [],
         holdReason: null,
         completed: false,
         error: message,

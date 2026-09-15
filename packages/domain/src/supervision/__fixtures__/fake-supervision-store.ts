@@ -14,6 +14,7 @@ import type {
   DispatchChildResult,
   DispatchView,
   DrivenSessionLiveness,
+  ExcludedCandidate,
   SettledBy,
   SupervisionDispatchStatus,
   SupervisionStatus,
@@ -29,6 +30,15 @@ export interface FakeTask {
   parent?: string;
   /** Task ids this task depends on. */
   dependsOn?: string[];
+  /**
+   * The row fields the autonomy classifier reads (mt#5137). Optional so the
+   * DAG-walk fixtures stay terse; a fixture that wants a `principal-gated`
+   * child sets `tags: ["rfc"]` or `kind: "umbrella"` and the REAL classifier
+   * does the rest — no stubbed verdicts.
+   */
+  tags?: string[];
+  kind?: string;
+  origin?: "human" | "agent" | "automated" | null;
 }
 
 /**
@@ -63,13 +73,11 @@ export class FakeTaskGraph {
     return out;
   };
 
-  getTasks = async (
-    taskIds: string[]
-  ): Promise<Array<{ id: string; title?: string; status?: string }>> => {
-    const out: Array<{ id: string; title?: string; status?: string }> = [];
+  getTasks = async (taskIds: readonly string[]): Promise<FakeTask[]> => {
+    const out: FakeTask[] = [];
     for (const id of taskIds) {
       const task = this.tasks.get(id);
-      if (task) out.push({ id: task.id, title: task.title, status: task.status });
+      if (task) out.push({ ...task });
     }
     return out;
   };
@@ -123,6 +131,7 @@ export class FakeSupervisionStore implements SupervisionStore {
       lastTickAt: null,
       lastAdvanceAt: null,
       lastHoldReason: null,
+      lastExcludedByClass: null,
       lastError: null,
     };
     this.supervisions.set(record.id, record);
@@ -206,6 +215,7 @@ export class FakeSupervisionStore implements SupervisionStore {
     lastTickAt?: Date;
     lastAdvanceAt?: Date;
     lastHoldReason?: string | null;
+    lastExcludedByClass?: ExcludedCandidate[] | null;
     lastError?: string | null;
   }): Promise<void> => {
     const row = this.supervisions.get(input.supervisionId);
@@ -215,6 +225,9 @@ export class FakeSupervisionStore implements SupervisionStore {
     if (input.lastTickAt !== undefined) row.lastTickAt = input.lastTickAt;
     if (input.lastAdvanceAt !== undefined) row.lastAdvanceAt = input.lastAdvanceAt;
     if (input.lastHoldReason !== undefined) row.lastHoldReason = input.lastHoldReason;
+    if (input.lastExcludedByClass !== undefined) {
+      row.lastExcludedByClass = input.lastExcludedByClass;
+    }
     if (input.lastError !== undefined) row.lastError = input.lastError;
   };
 }

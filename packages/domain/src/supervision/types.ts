@@ -12,6 +12,7 @@ import type {
   SupervisionStatus,
 } from "../storage/schemas/task-supervisions-schema";
 import type { UmbrellaFrontier } from "../tasks/umbrella-frontier";
+import type { AutonomyClassResult, TaskAutonomyClass } from "../tasks/autonomy-class";
 
 export type { SupervisionDispatchStatus, SupervisionStatus };
 
@@ -27,6 +28,20 @@ export interface SupervisionView {
   lastTickAt: Date | null;
   lastAdvanceAt: Date | null;
   lastHoldReason: string | null;
+  /** Frontier children the last tick refused on their autonomy class (mt#5137). */
+  lastExcludedByClass: ExcludedCandidate[] | null;
+}
+
+/**
+ * A frontier child the supervisor refused to spawn on because its computed
+ * autonomy class is not servable (mt#5137). `class` is the classifier's verdict
+ * (`principal-gated` or `unknown` — the only two the supervisor withholds) and
+ * `reasons` its own account of why, e.g. `tag "rfc"`.
+ */
+export interface ExcludedCandidate {
+  taskId: string;
+  class: TaskAutonomyClass;
+  reasons: string[];
 }
 
 /** One child the supervisor started. */
@@ -136,6 +151,7 @@ export interface SupervisionStore {
     lastTickAt?: Date;
     lastAdvanceAt?: Date;
     lastHoldReason?: string | null;
+    lastExcludedByClass?: ExcludedCandidate[] | null;
     lastError?: string | null;
   }): Promise<void>;
 }
@@ -148,6 +164,17 @@ export interface SupervisionTickDeps {
     umbrellaTaskId: string,
     statusFilter: readonly string[]
   ): Promise<UmbrellaFrontier>;
+  /**
+   * The computed autonomy class of each frontier candidate (mt#5137) — the
+   * same `classifyTasks` over the same `AutonomySignalSource` that
+   * `tasks_available` uses, so the two auto-selecting consumers cannot
+   * disagree about a child. REQUIRED, not optional: an absent classifier would
+   * have to default to either "admit everything" (the defect this closes) or
+   * "admit nothing" (a supervisor that silently never dispatches), and neither
+   * is a default a caller should get by forgetting a field. A candidate whose
+   * id is absent from the result is treated as `unknown` and withheld.
+   */
+  classifyCandidates(taskIds: readonly string[]): Promise<ReadonlyMap<string, AutonomyClassResult>>;
   /** Current status of each task id, absent when it could not be read. */
   getTaskStatuses(taskIds: string[]): Promise<Map<string, string>>;
   /** What the daemon knows about a driven session's process. */
@@ -183,6 +210,12 @@ export interface SupervisionAdvance {
   lockAcquired: boolean;
   dispatched: string[];
   settled: Array<{ taskId: string; status: SupervisionDispatchStatus; settledBy: SettledBy }>;
+  /**
+   * Frontier candidates withheld on their autonomy class this tick (mt#5137).
+   * Always present — empty when every candidate was servable — so a tick that
+   * spawned nothing can say whether the class filter is why.
+   */
+  excludedByClass: ExcludedCandidate[];
   holdReason: string | null;
   completed: boolean;
   error: string | null;

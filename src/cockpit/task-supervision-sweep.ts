@@ -37,6 +37,10 @@ import type {
   SupervisionTickResult,
 } from "@minsky/domain/supervision/types";
 import { computeUmbrellaFrontier } from "@minsky/domain/tasks/umbrella-frontier";
+import {
+  classifyTasks,
+  createDbAutonomySignalSource,
+} from "@minsky/domain/tasks/autonomy-class-store";
 import { createCachedSqlDbGetter, getServerTaskDetailDeps } from "./db-providers";
 import { createUmbrellaFrontierDeps } from "../adapters/shared/commands/tasks/orchestrate-command";
 import { resolveTaskWorkspace } from "./driven-session-launch";
@@ -190,11 +194,19 @@ export async function buildSupervisionTickDeps(): Promise<SupervisionTickDeps | 
   if (!taskDeps) return null;
 
   const frontierDeps = createUmbrellaFrontierDeps(taskDeps.taskGraphService, taskDeps.taskService);
+  // The SAME signal source `tasks_available` classifies with (mt#5130), over the
+  // same DB — so the supervisor and the pull surface cannot disagree about a
+  // child's class (mt#5137).
+  const signalSource = createDbAutonomySignalSource(db);
 
   return {
     store: new DrizzleSupervisionStore(db),
     computeFrontier: (umbrellaTaskId, statusFilter) =>
       computeUmbrellaFrontier(umbrellaTaskId, statusFilter, frontierDeps),
+    classifyCandidates: async (taskIds) => {
+      const tasks = await taskDeps.taskService.getTasks([...taskIds]);
+      return classifyTasks(tasks, signalSource);
+    },
     getTaskStatuses: async (taskIds) => {
       const tasks = await taskDeps.taskService.getTasks(taskIds);
       const out = new Map<string, string>();
@@ -244,11 +256,31 @@ export async function runTaskSupervisionSweepTick(
   const result = await runSupervisionTick(resolved, signal);
 
   for (const advance of result.advances) {
+    // Per-class counts of what the tick WITHHELD (mt#5137), on every line that
+    // reports a tick — so a supervision that spawns nothing says why, and one
+    // that spawned some says what it left. The per-child list with reasons is
+    // on the supervision row (`last_excluded_by_class`) and in `tasks_supervision-status`.
+    const excludedByClass: Record<string, number> = {};
+    for (const excluded of advance.excludedByClass) {
+      excludedByClass[excluded.class] = (excludedByClass[excluded.class] ?? 0) + 1;
+    }
+    // The ids ride on both lines (PR #3762 R1): a tick that dispatched one
+    // child and withheld another must name the withheld one here, not only
+    // on the row.
+    const excluded = advance.excludedByClass.map((e) => `${e.taskId} (${e.class})`);
     if (advance.dispatched.length > 0 || advance.settled.length > 0) {
       log.info(`cockpit: supervision advanced ${advance.umbrellaTaskId}`, {
         dispatched: advance.dispatched,
         settled: advance.settled,
         completed: advance.completed,
+        excludedByClass,
+        excluded,
+      });
+    } else if (advance.excludedByClass.length > 0) {
+      log.info(`cockpit: supervision withheld on autonomy class ${advance.umbrellaTaskId}`, {
+        holdReason: advance.holdReason,
+        excludedByClass,
+        excluded,
       });
     }
   }
