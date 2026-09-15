@@ -29,6 +29,10 @@ let execSyncImpl: (cmd: string[], opts?: any) => string | Buffer = (_cmd, _opts)
 // Controls what getConfiguration returns in each test
 let configurationImpl: () => object = () => ({});
 
+// Shared fixtures (mt#5159): keep the origin URL and the git argv in one place.
+const MINSKY_ORIGIN = "https://github.com/edobry/minsky.git\n";
+const GIT_REMOTE_ARGV = "remote get-url origin";
+
 function makeDeps(): RepositoryBackendDetectionDeps {
   return {
     execGit: (cmd: string[], opts?: any) => execSyncImpl(cmd, opts),
@@ -41,8 +45,7 @@ function makeDeps(): RepositoryBackendDetectionDeps {
 describe("resolveRepositoryFromGitRemote", () => {
   describe("GitHub remote", () => {
     beforeEach(() => {
-      execSyncImpl = (_cmd: string[], _opts?: any) =>
-        Buffer.from("https://github.com/edobry/minsky.git\n");
+      execSyncImpl = (_cmd: string[], _opts?: any) => Buffer.from(MINSKY_ORIGIN);
     });
 
     it("returns backend=github with url and github owner/repo", () => {
@@ -95,19 +98,60 @@ describe("getRepositoryBackendFromConfig", () => {
           url: "https://github.com/edobry/minsky.git",
           github: { owner: "edobry", repo: "minsky" },
         },
+        project: { slug: "edobry/minsky" },
       });
-      // execSync should not be called in this path
-      execSyncImpl = (_cmd: string[], _opts?: any) => {
-        throw new Error("execSync should not be called when config has repository.backend");
-      };
+      // mt#5159: the BACKEND is still determined from config (no probe needed
+      // for that decision, ADR-003), but origin IS read now — best-effort — to
+      // VALIDATE the recorded identity and report drift. Here origin matches,
+      // so there is no drift.
+      execSyncImpl = (cmd: string[], _opts?: any) =>
+        cmd.join(" ") === GIT_REMOTE_ARGV ? Buffer.from(MINSKY_ORIGIN) : Buffer.from("");
     });
 
-    it("returns RepositoryBackendType.GITHUB and the configured url", async () => {
+    it("returns RepositoryBackendType.GITHUB and the configured url, no drift when origin matches", async () => {
       const result = await getRepositoryBackendFromConfig(makeDeps());
       expect(result.backendType).toBe(RepositoryBackendType.GITHUB);
       expect(result.repoUrl).toBe("https://github.com/edobry/minsky.git");
       expect(result.github?.owner).toBe("edobry");
       expect(result.github?.repo).toBe("minsky");
+      expect(result.repositoryDrift).toBeUndefined();
+    });
+  });
+
+  describe("recorded identity disagrees with origin (mt#5159 SC1)", () => {
+    beforeEach(() => {
+      // Config still says github, but the recorded slug is stale (edobry/old);
+      // origin now points at edobry/minsky.
+      configurationImpl = () => ({
+        repository: {
+          backend: "github",
+          url: "https://github.com/edobry/minsky.git",
+          github: { owner: "edobry", repo: "minsky" },
+        },
+        project: { slug: "edobry/old" },
+      });
+      execSyncImpl = (cmd: string[], _opts?: any) =>
+        cmd.join(" ") === GIT_REMOTE_ARGV ? Buffer.from(MINSKY_ORIGIN) : Buffer.from("");
+    });
+
+    it("still resolves the github backend but surfaces the drift", async () => {
+      const result = await getRepositoryBackendFromConfig(makeDeps());
+      expect(result.backendType).toBe(RepositoryBackendType.GITHUB);
+      expect(result.repositoryDrift).toBeDefined();
+      expect(result.repositoryDrift).toContain("edobry/old");
+    });
+  });
+
+  describe("explicit non-github repository.backend (mt#5159 SC2)", () => {
+    beforeEach(() => {
+      configurationImpl = () => ({ repository: { backend: "gitlab" } });
+      execSyncImpl = (_cmd: string[], _opts?: any) => Buffer.from("");
+    });
+
+    it("throws an unsupported-backend error naming the precedence source", async () => {
+      await expect(getRepositoryBackendFromConfig(makeDeps())).rejects.toThrow(
+        /Unsupported repository backend.*project-config/
+      );
     });
   });
 
@@ -119,8 +163,8 @@ describe("getRepositoryBackendFromConfig", () => {
       // The default_repo_backend is "github", so it will try to get a GitHub remote
       execSyncImpl = (cmd: string[], _opts?: any) => {
         // argv since PR #3684 R1 — match the joined form, not an element.
-        if (cmd.join(" ") === "remote get-url origin") {
-          return Buffer.from("https://github.com/edobry/minsky.git\n");
+        if (cmd.join(" ") === GIT_REMOTE_ARGV) {
+          return Buffer.from(MINSKY_ORIGIN);
         }
         return Buffer.from("");
       };

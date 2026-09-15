@@ -189,8 +189,25 @@ export async function getWorkspaceInfo(
       );
       let readOrigin = deps?.readOriginUrl;
       if (!readOrigin) {
-        const { deriveRemoteUrl } = await import("../project/slug");
-        readOrigin = (dir: string) => deriveRemoteUrl(dir);
+        // argv, never a shell string, with a timeout (PR #3766 R1; the mt#5015
+        // discipline `repository-backend-detection.ts` already follows). Reads
+        // stderr into the pipe so a non-git dir does not leak `fatal:` output.
+        const { execFileSync } = await import("child_process");
+        readOrigin = (dir: string): string | null => {
+          try {
+            const url = execFileSync("git", ["remote", "get-url", "origin"], {
+              cwd: dir,
+              encoding: "utf8",
+              stdio: ["ignore", "pipe", "ignore"],
+              timeout: 5000,
+            })
+              .toString()
+              .trim();
+            return url.length > 0 ? url : null;
+          } catch {
+            return null;
+          }
+        };
       }
       const resolution = resolveRepositoryIdentity({
         recorded: backends.recorded,

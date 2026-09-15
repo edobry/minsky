@@ -127,7 +127,11 @@ export function describeRepositoryDrift(drift: RepositoryDriftResult): string | 
     case "no-origin":
       return "no `origin` remote — repository identity cannot be validated against git; add a GitHub remote and re-run `minsky init --overwrite`.";
     case "unparseable-origin":
-      return `origin (${drift.originUrl}) is not a GitHub owner/name URL Minsky can compare against.`;
+      // GitHub is the only forge Minsky resolves identity for today
+      // (`extractOwnerRepo`), so a non-parseable origin is usually a non-GitHub
+      // remote (GitLab, Bitbucket, a local path) or a malformed URL — name that
+      // rather than implying the URL is simply wrong.
+      return `origin (${drift.originUrl}) is not an owner/name URL Minsky can compare against — it is a non-GitHub remote or a local/other URL, and repository identity is only validated for GitHub today.`;
     case "drift":
       return `recorded repository identity disagrees with origin (${drift.slug}): ${drift.findings
         .map((f) => `${f.field} is "${f.recorded}", origin says "${f.expected}"`)
